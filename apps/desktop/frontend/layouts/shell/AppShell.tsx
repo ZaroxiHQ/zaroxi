@@ -113,7 +113,7 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-app text-primary font-sans overflow-hidden" style={{ backgroundColor: 'var(--background)' }} data-layout-mode={layoutMode}>
+    <div className="flex flex-col h-screen bg-app text-primary font-sans overflow-hidden" style={{ backgroundColor: 'var(--color-app-background)' }} data-layout-mode={layoutMode}>
       
       {/* <CommandPalette /> */}
       
