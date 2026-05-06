@@ -2,47 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global theme variables (Zaroxi Studio mockup palette)
-   - Primary source of truth for colors across components.
-   - Keep this file as the canonical mapping from design tokens -> CSS variables.
+/* Global stylesheet: canonical semantic variables and helpful legacy aliases.
+   - The Rust ThemeProvider sets --color-* tokens at runtime and is authoritative.
+   - This file defines sensible defaults (the Zaroxi palette) and provides
+     compatibility aliases and utility classes used across the frontend.
+   - All components should prefer the --color-* tokens (e.g. --color-text-primary)
+     but many existing files reference legacy class names; those are aliased here.
 */
+
+/* Canonical semantic tokens (fallbacks match the mockup palette) */
 :root {
-  /* Surface layers */
-  --app-bg: #0b1020;
-  --outer-shell: #0f1428;
-  --panel-main: #12182b;
-  --panel-secondary: #161d33;
-  --panel-elevated: #1b2340;
+  /* Surfaces */
+  --color-app-background: #0b1020;
+  --color-outer-shell: #0f1428;
+  --color-panel-main: #12182b;
+  --color-panel-secondary: #161d33;
+  --color-panel-elevated: #1b2340;
 
   /* Borders / dividers */
-  --border: #27314f;
-  --border-highlight: #33406a;
-  --divider-subtle: rgba(39,49,79,0.28);
+  --color-border: #27314f;
+  --color-border-highlight: #33406a;
+  --color-divider-subtle: rgba(39,49,79,0.28);
 
   /* Typography */
-  --text-primary: #eef2ff;
-  --text-secondary: #b7c0e0;
-  --text-muted: #7f89ad;
-  --text-disabled: #5c6687;
+  --color-text-primary: #eef2ff;
+  --color-text-secondary: #b7c0e0;
+  --color-text-muted: #7f89ad;
+  --color-text-disabled: #5c6687;
 
   /* Accents */
-  --accent: #6c63ff;
-  --accent-hover: #7c72ff;
-  --accent-deep: #5246e5;
-  --accent-glow: rgba(108,99,255,0.18);
-  --assistant-accent: #8b7dff;
+  --color-accent: #6c63ff;
+  --color-accent-hover: #7c72ff;
+  --color-accent-deep: #5246e5;
+  --color-accent-glow: rgba(108,99,255,0.18);
+  --color-assistant-accent: #8b7dff;
 
   /* Code semantic */
-  --code-blue: #7aa2ff;
-  --code-cyan: #79c0ff;
-  --code-green: #98c379;
-  --code-yellow: #e5c07b;
-  --code-orange: #d19a66;
-  --code-red: #e06c75;
+  --color-code-blue: #7aa2ff;
+  --color-code-cyan: #79c0ff;
+  --color-code-green: #98c379;
+  --color-code-yellow: #e5c07b;
+  --color-code-orange: #d19a66;
+  --color-code-red: #e06c75;
 
   /* Status */
-  --success: #6dd6a6;
-  --warning: #f0b86b;
+  --color-success: #6dd6a6;
+  --color-warning: #f0b86b;
 
   /* Layout tokens */
   --radius-md: 8px;
@@ -55,34 +60,28 @@
   /* Shadows */
   --shadow-soft: 0 8px 30px rgba(2,6,23,0.6);
   --shadow-subtle: 0 6px 18px rgba(2,6,23,0.45);
-
-  /* Compatibility tokens used by components */
-  --status-bar-bg: var(--panel-main);
-  --status-bar-border: var(--divider-subtle);
-  --title-bar-bg: var(--outer-shell);
 }
 
-/* Dark mode is the default look for the app; a light theme can be added later */
+/* Dark class kept for compatibility; ThemeProvider will set --color-* values at runtime */
 .dark {
-  --app-bg: #0b1020;
-  --outer-shell: #0f1428;
-  --panel-main: #12182b;
-  --panel-secondary: #161d33;
-  --panel-elevated: #1b2340;
+  --color-app-background: #0b1020;
+  --color-outer-shell: #0f1428;
+  --color-panel-main: #12182b;
+  --color-panel-secondary: #161d33;
+  --color-panel-elevated: #1b2340;
 
-  --border: #27314f;
-  --border-highlight: #33406a;
-  --divider-subtle: rgba(39,49,79,0.28);
+  --color-border: #27314f;
+  --color-divider-subtle: rgba(39,49,79,0.28);
 
-  --text-primary: #eef2ff;
-  --text-secondary: #b7c0e0;
-  --text-muted: #7f89ad;
-  --text-disabled: #5c6687;
+  --color-text-primary: #eef2ff;
+  --color-text-secondary: #b7c0e0;
+  --color-text-muted: #7f89ad;
+  --color-text-disabled: #5c6687;
 
-  --accent: #6c63ff;
-  --accent-hover: #7c72ff;
-  --accent-deep: #5246e5;
-  --accent-glow: rgba(108,99,255,0.18);
+  --color-accent: #6c63ff;
+  --color-accent-hover: #7c72ff;
+  --color-accent-deep: #5246e5;
+  --color-accent-glow: rgba(108,99,255,0.18);
 }
 
 /* Base layer: typographic defaults and body surface */
@@ -92,14 +91,13 @@
   }
 
   body {
-    background-color: var(--app-bg);
-    color: var(--text-primary);
+    background-color: var(--color-app-background);
+    color: var(--color-text-primary);
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Provide easy-to-use utility font families */
   :root {
     --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     --font-mono: "JetBrains Mono", "Zaroxi Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
@@ -107,45 +105,69 @@
   }
 }
 
-/* Small set of component primitives and utilities derived from tokens */
+/* Component primitives referencing canonical tokens */
 @layer components {
   /* Surfaces */
-  .bg-app { background-color: var(--app-bg); }
-  .bg-shell { background-color: var(--outer-shell); }
-  .bg-panel { background-color: var(--panel-main); }
-  .bg-panel-secondary { background-color: var(--panel-secondary); }
-  .bg-panel-elevated { background-color: var(--panel-elevated); }
+  .bg-app { background-color: var(--color-app-background); }
+  .bg-shell { background-color: var(--color-outer-shell); }
+  .bg-panel { background-color: var(--color-panel-main); }
+  .bg-panel-secondary { background-color: var(--color-panel-secondary); }
+  .bg-panel-elevated { background-color: var(--color-panel-elevated); }
 
   /* Text */
-  .text-primary { color: var(--text-primary); }
-  .text-secondary { color: var(--text-secondary); }
-  .text-muted { color: var(--text-muted); }
-  .text-disabled { color: var(--text-disabled); }
+  .text-primary { color: var(--color-text-primary); }
+  .text-secondary { color: var(--color-text-secondary); }
+  .text-muted { color: var(--color-text-muted); }
+  .text-disabled { color: var(--color-text-disabled); }
 
   /* Borders / dividers */
-  .border-border { border-color: var(--border); }
-  .border-divider-subtle { border-color: var(--divider-subtle); }
+  .border-border { border-color: var(--color-border); }
+  .border-divider-subtle { border-color: var(--color-divider-subtle); }
 
   /* Accent */
-  .text-accent { color: var(--accent); }
-  .bg-accent { background-color: var(--accent); }
-  .bg-accent-hover:hover { background-color: var(--accent-hover); }
+  .text-accent { color: var(--color-accent); }
+  .bg-accent { background-color: var(--color-accent); }
+  .bg-accent-hover:hover { background-color: var(--color-accent-hover); }
 
   /* Status bar helpers */
-  .bg-status-bar { background-color: var(--status-bar-bg); }
-  .border-status-bar { border-top: 0.5px solid var(--status-bar-border); }
+  .bg-status-bar { background-color: var(--color-panel-main); }
+  .border-status-bar { border-top: 0.5px solid var(--color-divider-subtle); }
 }
 
-/* Small utilities useful across the app */
+/* Legacy / compatibility aliases used in components (keeps many existing classnames working)
+   Prefer --color-* tokens in new code; these classes are here to make the current codebase consistent.
+*/
 @layer utilities {
-  .radius-md { border-radius: var(--radius-md); }
-  .radius-sm { border-radius: var(--radius-sm); }
+  /* Text aliases */
+  .text-foreground { color: var(--color-text-primary) !important; }
+  .text-muted-foreground { color: var(--color-text-muted) !important; }
+  .text-title-bar-foreground { color: var(--color-text-primary) !important; }
+  .text-primary-foreground { color: var(--color-text-primary) !important; }
 
-  .shadow-soft { box-shadow: var(--shadow-soft); }
-  .shadow-subtle { box-shadow: var(--shadow-subtle); }
+  /* Background aliases */
+  .bg-muted { background-color: var(--color-panel-secondary) !important; }
+  .bg-sidebar { background-color: var(--color-panel-main) !important; }
+  .bg-editor { background-color: var(--color-panel-secondary) !important; }
+  .bg-activity-rail { background-color: var(--color-outer-shell) !important; }
+  .bg-panel { background-color: var(--color-panel-main) !important; } /* reinforce */
 
-  .glow-accent { box-shadow: 0 6px 18px var(--accent-glow); }
+  /* Accent / primary */
+  .bg-primary { background-color: var(--color-accent) !important; }
+  .text-on-accent { color: var(--color-text-primary) !important; }
+  .text-accent-foreground { color: var(--color-accent) !important; }
 
-  .font-mono { font-family: var(--font-mono); }
-  .font-icon { font-family: var(--font-icon); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  /* Small helpers */
+  .border-border { border-color: var(--color-border) !important; }
+  .border-divider { border-color: var(--color-divider-subtle) !important; }
+  .shadow-soft { box-shadow: var(--shadow-soft) !important; }
+  .shadow-subtle { box-shadow: var(--shadow-subtle) !important; }
+
+  /* Editor helpers */
+  .bg-editor-gutter { background-color: var(--color-panel-secondary) !important; }
+  .bg-editor-line-highlight { background-color: rgba(255,255,255,0.02) !important; }
+  .cursor-editor { caret-color: var(--color-text-primary) !important; }
+
+  /* Radius */
+  .radius-md { border-radius: var(--radius-md) !important; }
+  .radius-sm { border-radius: var(--radius-sm) !important; }
 }
