@@ -5,9 +5,8 @@
 /* Global stylesheet: canonical semantic variables and helpful legacy aliases.
    - The Rust ThemeProvider sets --color-* tokens at runtime and is authoritative.
    - This file defines sensible defaults (the Zaroxi palette) and provides
-     compatibility aliases and utility classes used across the frontend.
-   - All components should prefer the --color-* tokens (e.g. --color-text-primary)
-     but many existing files reference legacy class names; those are aliased here.
+     compatibility aliases for legacy variable names used across the codebase.
+   - All components should prefer the --color-* tokens (e.g. --color-text-primary).
 */
 
 /* Canonical semantic tokens (fallbacks match the mockup palette) */
@@ -18,6 +17,18 @@
   --color-panel-main: #12182b;
   --color-panel-secondary: #161d33;
   --color-panel-elevated: #1b2340;
+
+  /* Legacy / compatibility aliases (map old variable names to canonical tokens).
+     These make incremental migration safe: components can keep using older
+     variables like --outer-shell or --panel-main while we move everything to
+     --color-* tokens as the definitive source of truth coming from crates.
+  */
+  --outer-shell: var(--color-outer-shell);
+  --panel-main: var(--color-panel-main);
+  --panel-secondary: var(--color-panel-secondary);
+  --panel-elevated: var(--color-panel-elevated);
+  --title-bar-bg: var(--color-title-bar-background, var(--color-outer-shell));
+  --status-bar-background: var(--color-status-bar-background, var(--color-panel-main));
 
   /* Borders / dividers */
   --color-border: #27314f;

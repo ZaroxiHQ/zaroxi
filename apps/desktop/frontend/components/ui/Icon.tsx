@@ -15,14 +15,14 @@ interface IconProps {
 
 export function Icon({ name, size = 16, className, label, debug = false }: IconProps) {
   const iconGlyph = nerdFontIcons[name] || '?';
-  const defaultColor = debug ? '#ff6b6b' : 'var(--color-text-secondary)';
+  const defaultColor = debug ? '#ff6b6b' : 'var(--color-text-muted)';
 
   return (
     <span 
       className={cn(
         'inline-flex items-center justify-center antialiased',
         'leading-none tracking-normal',
-        'select-none',
+        'select-none transition-colors',
         debug && 'outline outline-1 outline-red-500',
         className
       )}
