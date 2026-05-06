@@ -128,7 +128,7 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
         aria-label={`${side} collapsed panel rail`}
       >
         <div style={{ position: 'sticky', bottom: 12, width: '100%', display: 'flex', justifyContent: 'center', paddingLeft: 6, paddingRight: 6 }}>
-          <ActivityRail orientation="vertical" />
+          <ActivityRail orientation="vertical" compact={true} side={side} />
         </div>
       </div>
     );
@@ -159,30 +159,29 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
-        {/* Inner sticky activity rail inside the panel (keeps icons scoped to the panel)
-            NOTE: place the rail *inside* the panel and anchor it to the inner edge so it
-            visually lives within the panel surface. For left panels we anchor to the right
-            (inner edge), for right panels we anchor to the left (inner edge). This makes
-            icons appear inside the panel and remain sticky when scrolling.
+        {/* Inner sticky activity rail inside the panel (bottom-docked)
+            - Anchored to the bottom of the panel so icons visually live within
+              the panel surface near the status bar.
+            - Uses a horizontal, compact layout to stay unobtrusive.
         */}
         <div
           style={{
             position: 'absolute',
-            top: 48,
+            left: 12,
+            right: 12,
             bottom: 12,
-            // Anchor to the panel inner edge: right for left panels, left for right panels
-            right: side === 'left' ? 8 : undefined,
-            left: side === 'right' ? 8 : undefined,
-            width: LAYOUT.activityRailWidth,
+            height: LAYOUT.activityRailWidth,
             display: 'flex',
-            alignItems: 'flex-end',
-            padding: 4,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingLeft: 8,
+            paddingRight: 8,
             zIndex: 20,
             pointerEvents: 'auto',
           }}
           aria-hidden
         >
-          <ActivityRail orientation="vertical" compact={true} />
+          <ActivityRail orientation="bottom" compact={true} side={side} />
         </div>
 
         {/* Resize handle */}

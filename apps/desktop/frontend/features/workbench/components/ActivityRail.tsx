@@ -6,25 +6,30 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { LAYOUT } from '../config/layoutConstants';
 
 /**
- * ActivityRail - compact activity rail intended to live inside a side panel.
+ * ActivityRail - minimal, panel-scoped activity rail.
  *
- * Key behaviors to match the spec:
- * - Slim vertical rail (~48px) that sits inside the side panel edge.
- * - Main action icons grouped in the lower area of the rail (sticky).
- * - When the side panel is collapsed the rail remains visible (collapsed state).
- * - Accepts `orientation` prop (vertical | horizontal) and `compact` to reduce control sizes.
+ * Changes made:
+ * - Removed decorative "sparkles" and workspace badge to keep the rail clean.
+ * - Added `side` prop so the rail only renders activities relevant to the panel side.
+ * - Supports `orientation: 'vertical' | 'horizontal' | 'bottom'`.
+ *   - 'bottom' = horizontal compact bar intended to sit at the bottom of a panel.
+ * - Compact sizing for in-panel usage.
  *
- * Usage:
- * - Render inside PanelHost to keep activity icons scoped to the panel.
- * - For the collapsed dock, render <ActivityRail orientation="vertical" compact />.
+ * Visual intent: compact, consistent, only actionable icons that relate to the panel.
  */
 interface ActivityRailProps {
   className?: string;
-  orientation?: 'vertical' | 'horizontal';
+  side?: 'left' | 'right';
+  orientation?: 'vertical' | 'horizontal' | 'bottom';
   compact?: boolean;
 }
 
-export function ActivityRail({ className, orientation = 'vertical', compact = false }: ActivityRailProps) {
+export function ActivityRail({
+  className,
+  side = 'left',
+  orientation = 'vertical',
+  compact = false,
+}: ActivityRailProps) {
   const {
     activeLeftPanel,
     activeRightPanel,
@@ -33,239 +38,213 @@ export function ActivityRail({ className, orientation = 'vertical', compact = fa
     togglePanel,
   } = useWorkbenchStore();
 
-  const activities = getAvailableActivities();
+  const activities = getAvailableActivities().filter(a => a.side === side);
 
-  // Primary actions are those not explicitly marked position === 'bottom' in the registry.
-  // Utility actions (position === 'bottom') are considered lower-priority helpers.
-  const primaryActivities = activities.filter(a => a.position !== 'bottom');
-  const utilityActivities = activities.filter(a => a.position === 'bottom');
+  // Split semantic groups: primary (top/main) and utility (bottom helpers)
+  const primaryActivities = activities.filter((a) => a.position !== 'bottom');
+  const utilityActivities = activities.filter((a) => a.position === 'bottom');
 
   // Sizes adapt when compact is true (used inside panel)
-  const primarySize = compact ? 40 : 44;
-  const utilitySize = compact ? 34 : 38;
-  const primaryBorderRadius = compact ? 9 : 10;
-  const utilityBorderRadius = compact ? 8 : 9;
+  const primarySize = compact ? 36 : 44;
+  const utilitySize = compact ? 30 : 38;
+  const primaryRadius = compact ? 8 : 10;
+  const utilityRadius = compact ? 8 : 9;
 
-  // Vertical rail (the preferred layout) - icons clustered near the bottom
-  if (orientation === 'vertical') {
+  // Helper to check active state
+  const isActive = (activityId: string, activitySide: 'left' | 'right') => {
+    return activitySide === 'left'
+      ? activeLeftPanel === activityId && isLeftPanelVisible
+      : activeRightPanel === activityId && isRightPanelVisible;
+  };
+
+  // HORIZONTAL bottom-oriented bar (compact)
+  if (orientation === 'bottom' || orientation === 'horizontal') {
     return (
-      <TooltipProvider delayDuration={220}>
-        <aside
-          className={cn('flex flex-col items-center', className)}
+      <TooltipProvider delayDuration={200}>
+        <div
+          className={cn('w-full flex items-center justify-center', className)}
           style={{
-            width: LAYOUT.activityRailWidth,
-            minWidth: LAYOUT.activityRailWidth,
-            backgroundColor: 'transparent',
-            paddingTop: 8,
-            paddingBottom: 8,
+            height: compact ? 44 : 56,
+            display: 'flex',
             gap: 8,
+            padding: '6px 8px',
             boxSizing: 'border-box',
-            pointerEvents: 'auto',
+            background: 'transparent',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-          aria-label="Panel Activity Rail"
+          role="toolbar"
+          aria-label="Panel activity rail"
         >
-          {/* Calm top area for brand or small spacer */}
-          <div style={{ height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
-            <Icon name="sparkles" size={14} />
-          </div>
-
-          {/* Flexible spacer so icons sit at the bottom */}
-          <div style={{ flex: 1 }} />
-
-          {/* Primary actions - stacked compact */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {primaryActivities.map((activity) => {
-              const isActive = activity.side === 'left'
-                ? activeLeftPanel === activity.id && isLeftPanelVisible
-                : activeRightPanel === activity.id && isRightPanelVisible;
-
+              const active = isActive(activity.id, activity.side);
               return (
                 <Tooltip key={activity.id}>
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => togglePanel(activity.id)}
                       aria-label={activity.label}
+                      data-no-drag="true"
                       style={{
                         width: primarySize,
                         height: primarySize,
+                        borderRadius: primaryRadius,
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        borderRadius: primaryBorderRadius,
-                        border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
-                        background: isActive ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
-                        color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                        boxShadow: isActive ? '0 8px 20px var(--color-accent-glow)' : 'none',
-                        transition: 'all 140ms ease',
+                        background: active ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
+                        border: active ? '1px solid var(--color-border)' : '1px solid transparent',
+                        color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                        boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
                         cursor: 'pointer',
-                        padding: 6,
+                        transition: 'all 140ms ease',
                       }}
-                      data-no-drag="true"
                     >
                       <Icon name={activity.icon as any} size={16} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" className="border bg-panel shadow-lg" />
+                  <TooltipContent side="top" className="border bg-panel shadow-lg" />
                 </Tooltip>
               );
             })}
           </div>
 
-          {/* Small separator */}
-          <div style={{ height: 8 }} />
+          {/* small separator then utility icons (if any) */}
+          {utilityActivities.length > 0 && <div style={{ width: 10 }} />}
 
-          {/* Utility icons and avatar */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {utilityActivities.map((activity) => {
-              const isActive = activity.side === 'left'
-                ? activeLeftPanel === activity.id && isLeftPanelVisible
-                : activeRightPanel === activity.id && isRightPanelVisible;
-
+              const active = isActive(activity.id, activity.side);
               return (
                 <Tooltip key={activity.id}>
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => togglePanel(activity.id)}
                       aria-label={activity.label}
+                      data-no-drag="true"
                       style={{
                         width: utilitySize,
                         height: utilitySize,
+                        borderRadius: utilityRadius,
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        borderRadius: utilityBorderRadius,
-                        border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
-                        background: isActive ? 'var(--color-accent)' : 'transparent',
-                        color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                        boxShadow: isActive ? '0 6px 18px var(--color-accent-glow)' : 'none',
-                        transition: 'all 140ms ease',
+                        background: active ? 'var(--color-accent)' : 'transparent',
+                        color: active ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                        border: active ? '1px solid var(--color-border)' : '1px solid transparent',
+                        boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
                         cursor: 'pointer',
-                        padding: 6,
+                        transition: 'all 140ms ease',
                       }}
-                      data-no-drag="true"
                     >
                       <Icon name={activity.icon as any} size={14} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" className="border bg-panel shadow-lg" />
+                  <TooltipContent side="top" className="border bg-panel shadow-lg" />
                 </Tooltip>
               );
             })}
-
-            {/* Workspace badge / avatar */}
-            <div style={{ width: utilitySize, height: utilitySize, borderRadius: utilityBorderRadius, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
-              <Icon name="star" size={14} />
-            </div>
           </div>
-        </aside>
+        </div>
       </TooltipProvider>
     );
   }
 
-  // Horizontal fallback (keeps backward compatibility)
+  // VERTICAL (inside collapsed dock) - stacked compact icons (keeps behaviour but clean)
   return (
-    <TooltipProvider delayDuration={240}>
-      <footer
-        className={cn('w-full flex items-center px-4', className)}
+    <TooltipProvider delayDuration={220}>
+      <aside
+        className={cn('flex flex-col items-center', className)}
         style={{
-          height: 56,
-          backgroundColor: 'var(--color-activity-rail-background)',
-          borderTop: '1px solid var(--color-divider-subtle)',
-          gap: 12,
-          alignItems: 'center',
+          width: LAYOUT.activityRailWidth,
+          minWidth: LAYOUT.activityRailWidth,
+          backgroundColor: 'transparent',
+          paddingTop: 8,
+          paddingBottom: 8,
+          gap: 8,
+          boxSizing: 'border-box',
+          pointerEvents: 'auto',
         }}
-        role="toolbar"
-        aria-label="Activity Bar"
+        aria-label="Panel Activity Rail"
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 180 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
-            <Icon name="sparkles" size={16} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>Zaroxi Studio</div>
-          </div>
-        </div>
+        {/* top spacer */}
+        <div style={{ height: 8 }} />
 
-        <div style={{ display: 'flex', flex: 1, justifyContent: 'center', gap: 10 }}>
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
           {primaryActivities.map((activity) => {
-            const isActive = activity.side === 'left'
-              ? activeLeftPanel === activity.id && isLeftPanelVisible
-              : activeRightPanel === activity.id && isRightPanelVisible;
-
+            const active = isActive(activity.id, activity.side);
             return (
               <Tooltip key={activity.id}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => togglePanel(activity.id)}
                     aria-label={activity.label}
+                    data-no-drag="true"
                     style={{
-                      width: 44,
-                      height: 44,
+                      width: primarySize,
+                      height: primarySize,
+                      borderRadius: primaryRadius,
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      borderRadius: 10,
-                      border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
-                      background: isActive ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
-                      color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                      boxShadow: isActive ? '0 8px 24px var(--color-accent-glow)' : 'none',
-                      transition: 'all 140ms ease',
+                      background: active ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
+                      border: active ? '1px solid var(--color-border)' : '1px solid transparent',
+                      color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                      boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
                       cursor: 'pointer',
-                      padding: 6,
+                      transition: 'all 140ms ease',
                     }}
-                    data-no-drag="true"
                   >
                     <Icon name={activity.icon as any} size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="border bg-panel shadow-lg" />
+                <TooltipContent side="right" className="border bg-panel shadow-lg" />
               </Tooltip>
             );
           })}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, justifyContent: 'flex-end' }}>
-          {utilityActivities.map((activity) => {
-            const isActive = activity.side === 'left'
-              ? activeLeftPanel === activity.id && isLeftPanelVisible
-              : activeRightPanel === activity.id && isRightPanelVisible;
+        <div style={{ height: 8 }} />
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+          {utilityActivities.map((activity) => {
+            const active = isActive(activity.id, activity.side);
             return (
               <Tooltip key={activity.id}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => togglePanel(activity.id)}
                     aria-label={activity.label}
+                    data-no-drag="true"
                     style={{
-                      width: 40,
-                      height: 40,
+                      width: utilitySize,
+                      height: utilitySize,
+                      borderRadius: utilityRadius,
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      borderRadius: 8,
-                      border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
-                      background: isActive ? 'var(--color-accent)' : 'transparent',
-                      color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                      boxShadow: isActive ? '0 6px 18px var(--color-accent-glow)' : 'none',
-                      transition: 'all 140ms ease',
+                      background: active ? 'var(--color-accent)' : 'transparent',
+                      color: active ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                      border: active ? '1px solid var(--color-border)' : '1px solid transparent',
+                      boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
                       cursor: 'pointer',
-                      padding: 6,
+                      transition: 'all 140ms ease',
                     }}
-                    data-no-drag="true"
                   >
                     <Icon name={activity.icon as any} size={14} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="border bg-panel shadow-lg" />
+                <TooltipContent side="right" className="border bg-panel shadow-lg" />
               </Tooltip>
             );
           })}
-
-          <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
-            <Icon name="star" size={14} />
-          </div>
         </div>
-      </footer>
+
+        <div style={{ height: 8 }} />
+      </aside>
     </TooltipProvider>
   );
 }
