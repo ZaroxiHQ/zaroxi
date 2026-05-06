@@ -79,7 +79,9 @@ export function ActivityRail({
             gap: 6,
             padding: compact ? '2px 4px' : '4px 6px',
             boxSizing: 'border-box',
-            background: 'transparent',
+            // Use a dedicated activity‑rail surface so the rail reads separate from the panel.
+            // This keeps the rail visually consistent across panels and matches the theme tokens.
+            background: 'var(--color-activity-rail-background)',
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',
