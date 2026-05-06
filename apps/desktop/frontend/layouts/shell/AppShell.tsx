@@ -62,6 +62,8 @@ export function AppShell() {
   // Always render main content; when settings are active we render SettingsPanel in editor area.
   const showMainContent = true;
 
+  // Whether settings are active (settings should take the full editor area).
+  const isSettingsOpen = activeLeftPanel === 'settings' && isLeftPanelVisible;
   // Whether to render the bottom-attached activity rail for the left panel area.
   // Shows when a left activity is active (either panel open or settings active).
   const showLeftBottomRail = !!activeLeftPanel;
@@ -135,9 +137,9 @@ export function AppShell() {
         {/* Main Content Area (Tab Strip + Editor or Settings) */}
         {showMainContent && (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0" style={{ order: 1 }}>
-            <TabStrip />
+            {!isSettingsOpen && <TabStrip />}
             <div className="flex-1 overflow-hidden bg-editor w-full min-w-0">
-              {activeLeftPanel === 'settings' && isLeftPanelVisible ? (
+              {isSettingsOpen ? (
                 <Suspense fallback={<div className="p-4 text-center text-muted">Loading settings...</div>}>
                   <SettingsPanel />
                 </Suspense>
@@ -169,7 +171,7 @@ export function AppShell() {
             position: 'absolute',
             left: 0,
             bottom: LAYOUT.statusBarHeight,
-            width: leftPanelWidth,
+            width: isSettingsOpen ? '100%' : leftPanelWidth,
             zIndex: 40,
             pointerEvents: 'auto',
           }}
@@ -181,10 +183,10 @@ export function AppShell() {
               boxSizing: 'border-box',
               borderTop: '1px solid var(--color-border)',
               background: 'var(--color-activity-rail-background)',
-              padding: '4px 6px',
+              padding: isSettingsOpen ? '6px 12px' : '4px 6px',
             }}
           >
-            <ActivityRail orientation="bottom" compact={true} side="left" />
+            <ActivityRail orientation="bottom" compact={true} side={isSettingsOpen ? 'both' : 'left'} />
           </div>
         </div>
       )}
