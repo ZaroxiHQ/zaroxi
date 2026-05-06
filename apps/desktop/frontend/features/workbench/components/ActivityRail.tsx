@@ -158,14 +158,16 @@ export function ActivityRail({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          // Same behavior for utility icons: filled when inactive, transparent when active.
+                          // Inactive buttons are filled to match the rail surface so they sit on the rail.
+                          // The active utility button is transparent so the panel surface shows through.
                           background: active ? 'transparent' : 'var(--color-activity-rail-background)',
                           border: 'none',
-                          color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                          color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
                           boxShadow: 'none',
                           cursor: 'pointer',
                           transition: 'color 140ms ease',
                           padding: 4,
+                          ariaPressed: active ? 'true' : 'false',
                         }}
                       >
                         <Icon name={activity.icon as any} size={14} />
