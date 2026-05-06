@@ -77,13 +77,13 @@ export function ActivityRail({
             height: compact ? 36 : 44,
             display: 'flex',
             gap: 6,
-            padding: compact ? '2px 4px' : '4px 6px',
+            padding: compact ? '2px 6px' : '4px 8px',
             boxSizing: 'border-box',
-            // The rail fills the full panel width and uses its own surface color.
-            // Inactive icons are rendered as filled rounded controls that match this surface.
-            // The active icon is deliberately transparent (no fill) and uses a subtle
-            // panel-colored outline to indicate the open panel.
-            background: 'var(--color-activity-rail-background)',
+            // The PanelHost provides the rail surface that spans edge-to-edge.
+            // Keep this container transparent so the host background fills the full width.
+            // Buttons themselves render either filled (inactive) or transparent (active)
+            // to indicate which panel is open.
+            background: 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',

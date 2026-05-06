@@ -225,23 +225,26 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
 
         {/* Bottom-attached activity rail for this panel.
             - Renders immediately below the panel content and matches the panel width.
-            - Use transparent background so the rail reads as an editor-level element
-              while active icons use the panel surface color to indicate selection.
+            - The rail background now fills the full panel width (not a floating box).
+            - Active button remains transparent to reveal the panel surface; inactive buttons are filled.
             - Reduced padding/height for a compact footprint.
         */}
         <div
           style={{
             flex: '0 0 auto',
             borderTop: '1px solid var(--color-divider-subtle)',
-            background: 'transparent',
-            padding: '4px 6px',
+            background: 'var(--color-activity-rail-background)',
+            padding: '0',
             boxSizing: 'border-box',
             display: 'flex',
             alignItems: 'center',
+            width: '100%',
           }}
           aria-hidden
         >
-          <ActivityRail orientation="bottom" compact={true} side={side} />
+          <div style={{ flex: 1 }}>
+            <ActivityRail orientation="bottom" compact={true} side={side} />
+          </div>
         </div>
       </div>
 

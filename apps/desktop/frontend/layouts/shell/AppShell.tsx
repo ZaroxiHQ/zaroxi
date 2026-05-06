@@ -127,12 +127,18 @@ export function AppShell() {
         
         {/* Settings are rendered via the left PanelHost so the bottom rail stays attached and persistent. */}
         
-        {/* Main Content Area (Tab Strip + Editor) */}
+        {/* Main Content Area (Tab Strip + Editor or Settings) */}
         {showMainContent && (
           <div className="flex-1 flex flex-col overflow-hidden min-w-0" style={{ order: 1 }}>
             <TabStrip />
             <div className="flex-1 overflow-hidden bg-editor w-full min-w-0">
-              <EditorContainer />
+              {activeLeftPanel === 'settings' && isLeftPanelVisible ? (
+                <Suspense fallback={<div className="p-4 text-center text-muted">Loading settings...</div>}>
+                  <SettingsPanel />
+                </Suspense>
+              ) : (
+                <EditorContainer />
+              )}
             </div>
           </div>
         )}
