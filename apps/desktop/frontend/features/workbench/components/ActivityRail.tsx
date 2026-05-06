@@ -57,7 +57,7 @@ export function ActivityRail({
       : activeRightPanel === activityId && isRightPanelVisible;
   };
 
-  // HORIZONTAL bottom-oriented bar (compact)
+  // HORIZONTAL bottom-oriented bar (compact) — refined, theme-aware, icons-only
   if (orientation === 'bottom' || orientation === 'horizontal') {
     return (
       <TooltipProvider delayDuration={200}>
@@ -67,7 +67,7 @@ export function ActivityRail({
             height: compact ? 44 : 56,
             display: 'flex',
             gap: 8,
-            padding: '6px 8px',
+            padding: '6px 4px',
             boxSizing: 'border-box',
             background: 'transparent',
             alignItems: 'center',
@@ -76,7 +76,7 @@ export function ActivityRail({
           role="toolbar"
           aria-label="Panel activity rail"
         >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
             {primaryActivities.map((activity) => {
               const active = isActive(activity.id, activity.side);
               return (
@@ -93,12 +93,13 @@ export function ActivityRail({
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: active ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
-                        border: active ? '1px solid var(--color-border)' : '1px solid transparent',
-                        color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                        boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
+                        background: active ? 'var(--color-selected-background)' : 'transparent',
+                        border: active ? `1px solid var(--color-border)` : '1px solid transparent',
+                        color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                        boxShadow: active ? '0 10px 28px var(--color-accent-glow)' : 'none',
                         cursor: 'pointer',
                         transition: 'all 140ms ease',
+                        padding: 6,
                       }}
                     >
                       <Icon name={activity.icon as any} size={16} />
@@ -110,10 +111,10 @@ export function ActivityRail({
             })}
           </div>
 
-          {/* small separator then utility icons (if any) */}
-          {utilityActivities.length > 0 && <div style={{ width: 10 }} />}
+          {/* compact utilities aligned after a small spacer */}
+          {utilityActivities.length > 0 && <div style={{ width: 8 }} />}
 
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
             {utilityActivities.map((activity) => {
               const active = isActive(activity.id, activity.side);
               return (
@@ -136,6 +137,7 @@ export function ActivityRail({
                         boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
                         cursor: 'pointer',
                         transition: 'all 140ms ease',
+                        padding: 6,
                       }}
                     >
                       <Icon name={activity.icon as any} size={14} />
