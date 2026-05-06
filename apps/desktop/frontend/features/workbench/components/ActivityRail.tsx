@@ -119,13 +119,13 @@ export function ActivityRail({
                         justifyContent: 'center',
                         // Inactive buttons are filled to match the rail surface so they
                         // visually sit on the rail. The active button is transparent so
-                        // the panel surface shows through; it gets a subtle panel-colored outline.
+                        // the panel surface shows through; no extra decoration is applied.
                         background: active ? 'transparent' : 'var(--color-activity-rail-background)',
-                        border: active ? `1px solid var(--color-panel-background)` : 'none',
+                        border: 'none',
                         color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
-                        boxShadow: active ? '0 6px 18px rgba(2,6,23,0.6)' : 'none',
+                        boxShadow: 'none',
                         cursor: 'pointer',
-                        transition: 'all 140ms ease',
+                        transition: 'color 140ms ease',
                         padding: 4,
                         ariaPressed: active ? 'true' : 'false',
                       }}
@@ -133,7 +133,7 @@ export function ActivityRail({
                       <Icon name={activity.icon as any} size={16} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="border bg-panel shadow-sm" />
+                  <TooltipContent side="top" className="border bg-panel" />
                 </Tooltip>
               );
             })}
@@ -160,18 +160,18 @@ export function ActivityRail({
                           justifyContent: 'center',
                           // Same behavior for utility icons: filled when inactive, transparent when active.
                           background: active ? 'transparent' : 'var(--color-activity-rail-background)',
-                          border: active ? `1px solid var(--color-panel-background)` : 'none',
+                          border: 'none',
                           color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                          boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
+                          boxShadow: 'none',
                           cursor: 'pointer',
-                          transition: 'all 140ms ease',
+                          transition: 'color 140ms ease',
                           padding: 4,
                         }}
                       >
                         <Icon name={activity.icon as any} size={14} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="border bg-panel shadow-sm" />
+                    <TooltipContent side="top" className="border bg-panel" />
                   </Tooltip>
                 );
               })}
@@ -221,18 +221,19 @@ export function ActivityRail({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: active ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
-                      border: active ? '1px solid var(--color-border)' : '1px solid transparent',
-                      color: active ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                      boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
+                      // Inactive buttons filled; active button transparent with no decoration.
+                      background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                      border: 'none',
+                      color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
+                      boxShadow: 'none',
                       cursor: 'pointer',
-                      transition: 'all 140ms ease',
+                      transition: 'color 140ms ease',
                     }}
                   >
                     <Icon name={activity.icon as any} size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="border bg-panel shadow-lg" />
+                <TooltipContent side="right" className="border bg-panel" />
               </Tooltip>
             );
           })}
@@ -268,7 +269,7 @@ export function ActivityRail({
                     <Icon name={activity.icon as any} size={14} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="border bg-panel shadow-lg" />
+                <TooltipContent side="right" className="border bg-panel" />
               </Tooltip>
             );
           })}
