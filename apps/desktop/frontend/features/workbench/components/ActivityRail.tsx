@@ -1,7 +1,9 @@
 import { Icon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
 import { useWorkbenchStore } from '../store/workbenchStore';
+import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
 import { getAvailableActivities } from '../config/activityRegistry';
+import { getLanguageIcon } from '@/features/tabs/languageIcons';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { LAYOUT } from '../config/layoutConstants';
 
@@ -40,6 +42,12 @@ export function ActivityRail({
 
   const activities = getAvailableActivities().filter(a => a.side === side);
 
+  // Active file from workspace (for file pill in panel footer)
+  const { explorerUI } = useWorkspaceStore();
+  const activeFilePath = explorerUI?.activeFilePath ?? null;
+  const activeFileName = activeFilePath ? activeFilePath.split(/[\\/]/).pop()! : null;
+  const activeFileIcon = activeFileName ? getLanguageIcon(activeFileName) : null;
+
   // Split semantic groups: primary (top/main) and utility (bottom helpers)
   const primaryActivities = activities.filter((a) => a.position !== 'bottom');
   const utilityActivities = activities.filter((a) => a.position === 'bottom');
@@ -57,26 +65,62 @@ export function ActivityRail({
       : activeRightPanel === activityId && isRightPanelVisible;
   };
 
-  // HORIZONTAL bottom-oriented bar (compact) — refined, theme-aware, icons-only
+  // HORIZONTAL bottom-oriented bar (compact) — refined, theme-aware, icons-only with sticky footer
   if (orientation === 'bottom' || orientation === 'horizontal') {
     return (
       <TooltipProvider delayDuration={200}>
         <div
           className={cn('w-full flex items-center justify-center', className)}
           style={{
-            height: compact ? 44 : 56,
+            height: compact ? 48 : 64,
             display: 'flex',
             gap: 8,
-            padding: '6px 4px',
+            padding: compact ? '6px 8px' : '8px 12px',
             boxSizing: 'border-box',
-            background: 'transparent',
+            background: 'var(--color-panel-elevated)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 12,
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
           }}
           role="toolbar"
           aria-label="Panel activity rail"
         >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+          {/* Left: active file pill (icons + name) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {activeFileName ? (
+              <button
+                onClick={() => { 
+                  // Open explorer so user can see file location
+                  useWorkbenchStore.getState().activateLeftPanel('explorer');
+                  useWorkbenchStore.getState().setLeftPanelWidth(Math.max(220, useWorkbenchStore.getState().leftPanelWidth));
+                }}
+                title={activeFileName}
+                className="flex items-center gap-2"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '6px 10px',
+                  borderRadius: 10,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--color-text-secondary)',
+                  cursor: 'pointer',
+                }}
+                data-no-drag="true"
+              >
+                {activeFileIcon ? <Icon name={activeFileIcon as any} size={14} /> : <Icon name="file" size={14} />}
+                <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-primary)', fontSize: 13 }}>
+                  {activeFileName}
+                </span>
+              </button>
+            ) : null}
+          </div>
+
+          {/* Center: primary actions */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
             {primaryActivities.map((activity) => {
               const active = isActive(activity.id, activity.side);
               return (
@@ -111,10 +155,8 @@ export function ActivityRail({
             })}
           </div>
 
-          {/* compact utilities aligned after a small spacer */}
-          {utilityActivities.length > 0 && <div style={{ width: 8 }} />}
-
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
+          {/* Right: utility icons */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', minWidth: 120 }}>
             {utilityActivities.map((activity) => {
               const active = isActive(activity.id, activity.side);
               return (
