@@ -140,35 +140,6 @@ export function AppShell() {
             }>
               <SettingsPanel />
             </Suspense>
-
-            {/* Sticky in-panel bottom activity rail for settings (icons-only, theme-aware) */}
-            <div
-              style={{
-                position: 'absolute',
-                left: 12,
-                right: 12,
-                bottom: 12,
-                display: 'flex',
-                justifyContent: 'center',
-                zIndex: 30,
-                pointerEvents: 'auto',
-              }}
-              aria-hidden
-            >
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '6px 8px',
-                  borderRadius: 12,
-                  background: 'var(--color-accent-soft-background)',
-                  border: '1px solid var(--color-border)',
-                  boxShadow: '0 8px 24px var(--color-accent-glow)',
-                }}
-              >
-                <ActivityRail orientation="bottom" compact={true} side="left" />
-              </div>
-            </div>
           </div>
         )}
         

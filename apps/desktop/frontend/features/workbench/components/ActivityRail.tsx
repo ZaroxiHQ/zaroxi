@@ -21,7 +21,7 @@ import { LAYOUT } from '../config/layoutConstants';
  */
 interface ActivityRailProps {
   className?: string;
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | 'both';
   orientation?: 'vertical' | 'horizontal' | 'bottom';
   compact?: boolean;
 }
@@ -40,7 +40,7 @@ export function ActivityRail({
     togglePanel,
   } = useWorkbenchStore();
 
-  const activities = getAvailableActivities().filter(a => a.side === side);
+  const activities = getAvailableActivities().filter(a => (side === 'both' ? true : a.side === side));
 
   // Active file from workspace (for file pill in panel footer)
   const { explorerUI } = useWorkspaceStore();

@@ -159,30 +159,11 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
-        {/* Inner sticky activity rail inside the panel (bottom-docked)
-            - Anchored to the bottom of the panel so icons visually live within
-              the panel surface near the status bar.
-            - Uses a horizontal, compact layout to stay unobtrusive.
+        {/* NOTE: activity rail removed from inside panel - rails are rendered as a global,
+            panel‑independent bottom overlay so they are visually separate from panel content.
+            This prevents panel content from appearing under the rail and keeps the rail
+            consistent even when panels collapse or change.
         */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 12,
-            right: 12,
-            bottom: 12,
-            height: LAYOUT.activityRailWidth,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingLeft: 8,
-            paddingRight: 8,
-            zIndex: 20,
-            pointerEvents: 'auto',
-          }}
-          aria-hidden
-        >
-          <ActivityRail orientation="bottom" compact={true} side={side} />
-        </div>
 
         {/* Resize handle */}
         <div
