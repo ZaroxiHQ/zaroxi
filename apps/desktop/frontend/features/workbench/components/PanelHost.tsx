@@ -1,52 +1,49 @@
-import { Suspense, useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { Suspense, useRef, useEffect, useState, useCallback } from 'react';
 import { useWorkbenchStore } from '../store/workbenchStore';
 import { getActivityItem } from '../config/activityRegistry';
 import { cn } from '@/lib/utils';
-import { Icon } from '@/components/ui/Icon';
 import { LAYOUT } from '../config/layoutConstants';
 import { useLayoutMode } from '@/hooks/useLayoutMode';
 
+/**
+ * PanelHost - composes left/right panels with refined surface treatment.
+ * Uses runtime color tokens and consistent spacing to match the mockup.
+ */
 interface PanelHostProps {
   className?: string;
   side?: 'left' | 'right';
 }
 
 export function PanelHost({ className, side = 'left' }: PanelHostProps) {
-  const { 
-    activeLeftPanel, 
-    activeRightPanel, 
-    isLeftPanelVisible, 
+  const {
+    activeLeftPanel,
+    activeRightPanel,
+    isLeftPanelVisible,
     isRightPanelVisible,
     leftPanelWidth,
     rightPanelWidth,
     setLeftPanelWidth,
-    setRightPanelWidth
+    setRightPanelWidth,
   } = useWorkbenchStore();
-  
+
   const activePanel = side === 'left' ? activeLeftPanel : activeRightPanel;
   const isVisible = side === 'left' ? isLeftPanelVisible : isRightPanelVisible;
   const panelWidth = side === 'left' ? leftPanelWidth : rightPanelWidth;
-  
+
   const layoutMode = useLayoutMode();
   const [isResizing, setIsResizing] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
-  // Compute responsive width bounds based on current layout mode
   const isNarrow = layoutMode === 'narrow';
-  // Use distinct widths for left vs right panels (right is bigger)
   const minPanelWidth = side === 'left'
     ? (isNarrow ? 220 : 280)
     : (isNarrow ? LAYOUT.panelRight.minNarrowWidth : LAYOUT.panelRight.minWidth);
   const maxPanelWidth = isNarrow
     ? (side === 'left' ? LAYOUT.panelLeft.maxNarrowWidth : LAYOUT.panelRight.maxNarrowWidth)
     : (side === 'left' ? LAYOUT.panelLeft.maxWidth : LAYOUT.panelRight.maxWidth);
-  // Right panel gets a larger proportion of the window
   const factor = side === 'left' ? 0.30 : 0.35;
-
-
-
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -54,25 +51,21 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
     setIsResizing(true);
     startXRef.current = e.clientX;
     startWidthRef.current = panelWidth;
-    
-    // Add event listeners for mouse move and up
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
       moveEvent.preventDefault();
-      const delta = side === 'left' 
+      const delta = side === 'left'
         ? moveEvent.clientX - startXRef.current
         : startXRef.current - moveEvent.clientX;
-      
-      const minW = minPanelWidth;
-      const maxW = maxPanelWidth;
-      const newWidth = Math.max(minW, Math.min(maxW, startWidthRef.current + delta));
-      
+
+      const newWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, startWidthRef.current + delta));
       if (side === 'left') {
         setLeftPanelWidth(newWidth);
       } else {
         setRightPanelWidth(newWidth);
       }
     };
-    
+
     const handleMouseUp = () => {
       setIsResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
@@ -80,44 +73,24 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-    
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [panelWidth, side, setLeftPanelWidth, setRightPanelWidth]);
+  }, [panelWidth, side, setLeftPanelWidth, setRightPanelWidth, minPanelWidth, maxPanelWidth]);
 
-  // Clean up event listeners when resizing state changes
   useEffect(() => {
-    if (!isResizing) {
-      return;
-    }
-    
+    if (!isResizing) return;
     const handleMouseUp = () => {
       setIsResizing(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-    
     document.addEventListener('mouseup', handleMouseUp);
-    
-    return () => {
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
+    return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [isResizing]);
-  
-  // Clean up event listeners on unmount
-  useEffect(() => {
-    return () => {
-      document.removeEventListener('mousemove', () => {});
-      document.removeEventListener('mouseup', () => {});
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
 
-  // Inject styles that force all children of the right panel to
-  // respect the available width and wrap content correctly.
   useEffect(() => {
     if (side !== 'right') return;
     const style = document.createElement('style');
@@ -132,14 +105,10 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
       }
     `;
     document.head.appendChild(style);
-    return () => {
-      document.head.removeChild(style);
-    };
+    return () => document.head.removeChild(style);
   }, [side]);
 
-  if (!isVisible || !activePanel) {
-    return null;
-  }
+  if (!isVisible || !activePanel) return null;
 
   const activityItem = getActivityItem(activePanel);
   if (!activityItem) {
@@ -151,13 +120,9 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
 
   return (
     <>
-      <div 
+      <div
         ref={panelRef}
-        className={cn(
-          'h-full bg-panel overflow-hidden flex flex-col relative min-h-0',
-          side === 'right' ? 'panel-host-right' : '',
-          className
-        )}
+        className={cn('h-full overflow-hidden flex flex-col relative min-h-0', side === 'right' ? 'panel-host-right' : '', className)}
         style={{
           flex: '0 1 auto',
           width: 'auto',
@@ -165,69 +130,73 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           minWidth: `${minPanelWidth}px`,
           maxWidth: `min(${maxPanelWidth}px, ${(factor * 100).toFixed(0)}vw)`,
           order: side === 'right' ? 2 : 0,
+          backgroundColor: 'var(--color-panel-background)',
           borderRight: side === 'left' ? '1px solid var(--color-divider-subtle)' : 'none',
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
         {/* Resize handle */}
-        <div 
-          className={cn(
-            'absolute top-0 bottom-0 w-2 cursor-col-resize z-50 resize-handle',
-            side === 'left' ? 'right-0' : 'left-0',
-            'hover:bg-accent active:bg-accent transition-colors',
-            isResizing && 'bg-accent'
-          )}
+        <div
+          className={cn('absolute top-0 bottom-0 z-50 resize-handle')}
           style={{
-            transform: side === 'left' ? 'translateX(1px)' : 'translateX(-1px)',
+            width: 6,
+            right: side === 'left' ? 0 : undefined,
+            left: side === 'right' ? 0 : undefined,
+            transform: side === 'left' ? 'translateX(3px)' : 'translateX(-3px)',
+            cursor: 'col-resize',
+            background: 'transparent',
+            transition: 'background 120ms ease',
           }}
           onMouseDown={handleMouseDown}
+          aria-hidden
         />
-        
-        <div className="border-b border-divider px-4 py-2 flex items-center justify-between bg-activity-rail h-9">
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-semibold text-primary leading-none">{activityItem.label}</span>
-              {activityItem.badge !== undefined && activityItem.badge > 0 && (
-                <span className="px-1 py-0.5 text-xs rounded-full bg-accent text-on-accent font-medium leading-none">
-                  {activityItem.badge}
-                </span>
-              )}
-            </div>
-            <span className="text-xs text-primary/80 font-mono truncate max-w-md leading-none">
-              &nbsp;
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            {activityItem.shortcut ? (
-              <span className="text-xs text-primary/80 font-mono leading-none">
-                {activityItem.shortcut}
+
+        {/* Panel header */}
+        <div
+          className="px-4 py-2 flex items-center justify-between"
+          style={{
+            height: 36,
+            borderBottom: '1px solid var(--color-divider-subtle)',
+            backgroundColor: 'var(--color-activity-rail-background)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>{activityItem.label}</span>
+            {activityItem.badge !== undefined && activityItem.badge > 0 && (
+              <span style={{ padding: '2px 6px', borderRadius: 8, backgroundColor: 'var(--color-accent)', color: 'var(--color-text-on-accent)', fontSize: 11, fontWeight: 600 }}>
+                {activityItem.badge}
               </span>
-            ) : (
-              <div className="w-0"></div>
             )}
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {activityItem.shortcut ? (
+              <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>{activityItem.shortcut}</span>
+            ) : null}
+          </div>
         </div>
-        
-        <div className="flex-1 overflow-y-auto overflow-x-hidden bg-panel h-full max-h-full min-h-0 w-full">
+
+        {/* Panel body */}
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', backgroundColor: 'var(--color-panel-background)' }}>
           <Suspense fallback={
-            <div className="p-3">
-              <div className="space-y-1.5">
-                <div className="h-3 bg-muted rounded animate-pulse w-3/4"></div>
-                <div className="h-3 bg-muted rounded animate-pulse w-1/2"></div>
-                <div className="h-3 bg-muted rounded animate-pulse w-5/6"></div>
+            <div style={{ padding: 12 }}>
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ height: 12, background: 'var(--color-divider)', borderRadius: 6 }} />
+                <div style={{ height: 12, background: 'var(--color-divider)', borderRadius: 6, width: '60%' }} />
+                <div style={{ height: 12, background: 'var(--color-divider)', borderRadius: 6, width: '80%' }} />
               </div>
             </div>
           }>
-            <div className="h-full min-h-0 break-words max-w-full">
+            <div style={{ minHeight: 0 }}>
               <PanelComponent />
             </div>
           </Suspense>
         </div>
       </div>
-      {/* Overlay during resizing */}
-      {isResizing && (
-        <div className="fixed inset-0 z-40 cursor-col-resize no-select" />
-      )}
+
+      {isResizing && <div className="fixed inset-0 z-40" style={{ cursor: 'col-resize', userSelect: 'none' }} />}
     </>
   );
 }

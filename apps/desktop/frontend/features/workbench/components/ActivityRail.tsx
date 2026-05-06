@@ -5,123 +5,138 @@ import { getAvailableActivities } from '../config/activityRegistry';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { LAYOUT } from '../config/layoutConstants';
 
+/**
+ * ActivityRail - slim, integrated rail styled to match the mockup:
+ * - Uses runtime tokens for colors
+ * - Subtle rounded buttons with soft accent glow for active state
+ * - Top and bottom sections, centered icons, compact density
+ */
 interface ActivityRailProps {
   className?: string;
 }
 
 export function ActivityRail({ className }: ActivityRailProps) {
-  const { 
-    activeLeftPanel, 
-    activeRightPanel, 
-    isLeftPanelVisible, 
+  const {
+    activeLeftPanel,
+    activeRightPanel,
+    isLeftPanelVisible,
     isRightPanelVisible,
-    togglePanel 
+    togglePanel,
   } = useWorkbenchStore();
-  
-  const activities = getAvailableActivities();
 
-  // Separate activities by position
-  const topActivities = activities.filter(activity => activity.position !== 'bottom');
-  const bottomActivities = activities.filter(activity => activity.position === 'bottom');
+  const activities = getAvailableActivities();
+  const topActivities = activities.filter((a) => a.position !== 'bottom');
+  const bottomActivities = activities.filter((a) => a.position === 'bottom');
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className={cn('flex flex-col items-center py-4 bg-activity-rail h-full min-h-0 max-h-full', className)} style={{ width: LAYOUT.activityRailWidth, borderRight: '1px solid var(--color-divider-subtle)' }}>
-        {/* Top activity items */}
-        <div className="flex flex-col items-center space-y-3">
+      <aside
+        className={cn('flex flex-col items-center py-4', className)}
+        style={{
+          width: LAYOUT.activityRailWidth,
+          backgroundColor: 'var(--color-activity-rail-background)',
+          borderRight: '1px solid var(--color-divider-subtle)',
+          gap: 8,
+        }}
+        aria-label="Activity"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
           {topActivities.map((activity) => {
-            const isActive = activity.side === 'left' 
-              ? activeLeftPanel === activity.id && isLeftPanelVisible
-              : activeRightPanel === activity.id && isRightPanelVisible;
-            
+            const isActive =
+              activity.side === 'left'
+                ? activeLeftPanel === activity.id && isLeftPanelVisible
+                : activeRightPanel === activity.id && isRightPanelVisible;
+
             return (
               <Tooltip key={activity.id}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => togglePanel(activity.id)}
-                    className={cn(
-                      'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
-                      isActive
-                        ? 'bg-accent text-on-accent shadow-sm'
-                        : 'text-primary hover:bg-hover-bg hover:text-accent active:scale-95'
-                    )}
                     aria-label={activity.label}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      border: '1px solid transparent',
+                      background: isActive ? 'var(--color-accent)' : 'transparent',
+                      color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                      boxShadow: isActive ? '0 8px 28px var(--color-accent-soft)' : 'none',
+                      transition: 'all 140ms ease',
+                      cursor: 'pointer',
+                    }}
                   >
-                    <Icon 
-                      name={activity.icon} 
-                      size={16} 
-                      className={isActive ? '' : 'opacity-80 hover:opacity-100'}
-                    />
+                    <Icon name={activity.icon} size={16} />
                     {activity.badge !== undefined && activity.badge > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 text-xs flex items-center justify-center rounded-full bg-error text-on-accent font-medium border border-activity-rail">
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: -6,
+                          right: -6,
+                          width: 18,
+                          height: 18,
+                          borderRadius: 18,
+                          backgroundColor: 'var(--color-error)',
+                          color: 'white',
+                          fontSize: 10,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '1px solid var(--color-activity-rail-background)',
+                        }}
+                      >
                         {activity.badge > 9 ? '9+' : activity.badge}
                       </span>
                     )}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="border bg-panel shadow-lg">
-                  <div className="text-sm font-semibold text-primary">{activity.label}</div>
-                  {activity.description && (
-                    <div className="text-xs text-primary/90 mt-0.5">{activity.description}</div>
-                  )}
-                  {activity.shortcut && (
-                    <div className="text-xs font-mono mt-1 text-accent">{activity.shortcut}</div>
-                  )}
-                </TooltipContent>
+                <TooltipContent side="right" className="border bg-panel shadow-lg" />
               </Tooltip>
             );
           })}
         </div>
-        
-        {/* Spacer - This pushes the bottom items down */}
-        <div className="flex-1 min-h-6" />
-        
-        {/* Bottom activity items (Settings) */}
-        <div className="flex flex-col items-center space-y-3">
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
           {bottomActivities.map((activity) => {
-            const isActive = activity.side === 'left' 
-              ? activeLeftPanel === activity.id && isLeftPanelVisible
-              : activeRightPanel === activity.id && isRightPanelVisible;
-            
+            const isActive =
+              activity.side === 'left'
+                ? activeLeftPanel === activity.id && isLeftPanelVisible
+                : activeRightPanel === activity.id && isRightPanelVisible;
+
             return (
               <Tooltip key={activity.id}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => togglePanel(activity.id)}
-                    className={cn(
-                      'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
-                      isActive
-                        ? 'bg-accent text-on-accent shadow-sm'
-                        : 'text-primary hover:bg-hover-bg hover:text-accent active:scale-95'
-                    )}
                     aria-label={activity.label}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 8,
+                      border: '1px solid transparent',
+                      background: isActive ? 'var(--color-accent)' : 'transparent',
+                      color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
+                      boxShadow: isActive ? '0 8px 28px var(--color-accent-soft)' : 'none',
+                      transition: 'all 140ms ease',
+                      cursor: 'pointer',
+                    }}
                   >
-                    <Icon 
-                      name={activity.icon} 
-                      size={16} 
-                      className={isActive ? '' : 'opacity-80 hover:opacity-100'}
-                    />
-                    {activity.badge !== undefined && activity.badge > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 text-xs flex items-center justify-center rounded-full bg-error text-on-accent font-medium border border-activity-rail">
-                        {activity.badge > 9 ? '9+' : activity.badge}
-                      </span>
-                    )}
+                    <Icon name={activity.icon} size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="border bg-panel shadow-lg">
-                  <div className="text-sm font-semibold text-primary">{activity.label}</div>
-                  {activity.description && (
-                    <div className="text-xs text-primary/90 mt-0.5">{activity.description}</div>
-                  )}
-                  {activity.shortcut && (
-                    <div className="text-xs font-mono mt-1 text-accent">{activity.shortcut}</div>
-                  )}
-                </TooltipContent>
+                <TooltipContent side="right" className="border bg-panel shadow-lg" />
               </Tooltip>
             );
           })}
         </div>
-      </div>
+      </aside>
     </TooltipProvider>
   );
 }
