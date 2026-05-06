@@ -224,16 +224,17 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
         </div>
 
         {/* Bottom-attached activity rail for this panel.
-            - Renders immediately below the panel content.
-            - Matches panel width because it's inside the same container.
-            - No rounded decoration; visual language delegated to CSS tokens.
+            - Renders immediately below the panel content and matches the panel width.
+            - Use transparent background so the rail reads as an editor-level element
+              while active icons use the panel surface color to indicate selection.
+            - Reduced padding/height for a compact footprint.
         */}
         <div
           style={{
             flex: '0 0 auto',
             borderTop: '1px solid var(--color-divider-subtle)',
-            background: 'var(--color-activity-rail-background)',
-            padding: '6px 8px',
+            background: 'transparent',
+            padding: '4px 6px',
             boxSizing: 'border-box',
             display: 'flex',
             alignItems: 'center',

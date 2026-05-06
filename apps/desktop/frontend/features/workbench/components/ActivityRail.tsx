@@ -53,10 +53,11 @@ export function ActivityRail({
   const utilityActivities = activities.filter((a) => a.position === 'bottom');
 
   // Sizes adapt when compact is true (used inside panel)
-  const primarySize = compact ? 36 : 44;
-  const utilitySize = compact ? 30 : 38;
-  const primaryRadius = compact ? 8 : 10;
-  const utilityRadius = compact ? 8 : 9;
+  // Reduced sizes for a more compact bottom rail as requested.
+  const primarySize = compact ? 32 : 40;
+  const utilitySize = compact ? 28 : 34;
+  const primaryRadius = compact ? 8 : 9;
+  const utilityRadius = compact ? 7 : 8;
 
   // Helper to check active state
   const isActive = (activityId: string, activitySide: 'left' | 'right') => {
@@ -66,16 +67,17 @@ export function ActivityRail({
   };
 
   // HORIZONTAL bottom-oriented bar (compact) — icons-only, minimal styling
+  // Compact height and active visual treatment that visually matches the panel surface.
   if (orientation === 'bottom' || orientation === 'horizontal') {
     return (
       <TooltipProvider delayDuration={180}>
         <div
           className={cn('w-full flex items-center justify-center', className)}
           style={{
-            height: compact ? 40 : 48,
+            height: compact ? 36 : 44,
             display: 'flex',
             gap: 6,
-            padding: compact ? '4px 6px' : '6px 8px',
+            padding: compact ? '2px 4px' : '4px 6px',
             boxSizing: 'border-box',
             background: 'transparent',
             alignItems: 'center',
@@ -102,12 +104,12 @@ export function ActivityRail({
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: 'transparent',
-                        border: 'none',
+                        background: active ? 'var(--color-panel-background)' : 'transparent',
+                        border: active ? `1px solid var(--color-border)` : 'none',
                         color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                        boxShadow: 'none',
+                        boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
                         cursor: 'pointer',
-                        transition: 'color 140ms ease',
+                        transition: 'all 140ms ease',
                         padding: 4,
                       }}
                     >
@@ -120,7 +122,7 @@ export function ActivityRail({
             })}
           </div>
 
-          {/* compact utilities are rendered but without extra decoration */}
+          {/* compact utilities are rendered without extra decoration but still show active color */}
           {utilityActivities.length > 0 && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
               {utilityActivities.map((activity) => {
@@ -139,11 +141,12 @@ export function ActivityRail({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          background: 'transparent',
-                          border: 'none',
+                          background: active ? 'var(--color-panel-background)' : 'transparent',
+                          border: active ? `1px solid var(--color-border)` : 'none',
                           color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                          boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
                           cursor: 'pointer',
-                          transition: 'color 140ms ease',
+                          transition: 'all 140ms ease',
                           padding: 4,
                         }}
                       >
