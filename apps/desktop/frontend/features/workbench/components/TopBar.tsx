@@ -115,42 +115,64 @@ export function TopBar({ className }: TopBarProps) {
 
       {/* Right: actions (compact search moved here on the right side) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
-        {/* Compact search input (right side) - reduced height and width for a tighter rhythm */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '2px 6px',
-            borderRadius: 8,
-            background: 'var(--color-panel-header-background)',
-            border: '1px solid var(--color-border)',
-            minWidth: 120,
-            maxWidth: 220,
-            height: 32,
-          }}
-          data-no-drag={isTauriEnv ? 'true' : undefined}
-        >
-          <Icon name="search" size={12} />
-          <input
-            type="search"
-            placeholder="Search (Ctrl+Shift+F)"
-            onFocus={() => activateLeftPanel('search')}
-            className="bg-transparent outline-none"
+        {/* Compact search: show icon on narrow layouts, full input otherwise */}
+        {layoutMode === 'narrow' ? (
+          <button
+            onClick={() => activateLeftPanel('search')}
+            aria-label="Open search"
+            className="p-2 rounded"
+            data-no-drag={isTauriEnv ? 'true' : undefined}
             style={{
-              color: 'var(--color-text-primary)',
-              fontSize: 12,
-              padding: '2px 4px',
-              border: 'none',
+              color: 'var(--color-text-secondary)',
               background: 'transparent',
-              width: '120px',
-              minWidth: '100px',
-              height: '100%',
+              border: 'none',
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingLeft: 6,
+              paddingRight: 6,
             }}
-            aria-label="Search workspace"
-            data-no-drag="true"
-          />
-        </div>
+          >
+            <Icon name="search" size={14} />
+          </button>
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '2px 6px',
+              borderRadius: 8,
+              background: 'var(--color-panel-header-background)',
+              border: '1px solid var(--color-border)',
+              minWidth: 120,
+              maxWidth: 220,
+              height: 28,
+            }}
+            data-no-drag={isTauriEnv ? 'true' : undefined}
+          >
+            <Icon name="search" size={12} />
+            <input
+              type="search"
+              placeholder="Search (Ctrl+Shift+F)"
+              onFocus={() => activateLeftPanel('search')}
+              className="bg-transparent outline-none"
+              style={{
+                color: 'var(--color-text-primary)',
+                fontSize: 12,
+                padding: '2px 4px',
+                border: 'none',
+                background: 'transparent',
+                width: '120px',
+                minWidth: '100px',
+                height: '100%',
+              }}
+              aria-label="Search workspace"
+              data-no-drag="true"
+            />
+          </div>
+        )}
 
         {/* Assistant quick-action (kept) */}
         <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
