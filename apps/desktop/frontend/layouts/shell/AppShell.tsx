@@ -25,7 +25,8 @@ export function AppShell() {
     isLeftPanelVisible, 
     isRightPanelVisible, 
     activeRightPanel,
-    togglePanel 
+    togglePanel,
+    leftPanelWidth,
   } = useWorkbenchStore();
   
   // Get activity items for the active panels
@@ -52,14 +53,18 @@ export function AppShell() {
     return () => window.removeEventListener('resize', handleResize);
   }, [isLeftPanelVisible, isRightPanelVisible, activeLeftPanel, activeRightPanel, togglePanel]);
 
-  // Do not special-case settings. Render the left panel consistently so the
-  // bottom activity rail remains visible and attached to the panel. This
-  // keeps the rail persistent when settings (or any other panel) is open.
-  const showLeftPanel = isLeftPanelVisible && activeLeftPanel;
+  // Render left panel unless settings are shown in the editor.
+  // When the user opens Settings we want the Settings UI to take the full
+  // editor area and hide the panel UI, but keep the activity rail visible.
+  const showLeftPanel = isLeftPanelVisible && activeLeftPanel && activeLeftPanel !== 'settings';
   // Show right panel when it's visible
   const showRightPanel = isRightPanelVisible && activeRightPanel;
-  // Always render main content; panels are independent and do not replace the editor.
+  // Always render main content; when settings are active we render SettingsPanel in editor area.
   const showMainContent = true;
+
+  // Whether to render the bottom-attached activity rail for the left panel area.
+  // Shows when a left activity is active (either panel open or settings active).
+  const showLeftBottomRail = !!activeLeftPanel;
 
   // Listen for workspace:opened event and automatically set root path + fetch tree
   useEffect(() => {
@@ -151,6 +156,38 @@ export function AppShell() {
       
 
       {/* Global activity rail removed — rail is rendered per‑panel directly under the panel */}
+
+      {/* Left panel bottom-attached activity rail (matches panel width and sticks to status bar)
+          - Render only when a left activity is active (including when Settings is shown in editor).
+          - Positioned so it appears immediately above the status bar and exactly matches
+            the left panel width; when the panel is resized the rail follows since it reads
+            leftPanelWidth from the workbench store.
+      */}
+      {showLeftBottomRail && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: LAYOUT.statusBarHeight,
+            width: leftPanelWidth,
+            zIndex: 40,
+            pointerEvents: 'auto',
+          }}
+          aria-hidden
+        >
+          <div
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              borderTop: '1px solid var(--color-border)',
+              background: 'var(--color-activity-rail-background)',
+              padding: '4px 6px',
+            }}
+          >
+            <ActivityRail orientation="bottom" compact={true} side="left" />
+          </div>
+        </div>
+      )}
 
       {/* Status Bar */}
       <StatusBar />
