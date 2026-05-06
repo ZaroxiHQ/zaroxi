@@ -79,10 +79,11 @@ export function ActivityRail({
             gap: 6,
             padding: compact ? '2px 4px' : '4px 6px',
             boxSizing: 'border-box',
-            // Keep the rail visually minimal and let active buttons signal the open panel.
-            // Use transparent background so the rail visually reads as part of the editor surface,
-            // while the active button uses the panel surface color for clear association.
-            background: 'transparent',
+            // The rail fills the full panel width and uses its own surface color.
+            // Inactive icons are rendered as filled rounded controls that match this surface.
+            // The active icon is deliberately transparent (no fill) and uses a subtle
+            // panel-colored outline to indicate the open panel.
+            background: 'var(--color-activity-rail-background)',
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',
@@ -107,8 +108,11 @@ export function ActivityRail({
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: active ? 'var(--color-panel-background)' : 'transparent',
-                        border: active ? `1px solid var(--color-border)` : 'none',
+                        // Inactive buttons are filled to match the rail surface so they
+                        // visually sit on the rail. The active button is transparent so
+                        // the panel surface shows through; it gets a subtle panel-colored outline.
+                        background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                        border: active ? `1px solid var(--color-panel-background)` : 'none',
                         color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
                         boxShadow: active ? '0 6px 18px rgba(2,6,23,0.6)' : 'none',
                         cursor: 'pointer',
@@ -145,8 +149,9 @@ export function ActivityRail({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          background: active ? 'var(--color-panel-background)' : 'transparent',
-                          border: active ? `1px solid var(--color-border)` : 'none',
+                          // Same behavior for utility icons: filled when inactive, transparent when active.
+                          background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                          border: active ? `1px solid var(--color-panel-background)` : 'none',
                           color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
                           boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
                           cursor: 'pointer',
