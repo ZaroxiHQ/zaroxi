@@ -96,48 +96,45 @@ export function TopBar({ className }: TopBarProps) {
         {!isMac && <MenuBar />}
       </div>
 
-      {/* Center: Compact search input (opens Search panel). Tabs moved out of top bar. */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', paddingLeft: 12, paddingRight: 12 }}>
+      {/* Center: empty spacer (tabs moved out of top bar). */}
+      <div style={{ flex: 1 }} />
+
+      {/* Right: actions (compact search moved here on the right side) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
+        {/* Compact search input (right side) */}
         <div
           style={{
-            width: '100%',
-            maxWidth: 760,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
-            padding: '6px 10px',
-            borderRadius: 10,
-            background: 'var(--color-panel-header-background, linear-gradient(180deg, rgba(255,255,255,0.01), rgba(0,0,0,0.02)))',
+            padding: '4px 8px',
+            borderRadius: 8,
+            background: 'var(--color-panel-header-background)',
             border: '1px solid var(--color-border)',
+            minWidth: 180,
+            maxWidth: 320,
           }}
           data-no-drag={isTauriEnv ? 'true' : undefined}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-            <Icon name="search" size={14} />
-            <input
-              type="search"
-              placeholder="Search files, symbols and text (Ctrl+Shift+F)"
-              onFocus={() => activateLeftPanel('search')}
-              className="w-full bg-transparent outline-none"
-              style={{
-                color: 'var(--color-text-primary)',
-                fontSize: 13,
-                padding: '6px 4px',
-                border: 'none',
-                background: 'transparent',
-              }}
-              aria-label="Search workspace"
-            />
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Ctrl+Shift+F</div>
-          </div>
+          <Icon name="search" size={14} />
+          <input
+            type="search"
+            placeholder="Search (Ctrl+Shift+F)"
+            onFocus={() => activateLeftPanel('search')}
+            className="bg-transparent outline-none"
+            style={{
+              color: 'var(--color-text-primary)',
+              fontSize: 13,
+              padding: '4px 6px',
+              border: 'none',
+              background: 'transparent',
+              width: '160px',
+              minWidth: '120px',
+            }}
+            aria-label="Search workspace"
+            data-no-drag="true"
+          />
         </div>
-      </div>
-
-      {/* Right: actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
 
         <button onClick={() => togglePanel('git')} title="Source Control" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
           <Icon name="git-branch" size={16} />
