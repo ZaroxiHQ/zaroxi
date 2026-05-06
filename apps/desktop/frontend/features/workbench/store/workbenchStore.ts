@@ -52,6 +52,10 @@ export const useWorkbenchStore = create<PanelState & PanelActions>()(
       leftPanelWidth: DEFAULT_PANEL_WIDTH,
       rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
       isTopBarVisible: true,
+      // Where to render the activity rail:
+      // - 'panel' = activity rail lives inside each panel (sticky bottom area)
+      // - 'edge' = activity rail sits on the very edge (collapsed dock)
+      activityRailDock: 'panel',
 
       activateLeftPanel: (panelId) => {
         const { activeLeftPanel, isLeftPanelVisible } = get();
@@ -114,6 +118,16 @@ export const useWorkbenchStore = create<PanelState & PanelActions>()(
 
       setRightPanelWidth: (width) => {
         set({ rightPanelWidth: Math.max(200, Math.min(600, width)) });
+      },
+
+      // Set where the activity rail docks ('panel' | 'edge')
+      setActivityRailDock: (dock) => {
+        set({ activityRailDock: dock });
+      },
+
+      // Toggle between 'panel' and 'edge' docking
+      toggleActivityRailDock: () => {
+        set((state) => ({ activityRailDock: state.activityRailDock === 'panel' ? 'edge' : 'panel' }));
       },
 
       togglePanel: (panelId) => {

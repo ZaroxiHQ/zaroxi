@@ -18,7 +18,7 @@ interface TopBarProps {
  */
 export function TopBar({ className }: TopBarProps) {
   const layoutMode = useLayoutMode();
-  const { togglePanel } = useWorkbenchStore();
+  const { togglePanel, activityRailDock, setActivityRailDock } = useWorkbenchStore();
   const [isMaximized, setIsMaximized] = useState(false);
   const [isTauriEnv, setIsTauriEnv] = useState(false);
 
@@ -128,6 +128,17 @@ export function TopBar({ className }: TopBarProps) {
 
         <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
           <Icon name="assistant" size={16} />
+        </button>
+
+        {/* Activity rail dock toggle (panel / edge) */}
+        <button
+          title={`Dock activity rail: ${activityRailDock === 'panel' ? 'panel (inside)' : 'edge (dock)'} - click to toggle`}
+          onClick={() => setActivityRailDock(activityRailDock === 'panel' ? 'edge' : 'panel')}
+          className="w-8 h-8 flex items-center justify-center rounded"
+          data-no-drag="true"
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }}
+        >
+          <Icon name={activityRailDock === 'panel' ? 'pin' : 'pin'} size={13} />
         </button>
 
         {isTauriEnv ? (

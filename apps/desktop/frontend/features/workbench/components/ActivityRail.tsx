@@ -12,18 +12,19 @@ import { LAYOUT } from '../config/layoutConstants';
  * - Slim vertical rail (~48px) that sits inside the side panel edge.
  * - Main action icons grouped in the lower area of the rail (sticky).
  * - When the side panel is collapsed the rail remains visible (collapsed state).
- * - Accepts `orientation` prop (vertical | horizontal) for flexibility (horizontal kept for backward compatibility).
+ * - Accepts `orientation` prop (vertical | horizontal) and `compact` to reduce control sizes.
  *
  * Usage:
  * - Render inside PanelHost to keep activity icons scoped to the panel.
- * - For the collapsed dock, render <ActivityRail orientation="vertical" />.
+ * - For the collapsed dock, render <ActivityRail orientation="vertical" compact />.
  */
 interface ActivityRailProps {
   className?: string;
   orientation?: 'vertical' | 'horizontal';
+  compact?: boolean;
 }
 
-export function ActivityRail({ className, orientation = 'vertical' }: ActivityRailProps) {
+export function ActivityRail({ className, orientation = 'vertical', compact = false }: ActivityRailProps) {
   const {
     activeLeftPanel,
     activeRightPanel,
@@ -39,7 +40,13 @@ export function ActivityRail({ className, orientation = 'vertical' }: ActivityRa
   const primaryActivities = activities.filter(a => a.position !== 'bottom');
   const utilityActivities = activities.filter(a => a.position === 'bottom');
 
-  // Vertical rail (the new preferred layout) - icons clustered near the bottom
+  // Sizes adapt when compact is true (used inside panel)
+  const primarySize = compact ? 40 : 44;
+  const utilitySize = compact ? 34 : 38;
+  const primaryBorderRadius = compact ? 9 : 10;
+  const utilityBorderRadius = compact ? 8 : 9;
+
+  // Vertical rail (the preferred layout) - icons clustered near the bottom
   if (orientation === 'vertical') {
     return (
       <TooltipProvider delayDuration={220}>
@@ -79,12 +86,12 @@ export function ActivityRail({ className, orientation = 'vertical' }: ActivityRa
                       onClick={() => togglePanel(activity.id)}
                       aria-label={activity.label}
                       style={{
-                        width: 44,
-                        height: 44,
+                        width: primarySize,
+                        height: primarySize,
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        borderRadius: 10,
+                        borderRadius: primaryBorderRadius,
                         border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
                         background: isActive ? 'linear-gradient(180deg, rgba(108,99,255,0.06), rgba(82,70,229,0.03))' : 'transparent',
                         color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
@@ -121,12 +128,12 @@ export function ActivityRail({ className, orientation = 'vertical' }: ActivityRa
                       onClick={() => togglePanel(activity.id)}
                       aria-label={activity.label}
                       style={{
-                        width: 38,
-                        height: 38,
+                        width: utilitySize,
+                        height: utilitySize,
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        borderRadius: 9,
+                        borderRadius: utilityBorderRadius,
                         border: isActive ? `1px solid var(--color-border)` : '1px solid transparent',
                         background: isActive ? 'var(--color-accent)' : 'transparent',
                         color: isActive ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
@@ -146,7 +153,7 @@ export function ActivityRail({ className, orientation = 'vertical' }: ActivityRa
             })}
 
             {/* Workspace badge / avatar */}
-            <div style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
+            <div style={{ width: utilitySize, height: utilitySize, borderRadius: utilityBorderRadius, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)' }}>
               <Icon name="star" size={14} />
             </div>
           </div>

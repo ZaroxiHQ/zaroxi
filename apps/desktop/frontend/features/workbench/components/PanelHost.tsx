@@ -159,14 +159,20 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
-        {/* Inner sticky activity rail inside the panel (keeps icons scoped to the panel) */}
+        {/* Inner sticky activity rail inside the panel (keeps icons scoped to the panel)
+            NOTE: place the rail *inside* the panel and anchor it to the inner edge so it
+            visually lives within the panel surface. For left panels we anchor to the right
+            (inner edge), for right panels we anchor to the left (inner edge). This makes
+            icons appear inside the panel and remain sticky when scrolling.
+        */}
         <div
           style={{
             position: 'absolute',
             top: 48,
             bottom: 12,
-            left: side === 'left' ? 8 : undefined,
-            right: side === 'right' ? 8 : undefined,
+            // Anchor to the panel inner edge: right for left panels, left for right panels
+            right: side === 'left' ? 8 : undefined,
+            left: side === 'right' ? 8 : undefined,
             width: LAYOUT.activityRailWidth,
             display: 'flex',
             alignItems: 'flex-end',
@@ -176,7 +182,7 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           }}
           aria-hidden
         >
-          <ActivityRail orientation="vertical" />
+          <ActivityRail orientation="vertical" compact={true} />
         </div>
 
         {/* Resize handle */}
