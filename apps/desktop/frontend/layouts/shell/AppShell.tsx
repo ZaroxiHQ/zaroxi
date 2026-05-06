@@ -159,10 +159,6 @@ export function AppShell() {
         )}
       </div>
       
-      {/* Bottom Activity Rail (now horizontal) */}
-      <div style={{ flex: '0 0 auto' }}>
-        <ActivityRail className="w-full" />
-      </div>
 
       {/* Status Bar */}
       <StatusBar />

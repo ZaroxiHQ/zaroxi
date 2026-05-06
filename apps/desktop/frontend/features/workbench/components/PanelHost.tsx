@@ -1,6 +1,7 @@
 import { Suspense, useRef, useEffect, useState, useCallback } from 'react';
 import { useWorkbenchStore } from '../store/workbenchStore';
 import { getActivityItem } from '../config/activityRegistry';
+import { ActivityRail } from '@/features/workbench/components/ActivityRail';
 import { cn } from '@/lib/utils';
 import { LAYOUT } from '../config/layoutConstants';
 import { useLayoutMode } from '@/hooks/useLayoutMode';
@@ -108,7 +109,30 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
     return () => document.head.removeChild(style);
   }, [side]);
 
-  if (!isVisible || !activePanel) return null;
+  if (!activePanel) return null;
+
+  // When the panel is collapsed we still render a slim, sticky rail so the icons
+  // remain visible and usable (consistent compact IDE behavior).
+  if (!isVisible) {
+    return (
+      <div
+        className={cn('h-full flex items-end', className)}
+        style={{
+          flex: '0 0 auto',
+          width: LAYOUT.activityRailWidth,
+          minWidth: LAYOUT.activityRailWidth,
+          maxWidth: LAYOUT.activityRailWidth,
+          backgroundColor: 'transparent',
+        }}
+        role="complementary"
+        aria-label={`${side} collapsed panel rail`}
+      >
+        <div style={{ position: 'sticky', bottom: 12, width: '100%', display: 'flex', justifyContent: 'center', paddingLeft: 6, paddingRight: 6 }}>
+          <ActivityRail orientation="vertical" />
+        </div>
+      </div>
+    );
+  }
 
   const activityItem = getActivityItem(activePanel);
   if (!activityItem) {
@@ -135,6 +159,26 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
+        {/* Inner sticky activity rail inside the panel (keeps icons scoped to the panel) */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 48,
+            bottom: 12,
+            left: side === 'left' ? 8 : undefined,
+            right: side === 'right' ? 8 : undefined,
+            width: LAYOUT.activityRailWidth,
+            display: 'flex',
+            alignItems: 'flex-end',
+            padding: 4,
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+          aria-hidden
+        >
+          <ActivityRail orientation="vertical" />
+        </div>
+
         {/* Resize handle */}
         <div
           className={cn('absolute top-0 bottom-0 z-50 resize-handle')}
