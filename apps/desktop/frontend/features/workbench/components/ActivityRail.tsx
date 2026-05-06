@@ -40,7 +40,7 @@ export function ActivityRail({
     togglePanel,
   } = useWorkbenchStore();
 
-  const activities = getAvailableActivities().filter(a => (side === 'both' ? true : a.side === side));
+  const activities = getAvailableActivities().filter(a => (side === 'both' ? true : a.side === side)).filter(a => a.id !== 'search');
 
   // Active file from workspace (for file pill in panel footer)
   const { explorerUI } = useWorkspaceStore();
