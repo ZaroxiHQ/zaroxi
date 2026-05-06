@@ -121,11 +121,6 @@ export function AppShell() {
       <TopBar />
       
       <div className="flex flex-1 overflow-hidden min-h-0 max-h-full">
-        {/* Activity Rail - Always visible */}
-        <div className="h-full flex-shrink-0 min-h-0">
-          <ActivityRail />
-        </div>
-        
         {/* Left Panel (for all left-side panels except settings) */}
         {showLeftPanel && (
           <PanelHost side="left" />
@@ -164,6 +159,11 @@ export function AppShell() {
         )}
       </div>
       
+      {/* Bottom Activity Rail (now horizontal) */}
+      <div style={{ flex: '0 0 auto' }}>
+        <ActivityRail className="w-full" />
+      </div>
+
       {/* Status Bar */}
       <StatusBar />
     </div>
