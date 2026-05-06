@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { ReactNode } from 'react';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
+import UI_TOKENS from '@/theme/tokens';
 
 interface TextProps {
   children: ReactNode;
@@ -56,7 +57,7 @@ export function Text({
         alignClasses[align],
         className
       )}
-      style={familyStyles[family]}
+      style={{ ...familyStyles[family], color: UI_TOKENS.textPrimary }}
     >
       {children}
     </div>

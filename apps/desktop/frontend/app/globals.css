@@ -2,306 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    /* Font family tokens */
-    --font-sans: 'Zaroxi Mono', 'JetBrainsMono Nerd Font Mono', 'JetBrains Mono', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    --font-mono: 'Zaroxi Mono', 'JetBrainsMono Nerd Font Mono', 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
-    --font-icon: 'Zaroxi Mono', 'JetBrainsMono Nerd Font Mono', monospace;
-    
-    /* Color tokens - Professional IDE theme (EXACT match to Rust theme) */
-    /* Backgrounds */
-    --background: 0 0% 96%;  /* #f5f5f5 - app_background, shell_background, activity_rail_background, status_bar_background, title_bar_background */
-    --panel-background: 0 0% 98%;  /* #fafafa - panel_background, sidebar_background, tab_background, assistant_panel_background */
-    --editor-background: 0 0% 100%;  /* #ffffff - editor_background, elevated_panel_background, tab_active_background, input_background */
-    
-    /* Text colors */
-    --foreground: 0 0% 13%;  /* #212121 - text_primary, text_on_surface */
-    --text-secondary: 0 0% 45%;  /* #737373 - text_secondary */
-    --text-muted: 0 0% 60%;  /* #999999 - text_muted */
-    --text-faint: 0 0% 75%;  /* #bfbfbf - text_faint */
-    --text-disabled: 0 0% 80%;  /* #cccccc - text_disabled */
-    --text-link: 210.6 100% 50.2%;  /* #0f87ff - text_link */
-    
-    /* UI elements */
-    --border: 0 0% 88%;  /* #e0e0e0 - border, divider */
-    --accent: 210.6 100% 50.2%;  /* #0f87ff - accent, info */
-    --accent-hover: 210.6 100% 45%;  /* #0d7ae6 - accent_hover */
-    --success: 142.4 70.6% 32.5%;  /* #29a652 - success */
-    --warning: 38.8 100% 47.1%;  /* #f29400 - warning */
-    --error: 0 70.6% 56.5%;  /* #db3b3b - error */
-    
-    /* For compatibility with existing CSS */
-    --sidebar: 0 0% 98%;  /* #fafafa */
-    --editor: 0 0% 100%;  /* #ffffff */
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
-    --primary: 0 0% 13%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 13%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
-    --accent-foreground: 0 0% 13%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --input: 0 0% 100%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-    
-    /* Status bar */
-    --status-bar-background: 0 0% 96%;  /* #f5f5f5 */
-    --status-bar-foreground: 0 0% 45%;  /* #737373 */
-    --status-bar-border: 0 0% 88%;  /* #e0e0e0 */
-    
-    /* Shell */
-    --shell-background: 0 0% 96%;  /* #f5f5f5 */
-    
-    /* Activity rail */
-    --activity-rail-background: 0 0% 96%;  /* #f5f5f5 */
-    
-    /* Title bar */
-    --title-bar-background: 0 0% 96%;  /* #f5f5f5 */
-  }
+/* Global theme variables (Zaroxi Studio mockup palette)
+   - Primary source of truth for colors across components.
+   - Keep this file as the canonical mapping from design tokens -> CSS variables.
+*/
+:root {
+  /* Surface layers */
+  --app-bg: #0b1020;
+  --outer-shell: #0f1428;
+  --panel-main: #12182b;
+  --panel-secondary: #161d33;
+  --panel-elevated: #1b2340;
 
-  .dark {
-    /* Override all light theme variables with dark theme values */
-    --background: 0 0% 9%;  /* #171717 - app_background from Rust dark theme */
-    --panel-background: 0 0% 13%;  /* #212121 - panel_background from Rust dark theme */
-    --editor-background: 0 0% 10%;  /* #1a1a1a - editor_background from Rust dark theme */
-    --foreground: 0 0% 98%;  /* #fafafa - text_primary from Rust dark theme */
-    --text-secondary: 0 0% 88%;  /* #e0e0e0 - text_secondary from Rust dark theme */
-    --text-muted: 0 0% 75%;  /* #bfbfbf - text_muted from Rust dark theme */
-    --text-faint: 0 0% 60%;  /* #999999 - text_faint from Rust dark theme */
-    --text-disabled: 0 0% 45%;  /* #737373 - text_disabled from Rust dark theme */
-    --text-link: 210 100% 70%;  /* #66b3ff - text_link from Rust dark theme */
-    --border: 0 0% 27%;  /* #454545 - border from Rust dark theme */
-    --accent: 210 100% 70%;  /* #66b3ff - accent from Rust dark theme */
-    --accent-hover: 210 100% 80%;  /* #80ccff - accent_hover from Rust dark theme */
-    --success: 142 70% 60%;  /* #66d999 - success from Rust dark theme */
-    --warning: 38 100% 70%;  /* #ffbf66 - warning from Rust dark theme */
-    --error: 0 70% 70%;  /* #ff8c99 - error from Rust dark theme */
-    
-    /* For compatibility */
-    --sidebar: 0 0% 13%;  /* #212121 */
-    --editor: 0 0% 10%;  /* #1a1a1a */
-    --card: 0 0% 13%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 13%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 13%;
-    --secondary: 0 0% 20%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 20%;
-    --muted-foreground: 0 0% 75%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 70% 70%;
-    --destructive-foreground: 0 0% 98%;
-    --input: 0 0% 20%;
-    --ring: 210 100% 70%;
-    
-    /* Status bar */
-    --status-bar-background: 0 0% 14%;  /* #242428 - status_bar_background from Rust dark theme */
-    --status-bar-foreground: 0 0% 88%;  /* #e0e0e0 */
-    --status-bar-border: 0 0% 27%;  /* #454545 */
-    
-    /* Shell */
-    --shell-background: 0 0% 14%;  /* #242428 */
-    
-    /* Activity rail */
-    --activity-rail-background: 0 0% 10%;  /* #1a1a1a - activity_rail_background from Rust dark theme */
-    
-    /* Title bar */
-    --title-bar-background: 0 0% 8%;  /* #141414 - title_bar_background from Rust dark theme */
-  }
+  /* Borders / dividers */
+  --border: #27314f;
+  --border-highlight: #33406a;
+  --divider-subtle: rgba(39,49,79,0.28);
+
+  /* Typography */
+  --text-primary: #eef2ff;
+  --text-secondary: #b7c0e0;
+  --text-muted: #7f89ad;
+  --text-disabled: #5c6687;
+
+  /* Accents */
+  --accent: #6c63ff;
+  --accent-hover: #7c72ff;
+  --accent-deep: #5246e5;
+  --accent-glow: rgba(108,99,255,0.18);
+  --assistant-accent: #8b7dff;
+
+  /* Code semantic */
+  --code-blue: #7aa2ff;
+  --code-cyan: #79c0ff;
+  --code-green: #98c379;
+  --code-yellow: #e5c07b;
+  --code-orange: #d19a66;
+  --code-red: #e06c75;
+
+  /* Status */
+  --success: #6dd6a6;
+  --warning: #f0b86b;
+
+  /* Layout tokens */
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+
+  /* Shadows */
+  --shadow-soft: 0 8px 30px rgba(2,6,23,0.6);
+  --shadow-subtle: 0 6px 18px rgba(2,6,23,0.45);
+
+  /* Compatibility tokens used by components */
+  --status-bar-bg: var(--panel-main);
+  --status-bar-border: var(--divider-subtle);
+  --title-bar-bg: var(--outer-shell);
 }
 
+/* Dark mode is the default look for the app; a light theme can be added later */
+.dark {
+  --app-bg: #0b1020;
+  --outer-shell: #0f1428;
+  --panel-main: #12182b;
+  --panel-secondary: #161d33;
+  --panel-elevated: #1b2340;
+
+  --border: #27314f;
+  --border-highlight: #33406a;
+  --divider-subtle: rgba(39,49,79,0.28);
+
+  --text-primary: #eef2ff;
+  --text-secondary: #b7c0e0;
+  --text-muted: #7f89ad;
+  --text-disabled: #5c6687;
+
+  --accent: #6c63ff;
+  --accent-hover: #7c72ff;
+  --accent-deep: #5246e5;
+  --accent-glow: rgba(108,99,255,0.18);
+}
+
+/* Base layer: typographic defaults and body surface */
 @layer base {
-  * {
-    @apply border-border;
+  html, body, #root {
+    height: 100%;
   }
+
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--app-bg);
+    color: var(--text-primary);
     font-feature-settings: "rlig" 1, "calt" 1;
-  }
-  
-  /* Fonts provided by system (JetBrainsMono Nerd Font) */
-}
-
-@layer utilities {
-  .font-mono-nerd {
-    font-family: var(--font-mono);
-  }
-  
-  .font-icon-nerd {
-    font-family: var(--font-icon);
-    font-feature-settings: normal;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
-  .code-editor-font {
-    font-family: var(--font-mono);
-    font-size: 14px;
-    line-height: 1.6;
-    letter-spacing: 0;
-  }
-  
-  /* Monaco editor line overrides */
-  .monaco-editor .view-lines,
-  .monaco-editor .mtk1 {
-    font-family: var(--font-mono);
+
+  /* Provide easy-to-use utility font families */
+  :root {
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    --font-mono: "JetBrains Mono", "Zaroxi Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+    --font-icon: "Zaroxi Mono", "JetBrainsMono Nerd Font Mono", monospace;
   }
 }
 
+/* Small set of component primitives and utilities derived from tokens */
 @layer components {
-  /* Status bar styles */
-  .bg-status-bar {
-    background-color: var(--status-bar-background);
-  }
-  
-  .text-status-bar-foreground {
-    color: var(--status-bar-foreground);
-  }
-  
-  .border-status-bar {
-    border-color: var(--status-bar-border);
-  }
-  
-  /* Prevent text selection during resize */
-  .no-select {
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-  }
-  
-  /* Resize handle styles */
-  .resize-handle {
-    transition: background-color 0.15s ease;
-  }
-  
-  .resize-handle:hover {
-    background-color: rgba(66, 153, 225, 0.5);
-  }
-  
-  .resize-handle:active {
-    background-color: rgba(66, 153, 225, 0.8);
-  }
+  /* Surfaces */
+  .bg-app { background-color: var(--app-bg); }
+  .bg-shell { background-color: var(--outer-shell); }
+  .bg-panel { background-color: var(--panel-main); }
+  .bg-panel-secondary { background-color: var(--panel-secondary); }
+  .bg-panel-elevated { background-color: var(--panel-elevated); }
+
+  /* Text */
+  .text-primary { color: var(--text-primary); }
+  .text-secondary { color: var(--text-secondary); }
+  .text-muted { color: var(--text-muted); }
+  .text-disabled { color: var(--text-disabled); }
+
+  /* Borders / dividers */
+  .border-border { border-color: var(--border); }
+  .border-divider-subtle { border-color: var(--divider-subtle); }
+
+  /* Accent */
+  .text-accent { color: var(--accent); }
+  .bg-accent { background-color: var(--accent); }
+  .bg-accent-hover:hover { background-color: var(--accent-hover); }
+
+  /* Status bar helpers */
+  .bg-status-bar { background-color: var(--status-bar-bg); }
+  .border-status-bar { border-top: 0.5px solid var(--status-bar-border); }
 }
 
+/* Small utilities useful across the app */
 @layer utilities {
-  /* Background utilities */
-  .bg-app {
-    background-color: hsl(var(--background));
-  }
-  
-  .bg-panel {
-    background-color: hsl(var(--panel-background));
-  }
-  
-  .bg-editor {
-    background-color: hsl(var(--editor-background));
-  }
-  
-  .bg-activity-rail {
-    background-color: hsl(var(--activity-rail-background));
-  }
-  
-  .bg-title-bar {
-    background-color: hsl(var(--title-bar-background));
-  }
-  
-  .bg-shell {
-    background-color: hsl(var(--shell-background));
-  }
-  
-  /* Text colors */
-  .text-primary {
-    color: hsl(var(--foreground));
-  }
-  
-  .text-secondary {
-    color: hsl(var(--text-secondary));
-  }
-  
-  .text-muted {
-    color: hsl(var(--text-muted));
-  }
-  
-  .text-faint {
-    color: hsl(var(--text-faint));
-  }
-  
-  .text-disabled {
-    color: hsl(var(--text-disabled));
-  }
-  
-  .text-link {
-    color: hsl(var(--text-link));
-  }
-  
-  /* Borders */
-  .border-border {
-    border-color: hsl(var(--border));
-  }
-  
-  .border-divider {
-    border-color: hsl(var(--border));
-  }
-  
-  /* Accent */
-  .bg-accent {
-    background-color: hsl(var(--accent));
-  }
-  
-  .text-accent {
-    color: hsl(var(--accent));
-  }
-  
-  .text-on-accent {
-    color: white;
-  }
-  
-  .bg-accent-hover:hover {
-    background-color: hsl(var(--accent-hover));
-  }
-  
-  /* Status colors */
-  .bg-success {
-    background-color: hsl(var(--success));
-  }
-  
-  .bg-warning {
-    background-color: hsl(var(--warning));
-  }
-  
-  .bg-error {
-    background-color: hsl(var(--error));
-  }
-  
-  .text-success {
-    color: hsl(var(--success));
-  }
-  
-  .text-warning {
-    color: hsl(var(--warning));
-  }
-  
-  .text-error {
-    color: hsl(var(--error));
-  }
-  
-  /* Hover */
-  .bg-hover-bg {
-    background-color: hsl(var(--accent) / 0.1);
-  }
-  
-  /* Muted */
-  .bg-muted {
-    background-color: hsl(var(--muted));
-  }
+  .radius-md { border-radius: var(--radius-md); }
+  .radius-sm { border-radius: var(--radius-sm); }
+
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-subtle { box-shadow: var(--shadow-subtle); }
+
+  .glow-accent { box-shadow: 0 6px 18px var(--accent-glow); }
+
+  .font-mono { font-family: var(--font-mono); }
+  .font-icon { font-family: var(--font-icon); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 }
