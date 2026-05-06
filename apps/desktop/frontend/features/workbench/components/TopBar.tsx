@@ -69,8 +69,9 @@ export function TopBar({ className }: TopBarProps) {
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* Left: compact brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 220 }}>
+      {/* Left: responsive compact brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        {/* Logo square — fixed size and non-shrinking so it remains visible on narrow screens */}
         <div
           style={{
             width: 32,
@@ -81,19 +82,32 @@ export function TopBar({ className }: TopBarProps) {
             borderRadius: 8,
             background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.03))',
             border: '1px solid var(--color-border)',
-            boxShadow: '0 4px 16px rgba(2,6,23,0.5)',
           }}
           aria-hidden
         >
           <Icon name="star" size={14} />
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-text-primary)' }}>Zaroxi Studio</div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Workspace</div>
+        {/* Brand text — allow shrinking and ellipsising on narrow layouts.
+            We intentionally remove the "Workspace" subtitle per the request. */}
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: 14,
+              color: 'var(--color-text-primary)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: layoutMode === 'narrow' ? 120 : 220,
+            }}
+          >
+            Zaroxi Studio
+          </div>
         </div>
 
-        {!isMac && <MenuBar />}
+        {/* MenuBar hidden on narrow layouts to keep the top bar compact and responsive */}
+        {!isMac && layoutMode !== 'narrow' && <MenuBar />}
       </div>
 
       {/* Center: empty spacer (tabs moved out of top bar). */}
