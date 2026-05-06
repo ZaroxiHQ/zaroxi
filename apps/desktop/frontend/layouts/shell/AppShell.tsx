@@ -52,15 +52,14 @@ export function AppShell() {
     return () => window.removeEventListener('resize', handleResize);
   }, [isLeftPanelVisible, isRightPanelVisible, activeLeftPanel, activeRightPanel, togglePanel]);
 
-  // Determine if we should show full-width panel (only settings)
-  const isSettingsActive = leftActivity?.id === 'settings' && isLeftPanelVisible;
-  
-  // Show left panel when it's visible and not settings
-  const showLeftPanel = isLeftPanelVisible && activeLeftPanel && !isSettingsActive;
+  // Do not special-case settings. Render the left panel consistently so the
+  // bottom activity rail remains visible and attached to the panel. This
+  // keeps the rail persistent when settings (or any other panel) is open.
+  const showLeftPanel = isLeftPanelVisible && activeLeftPanel;
   // Show right panel when it's visible
   const showRightPanel = isRightPanelVisible && activeRightPanel;
-  // Show main content when not showing settings
-  const showMainContent = !isSettingsActive;
+  // Always render main content; panels are independent and do not replace the editor.
+  const showMainContent = true;
 
   // Listen for workspace:opened event and automatically set root path + fetch tree
   useEffect(() => {
@@ -126,22 +125,7 @@ export function AppShell() {
           <PanelHost side="left" />
         )}
         
-        {/* Settings Panel (full width when active) */}
-        {isSettingsActive && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-panel relative" style={{ minWidth: 0 }}>
-            <Suspense fallback={
-              <div className="p-3 bg-panel">
-                <div className="space-y-1.5">
-                  <div className="h-3 bg-muted rounded animate-pulse w-3/4"></div>
-                  <div className="h-3 bg-muted rounded animate-pulse w-1/2"></div>
-                  <div className="h-3 bg-muted rounded animate-pulse w-5/6"></div>
-                </div>
-              </div>
-            }>
-              <SettingsPanel />
-            </Suspense>
-          </div>
-        )}
+        {/* Settings are rendered via the left PanelHost so the bottom rail stays attached and persistent. */}
         
         {/* Main Content Area (Tab Strip + Editor) */}
         {showMainContent && (

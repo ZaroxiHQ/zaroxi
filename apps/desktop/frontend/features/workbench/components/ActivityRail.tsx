@@ -79,9 +79,10 @@ export function ActivityRail({
             gap: 6,
             padding: compact ? '2px 4px' : '4px 6px',
             boxSizing: 'border-box',
-            // Use a dedicated activity‑rail surface so the rail reads separate from the panel.
-            // This keeps the rail visually consistent across panels and matches the theme tokens.
-            background: 'var(--color-activity-rail-background)',
+            // Keep the rail visually minimal and let active buttons signal the open panel.
+            // Use transparent background so the rail visually reads as part of the editor surface,
+            // while the active button uses the panel surface color for clear association.
+            background: 'transparent',
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',
