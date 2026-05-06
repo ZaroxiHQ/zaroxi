@@ -144,9 +144,11 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
 
   return (
     <>
+      {/* Panel container turned into a column so we can render a bottom rail that
+          is always directly attached to the panel and matches its width. */}
       <div
         ref={panelRef}
-        className={cn('h-full overflow-hidden flex flex-col relative min-h-0', side === 'right' ? 'panel-host-right' : '', className)}
+        className={cn('relative flex flex-col overflow-hidden min-h-0', side === 'right' ? 'panel-host-right' : '', className)}
         style={{
           flex: '0 1 auto',
           width: 'auto',
@@ -154,18 +156,14 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           minWidth: `${minPanelWidth}px`,
           maxWidth: `min(${maxPanelWidth}px, ${(factor * 100).toFixed(0)}vw)`,
           order: side === 'right' ? 2 : 0,
+          display: 'flex',
+          flexDirection: 'column',
           backgroundColor: 'var(--color-panel-background)',
           borderRight: side === 'left' ? '1px solid var(--color-divider-subtle)' : 'none',
           borderLeft: side === 'right' ? '1px solid var(--color-divider-subtle)' : 'none',
         }}
       >
-        {/* NOTE: activity rail removed from inside panel - rails are rendered as a global,
-            panel‑independent bottom overlay so they are visually separate from panel content.
-            This prevents panel content from appearing under the rail and keeps the rail
-            consistent even when panels collapse or change.
-        */}
-
-        {/* Resize handle */}
+        {/* Resize handle (kept absolute so it sits on the panel edge) */}
         <div
           className={cn('absolute top-0 bottom-0 z-50 resize-handle')}
           style={{
@@ -187,10 +185,10 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           style={{
             height: 36,
             borderBottom: '1px solid var(--color-divider-subtle)',
-            backgroundColor: 'var(--color-activity-rail-background)',
             display: 'flex',
             alignItems: 'center',
             gap: 12,
+            backgroundColor: 'var(--color-panel-header-background, var(--color-panel-background))',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -208,7 +206,7 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
           </div>
         </div>
 
-        {/* Panel body */}
+        {/* Panel body (flex:1 so the rail can sit below) */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', backgroundColor: 'var(--color-panel-background)' }}>
           <Suspense fallback={
             <div style={{ padding: 12 }}>
@@ -223,6 +221,26 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
               <PanelComponent />
             </div>
           </Suspense>
+        </div>
+
+        {/* Bottom-attached activity rail for this panel.
+            - Renders immediately below the panel content.
+            - Matches panel width because it's inside the same container.
+            - No rounded decoration; visual language delegated to CSS tokens.
+        */}
+        <div
+          style={{
+            flex: '0 0 auto',
+            borderTop: '1px solid var(--color-divider-subtle)',
+            background: 'var(--color-activity-rail-background)',
+            padding: '6px 8px',
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          aria-hidden
+        >
+          <ActivityRail orientation="bottom" compact={true} side={side} />
         </div>
       </div>
 

@@ -160,33 +160,7 @@ export function AppShell() {
       </div>
       
 
-      {/* Global bottom activity rail — rendered outside panels so it's visually separate */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          pointerEvents: 'none',
-          zIndex: 40,
-        }}
-        aria-hidden
-      >
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 12, pointerEvents: 'auto' }}>
-          <div
-            style={{
-              width: 'calc(100% - 64px)',
-              maxWidth: 1200,
-              borderRadius: 0,
-              background: 'var(--color-activity-rail-background)',
-              borderTop: '1px solid var(--color-border)',
-              padding: '6px 10px',
-            }}
-          >
-            <ActivityRail orientation="bottom" compact={true} side="both" />
-          </div>
-        </div>
-      </div>
+      {/* Global activity rail removed — rail is rendered per‑panel directly under the panel */}
 
       {/* Status Bar */}
       <StatusBar />

@@ -65,62 +65,27 @@ export function ActivityRail({
       : activeRightPanel === activityId && isRightPanelVisible;
   };
 
-  // HORIZONTAL bottom-oriented bar (compact) — refined, theme-aware, icons-only with sticky footer
+  // HORIZONTAL bottom-oriented bar (compact) — icons-only, minimal styling
   if (orientation === 'bottom' || orientation === 'horizontal') {
     return (
-      <TooltipProvider delayDuration={200}>
+      <TooltipProvider delayDuration={180}>
         <div
           className={cn('w-full flex items-center justify-center', className)}
           style={{
-            height: compact ? 48 : 64,
+            height: compact ? 40 : 48,
             display: 'flex',
-            gap: 8,
-            padding: compact ? '6px 8px' : '8px 12px',
+            gap: 6,
+            padding: compact ? '4px 6px' : '6px 8px',
             boxSizing: 'border-box',
-            background: 'var(--color-panel-elevated)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 12,
+            background: 'transparent',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'center',
             width: '100%',
           }}
           role="toolbar"
           aria-label="Panel activity rail"
         >
-          {/* Left: active file pill (icons + name) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            {activeFileName ? (
-              <button
-                onClick={() => { 
-                  // Open explorer so user can see file location
-                  useWorkbenchStore.getState().activateLeftPanel('explorer');
-                  useWorkbenchStore.getState().setLeftPanelWidth(Math.max(220, useWorkbenchStore.getState().leftPanelWidth));
-                }}
-                title={activeFileName}
-                className="flex items-center gap-2"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 10px',
-                  borderRadius: 10,
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                }}
-                data-no-drag="true"
-              >
-                {activeFileIcon ? <Icon name={activeFileIcon as any} size={14} /> : <Icon name="file" size={14} />}
-                <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text-primary)', fontSize: 13 }}>
-                  {activeFileName}
-                </span>
-              </button>
-            ) : null}
-          </div>
-
-          {/* Center: primary actions */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', width: '100%' }}>
             {primaryActivities.map((activity) => {
               const active = isActive(activity.id, activity.side);
               return (
@@ -137,59 +102,60 @@ export function ActivityRail({
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: active ? 'var(--color-selected-background)' : 'transparent',
-                        border: active ? `1px solid var(--color-border)` : '1px solid transparent',
+                        background: 'transparent',
+                        border: 'none',
                         color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                        boxShadow: active ? '0 10px 28px var(--color-accent-glow)' : 'none',
+                        boxShadow: 'none',
                         cursor: 'pointer',
-                        transition: 'all 140ms ease',
-                        padding: 6,
+                        transition: 'color 140ms ease',
+                        padding: 4,
                       }}
                     >
                       <Icon name={activity.icon as any} size={16} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="border bg-panel shadow-lg" />
+                  <TooltipContent side="top" className="border bg-panel shadow-sm" />
                 </Tooltip>
               );
             })}
           </div>
 
-          {/* Right: utility icons */}
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', minWidth: 120 }}>
-            {utilityActivities.map((activity) => {
-              const active = isActive(activity.id, activity.side);
-              return (
-                <Tooltip key={activity.id}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => togglePanel(activity.id)}
-                      aria-label={activity.label}
-                      data-no-drag="true"
-                      style={{
-                        width: utilitySize,
-                        height: utilitySize,
-                        borderRadius: utilityRadius,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: active ? 'var(--color-accent)' : 'transparent',
-                        color: active ? 'var(--color-text-on-accent)' : 'var(--color-text-secondary)',
-                        border: active ? '1px solid var(--color-border)' : '1px solid transparent',
-                        boxShadow: active ? '0 6px 18px var(--color-accent-glow)' : 'none',
-                        cursor: 'pointer',
-                        transition: 'all 140ms ease',
-                        padding: 6,
-                      }}
-                    >
-                      <Icon name={activity.icon as any} size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="border bg-panel shadow-lg" />
-                </Tooltip>
-              );
-            })}
-          </div>
+          {/* compact utilities are rendered but without extra decoration */}
+          {utilityActivities.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
+              {utilityActivities.map((activity) => {
+                const active = isActive(activity.id, activity.side);
+                return (
+                  <Tooltip key={activity.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => togglePanel(activity.id)}
+                        aria-label={activity.label}
+                        data-no-drag="true"
+                        style={{
+                          width: utilitySize,
+                          height: utilitySize,
+                          borderRadius: utilityRadius,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'transparent',
+                          border: 'none',
+                          color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                          cursor: 'pointer',
+                          transition: 'color 140ms ease',
+                          padding: 4,
+                        }}
+                      >
+                        <Icon name={activity.icon as any} size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="border bg-panel shadow-sm" />
+                  </Tooltip>
+                );
+              })}
+            </div>
+          )}
         </div>
       </TooltipProvider>
     );
