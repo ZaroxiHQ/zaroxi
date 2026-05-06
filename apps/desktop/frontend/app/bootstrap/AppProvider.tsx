@@ -5,7 +5,6 @@ import { KeyboardShortcutsProvider } from '@/lib/keyboard/KeyboardShortcutsProvi
 import { FontLoader } from './FontLoader';
 import { ThemeProvider } from '@/lib/theme/ThemeProvider';
 import { useWorkbenchStore } from '@/features/workbench/store/workbenchStore';
-import '@/styles/tokens.css';
 
 // Check if we're running in Tauri
 const isTauri = typeof window !== 'undefined' && '__TAURI__' in window;
