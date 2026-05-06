@@ -18,7 +18,7 @@ interface TopBarProps {
  */
 export function TopBar({ className }: TopBarProps) {
   const layoutMode = useLayoutMode();
-  const { togglePanel, activityRailDock, setActivityRailDock } = useWorkbenchStore();
+  const { togglePanel, activityRailDock, setActivityRailDock, activateLeftPanel } = useWorkbenchStore();
   const [isMaximized, setIsMaximized] = useState(false);
   const [isTauriEnv, setIsTauriEnv] = useState(false);
 
@@ -96,31 +96,48 @@ export function TopBar({ className }: TopBarProps) {
         {!isMac && <MenuBar />}
       </div>
 
-      {/* Center: Tab strip */}
+      {/* Center: Compact search input (opens Search panel). Tabs moved out of top bar. */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', paddingLeft: 12, paddingRight: 12 }}>
         <div
           style={{
             width: '100%',
-            maxWidth: 980,
+            maxWidth: 760,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
             padding: '6px 10px',
             borderRadius: 10,
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.01), rgba(0,0,0,0.02))',
-            border: '1px solid transparent',
+            background: 'var(--color-panel-header-background, linear-gradient(180deg, rgba(255,255,255,0.01), rgba(0,0,0,0.02)))',
+            border: '1px solid var(--color-border)',
           }}
           data-no-drag={isTauriEnv ? 'true' : undefined}
         >
-          <TabStrip />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+            <Icon name="search" size={14} />
+            <input
+              type="search"
+              placeholder="Search files, symbols and text (Ctrl+Shift+F)"
+              onFocus={() => activateLeftPanel('search')}
+              className="w-full bg-transparent outline-none"
+              style={{
+                color: 'var(--color-text-primary)',
+                fontSize: 13,
+                padding: '6px 4px',
+                border: 'none',
+                background: 'transparent',
+              }}
+              aria-label="Search workspace"
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Ctrl+Shift+F</div>
+          </div>
         </div>
       </div>
 
       {/* Right: actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
-        <button onClick={() => togglePanel('search')} title="Search" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
-          <Icon name="search" size={16} />
-        </button>
 
         <button onClick={() => togglePanel('git')} title="Source Control" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
           <Icon name="git-branch" size={16} />
