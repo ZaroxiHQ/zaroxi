@@ -101,22 +101,23 @@ export function TopBar({ className }: TopBarProps) {
 
       {/* Right: actions (compact search moved here on the right side) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
-        {/* Compact search input (right side) */}
+        {/* Compact search input (right side) - reduced height and width for a tighter rhythm */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 8,
-            padding: '4px 8px',
+            padding: '2px 6px',
             borderRadius: 8,
             background: 'var(--color-panel-header-background)',
             border: '1px solid var(--color-border)',
-            minWidth: 180,
-            maxWidth: 320,
+            minWidth: 120,
+            maxWidth: 220,
+            height: 32,
           }}
           data-no-drag={isTauriEnv ? 'true' : undefined}
         >
-          <Icon name="search" size={14} />
+          <Icon name="search" size={12} />
           <input
             type="search"
             placeholder="Search (Ctrl+Shift+F)"
@@ -124,22 +125,20 @@ export function TopBar({ className }: TopBarProps) {
             className="bg-transparent outline-none"
             style={{
               color: 'var(--color-text-primary)',
-              fontSize: 13,
-              padding: '4px 6px',
+              fontSize: 12,
+              padding: '2px 4px',
               border: 'none',
               background: 'transparent',
-              width: '160px',
-              minWidth: '120px',
+              width: '120px',
+              minWidth: '100px',
+              height: '100%',
             }}
             aria-label="Search workspace"
             data-no-drag="true"
           />
         </div>
 
-        <button onClick={() => togglePanel('git')} title="Source Control" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
-          <Icon name="git-branch" size={16} />
-        </button>
-
+        {/* Assistant quick-action (kept) */}
         <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
           <Icon name="assistant" size={16} />
         </button>

@@ -40,7 +40,16 @@ export function ActivityRail({
     togglePanel,
   } = useWorkbenchStore();
 
-  const activities = getAvailableActivities().filter(a => (side === 'both' ? true : a.side === side)).filter(a => a.id !== 'search');
+  // Determine activities to render. Normally we scope by side, but for bottom rails
+  // include the AI assistant as a global quick-action so it is always accessible.
+  let activities = getAvailableActivities().filter(a => (side === 'both' ? true : a.side === side)).filter(a => a.id !== 'search');
+
+  if (orientation === 'bottom' && side !== 'both') {
+    const assistantItem = getAvailableActivities().find(a => a.id === 'assistant');
+    if (assistantItem && !activities.find(a => a.id === 'assistant')) {
+      activities = [...activities, assistantItem];
+    }
+  }
 
   // Active file from workspace (for file pill in panel footer)
   const { explorerUI } = useWorkspaceStore();
