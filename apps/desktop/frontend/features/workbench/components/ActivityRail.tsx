@@ -106,11 +106,12 @@ export function ActivityRail({
                         justifyContent: 'center',
                         background: active ? 'var(--color-panel-background)' : 'transparent',
                         border: active ? `1px solid var(--color-border)` : 'none',
-                        color: active ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                        boxShadow: active ? '0 8px 20px var(--color-accent-glow)' : 'none',
+                        color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
+                        boxShadow: active ? '0 6px 18px rgba(2,6,23,0.6)' : 'none',
                         cursor: 'pointer',
                         transition: 'all 140ms ease',
                         padding: 4,
+                        ariaPressed: active ? 'true' : 'false',
                       }}
                     >
                       <Icon name={activity.icon as any} size={16} />
