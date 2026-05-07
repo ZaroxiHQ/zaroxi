@@ -7,7 +7,7 @@ export default function SearchPanel() {
             <input
               type="text"
               placeholder="Search files, text, or symbols..."
-              className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full px-2 py-1 text-xs border border-input rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <div className="absolute right-2 top-2 text-xs text-muted-foreground">
               Ctrl+Shift+F
