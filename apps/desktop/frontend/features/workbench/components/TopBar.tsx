@@ -81,7 +81,7 @@ export function TopBar({ className }: TopBarProps) {
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
       {/* LEFT ZONE — brand + optional menu */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '0 0 auto' }}>
         <div
           style={{
             width: 32,
@@ -147,8 +147,9 @@ export function TopBar({ className }: TopBarProps) {
               borderRadius: 8,
               background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: 160,
+              minWidth: 0,
               maxWidth: 360,
+              flex: '0 1 auto',
             }}
             data-no-drag={isTauriEnv ? 'true' : undefined}
           >
@@ -163,8 +164,10 @@ export function TopBar({ className }: TopBarProps) {
                 fontSize: 13,
                 border: 'none',
                 width: '100%',
-                minWidth: 120,
+                minWidth: 40,
                 height: 28,
+                flex: '1 1 auto',
+                boxSizing: 'border-box',
               }}
               aria-label="Search workspace"
               data-no-drag="true"

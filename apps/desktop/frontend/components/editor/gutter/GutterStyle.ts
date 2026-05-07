@@ -5,8 +5,8 @@
  remains the single source of truth. Components should not hardcode colors.
 */
 export const GUTTER_STYLE = {
-  /** Background color of the gutter (subtle distinction from code area) */
-  BACKGROUND: 'var(--color-editor-gutter-background)',
+  /** Background color of the gutter (match editor surface for visual unity) */
+  BACKGROUND: 'var(--color-editor-background)',
   /** Color for line numbers (low contrast) */
   LINE_NUMBER_COLOR: 'var(--color-text-faint)',
   /** Color for the current line number (subtle emphasis) */

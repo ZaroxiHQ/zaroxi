@@ -64,7 +64,8 @@ function getDefaultColors(isDark: boolean): SemanticColors {
       error: '#F44336',
       info: '#5B8CFF',
       focus_ring: 'rgba(91,140,255,0.30)',
-      editor_gutter_background: '#252931',
+      // Keep gutter visually consistent with the editor surface
+      editor_gutter_background: '#1E1F24',
       editor_line_highlight: 'rgba(255,255,255,0.03)',
       editor_cursor: '#E6EAF2',
       editor_selection: 'rgba(91,140,255,0.22)',
@@ -117,7 +118,8 @@ function getDefaultColors(isDark: boolean): SemanticColors {
       error: '#C62828',
       info: '#426EDB',
       focus_ring: 'rgba(66,110,219,0.25)',
-      editor_gutter_background: '#F0EEE8',
+      // Keep gutter visually consistent with the editor surface
+      editor_gutter_background: '#FBFAF7',
       editor_line_highlight: 'rgba(66,110,219,0.03)',
       editor_cursor: '#22262B',
       editor_selection: 'rgba(66,110,219,0.14)',
