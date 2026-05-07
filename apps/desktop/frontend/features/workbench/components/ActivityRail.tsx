@@ -99,16 +99,23 @@ export function ActivityRail({
     // combine primary + utility into a single ordered list for uniform spacing
     const allActivities = [...primaryActivities, ...utilityActivities];
 
+    // Detect whether any activity in this rail is currently active (open).
+    const panelHasActive = allActivities.some((a) => isActive(a.id, a.side));
+
+    // thin top strip height that will visually blend with the panel when active
+    const topStripHeight = effectiveCompact ? 4 : 6;
+
     return (
       <TooltipProvider delayDuration={180}>
         <div
           className={cn('w-full flex items-center', className)}
           style={{
-            height: compact ? 36 : 44,
+            position: 'relative', // needed for the absolute top strip
+            height: compact ? 36 + topStripHeight : 44 + topStripHeight,
             display: 'flex',
             // use space-evenly so icons are distributed consistently across the panel width
             justifyContent: 'space-evenly',
-            padding: compact ? '2px 6px' : '4px 8px',
+            padding: compact ? `${2 + topStripHeight}px 6px 2px` : `${4 + topStripHeight}px 8px 4px`,
             boxSizing: 'border-box',
             // PanelHost supplies the rail surface; this container stays transparent so it stretches edge-to-edge.
             background: 'transparent',
@@ -118,6 +125,21 @@ export function ActivityRail({
           role="toolbar"
           aria-label="Panel activity rail"
         >
+          {/* Top strip: when any activity in this rail is active, blend strip with the panel color.
+              This creates an immediate visual connection between the open panel and its rail. */}
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: topStripHeight,
+              background: panelHasActive ? 'var(--color-panel-background)' : 'transparent',
+              pointerEvents: 'none',
+            }}
+          />
+
           {allActivities.map((activity) => {
             const active = isActive(activity.id, activity.side);
             const isUtility = activity.position === 'bottom';
