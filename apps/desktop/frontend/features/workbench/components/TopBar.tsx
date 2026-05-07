@@ -102,10 +102,49 @@ export function TopBar({ className }: TopBarProps) {
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* LEFT ZONE — brand + hamburger/menu */}
+      {/* LEFT ZONE — brand + hamburger/menu (hamburger only on medium/half‑screen) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        {/* Optional hamburger shown for medium/narrow layouts */}
-        {(layoutMode === 'narrow' || layoutMode === 'medium') && (
+        {/* Brand icon (always shown) */}
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 8,
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            flex: '0 0 auto',
+          }}
+          aria-hidden
+        >
+          <Icon name="star" size={14} />
+        </div>
+
+        {/* Brand name — only visible on wide layouts to avoid truncation in half/stacked modes */}
+        <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {layoutMode === 'wide' && (
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: 14,
+                color: 'var(--color-text-primary)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: brandMaxWidth,
+              }}
+              title="Zaroxi Studio"
+            >
+              Zaroxi Studio
+            </div>
+          )}
+        </div>
+
+        {/* Hamburger menu: only on medium (half‑screen) as requested.
+            Placed after the brand so it feels connected to the identity. */}
+        {layoutMode === 'medium' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
               ref={menuBtnRef}
@@ -157,40 +196,6 @@ export function TopBar({ className }: TopBarProps) {
           </div>
         )}
 
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 8,
-            border: '1px solid var(--color-border)',
-            background: 'transparent',
-            flex: '0 0 auto',
-          }}
-          aria-hidden
-        >
-          <Icon name="star" size={14} />
-        </div>
-
-        <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto' }}>
-          <div
-            style={{
-              fontWeight: 600,
-              fontSize: 14,
-              color: 'var(--color-text-primary)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: brandMaxWidth,
-            }}
-            title="Zaroxi Studio"
-          >
-            Zaroxi Studio
-          </div>
-        </div>
-
         {/* On wide layouts show the full MenuBar inline (desktop) */}
         {!isMac && layoutMode === 'wide' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
       </div>
@@ -223,9 +228,9 @@ export function TopBar({ className }: TopBarProps) {
               borderRadius: 8,
               background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: 120,
-              maxWidth: 360,
-              flex: '0 1 220px',
+              minWidth: layoutMode === 'medium' ? 120 : 160,
+              maxWidth: layoutMode === 'medium' ? 220 : 360,
+              flex: '0 1 auto',
               boxSizing: 'border-box',
             }}
             data-no-drag={isTauriEnv ? 'true' : undefined}
@@ -233,7 +238,7 @@ export function TopBar({ className }: TopBarProps) {
             <Icon name="search" size={12} />
             <input
               type="search"
-              placeholder="Search (Ctrl+Shift+F)"
+              placeholder="Search"
               onFocus={() => activateLeftPanel('search')}
               className="bg-transparent outline-none"
               style={{
@@ -241,10 +246,11 @@ export function TopBar({ className }: TopBarProps) {
                 fontSize: 13,
                 border: 'none',
                 width: '100%',
-                minWidth: 80,
+                minWidth: 40,
                 height: 28,
                 flex: '1 1 auto',
                 boxSizing: 'border-box',
+                padding: 0,
               }}
               aria-label="Search workspace"
               data-no-drag="true"
