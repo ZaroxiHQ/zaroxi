@@ -32,6 +32,32 @@ export function TopBar({ className }: TopBarProps) {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
 
+  // Track whether the window is at or below half of the current screen width.
+  // The user's request was to show the hamburger specifically when the window
+  // is in a half‑screen tiled state — this heuristic targets that case.
+  const [isHalfScreen, setIsHalfScreen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.innerWidth <= Math.floor(window.screen.width / 2);
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const onResize = () => {
+      try {
+        setIsHalfScreen(window.innerWidth <= Math.floor(window.screen.width / 2));
+      } catch {
+        setIsHalfScreen(false);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    // initialize once
+    onResize();
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Compute popup position so the hamburger popup appears adjacent to the brand/menu button
   useEffect(() => {
     if (!menuOpen || !menuBtnRef.current) return;
@@ -115,7 +141,7 @@ export function TopBar({ className }: TopBarProps) {
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* LEFT ZONE — brand + hamburger/menu (hamburger only on medium/half‑screen) */}
+      {/* LEFT ZONE — brand + hamburger/menu (hamburger only when window is half-screen or narrow) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         {/* Brand icon (always shown) */}
         <div
@@ -135,9 +161,9 @@ export function TopBar({ className }: TopBarProps) {
           <Icon name="star" size={14} />
         </div>
 
-        {/* Brand name — only visible on wide layouts to avoid truncation in half/stacked modes */}
+        {/* Brand name — only visible on wide layouts and when NOT in a half-screen tiled state */}
         <div style={{ minWidth: 0, overflow: 'hidden', flex: '0 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {layoutMode === 'wide' && (
+          {layoutMode === 'wide' && !isHalfScreen && (
             <div
               style={{
                 fontWeight: 600,
@@ -156,9 +182,9 @@ export function TopBar({ className }: TopBarProps) {
           )}
         </div>
 
-        {/* Hamburger menu: only on medium (half‑screen) as requested.
-            Placed after the brand so it feels connected to the identity. */}
-        {layoutMode === 'medium' && (
+        {/* Hamburger menu: only when the window is half-screen OR explicitly narrow.
+            This prevents the hamburger from appearing on full-size "medium" windows. */}
+        {(isHalfScreen || layoutMode === 'narrow') && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
               ref={menuBtnRef}
@@ -213,7 +239,7 @@ export function TopBar({ className }: TopBarProps) {
         )}
 
         {/* On wide layouts show the full MenuBar inline (desktop) */}
-        {!isMac && layoutMode === 'wide' && <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}><MenuBar /></div>}
+        {!isMac && layoutMode === 'wide' && !isHalfScreen && <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}><MenuBar /></div>}
       </div>
 
       {/* CENTER ZONE — reserved spacer (tabs live in editor area) */}
