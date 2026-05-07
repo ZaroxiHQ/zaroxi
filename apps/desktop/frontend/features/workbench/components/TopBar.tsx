@@ -201,11 +201,11 @@ export function TopBar({ className }: TopBarProps) {
           )}
         </div>
 
-        {/* Hamburger menu: show when window is half-screen OR when layoutMode is medium.
+        {/* Hamburger menu: show ONLY when the window is tiled half-screen.
             Placed after the brand so it feels connected to the identity.
             Use an inline SVG for the hamburger so the icon is visible even when icon fonts
             aren't loaded. */}
-        {(isHalfScreen || layoutMode === 'medium') && (
+        {isHalfScreen && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
               ref={menuBtnRef}
