@@ -94,109 +94,69 @@ export function ActivityRail({
       : activeRightPanel === activityId && isRightPanelVisible;
   };
 
-  // HORIZONTAL bottom-oriented bar (compact) — icons-only, minimal styling
-  // Compact height and active visual treatment that visually matches the panel surface.
+  // HORIZONTAL bottom-oriented bar (compact) — icons-only, equal spacing, active blends with panel
   if (orientation === 'bottom' || orientation === 'horizontal') {
+    // combine primary + utility into a single ordered list for uniform spacing
+    const allActivities = [...primaryActivities, ...utilityActivities];
+
     return (
       <TooltipProvider delayDuration={180}>
         <div
-          className={cn('w-full flex items-center justify-center', className)}
+          className={cn('w-full flex items-center', className)}
           style={{
             height: compact ? 36 : 44,
             display: 'flex',
-            gap: 6,
+            // use space-evenly so icons are distributed consistently across the panel width
+            justifyContent: 'space-evenly',
             padding: compact ? '2px 6px' : '4px 8px',
             boxSizing: 'border-box',
-            // The PanelHost provides the rail surface that spans edge-to-edge.
-            // Keep this container transparent so the host background fills the full width.
-            // Buttons themselves render either filled (inactive) or transparent (active)
-            // to indicate which panel is open.
+            // PanelHost supplies the rail surface; this container stays transparent so it stretches edge-to-edge.
             background: 'transparent',
             alignItems: 'center',
-            justifyContent: 'center',
             width: '100%',
           }}
           role="toolbar"
           aria-label="Panel activity rail"
         >
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-            {primaryActivities.map((activity) => {
-              const active = isActive(activity.id, activity.side);
-              return (
-                <Tooltip key={activity.id}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => togglePanel(activity.id)}
-                      aria-label={activity.label}
-                      data-no-drag="true"
-                      style={{
-                        width: primarySize,
-                        height: primarySize,
-                        borderRadius: primaryRadius,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        // Inactive buttons are filled to match the rail surface so they
-                        // visually sit on the rail. The active button is filled with the
-                        // panel surface color so it reads as "open panel".
-                        background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
-                        border: 'none',
-                        color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
-                        boxShadow: 'none',
-                        cursor: 'pointer',
-                        transition: 'color 140ms ease',
-                        padding: 4,
-                        ariaPressed: active ? 'true' : 'false',
-                      }}
-                    >
-                      <Icon name={activity.icon as any} size={16} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="border bg-panel" />
-                </Tooltip>
-              );
-            })}
-          </div>
+          {allActivities.map((activity) => {
+            const active = isActive(activity.id, activity.side);
+            const isUtility = activity.position === 'bottom';
+            const size = isUtility ? utilitySize : primarySize;
+            const radius = isUtility ? utilityRadius : primaryRadius;
+            const iconSize = isUtility ? 14 : 16;
 
-          {/* compact utilities are rendered without extra decoration but still show active color */}
-          {utilityActivities.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
-              {utilityActivities.map((activity) => {
-                const active = isActive(activity.id, activity.side);
-                return (
-                  <Tooltip key={activity.id}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => togglePanel(activity.id)}
-                        aria-label={activity.label}
-                        data-no-drag="true"
-                        style={{
-                          width: utilitySize,
-                          height: utilitySize,
-                          borderRadius: utilityRadius,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          // Inactive buttons are filled to match the rail; active uses the panel surface color.
-                          background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
-                          border: 'none',
-                          color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
-                          boxShadow: 'none',
-                          cursor: 'pointer',
-                          transition: 'color 140ms ease',
-                          padding: 4,
-                          ariaPressed: active ? 'true' : 'false',
-                        }}
-                      >
-                        <Icon name={activity.icon as any} size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="border bg-panel" />
-                  </Tooltip>
-                );
-              })}
-            </div>
-          )}
+            return (
+              <Tooltip key={activity.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => togglePanel(activity.id)}
+                    aria-label={activity.label}
+                    data-no-drag="true"
+                    style={{
+                      width: size,
+                      height: size,
+                      borderRadius: radius,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      // Active button blends with panel background; inactive buttons sit on the rail surface.
+                      background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
+                      border: 'none',
+                      color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
+                      boxShadow: 'none',
+                      cursor: 'pointer',
+                      transition: 'color 120ms ease, background 120ms ease',
+                      padding: 4,
+                      ariaPressed: active ? 'true' : 'false',
+                    }}
+                  >
+                    <Icon name={activity.icon as any} size={iconSize} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="border bg-panel" />
+              </Tooltip>
+            );
+          })}
         </div>
       </TooltipProvider>
     );
