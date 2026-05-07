@@ -208,7 +208,7 @@ export function TopBar({ className }: TopBarProps) {
                 padding: 6,
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>☰</span>
+              <Icon name="menu" size={16} className="text-primary" />
             </button>
 
             {/* Popup menu rendered when hamburger is open.
