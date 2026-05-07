@@ -242,7 +242,7 @@ export function TopBar({ className }: TopBarProps) {
               boxSizing: 'border-box',
             }}
           >
-            <Icon name="search" size={12} />
+            <Icon name="search" size={11} />
             <input
               type="search"
               placeholder={layoutMode === 'wide' && !isHalfScreen ? 'Search (Ctrl+Shift+F)' : 'Search'}
@@ -250,16 +250,17 @@ export function TopBar({ className }: TopBarProps) {
               className="bg-transparent outline-none"
               style={{
                 color: 'var(--color-text-primary)',
-                fontSize: 12,
+                fontSize: 11,
                 border: 'none',
                 width: '100%',
-                minWidth: 48,
-                height: 28,
+                minWidth: 40,
+                height: 24,
                 flex: '1 1 auto',
                 boxSizing: 'border-box',
-                padding: '0 2px',
+                padding: '0 6px',
               }}
               aria-label="Search workspace"
+              data-no-drag="true"
             />
           </div>
         )}
