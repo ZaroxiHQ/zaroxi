@@ -165,31 +165,6 @@ export function AppShell() {
             the left panel width; when the panel is resized the rail follows since it reads
             leftPanelWidth from the workbench store.
       */}
-      {showLeftBottomRail && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            bottom: LAYOUT.statusBarHeight,
-            width: isSettingsOpen ? '100%' : leftPanelWidth,
-            zIndex: 40,
-            pointerEvents: 'auto',
-          }}
-          aria-hidden
-        >
-          <div
-            style={{
-              width: '100%',
-              boxSizing: 'border-box',
-              borderTop: '1px solid var(--color-border)',
-              background: 'var(--color-activity-rail-background)',
-              padding: isSettingsOpen ? '6px 12px' : '4px 6px',
-            }}
-          >
-            <ActivityRail orientation="bottom" compact={true} side={isSettingsOpen ? 'both' : 'left'} />
-          </div>
-        </div>
-      )}
 
       {/* Status Bar */}
       <StatusBar />
