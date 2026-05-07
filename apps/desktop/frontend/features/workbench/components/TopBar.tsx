@@ -32,13 +32,20 @@ export function TopBar({ className }: TopBarProps) {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
 
-  // Heuristic: consider the window "half-screen" only when it's clearly <= 50% of the
-  // primary display width. We add a small tolerance to avoid false positives on some WMs.
+  // Determine whether the app window is effectively tiled to half the screen.
+  // Use the display's availWidth when available and include a small tolerance so
+  // common tiling/tiling-with-panels don't prevent detection. This is intentionally
+  // robust across different WMs and monitor setups.
   const [isHalfScreen, setIsHalfScreen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      const screenWidth = (window.screen && window.screen.width) || window.outerWidth || 0;
-      return screenWidth > 0 && window.innerWidth <= Math.floor(screenWidth * 0.51);
+      const screenWidth =
+        (window.screen && (window.screen.availWidth || window.screen.width)) ||
+        window.outerWidth ||
+        window.innerWidth ||
+        0;
+      const threshold = Math.max(1, Math.floor(screenWidth / 2) + 12); // 12px tolerance
+      return window.innerWidth <= threshold;
     } catch {
       return false;
     }
@@ -47,16 +54,27 @@ export function TopBar({ className }: TopBarProps) {
   useEffect(() => {
     const onResize = () => {
       try {
-        const screenWidth = (window.screen && window.screen.width) || window.outerWidth || 0;
-        setIsHalfScreen(screenWidth > 0 && window.innerWidth <= Math.floor(screenWidth * 0.51));
+        const screenWidth =
+          (window.screen && (window.screen.availWidth || window.screen.width)) ||
+          window.outerWidth ||
+          window.innerWidth ||
+          0;
+        const threshold = Math.max(1, Math.floor(screenWidth / 2) + 12);
+        setIsHalfScreen(window.innerWidth <= threshold);
       } catch {
         setIsHalfScreen(false);
       }
     };
+
     window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
     // initialize once
     onResize();
-    return () => window.removeEventListener('resize', onResize);
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
   }, []);
 
   // Compute popup position so the hamburger popup appears adjacent to the brand/menu button
