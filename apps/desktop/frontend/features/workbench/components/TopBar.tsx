@@ -109,7 +109,7 @@ export function TopBar({ className }: TopBarProps) {
       className={cn('select-none', className)}
       style={{
         display: 'grid',
-        gridTemplateColumns: 'auto 1fr auto',
+        gridTemplateColumns: 'auto 1fr minmax(160px, 420px)',
         alignItems: 'center',
         gap: 8,
         padding: '6px 10px',
@@ -214,7 +214,7 @@ export function TopBar({ className }: TopBarProps) {
       <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} data-no-drag="true" />
 
       {/* RIGHT ZONE */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', minWidth: 160 }}>
         {/* Search: adapt by layout mode and half-screen */}
         {layoutMode === 'narrow' ? (
           <button
