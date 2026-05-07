@@ -1,28 +1,35 @@
 import { Icon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
 import { useWorkbenchStore } from '../store/workbenchStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { isTauri, getWindowInstance, windowControlActions } from '@/lib/platform/windowControls';
 import { useLayoutMode } from '@/hooks/useLayoutMode';
 import { MenuBar } from './MenuBar';
+import { LAYOUT } from '../config/layoutConstants';
+
+/**
+ * TopBar — compact, responsive 3‑zone layout (left | center | right).
+ *
+ * Goals addressed:
+ * - Brand should not truncate at normal desktop widths.
+ * - Show a hamburger menu on narrow/medium widths that opens the MenuBar as a popup.
+ * - Search input collapses to an icon on narrow layouts and is consistently sized.
+ * - Top bar height aligned with layout constants for consistency.
+ * - Avoid clipping and ensure children can shrink (min-width: 0 where needed).
+ */
 
 interface TopBarProps {
   className?: string;
 }
 
-/**
- * TopBar — polished 3‑zone layout (left | center | right) WITHOUT tabs.
- *
- * Changes:
- * - Removed TabStrip from the top chrome to keep the bar slim, modern and stable.
- * - Center zone is reserved (flexible spacer) so the editor's tab strip renders in the editor area.
- * - Visual polish: slimmer spacing, subtle border and shadow, strictly single‑line layout.
- */
 export function TopBar({ className }: TopBarProps) {
   const layoutMode = useLayoutMode();
   const { togglePanel, activityRailDock, setActivityRailDock, activateLeftPanel } = useWorkbenchStore();
   const [isMaximized, setIsMaximized] = useState(false);
   const [isTauriEnv, setIsTauriEnv] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
 
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('mac');
 
@@ -57,31 +64,99 @@ export function TopBar({ className }: TopBarProps) {
     return () => { mounted = false; };
   }, []);
 
+  useEffect(() => {
+    // Close popup when clicking outside
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuOpen && popupRef.current && !popupRef.current.contains(target) && menuBtnRef.current && !menuBtnRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
+    }
+    window.addEventListener('mousedown', onDocClick);
+    return () => window.removeEventListener('mousedown', onDocClick);
+  }, [menuOpen]);
+
   const handleMinimize = async () => { if (isTauriEnv) await windowControlActions.minimize(); };
   const handleMaximize = async () => { if (isTauriEnv) await windowControlActions.maximize(); };
   const handleClose = async () => { if (isTauriEnv) await windowControlActions.close(); };
+
+  // Determine left column sizing and brand max width based on layout mode
+  const brandMaxWidth = layoutMode === 'wide' ? 360 : layoutMode === 'medium' ? 220 : 140;
 
   return (
     <header
       className={cn('select-none', className)}
       style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(140px, 320px) 1fr minmax(140px, 420px)',
+        gridTemplateColumns: 'minmax(160px, 420px) 1fr minmax(140px, 420px)',
         alignItems: 'center',
-        gap: 12,
-        padding: '6px 12px',
-        height: 44,
+        gap: 10,
+        padding: '4px 10px',
+        height: LAYOUT.topBarHeight,
         background: 'var(--color-title-bar-background)',
         borderBottom: '1px solid var(--color-divider-subtle)',
         boxShadow: 'var(--shadow-subtle)',
         boxSizing: 'border-box',
         whiteSpace: 'nowrap',
-        overflow: 'hidden',
+        overflow: 'visible', // allow popups to be visible
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* LEFT ZONE — brand + optional menu */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '0 0 auto' }}>
+      {/* LEFT ZONE — brand + hamburger/menu */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        {/* Optional hamburger shown for medium/narrow layouts */}
+        {(layoutMode === 'narrow' || layoutMode === 'medium') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              ref={menuBtnRef}
+              onClick={() => setMenuOpen((s) => !s)}
+              aria-expanded={menuOpen}
+              aria-label="Menu"
+              data-no-drag="true"
+              style={{
+                width: 34,
+                height: 34,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 8,
+                background: 'transparent',
+                border: '1px solid transparent',
+                color: 'var(--color-text-secondary)',
+                flex: '0 0 auto',
+                padding: 6,
+              }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1 }}>☰</span>
+            </button>
+
+            {/* Popup menu rendered when hamburger is open */}
+            {menuOpen && (
+              <div
+                ref={popupRef}
+                style={{
+                  position: 'absolute',
+                  top: LAYOUT.topBarHeight + 6,
+                  left: 8,
+                  zIndex: 80,
+                  minWidth: 220,
+                  maxWidth: 480,
+                  background: 'var(--color-panel-background)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 8,
+                  boxShadow: 'var(--shadow-subtle)',
+                  overflow: 'hidden',
+                }}
+                data-no-drag="true"
+              >
+                <div style={{ padding: 8 }}>
+                  <MenuBar />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div
           style={{
             width: 32,
@@ -99,7 +174,7 @@ export function TopBar({ className }: TopBarProps) {
           <Icon name="star" size={14} />
         </div>
 
-        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto' }}>
           <div
             style={{
               fontWeight: 600,
@@ -108,7 +183,7 @@ export function TopBar({ className }: TopBarProps) {
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              maxWidth: 220,
+              maxWidth: brandMaxWidth,
             }}
             title="Zaroxi Studio"
           >
@@ -116,24 +191,25 @@ export function TopBar({ className }: TopBarProps) {
           </div>
         </div>
 
-        {/* Menu hidden on narrow */}
-        {!isMac && layoutMode !== 'narrow' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
+        {/* On wide layouts show the full MenuBar inline (desktop) */}
+        {!isMac && layoutMode === 'wide' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
       </div>
 
-      {/* CENTER ZONE — reserved spacer (tabs moved into editor area for a cleaner chrome) */}
+      {/* CENTER ZONE — reserved spacer (tabs live in editor area) */}
       <div style={{ minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }} data-no-drag="true">
-        {/* Intentionally empty: editor renders the tab strip inside the editor area for better composition */}
+        {/* intentionally empty */}
       </div>
 
       {/* RIGHT ZONE — search / actions / window controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', minWidth: 0 }}>
+        {/* Search: icon on narrow, compact input on medium, full input on wide */}
         {layoutMode === 'narrow' ? (
           <button
             onClick={() => activateLeftPanel('search')}
             aria-label="Open search"
             data-no-drag={isTauriEnv ? 'true' : undefined}
             className="p-2 rounded"
-            style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)' }}
+            style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)', flex: '0 0 auto' }}
           >
             <Icon name="search" size={14} />
           </button>
@@ -147,9 +223,10 @@ export function TopBar({ className }: TopBarProps) {
               borderRadius: 8,
               background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: 0,
+              minWidth: 120,
               maxWidth: 360,
-              flex: '0 1 auto',
+              flex: '0 1 220px',
+              boxSizing: 'border-box',
             }}
             data-no-drag={isTauriEnv ? 'true' : undefined}
           >
@@ -164,7 +241,7 @@ export function TopBar({ className }: TopBarProps) {
                 fontSize: 13,
                 border: 'none',
                 width: '100%',
-                minWidth: 40,
+                minWidth: 80,
                 height: 28,
                 flex: '1 1 auto',
                 boxSizing: 'border-box',
