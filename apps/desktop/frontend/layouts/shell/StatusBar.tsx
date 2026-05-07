@@ -37,12 +37,12 @@ function detectLanguageExtension(path: string): string | undefined {
 }
 
 /**
- * StatusBar — responsive and prioritized.
+ * StatusBar — non‑wrapping, prioritized layout.
  *
- * Strategy:
- * - Left group: workspace name and path (flex: 1, min-width: 0, ellipsis)
- * - Right group: file metadata with priority ordering; lower priority items hide on narrow layouts
- * - Use useLayoutMode to decide which metadata to hide
+ * Improvements:
+ * - Prevents multi-line wrapping by using no-wrap and truncation.
+ * - Left (primary) and right (metadata) groups both truncate safely.
+ * - Low‑priority metadata hides on narrow layouts.
  */
 export function StatusBar({ className }: StatusBarProps) {
   const { currentWorkspace, isLoading, explorerUI } = useWorkspaceStore();
@@ -93,16 +93,18 @@ export function StatusBar({ className }: StatusBarProps) {
         paddingLeft: 12,
         paddingRight: 12,
         gap: 8,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
       }}
       role="contentinfo"
     >
       {/* LEFT: Workspace info (primary) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 0', overflow: 'hidden' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
             {currentWorkspace ? currentWorkspace.name : 'No workspace'}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
             {currentWorkspace ? currentWorkspace.rootPath.split('/').pop() : ''}
           </div>
         </div>
@@ -116,7 +118,7 @@ export function StatusBar({ className }: StatusBarProps) {
       </div>
 
       {/* RIGHT: File metadata (priority-based) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, justifyContent: 'flex-end', overflow: 'hidden' }}>
         {/* Filename (always shown when available) */}
         <div style={{ minWidth: 0, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath ?? undefined}>
           <span style={{ fontSize: 12, fontWeight: 600, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -126,10 +128,10 @@ export function StatusBar({ className }: StatusBarProps) {
 
         {/* Core metadata - visible on medium+ */}
         {!isNarrow && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 1 }}>
-            <span style={{ fontSize: 11, minWidth: 0 }}>{languageLabel ?? 'Plain Text'}</span>
-            <span style={{ fontSize: 11 }}>{isMedium ? 'UTF-8' : ''}</span>
-            <span style={{ fontSize: 11 }}>{isMedium ? 'LF' : ''}</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
+            <span style={{ fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{languageLabel ?? 'Plain Text'}</span>
+            {isMedium && <span style={{ fontSize: 11 }}>UTF-8</span>}
+            {isMedium && <span style={{ fontSize: 11 }}>LF</span>}
           </div>
         )}
 

@@ -285,7 +285,9 @@ impl SemanticColors {
             focus_ring: Color::from_rgba(0.36, 0.55, 1.0, 0.30), // Focus ring
 
             // Editor specific
-            editor_gutter_background: Color::from_hex("#252931"), // Gutter matches panels
+            // Make gutter background match the editor background so the gutter visually
+            // blends with the code surface (requested UX refinement).
+            editor_gutter_background: Color::from_hex("#1E1F24"), // Use editor_background
             editor_line_highlight: Color::from_rgba(1.0, 1.0, 1.0, 0.03), // Line highlight
             editor_cursor: Color::from_hex("#E6EAF2"),            // Cursor matches primary text
             editor_selection: Color::from_rgba(0.36, 0.55, 1.0, 0.22), // Editor selection
@@ -384,7 +386,8 @@ impl SemanticColors {
             focus_ring: Color::from_rgba(0.26, 0.43, 0.86, 0.25), // Focus ring
 
             // Editor specific
-            editor_gutter_background: Color::from_hex("#F0EEE8"), // Gutter matches panels
+            // Make gutter background match the editor background for visual consistency.
+            editor_gutter_background: Color::from_hex("#FBFAF7"), // Use editor_background
             editor_line_highlight: Color::from_rgba(0.26, 0.43, 0.86, 0.03), // Line highlight
             editor_cursor: Color::from_hex("#22262B"),            // Cursor matches primary text
             editor_selection: Color::from_rgba(0.26, 0.43, 0.86, 0.14), // Editor selection

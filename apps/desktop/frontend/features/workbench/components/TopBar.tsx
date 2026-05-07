@@ -5,23 +5,18 @@ import { useEffect, useState } from 'react';
 import { isTauri, getWindowInstance, windowControlActions } from '@/lib/platform/windowControls';
 import { useLayoutMode } from '@/hooks/useLayoutMode';
 import { MenuBar } from './MenuBar';
-import { TabStrip } from '@/features/tabs/TabStrip';
 
 interface TopBarProps {
   className?: string;
 }
 
 /**
- * TopBar — responsive 3‑zone layout (left | center | right).
+ * TopBar — polished 3‑zone layout (left | center | right) WITHOUT tabs.
  *
- * Strategy:
- * - Use CSS grid with three columns:
- *   left: minmax(120px, 320px)
- *   center: 1fr (min-width: 0 so it can shrink)
- *   right: minmax(120px, 420px)
- * - Center contains TabStrip; it uses overflow-x auto so tabs never break layout.
- * - Right zone holds search and compact actions; on narrow layouts the search collapses to icon.
- * - Left zone contains brand + optional menu; keeps min/max width to avoid pushing other zones.
+ * Changes:
+ * - Removed TabStrip from the top chrome to keep the bar slim, modern and stable.
+ * - Center zone is reserved (flexible spacer) so the editor's tab strip renders in the editor area.
+ * - Visual polish: slimmer spacing, subtle border and shadow, strictly single‑line layout.
  */
 export function TopBar({ className }: TopBarProps) {
   const layoutMode = useLayoutMode();
@@ -80,6 +75,8 @@ export function TopBar({ className }: TopBarProps) {
         borderBottom: '1px solid var(--color-divider-subtle)',
         boxShadow: 'var(--shadow-subtle)',
         boxSizing: 'border-box',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
@@ -123,11 +120,9 @@ export function TopBar({ className }: TopBarProps) {
         {!isMac && layoutMode !== 'narrow' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
       </div>
 
-      {/* CENTER ZONE — Tab strip (shrinkable, scrollable) */}
-      <div style={{ minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center' }} data-no-drag="true">
-        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-          <TabStrip />
-        </div>
+      {/* CENTER ZONE — reserved spacer (tabs moved into editor area for a cleaner chrome) */}
+      <div style={{ minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }} data-no-drag="true">
+        {/* Intentionally empty: editor renders the tab strip inside the editor area for better composition */}
       </div>
 
       {/* RIGHT ZONE — search / actions / window controls */}
