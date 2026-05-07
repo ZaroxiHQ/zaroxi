@@ -127,9 +127,10 @@ export function AppShell() {
       <TopBar />
       
       <div className="flex flex-1 overflow-hidden min-h-0 max-h-full">
-        {/* Left Panel (for all left-side panels except settings) */}
-        {showLeftPanel && (
-          <PanelHost side="left" />
+        {/* Left Panel (always shown when visible). When Settings is open the left panel remains visible
+            but the Explorer is shown inside it (explorer is the default). */}
+        {isLeftPanelVisible && (
+          <PanelHost side="left" overrideActivePanel={activeLeftPanel === 'settings' ? 'explorer' : undefined} />
         )}
         
         {/* Settings are rendered via the left PanelHost so the bottom rail stays attached and persistent. */}

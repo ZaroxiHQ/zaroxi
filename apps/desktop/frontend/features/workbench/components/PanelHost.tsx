@@ -1,5 +1,5 @@
 import { Suspense, useRef, useEffect, useState, useCallback } from 'react';
-import { useWorkbenchStore } from '../store/workbenchStore';
+import { useWorkbenchStore, type PanelId } from '../store/workbenchStore';
 import { getActivityItem } from '../config/activityRegistry';
 import { ActivityRail } from '@/features/workbench/components/ActivityRail';
 import { cn } from '@/lib/utils';
@@ -13,9 +13,10 @@ import { useLayoutMode } from '@/hooks/useLayoutMode';
 interface PanelHostProps {
   className?: string;
   side?: 'left' | 'right';
+  overrideActivePanel?: PanelId | null;
 }
 
-export function PanelHost({ className, side = 'left' }: PanelHostProps) {
+export function PanelHost({ className, side = 'left', overrideActivePanel }: PanelHostProps) {
   const {
     activeLeftPanel,
     activeRightPanel,
@@ -27,7 +28,7 @@ export function PanelHost({ className, side = 'left' }: PanelHostProps) {
     setRightPanelWidth,
   } = useWorkbenchStore();
 
-  const activePanel = side === 'left' ? activeLeftPanel : activeRightPanel;
+  const activePanel = overrideActivePanel ?? (side === 'left' ? activeLeftPanel : activeRightPanel);
   const isVisible = side === 'left' ? isLeftPanelVisible : isRightPanelVisible;
   const panelWidth = side === 'left' ? leftPanelWidth : rightPanelWidth;
 
