@@ -9,46 +9,41 @@ interface StatusBarProps {
 }
 
 /**
- * Simple language detection by file extension.
- * Used in the status bar to show the language mode without an extra bridge call.
+ * Lightweight file extension -> language label detection.
  */
 function detectLanguageExtension(path: string): string | undefined {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   const known: Record<string, string> = {
     rs: 'Rust',
     ts: 'TypeScript',
-    tsx: 'TypeScript JSX',
+    tsx: 'TSX',
     js: 'JavaScript',
-    jsx: 'JavaScript JSX',
-    mjs: 'JavaScript',
-    cjs: 'JavaScript',
+    jsx: 'JSX',
     go: 'Go',
     toml: 'TOML',
     yaml: 'YAML',
     yml: 'YAML',
     json: 'JSON',
-    jsonc: 'JSON with Comments',
     md: 'Markdown',
-    mdx: 'MDX',
     html: 'HTML',
-    htm: 'HTML',
     css: 'CSS',
-    scss: 'SCSS',
-    sass: 'SASS',
-    less: 'Less',
-    styl: 'Stylus',
-    vue: 'Vue',
-    svelte: 'Svelte',
-    c: 'C',
-    h: 'C Header',
     cpp: 'C++',
+    c: 'C',
     java: 'Java',
     py: 'Python',
-    sh: 'Shell Script',
+    sh: 'Shell',
   };
   return known[ext];
 }
 
+/**
+ * StatusBar — responsive and prioritized.
+ *
+ * Strategy:
+ * - Left group: workspace name and path (flex: 1, min-width: 0, ellipsis)
+ * - Right group: file metadata with priority ordering; lower priority items hide on narrow layouts
+ * - Use useLayoutMode to decide which metadata to hide
+ */
 export function StatusBar({ className }: StatusBarProps) {
   const { currentWorkspace, isLoading, explorerUI } = useWorkspaceStore();
   const activeFilePath = explorerUI?.activeFilePath ?? null;
@@ -56,6 +51,7 @@ export function StatusBar({ className }: StatusBarProps) {
 
   const layoutMode = useLayoutMode();
   const isNarrow = layoutMode === 'narrow';
+  const isMedium = layoutMode === 'medium';
 
   useEffect(() => {
     let cancelled = false;
@@ -87,28 +83,26 @@ export function StatusBar({ className }: StatusBarProps) {
 
   return (
     <footer
-      className={cn('flex items-center justify-between px-3 text-[12px] leading-none', className)}
+      className={cn('flex items-center px-3 text-[12px] leading-none', className)}
       style={{
         height: 28,
-        backgroundColor: 'var(--color-status-bar-background, var(--color-panel-background))',
+        backgroundColor: 'var(--color-status-bar-background)',
         borderTop: '0.5px solid var(--color-divider-subtle)',
         color: 'var(--color-text-primary)',
         boxSizing: 'border-box',
         paddingLeft: 12,
         paddingRight: 12,
-        // Allow wrapping and breathing room so content never gets clipped on narrow windows.
-        flexWrap: 'wrap',
         gap: 8,
       }}
       role="contentinfo"
     >
-      {/* Left group: workspace info (always present, ellipsised on small widths) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, overflow: 'hidden', flex: '1 1 0' }}>
+      {/* LEFT: Workspace info (primary) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 0', overflow: 'hidden' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
             {currentWorkspace ? currentWorkspace.name : 'No workspace'}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 280 }}>
             {currentWorkspace ? currentWorkspace.rootPath.split('/').pop() : ''}
           </div>
         </div>
@@ -121,21 +115,26 @@ export function StatusBar({ className }: StatusBarProps) {
         )}
       </div>
 
-      {/* Right group: file + metadata (always present, responsive truncation) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 0', justifyContent: 'flex-end' }}>
-        <div style={{ minWidth: 0, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath ?? undefined}>
+      {/* RIGHT: File metadata (priority-based) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, justifyContent: 'flex-end' }}>
+        {/* Filename (always shown when available) */}
+        <div style={{ minWidth: 0, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath ?? undefined}>
           <span style={{ fontSize: 12, fontWeight: 600, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {activeFilePath ? fileName : 'No file'}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 1 }}>
-          <span style={{ fontSize: 11, minWidth: 0 }}>{languageLabel ?? 'Plain Text'}</span>
-          <span style={{ fontSize: 11 }}>UTF-8</span>
-          <span style={{ fontSize: 11 }}>LF</span>
-        </div>
+        {/* Core metadata - visible on medium+ */}
+        {!isNarrow && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 1 }}>
+            <span style={{ fontSize: 11, minWidth: 0 }}>{languageLabel ?? 'Plain Text'}</span>
+            <span style={{ fontSize: 11 }}>{isMedium ? 'UTF-8' : ''}</span>
+            <span style={{ fontSize: 11 }}>{isMedium ? 'LF' : ''}</span>
+          </div>
+        )}
 
-        {(largeFileIndicator || truncationIndicator) && (
+        {/* Low-priority indicators - only on wide */}
+        {!isNarrow && !isMedium && (largeFileIndicator || truncationIndicator) && (
           <span style={{ color: 'var(--color-warning)', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
             {largeFileIndicator ?? ''}{truncationIndicator ?? ''}
           </span>

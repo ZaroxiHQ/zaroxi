@@ -2,97 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global stylesheet: canonical semantic variables and helpful legacy aliases.
-   - The Rust ThemeProvider sets --color-* tokens at runtime and is authoritative.
-   - This file defines sensible defaults (the Zaroxi palette) and provides
-     compatibility aliases for legacy variable names used across the codebase.
-   - All components should prefer the --color-* tokens (e.g. --color-text-primary).
+/* globals.css — simplified.
+   Remove duplicated hardcoded palette so that the Rust theme (zaroxi-theme)
+   is the single source of truth. This file now provides:
+   - Tailwind integration
+   - Compatibility aliases that reference canonical --color-* properties
+   - Minimal base styles (typography, layer ordering)
 */
 
-/* Canonical semantic tokens (fallbacks match the mockup palette) */
+/* Compatibility aliases for legacy classnames.
+   These intentionally reference the runtime CSS custom properties set by the theme store.
+*/
 :root {
-  /* Surfaces */
-  --color-app-background: #0b1020;
-  --color-outer-shell: #0f1428;
-  --color-panel-main: #12182b;
-  --color-panel-secondary: #161d33;
-  --color-panel-elevated: #1b2340;
-
-  /* Legacy / compatibility aliases (map old variable names to canonical tokens).
-     These make incremental migration safe: components can keep using older
-     variables like --outer-shell or --panel-main while we move everything to
-     --color-* tokens as the definitive source of truth coming from crates.
-  */
-  --outer-shell: var(--color-outer-shell);
-  --panel-main: var(--color-panel-main);
-  --panel-secondary: var(--color-panel-secondary);
-  --panel-elevated: var(--color-panel-elevated);
-  --title-bar-bg: var(--color-title-bar-background, var(--color-outer-shell));
-  --status-bar-background: var(--color-status-bar-background, var(--color-panel-main));
-
-  /* Borders / dividers */
-  --color-border: #27314f;
-  --color-border-highlight: #33406a;
-  --color-divider-subtle: rgba(39,49,79,0.28);
-
-  /* Typography */
-  --color-text-primary: #eef2ff;
-  --color-text-secondary: #b7c0e0;
-  --color-text-muted: #7f89ad;
-  --color-text-disabled: #5c6687;
-
-  /* Accents */
-  --color-accent: #6c63ff;
-  --color-accent-hover: #7c72ff;
-  --color-accent-deep: #5246e5;
-  --color-accent-glow: rgba(108,99,255,0.18);
-  --color-assistant-accent: #8b7dff;
-
-  /* Code semantic */
-  --color-code-blue: #7aa2ff;
-  --color-code-cyan: #79c0ff;
-  --color-code-green: #98c379;
-  --color-code-yellow: #e5c07b;
-  --color-code-orange: #d19a66;
-  --color-code-red: #e06c75;
-
-  /* Status */
-  --color-success: #6dd6a6;
-  --color-warning: #f0b86b;
-
-  /* Layout tokens */
+  --outer-shell: var(--color-shell-background);
+  --panel-main: var(--color-panel-background);
+  --panel-secondary: var(--color-panel-secondary, var(--color-panel-background));
+  --title-bar-bg: var(--color-title-bar-background);
+  --status-bar-background: var(--color-status-bar-background);
   --radius-md: 8px;
   --radius-sm: 6px;
   --spacing-1: 4px;
   --spacing-2: 8px;
   --spacing-3: 12px;
   --spacing-4: 16px;
-
-  /* Shadows */
   --shadow-soft: 0 8px 30px rgba(2,6,23,0.6);
   --shadow-subtle: 0 6px 18px rgba(2,6,23,0.45);
 }
 
-/* Dark class kept for compatibility; ThemeProvider will set --color-* values at runtime */
-.dark {
-  --color-app-background: #0b1020;
-  --color-outer-shell: #0f1428;
-  --color-panel-main: #12182b;
-  --color-panel-secondary: #161d33;
-  --color-panel-elevated: #1b2340;
+/* Base layer: typographic defaults and body surface */
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
 
-  --color-border: #27314f;
-  --color-divider-subtle: rgba(39,49,79,0.28);
+  body {
+    background-color: var(--color-app-background);
+    color: var(--color-text-primary);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-  --color-text-primary: #eef2ff;
-  --color-text-secondary: #b7c0e0;
-  --color-text-muted: #7f89ad;
-  --color-text-disabled: #5c6687;
+  :root {
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    --font-mono: "JetBrains Mono", "Zaroxi Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+    --font-icon: "Zaroxi Mono", "JetBrainsMono Nerd Font Mono", monospace;
+  }
+}
 
-  --color-accent: #6c63ff;
-  --color-accent-hover: #7c72ff;
-  --color-accent-deep: #5246e5;
-  --color-accent-glow: rgba(108,99,255,0.18);
+/* Component primitives referencing canonical tokens */
+@layer components {
+  .bg-app { background-color: var(--color-app-background); }
+  .bg-sidebar { background-color: var(--color-sidebar-background); }
+  .bg-panel { background-color: var(--color-panel-background); }
+  .bg-panel-secondary { background-color: var(--color-panel-secondary); }
+  .bg-panel-elevated { background-color: var(--color-elevated-panel-background); }
+
+  .text-primary { color: var(--color-text-primary); }
+  .text-secondary { color: var(--color-text-secondary); }
+  .text-muted { color: var(--color-text-muted); }
+
+  .border-border { border-color: var(--color-border); }
+  .border-divider-subtle { border-color: var(--color-divider-subtle); }
+
+  .text-accent { color: var(--color-accent); }
+  .bg-accent { background-color: var(--color-accent); }
+  .bg-accent-hover:hover { background-color: var(--color-accent-hover); }
+}
+
+/* Legacy / compatibility aliases used in components */
+@layer utilities {
+  .text-foreground { color: var(--color-text-primary) !important; }
+  .text-muted-foreground { color: var(--color-text-muted) !important; }
+  .bg-muted { background-color: var(--color-panel-secondary) !important; }
+  .bg-sidebar { background-color: var(--color-sidebar-background) !important; }
+  .bg-editor { background-color: var(--color-editor-background) !important; }
+  .bg-activity-rail { background-color: var(--color-activity-rail-background) !important; }
 }
 
 /* Base layer: typographic defaults and body surface */

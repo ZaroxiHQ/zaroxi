@@ -12,9 +12,16 @@ interface TopBarProps {
 }
 
 /**
- * TopBar - compact and premium
- * - Uses canonical --color-* tokens
- * - Tab strip visually connects to editor surface
+ * TopBar — responsive 3‑zone layout (left | center | right).
+ *
+ * Strategy:
+ * - Use CSS grid with three columns:
+ *   left: minmax(120px, 320px)
+ *   center: 1fr (min-width: 0 so it can shrink)
+ *   right: minmax(120px, 420px)
+ * - Center contains TabStrip; it uses overflow-x auto so tabs never break layout.
+ * - Right zone holds search and compact actions; on narrow layouts the search collapses to icon.
+ * - Left zone contains brand + optional menu; keeps min/max width to avoid pushing other zones.
  */
 export function TopBar({ className }: TopBarProps) {
   const layoutMode = useLayoutMode();
@@ -25,8 +32,10 @@ export function TopBar({ className }: TopBarProps) {
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('mac');
 
   useEffect(() => {
+    let mounted = true;
     const checkTauri = async () => {
       const tauriCheck = await isTauri();
+      if (!mounted) return;
       setIsTauriEnv(tauriCheck);
       if (tauriCheck) {
         try {
@@ -50,6 +59,7 @@ export function TopBar({ className }: TopBarProps) {
       }
     };
     checkTauri();
+    return () => { mounted = false; };
   }, []);
 
   const handleMinimize = async () => { if (isTauriEnv) await windowControlActions.minimize(); };
@@ -58,27 +68,23 @@ export function TopBar({ className }: TopBarProps) {
 
   return (
     <header
-      className={cn('flex items-center px-3 select-none', className)}
+      className={cn('select-none', className)}
       style={{
-        height: 44,
-        backgroundColor: 'var(--color-title-bar-background, var(--color-outer-shell))',
-        borderBottom: '1px solid var(--color-divider-subtle)',
-        boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.02)',
+        display: 'grid',
+        gridTemplateColumns: 'minmax(140px, 320px) 1fr minmax(140px, 420px)',
         alignItems: 'center',
         gap: 12,
-        paddingLeft: 12,
-        paddingRight: 12,
+        padding: '6px 12px',
+        height: 44,
+        background: 'var(--color-title-bar-background)',
+        borderBottom: '1px solid var(--color-divider-subtle)',
+        boxShadow: 'var(--shadow-subtle)',
         boxSizing: 'border-box',
-        // Allow overflow so right-side controls never get visually clipped;
-        // keep layout on a single line but allow inner items to shrink.
-        overflow: 'visible',
-        flexWrap: 'nowrap',
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* Left: responsive compact brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-        {/* Logo square — fixed size and non-shrinking so it remains visible on narrow screens */}
+      {/* LEFT ZONE — brand + optional menu */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         <div
           style={{
             width: 32,
@@ -87,17 +93,16 @@ export function TopBar({ className }: TopBarProps) {
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 8,
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.03))',
             border: '1px solid var(--color-border)',
+            background: 'transparent',
+            flex: '0 0 auto',
           }}
           aria-hidden
         >
           <Icon name="star" size={14} />
         </div>
 
-        {/* Brand text — allow shrinking and ellipsising on narrow layouts.
-            We intentionally remove the "Workspace" subtitle per the request. */}
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1, minWidth: 0 }}>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
           <div
             style={{
               fontWeight: 600,
@@ -106,42 +111,34 @@ export function TopBar({ className }: TopBarProps) {
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              maxWidth: layoutMode === 'narrow' ? 120 : 220,
+              maxWidth: 220,
             }}
+            title="Zaroxi Studio"
           >
             Zaroxi Studio
           </div>
         </div>
 
-        {/* MenuBar hidden on narrow layouts to keep the top bar compact and responsive */}
-        {!isMac && layoutMode !== 'narrow' && <MenuBar />}
+        {/* Menu hidden on narrow */}
+        {!isMac && layoutMode !== 'narrow' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
       </div>
 
-      {/* Center: empty spacer (tabs moved out of top bar). */}
-      <div style={{ flex: 1 }} />
+      {/* CENTER ZONE — Tab strip (shrinkable, scrollable) */}
+      <div style={{ minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center' }} data-no-drag="true">
+        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <TabStrip />
+        </div>
+      </div>
 
-      {/* Right: actions (compact search moved here on the right side) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        {/* Compact search: show icon on narrow layouts, full input otherwise.
-            Input area is now flexible and allowed to shrink so the right-side icons never get clipped. */}
+      {/* RIGHT ZONE — search / actions / window controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', minWidth: 0 }}>
         {layoutMode === 'narrow' ? (
           <button
             onClick={() => activateLeftPanel('search')}
             aria-label="Open search"
-            className="p-2 rounded"
             data-no-drag={isTauriEnv ? 'true' : undefined}
-            style={{
-              color: 'var(--color-text-secondary)',
-              background: 'transparent',
-              border: 'none',
-              height: 32,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingLeft: 6,
-              paddingRight: 6,
-              flex: '0 0 auto',
-            }}
+            className="p-2 rounded"
+            style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)' }}
           >
             <Icon name="search" size={14} />
           </button>
@@ -151,14 +148,12 @@ export function TopBar({ className }: TopBarProps) {
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              padding: '2px 6px',
+              padding: '4px 8px',
               borderRadius: 8,
-              background: 'var(--color-panel-header-background)',
+              background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: 120,
-              maxWidth: 220,
-              height: 28,
-              flex: '0 1 auto',
+              minWidth: 160,
+              maxWidth: 360,
             }}
             data-no-drag={isTauriEnv ? 'true' : undefined}
           >
@@ -170,13 +165,11 @@ export function TopBar({ className }: TopBarProps) {
               className="bg-transparent outline-none"
               style={{
                 color: 'var(--color-text-primary)',
-                fontSize: 12,
-                padding: '2px 4px',
+                fontSize: 13,
                 border: 'none',
-                background: 'transparent',
                 width: '100%',
-                minWidth: 80,
-                height: '100%',
+                minWidth: 120,
+                height: 28,
               }}
               aria-label="Search workspace"
               data-no-drag="true"
@@ -184,36 +177,34 @@ export function TopBar({ className }: TopBarProps) {
           </div>
         )}
 
-        {/* Assistant quick-action (kept) */}
-        <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none', flex: '0 0 auto' }} data-no-drag="true">
+        <button onClick={() => togglePanel('assistant')} title="Assistant" aria-label="Assistant" data-no-drag="true" style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)' }}>
           <Icon name="assistant" size={16} />
         </button>
 
-        {/* Activity rail dock toggle (panel / edge) */}
         <button
-          title={`Dock activity rail: ${activityRailDock === 'panel' ? 'panel (inside)' : 'edge (dock)'} - click to toggle`}
+          title={`Dock activity rail: ${activityRailDock === 'panel' ? 'panel' : 'edge'}`}
           onClick={() => setActivityRailDock(activityRailDock === 'panel' ? 'edge' : 'panel')}
-          className="w-8 h-8 flex items-center justify-center rounded"
+          className="rounded p-1"
           data-no-drag="true"
-          style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none', flex: '0 0 auto' }}
+          style={{ background: 'transparent', border: 'none', color: 'var(--color-text-secondary)' }}
         >
-          <Icon name={activityRailDock === 'panel' ? 'pin' : 'pin'} size={13} />
+          <Icon name="pin" size={13} />
         </button>
 
         {isTauriEnv ? (
           <>
-            <button onClick={handleMinimize} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Minimize" data-no-drag="true" style={{ flex: '0 0 auto' }}>
+            <button onClick={handleMinimize} aria-label="Minimize" data-no-drag="true" className="rounded p-1" style={{ background: 'transparent', border: 'none' }}>
               <Icon name="window-minimize" size={12} />
             </button>
-            <button onClick={handleMaximize} className="w-8 h-8 flex items-center justify-center rounded" aria-label={isMaximized ? 'Restore' : 'Maximize'} data-no-drag="true" style={{ flex: '0 0 auto' }}>
+            <button onClick={handleMaximize} aria-label={isMaximized ? 'Restore' : 'Maximize'} data-no-drag="true" className="rounded p-1" style={{ background: 'transparent', border: 'none' }}>
               <Icon name={isMaximized ? 'window-restore' : 'window-maximize'} size={12} />
             </button>
-            <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded hover:bg-hover-bg" aria-label="Close" data-no-drag="true" style={{ flex: '0 0 auto' }}>
+            <button onClick={handleClose} aria-label="Close" data-no-drag="true" className="rounded p-1 hover:bg-hover-bg" style={{ background: 'transparent', border: 'none' }}>
               <Icon name="window-close" size={12} />
             </button>
           </>
         ) : (
-          <button onClick={() => togglePanel('settings')} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Settings" data-no-drag="true" style={{ flex: '0 0 auto' }}>
+          <button onClick={() => togglePanel('settings')} aria-label="Settings" data-no-drag="true" className="rounded p-1" style={{ background: 'transparent', border: 'none' }}>
             <Icon name="settings" size={13} />
           </button>
         )}
