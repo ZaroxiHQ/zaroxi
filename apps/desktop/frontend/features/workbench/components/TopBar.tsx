@@ -32,13 +32,13 @@ export function TopBar({ className }: TopBarProps) {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
 
-  // Track whether the window is at or below half of the current screen width.
-  // The user's request was to show the hamburger specifically when the window
-  // is in a half‑screen tiled state — this heuristic targets that case.
+  // Heuristic: consider the window "half-screen" only when it's clearly <= 50% of the
+  // primary display width. We add a small tolerance to avoid false positives on some WMs.
   const [isHalfScreen, setIsHalfScreen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      return window.innerWidth <= Math.floor(window.screen.width / 2);
+      const screenWidth = (window.screen && window.screen.width) || window.outerWidth || 0;
+      return screenWidth > 0 && window.innerWidth <= Math.floor(screenWidth * 0.51);
     } catch {
       return false;
     }
@@ -47,7 +47,8 @@ export function TopBar({ className }: TopBarProps) {
   useEffect(() => {
     const onResize = () => {
       try {
-        setIsHalfScreen(window.innerWidth <= Math.floor(window.screen.width / 2));
+        const screenWidth = (window.screen && window.screen.width) || window.outerWidth || 0;
+        setIsHalfScreen(screenWidth > 0 && window.innerWidth <= Math.floor(screenWidth * 0.51));
       } catch {
         setIsHalfScreen(false);
       }
@@ -161,9 +162,9 @@ export function TopBar({ className }: TopBarProps) {
           <Icon name="star" size={14} className="text-accent" />
         </div>
 
-        {/* Brand name — visible only on full (wide) screen and hidden when window is tiled half-screen */}
+        {/* Brand name — visible on normal (non half-screen) windows */}
         <div style={{ minWidth: 0, overflow: 'hidden', flex: '0 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {layoutMode === 'wide' && !isHalfScreen && (
+          {!isHalfScreen && layoutMode !== 'narrow' && (
             <div
               style={{
                 fontWeight: 600,
