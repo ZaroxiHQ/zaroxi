@@ -30,6 +30,19 @@ export function TopBar({ className }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
+
+  // Compute popup position so the hamburger popup appears adjacent to the brand/menu button
+  useEffect(() => {
+    if (!menuOpen || !menuBtnRef.current) return;
+    const btn = menuBtnRef.current;
+    const rect = btn.getBoundingClientRect();
+    // Position fixed coordinates so popups aren't clipped by overflow parents
+    setPopupPos({
+      left: Math.max(8, rect.left),
+      top: Math.max(8, rect.bottom + 6),
+    });
+  }, [menuOpen]);
 
   const isMac = typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('mac');
 
@@ -123,7 +136,7 @@ export function TopBar({ className }: TopBarProps) {
         </div>
 
         {/* Brand name — only visible on wide layouts to avoid truncation in half/stacked modes */}
-        <div style={{ minWidth: 0, overflow: 'hidden', flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ minWidth: 0, overflow: 'hidden', flex: '0 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {layoutMode === 'wide' && (
             <div
               style={{
@@ -134,6 +147,7 @@ export function TopBar({ className }: TopBarProps) {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 maxWidth: brandMaxWidth,
+                flex: '0 1 auto',
               }}
               title="Zaroxi Studio"
             >
@@ -145,7 +159,7 @@ export function TopBar({ className }: TopBarProps) {
         {/* Hamburger menu: only on medium (half‑screen) as requested.
             Placed after the brand so it feels connected to the identity. */}
         {layoutMode === 'medium' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
               ref={menuBtnRef}
               onClick={() => setMenuOpen((s) => !s)}
@@ -169,14 +183,16 @@ export function TopBar({ className }: TopBarProps) {
               <span style={{ fontSize: 16, lineHeight: 1 }}>☰</span>
             </button>
 
-            {/* Popup menu rendered when hamburger is open */}
+            {/* Popup menu rendered when hamburger is open.
+                Positioned using fixed coordinates computed from the button's bounding rect
+                so it appears adjacent to the brand instead of stuck to the corner. */}
             {menuOpen && (
               <div
                 ref={popupRef}
                 style={{
-                  position: 'absolute',
-                  top: LAYOUT.topBarHeight + 6,
-                  left: 8,
+                  position: 'fixed',
+                  top: popupPos.top,
+                  left: popupPos.left,
                   zIndex: 80,
                   minWidth: 220,
                   maxWidth: 480,
@@ -197,7 +213,7 @@ export function TopBar({ className }: TopBarProps) {
         )}
 
         {/* On wide layouts show the full MenuBar inline (desktop) */}
-        {!isMac && layoutMode === 'wide' && <div style={{ marginLeft: 8 }}><MenuBar /></div>}
+        {!isMac && layoutMode === 'wide' && <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}><MenuBar /></div>}
       </div>
 
       {/* CENTER ZONE — reserved spacer (tabs live in editor area) */}
