@@ -231,18 +231,19 @@ export function TopBar({ className }: TopBarProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '4px 8px',
-              borderRadius: 8,
+              gap: 6,
+              padding: '2px 6px',
+              borderRadius: 6,
               background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: isHalfScreen ? 120 : 160,
-              maxWidth: layoutMode === 'wide' && !isHalfScreen ? 'clamp(160px, 28vw, 420px)' : isHalfScreen ? 220 : 300,
+              minWidth: isHalfScreen ? 110 : 140,
+              maxWidth: layoutMode === 'wide' && !isHalfScreen ? 'clamp(140px, 24vw, 380px)' : isHalfScreen ? 200 : 280,
               flex: '0 1 auto',
               boxSizing: 'border-box',
+              height: 28, // keep a consistent compact control rhythm
             }}
           >
-            <Icon name="search" size={11} />
+            <Icon name="search" size={10} />
             <input
               type="search"
               placeholder={layoutMode === 'wide' && !isHalfScreen ? 'Search (Ctrl+Shift+F)' : 'Search'}
@@ -253,8 +254,9 @@ export function TopBar({ className }: TopBarProps) {
                 fontSize: 11,
                 border: 'none',
                 width: '100%',
-                minWidth: 40,
-                height: 24,
+                minWidth: 36,
+                height: 20,
+                lineHeight: '20px',
                 flex: '1 1 auto',
                 boxSizing: 'border-box',
                 padding: '0 6px',
