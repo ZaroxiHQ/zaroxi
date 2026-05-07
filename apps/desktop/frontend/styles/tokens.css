@@ -1,228 +1,57 @@
-/* CSS Custom Properties for Zaroxi Theme - Updated for better surface hierarchy */
+/* tokens.css — Minimal token surface.
+   This file intentionally does NOT declare a separate color palette.
+   The canonical theme values are provided by the Rust crate (crates/zaroxi-theme)
+   and are mapped to CSS custom properties at runtime by the frontend theme store.
+   Removing duplicated hardcoded palette definitions prevents drift.
+
+   What this file provides:
+   - Layout helpers that reference the canonical --color-* custom properties.
+   - Small accessibility and utility classes.
+*/
+
+:root {
+  /* Do not hardcode colors here. Theme store will write the values
+     to these custom properties during app startup. */
+}
+
+/* Global layout helpers */
 html, body, #root {
+  height: 100%;
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--color-app-background);
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--color-app-background, #0b0b0b);
+  color: var(--color-text-primary, #ffffff);
 }
 
-/* Default to dark theme to prevent white flash */
-:root {
-  /* Dark theme - Professional IDE with excellent readability */
-  --color-app-background: #1e1e1e;
-  --color-shell-background: #252526;
-  --color-panel-background: #252526;
-  --color-panel-header-background: #2d2d30;
-  --color-elevated-panel-background: #2d2d30;
-  --color-editor-background: #1e1e1e;
-  --color-input-background: #252526;
-  --color-status-bar-background: #007acc;
-  --color-title-bar-background: #3c3c3c;
-  --color-title-bar-foreground: #ffffff;
-  --color-activity-rail-background: #333333;
-  --color-sidebar-background: #252526;
-  --color-tab-background: #2d2d30;
-  --color-tab-active-background: #1e1e1e;
-  --color-assistant-panel-background: #2d2d30;
-  --color-workbench-chrome: #252526;
-  
-  /* High contrast text for dark theme */
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #cccccc;
-  --color-text-muted: #999999;
-  --color-text-faint: #666666;
-  --color-text-on-accent: #ffffff;
-  --color-text-on-surface: #ffffff;
-  --color-text-disabled: #666666;
-  --color-text-link: #4da6ff;
-  
-  /* Clear borders */
-  --color-border: #3c3c3c;
-  --color-border-subtle: rgba(60, 60, 60, 0.7);
-  --color-divider: #3c3c3c;
-  --color-accent: #007acc;
-  --color-accent-hover: #3399ff;
-  --color-accent-soft: rgba(0, 122, 204, 0.2);
-  --color-accent-soft-background: rgba(0, 122, 204, 0.1);
-  
-  /* Visible states */
-  --color-hover-background: rgba(255, 255, 255, 0.1);
-  --color-active-background: rgba(255, 255, 255, 0.15);
-  --color-selected-background: rgba(0, 122, 204, 0.2);
-  --color-selected-text-background: rgba(0, 122, 204, 0.3);
-  --color-selected-editor-background: rgba(0, 122, 204, 0.25);
-  
-  --color-success: #4caf50;
-  --color-warning: #ff9800;
-  --color-error: #f44336;
-  --color-info: #2196f3;
-  
-  --color-focus-ring: rgba(0, 122, 204, 0.4);
-  
-  /* Editor-specific - VS Code-like */
-  --color-editor-gutter-background: #1e1e1e;
-  --color-editor-line-highlight: rgba(255, 255, 255, 0.05);
-  --color-editor-cursor: #ffffff;
-  --color-editor-selection: rgba(0, 122, 204, 0.3);
-  --color-editor-find-highlight: rgba(255, 152, 0, 0.3);
-  
-  --color-syntax-keyword: #569cd6;
-  --color-syntax-function: #dcdcaa;
-  --color-syntax-string: #ce9178;
-  --color-syntax-comment: #6a9955;
-  --color-syntax-type: #4ec9b0;
-  --color-syntax-variable: #9cdcfe;
-  --color-syntax-constant: #4fc1ff;
-}
-
-/* Light theme overrides */
-:root.light {
-  /* Light theme - Professional IDE with better contrast */
-  --color-app-background: #f5f5f5;
-  --color-shell-background: #ffffff;
-  --color-panel-background: #ffffff;
-  --color-panel-header-background: #f8f9fa;
-  --color-elevated-panel-background: #ffffff;
-  --color-editor-background: #ffffff;
-  --color-input-background: #ffffff;
-  --color-status-bar-background: #f8f9fa;
-  --color-title-bar-background: #ffffff;
-  --color-title-bar-foreground: #1a1a1a;
-  --color-activity-rail-background: #f8f9fa;
-  --color-sidebar-background: #ffffff;
-  --color-tab-background: #f8f9fa;
-  --color-tab-active-background: #ffffff;
-  --color-assistant-panel-background: #f8f9fa;
-  --color-workbench-chrome: #f8f9fa;
-  
-  /* Improved text contrast */
-  --color-text-primary: #1a1a1a;
-  --color-text-secondary: #424242;
-  --color-text-muted: #666666;
-  --color-text-faint: #888888;
-  --color-text-on-accent: #ffffff;
-  --color-text-on-surface: #1a1a1a;
-  --color-text-disabled: #999999;
-  --color-text-link: #0066cc;
-  
-  /* Clearer borders */
-  --color-border: #e0e0e0;
-  --color-border-subtle: rgba(224, 224, 224, 0.7);
-  --color-divider: #e0e0e0;
-  --color-accent: #0066cc;
-  --color-accent-hover: #0052a3;
-  --color-accent-soft: rgba(0, 102, 204, 0.1);
-  --color-accent-soft-background: rgba(0, 102, 204, 0.05);
-  
-  /* More distinct states */
-  --color-hover-background: rgba(0, 0, 0, 0.05);
-  --color-active-background: rgba(0, 0, 0, 0.08);
-  --color-selected-background: rgba(0, 102, 204, 0.1);
-  --color-selected-text-background: rgba(0, 102, 204, 0.2);
-  --color-selected-editor-background: rgba(0, 102, 204, 0.15);
-  
-  --color-success: #2e7d32;
-  --color-warning: #ed6c02;
-  --color-error: #d32f2f;
-  --color-info: #0066cc;
-  
-  --color-focus-ring: rgba(0, 102, 204, 0.3);
-  
-  /* Editor-specific */
-  --color-editor-gutter-background: #f8f9fa;
-  --color-editor-line-highlight: rgba(0, 0, 0, 0.03);
-  --color-editor-cursor: #1a1a1a;
-  --color-editor-selection: rgba(0, 102, 204, 0.2);
-  --color-editor-find-highlight: rgba(237, 108, 2, 0.2);
-  
-  --color-syntax-keyword: #d32f2f;
-  --color-syntax-function: #2e7d32;
-  --color-syntax-string: #ed6c02;
-  --color-syntax-comment: #666666;
-  --color-syntax-type: #0066cc;
-  --color-syntax-variable: #1a1a1a;
-  --color-syntax-constant: #ed6c02;
-}
-
-/* Utility classes for semantic colors */
-.bg-app { 
-  background-color: var(--color-app-background); 
-  /* Ensure the background is solid to cover transparent window */
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
-  width: 100%;
-  height: 100%;
-}
+/* Semantic utility aliases (refer to runtime theme variables) */
+.bg-app { background-color: var(--color-app-background); }
 .bg-shell { background-color: var(--color-shell-background); }
 .bg-panel { background-color: var(--color-panel-background); }
-.bg-panel-header { background-color: var(--color-panel-header-background); }
-.bg-elevated-panel { background-color: var(--color-elevated-panel-background); }
 .bg-editor { background-color: var(--color-editor-background); }
-.bg-input { background-color: var(--color-input-background); }
 .bg-status-bar { background-color: var(--color-status-bar-background); }
-.bg-title-bar { background-color: var(--color-title-bar-background); }
-.text-title-bar-foreground { color: var(--color-title-bar-foreground); }
-.bg-activity-rail { background-color: var(--color-activity-rail-background); }
-.bg-sidebar { background-color: var(--color-sidebar-background); }
-.bg-tab { background-color: var(--color-tab-background); }
-.bg-tab-active { background-color: var(--color-tab-active-background); }
-.bg-assistant-panel { background-color: var(--color-assistant-panel-background); }
-.bg-workbench-chrome { background-color: var(--color-workbench-chrome); }
 
 .text-primary { color: var(--color-text-primary); }
 .text-secondary { color: var(--color-text-secondary); }
 .text-muted { color: var(--color-text-muted); }
-.text-faint { color: var(--color-text-faint); }
-.text-on-accent { color: var(--color-text-on-accent); }
-.text-on-surface { color: var(--color-text-on-surface); }
-.text-disabled { color: var(--color-text-disabled); }
-.text-link { color: var(--color-text-link); }
 
-.border-color { border-color: var(--color-border); }
-.border-color-subtle { border-color: var(--color-border-subtle); }
-.divider-color { border-color: var(--color-divider); }
-.text-accent { color: var(--color-accent); }
-.bg-accent { background-color: var(--color-accent); }
-.bg-accent-hover:hover { background-color: var(--color-accent-hover); }
-.bg-accent-soft { background-color: var(--color-accent-soft); }
-.bg-accent-soft-background { background-color: var(--color-accent-soft-background); }
+/* Small helpers */
+.radius-sm { border-radius: var(--radius-sm, 6px); }
+.radius-md { border-radius: var(--radius-md, 8px); }
 
-.bg-hover:hover { background-color: var(--color-hover-background); }
-.bg-active { background-color: var(--color-active-background); }
-.bg-selected { background-color: var(--color-selected-background); }
-.bg-selected-text { background-color: var(--color-selected-text-background); }
-.bg-selected-editor { background-color: var(--color-selected-editor-background); }
-
-.text-success { color: var(--color-success); }
-.text-warning { color: var(--color-warning); }
-.text-error { color: var(--color-error); }
-.text-info { color: var(--color-info); }
-
-.focus-ring:focus {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
+/* Thin scrollbar styling (opt-in via class) */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle, rgba(255,255,255,0.06));
+  border-radius: 6px;
 }
 
-/* Editor specific */
-.bg-editor-gutter { background-color: var(--color-editor-gutter-background); }
-.bg-editor-line-highlight { background-color: var(--color-editor-line-highlight); }
-.cursor-editor { caret-color: var(--color-editor-cursor); }
-.selection-editor::selection { background-color: var(--color-editor-selection); }
-.bg-editor-find-highlight { background-color: var(--color-editor-find-highlight); }
-
-/* Syntax highlighting */
-.syntax-keyword { color: var(--color-syntax-keyword); }
-.syntax-function { color: var(--color-syntax-function); }
-.syntax-string { color: var(--color-syntax-string); }
-.syntax-comment { color: var(--color-syntax-comment); }
-.syntax-type { color: var(--color-syntax-type); }
-.syntax-variable { color: var(--color-syntax-variable); }
-.syntax-constant { color: var(--color-syntax-constant); }
+/* Prevent any accidental palette duplication below this line. */
