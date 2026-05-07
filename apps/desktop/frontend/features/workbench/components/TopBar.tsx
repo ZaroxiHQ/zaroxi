@@ -201,10 +201,11 @@ export function TopBar({ className }: TopBarProps) {
           )}
         </div>
 
-        {/* Hamburger menu: ONLY when window is half-screen (user requested).
+        {/* Hamburger menu: show when window is half-screen OR when layoutMode is medium.
             Placed after the brand so it feels connected to the identity.
-            It will NOT appear on wide/full windows. */}
-        {isHalfScreen && (
+            Use an inline SVG for the hamburger so the icon is visible even when icon fonts
+            aren't loaded. */}
+        {(isHalfScreen || layoutMode === 'medium') && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
               ref={menuBtnRef}
@@ -221,12 +222,17 @@ export function TopBar({ className }: TopBarProps) {
                 borderRadius: 8,
                 background: 'transparent',
                 border: '1px solid transparent',
-                color: 'var(--color-text-secondary)',
+                color: 'var(--color-text-primary)',
                 flex: '0 0 auto',
                 padding: 6,
               }}
             >
-              <Icon name="menu" size={16} className="text-primary" />
+              {/* Inline SVG hamburger (uses currentColor) */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden focusable="false">
+                <path d="M3 6h18" />
+                <path d="M3 12h18" />
+                <path d="M3 18h18" />
+              </svg>
             </button>
 
             {/* Popup menu rendered when hamburger is open.
