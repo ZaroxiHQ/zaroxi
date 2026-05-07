@@ -66,8 +66,20 @@ export function ActivityRail({
   const utilityActivities = activities.filter((a) => a.position === 'bottom');
 
   // Responsive compacting:
-  // - If explicit `compact` prop is true OR layout is 'narrow' we use reduced sizes.
-  const effectiveCompact = compact || layoutMode === 'narrow';
+  // - Use explicit `compact` OR layoutMode narrow OR panel width under threshold.
+  // - Read the actual panel width from the workbench store so the rail reacts
+  //   immediately when the panel is resized (not only when the window crosses breakpoints).
+  const { leftPanelWidth, rightPanelWidth } = useWorkbenchStore();
+  const hostWidth = side === 'both'
+    ? (typeof window !== 'undefined' ? window.innerWidth : undefined)
+    : side === 'left'
+      ? leftPanelWidth
+      : rightPanelWidth;
+
+  // Threshold at which the rail should switch to compact controls.
+  const PANEL_COMPACT_THRESHOLD = 260;
+
+  const effectiveCompact = compact || layoutMode === 'narrow' || (typeof hostWidth === 'number' && hostWidth > 0 && hostWidth < PANEL_COMPACT_THRESHOLD);
 
   // Sizes adapt when compact is true (used inside panel or narrow layouts)
   const primarySize = effectiveCompact ? 28 : 40;
