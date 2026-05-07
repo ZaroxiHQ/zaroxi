@@ -22,7 +22,6 @@ function detectLanguageExtension(path: string): string | undefined {
     jsx: 'JavaScript JSX',
     mjs: 'JavaScript',
     cjs: 'JavaScript',
-    py: 'Python',
     go: 'Go',
     toml: 'TOML',
     yaml: 'YAML',
