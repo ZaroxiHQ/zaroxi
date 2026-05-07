@@ -6,6 +6,7 @@ import { getAvailableActivities } from '../config/activityRegistry';
 import { getLanguageIcon } from '@/features/tabs/languageIcons';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { LAYOUT } from '../config/layoutConstants';
+import { useLayoutMode } from '@/hooks/useLayoutMode';
 
 /**
  * ActivityRail - minimal, panel-scoped activity rail.
@@ -32,6 +33,9 @@ export function ActivityRail({
   orientation = 'vertical',
   compact = false,
 }: ActivityRailProps) {
+  // Responsive layout mode (wide | medium | narrow) drives compact behaviour
+  const layoutMode = useLayoutMode();
+
   const {
     activeLeftPanel,
     activeRightPanel,
@@ -61,12 +65,15 @@ export function ActivityRail({
   const primaryActivities = activities.filter((a) => a.position !== 'bottom');
   const utilityActivities = activities.filter((a) => a.position === 'bottom');
 
-  // Sizes adapt when compact is true (used inside panel)
-  // Reduced sizes for a more compact bottom rail as requested.
-  const primarySize = compact ? 32 : 40;
-  const utilitySize = compact ? 28 : 34;
-  const primaryRadius = compact ? 8 : 9;
-  const utilityRadius = compact ? 7 : 8;
+  // Responsive compacting:
+  // - If explicit `compact` prop is true OR layout is 'narrow' we use reduced sizes.
+  const effectiveCompact = compact || layoutMode === 'narrow';
+
+  // Sizes adapt when compact is true (used inside panel or narrow layouts)
+  const primarySize = effectiveCompact ? 28 : 40;
+  const utilitySize = effectiveCompact ? 22 : 34;
+  const primaryRadius = effectiveCompact ? 7 : 9;
+  const utilityRadius = effectiveCompact ? 6 : 8;
 
   // Helper to check active state
   const isActive = (activityId: string, activitySide: 'left' | 'right') => {
