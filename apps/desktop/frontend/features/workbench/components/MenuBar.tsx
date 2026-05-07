@@ -71,7 +71,7 @@ export function MenuBar({ compact = false }: { compact?: boolean }) {
       <div style={{ minWidth: 220 }}>
         {menus.map((menu) => (
           <div key={menu.label} style={{ padding: '6px 0' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)', padding: '4px 8px' }}>{menu.label}</div>
+            <div style={{ fontSize: 12, fontWeight: 400, color: 'var(--color-text-muted)', padding: '4px 8px' }}>{menu.label}</div>
             <div>
               {menu.items.map((item) => (
                 <button
@@ -100,8 +100,8 @@ export function MenuBar({ compact = false }: { compact?: boolean }) {
           <button
             style={{
               padding: '6px 10px',
-              fontSize: 13,
-              fontWeight: 600,
+              fontSize: 12,
+              fontWeight: 400,
               background: openMenu === menu.label ? 'var(--color-panel-header-background)' : 'transparent',
               borderRadius: 6,
               color: 'var(--color-text-primary)',
