@@ -177,9 +177,7 @@ export function ActivityRail({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          // Inactive buttons are filled to match the rail surface.
-                          // The active utility button is filled with the panel surface color
-                          // so it matches the open panel visual language.
+                          // Inactive buttons are filled to match the rail; active uses the panel surface color.
                           background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
                           border: 'none',
                           color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
