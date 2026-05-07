@@ -162,7 +162,7 @@ export function TopBar({ className }: TopBarProps) {
           <Icon name="star" size={14} className="text-accent" />
         </div>
 
-        {/* Brand name — visible on normal (non half-screen) windows */}
+        {/* Brand name — visible on full window (not half-screen) and hidden in narrow mode */}
         <div style={{ minWidth: 0, overflow: 'hidden', flex: '0 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {!isHalfScreen && layoutMode !== 'narrow' && (
             <div
@@ -183,7 +183,9 @@ export function TopBar({ className }: TopBarProps) {
           )}
         </div>
 
-        {/* Hamburger menu: ONLY when window is half-screen (user requested). On narrow we keep compact controls but no hamburger. */}
+        {/* Hamburger menu: ONLY when window is half-screen (user requested).
+            Placed after the brand so it feels connected to the identity.
+            It will NOT appear on wide/full windows. */}
         {isHalfScreen && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
@@ -238,8 +240,14 @@ export function TopBar({ className }: TopBarProps) {
           </div>
         )}
 
-        {/* On wide layouts show the full MenuBar inline (desktop) — hide when half-screen */}
-        {!isMac && layoutMode === 'wide' && !isHalfScreen && <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}><MenuBar /></div>}
+        {/* Inline MenuBar: show whenever we're NOT in a half-screen tiled state and not in narrow mode.
+            This ensures full desktop windows display the normal menu, while half-screen (tiled)
+            windows use the hamburger popup for space efficiency. */}
+        {!isMac && !isHalfScreen && layoutMode !== 'narrow' && (
+          <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}>
+            <MenuBar />
+          </div>
+        )}
       </div>
 
       {/* CENTER ZONE — reserved spacer (tabs live in editor area) */}
