@@ -21,10 +21,11 @@ export function TabStrip() {
         borderBottom: '0.5px solid var(--color-divider-subtle)',
         paddingLeft: 6,
         paddingRight: 6,
+        minWidth: 0,
       }}
       data-no-drag="true"
     >
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
         {tabs.map((tab) => (
           <TabItem key={tab.id} tab={tab} isActive={tab.id === activeTabId} />
         ))}
