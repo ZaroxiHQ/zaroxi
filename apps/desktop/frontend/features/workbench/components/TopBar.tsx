@@ -33,16 +33,19 @@ export function TopBar({ className }: TopBarProps) {
   const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
 
   // Determine whether the app window is effectively tiled to (approximately) half the primary display.
-  // Many window managers and tiling setups report slightly different metrics (outerWidth vs screen.availWidth),
-  // so we use a conservative, multi-heuristic approach and a small tolerance to avoid false negatives.
+  // Many window managers and tiling setups report slightly different metrics (outerWidth vs screen.availWidth).
+  // Use a combined heuristic:
+  //  - Media query against half the screen (availWidth) when available
+  //  - Fallback to innerWidth/outerWidth comparison with a small tolerance
   const [isHalfScreen, setIsHalfScreen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
       const screenWidth = (window.screen && (window.screen.availWidth || window.screen.width)) || window.outerWidth || window.innerWidth || 0;
-      const half = Math.max(1, Math.round(screenWidth / 2));
-      // Consider it half-screen when innerWidth is <= half + tolerance OR outerWidth is close to half.
-      const tolerance = 8; // small tolerance to avoid WM rounding issues
-      return window.innerWidth <= (half + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - half) <= tolerance);
+      const halfPx = Math.max(1, Math.round(screenWidth / 2));
+      const tolerance = 12; // slightly larger tolerance to avoid false negatives
+      // Use matchMedia if available
+      const mq = window.matchMedia ? window.matchMedia(`(max-width: ${halfPx + tolerance}px)`) : null;
+      return (mq && mq.matches) || window.innerWidth <= (halfPx + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - halfPx) <= tolerance);
     } catch {
       return false;
     }
@@ -52,9 +55,15 @@ export function TopBar({ className }: TopBarProps) {
     const computeHalf = () => {
       try {
         const screenWidth = (window.screen && (window.screen.availWidth || window.screen.width)) || window.outerWidth || window.innerWidth || 0;
-        const half = Math.max(1, Math.round(screenWidth / 2));
-        const tolerance = 8;
-        const isHalf = window.innerWidth <= (half + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - half) <= tolerance);
+        const halfPx = Math.max(1, Math.round(screenWidth / 2));
+        const tolerance = 12;
+        const mq = window.matchMedia ? window.matchMedia(`(max-width: ${halfPx + tolerance}px)`) : null;
+        const isHalf = (mq && mq.matches) || window.innerWidth <= (halfPx + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - halfPx) <= tolerance);
+        // Debugging: keep this log short and only in dev; remove if noisy.
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.debug('[TopBar] computeHalf', { innerWidth: window.innerWidth, outerWidth: window.outerWidth, screenWidth, halfPx, isHalf });
+        }
         setIsHalfScreen(isHalf);
       } catch {
         setIsHalfScreen(false);
