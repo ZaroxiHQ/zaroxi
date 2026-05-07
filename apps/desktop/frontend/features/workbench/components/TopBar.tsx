@@ -58,14 +58,18 @@ export function TopBar({ className }: TopBarProps) {
 
   return (
     <header
-      className={cn('flex items-center px-4 select-none', className)}
+      className={cn('flex items-center px-3 select-none', className)}
       style={{
         height: 44,
         backgroundColor: 'var(--color-title-bar-background, var(--color-outer-shell))',
-        borderBottom: '1px solid rgba(39,49,79,0.18)',
+        borderBottom: '1px solid var(--color-divider-subtle)',
         boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.02)',
         alignItems: 'center',
         gap: 12,
+        paddingLeft: 12,
+        paddingRight: 12,
+        boxSizing: 'border-box',
+        overflow: 'hidden',
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
@@ -114,8 +118,9 @@ export function TopBar({ className }: TopBarProps) {
       <div style={{ flex: 1 }} />
 
       {/* Right: actions (compact search moved here on the right side) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 160 }}>
-        {/* Compact search: show icon on narrow layouts, full input otherwise */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        {/* Compact search: show icon on narrow layouts, full input otherwise.
+            Input area is now flexible and allowed to shrink so the right-side icons never get clipped. */}
         {layoutMode === 'narrow' ? (
           <button
             onClick={() => activateLeftPanel('search')}
@@ -132,6 +137,7 @@ export function TopBar({ className }: TopBarProps) {
               justifyContent: 'center',
               paddingLeft: 6,
               paddingRight: 6,
+              flex: '0 0 auto',
             }}
           >
             <Icon name="search" size={14} />
@@ -149,6 +155,7 @@ export function TopBar({ className }: TopBarProps) {
               minWidth: 120,
               maxWidth: 220,
               height: 28,
+              flex: '0 1 auto',
             }}
             data-no-drag={isTauriEnv ? 'true' : undefined}
           >
@@ -164,8 +171,8 @@ export function TopBar({ className }: TopBarProps) {
                 padding: '2px 4px',
                 border: 'none',
                 background: 'transparent',
-                width: '120px',
-                minWidth: '100px',
+                width: '100%',
+                minWidth: 80,
                 height: '100%',
               }}
               aria-label="Search workspace"
@@ -175,7 +182,7 @@ export function TopBar({ className }: TopBarProps) {
         )}
 
         {/* Assistant quick-action (kept) */}
-        <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }} data-no-drag="true">
+        <button onClick={() => togglePanel('assistant')} title="Assistant" style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none', flex: '0 0 auto' }} data-no-drag="true">
           <Icon name="assistant" size={16} />
         </button>
 
@@ -185,25 +192,25 @@ export function TopBar({ className }: TopBarProps) {
           onClick={() => setActivityRailDock(activityRailDock === 'panel' ? 'edge' : 'panel')}
           className="w-8 h-8 flex items-center justify-center rounded"
           data-no-drag="true"
-          style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none' }}
+          style={{ color: 'var(--color-text-secondary)', background: 'transparent', border: 'none', flex: '0 0 auto' }}
         >
           <Icon name={activityRailDock === 'panel' ? 'pin' : 'pin'} size={13} />
         </button>
 
         {isTauriEnv ? (
           <>
-            <button onClick={handleMinimize} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Minimize" data-no-drag="true">
+            <button onClick={handleMinimize} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Minimize" data-no-drag="true" style={{ flex: '0 0 auto' }}>
               <Icon name="window-minimize" size={12} />
             </button>
-            <button onClick={handleMaximize} className="w-8 h-8 flex items-center justify-center rounded" aria-label={isMaximized ? 'Restore' : 'Maximize'} data-no-drag="true">
+            <button onClick={handleMaximize} className="w-8 h-8 flex items-center justify-center rounded" aria-label={isMaximized ? 'Restore' : 'Maximize'} data-no-drag="true" style={{ flex: '0 0 auto' }}>
               <Icon name={isMaximized ? 'window-restore' : 'window-maximize'} size={12} />
             </button>
-            <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded hover:bg-hover-bg" aria-label="Close" data-no-drag="true">
+            <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded hover:bg-hover-bg" aria-label="Close" data-no-drag="true" style={{ flex: '0 0 auto' }}>
               <Icon name="window-close" size={12} />
             </button>
           </>
         ) : (
-          <button onClick={() => togglePanel('settings')} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Settings" data-no-drag="true">
+          <button onClick={() => togglePanel('settings')} className="w-8 h-8 flex items-center justify-center rounded" aria-label="Settings" data-no-drag="true" style={{ flex: '0 0 auto' }}>
             <Icon name="settings" size={13} />
           </button>
         )}

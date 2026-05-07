@@ -94,41 +94,49 @@ export function StatusBar({ className }: StatusBarProps) {
         backgroundColor: 'var(--color-status-bar-background, var(--color-panel-background))',
         borderTop: '0.5px solid var(--color-divider-subtle)',
         color: 'var(--color-text-primary)',
+        boxSizing: 'border-box',
+        paddingLeft: 12,
+        paddingRight: 12,
       }}
       role="contentinfo"
     >
-      <div className="flex items-center space-x-3">
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{currentWorkspace ? currentWorkspace.name : 'No workspace'}</span>
-        {currentWorkspace && !isNarrow && (
-          <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-            {currentWorkspace.rootPath.split('/').pop()}
-          </span>
-        )}
+      {/* Left group: workspace info (always present, ellipsised on small widths) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
+            {currentWorkspace ? currentWorkspace.name : 'No workspace'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
+            {currentWorkspace ? currentWorkspace.rootPath.split('/').pop() : ''}
+          </div>
+        </div>
+
         {isLoading && (
-          <span style={{ color: 'var(--color-accent)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--color-accent)' }}>
             <span style={{ width: 8, height: 8, borderRadius: 8, background: 'var(--color-accent)' }} />
-            Loading…
-          </span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Loading…</span>
+          </div>
         )}
       </div>
 
-      <div className="flex items-center space-x-4">
-        {activeFilePath ? (
-          <>
-            <span style={{ fontSize: 12, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath}>
-              {fileName}
-            </span>
-            {!isNarrow && <span style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>{languageLabel}</span>}
-            {!isNarrow && <span style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>UTF-8</span>}
-            {!isNarrow && <span style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>LF</span>}
-            {(largeFileIndicator || truncationIndicator) && (
-              <span style={{ color: 'var(--color-warning)', fontSize: 11, fontWeight: 600 }}>
-                {largeFileIndicator ?? ''}{truncationIndicator ?? ''}
-              </span>
-            )}
-          </>
-        ) : (
-          <span style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>No file</span>
+      {/* Right group: file + metadata (always present, responsive truncation) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        <div style={{ minWidth: 0, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath ?? undefined}>
+          <span style={{ fontSize: 12, fontWeight: 600, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {activeFilePath ? fileName : 'No file'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
+          <span style={{ fontSize: 11, minWidth: 0 }}>{languageLabel ?? 'Plain Text'}</span>
+          <span style={{ fontSize: 11 }}>UTF-8</span>
+          <span style={{ fontSize: 11 }}>LF</span>
+        </div>
+
+        {(largeFileIndicator || truncationIndicator) && (
+          <span style={{ color: 'var(--color-warning)', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            {largeFileIndicator ?? ''}{truncationIndicator ?? ''}
+          </span>
         )}
       </div>
     </footer>
