@@ -69,7 +69,10 @@ export function TopBar({ className }: TopBarProps) {
         paddingLeft: 12,
         paddingRight: 12,
         boxSizing: 'border-box',
-        overflow: 'hidden',
+        // Allow overflow so right-side controls never get visually clipped;
+        // keep layout on a single line but allow inner items to shrink.
+        overflow: 'visible',
+        flexWrap: 'nowrap',
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >

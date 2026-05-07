@@ -97,11 +97,14 @@ export function StatusBar({ className }: StatusBarProps) {
         boxSizing: 'border-box',
         paddingLeft: 12,
         paddingRight: 12,
+        // Allow wrapping and breathing room so content never gets clipped on narrow windows.
+        flexWrap: 'wrap',
+        gap: 8,
       }}
       role="contentinfo"
     >
       {/* Left group: workspace info (always present, ellipsised on small widths) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, overflow: 'hidden', flex: '1 1 0' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
             {currentWorkspace ? currentWorkspace.name : 'No workspace'}
@@ -120,14 +123,14 @@ export function StatusBar({ className }: StatusBarProps) {
       </div>
 
       {/* Right group: file + metadata (always present, responsive truncation) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 0', justifyContent: 'flex-end' }}>
         <div style={{ minWidth: 0, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={activeFilePath ?? undefined}>
           <span style={{ fontSize: 12, fontWeight: 600, display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {activeFilePath ? fileName : 'No file'}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--color-text-secondary)', flexShrink: 1 }}>
           <span style={{ fontSize: 11, minWidth: 0 }}>{languageLabel ?? 'Plain Text'}</span>
           <span style={{ fontSize: 11 }}>UTF-8</span>
           <span style={{ fontSize: 11 }}>LF</span>
