@@ -137,9 +137,9 @@ export function ActivityRail({
                         alignItems: 'center',
                         justifyContent: 'center',
                         // Inactive buttons are filled to match the rail surface so they
-                        // visually sit on the rail. The active button is transparent so
-                        // the panel surface shows through; no extra decoration is applied.
-                        background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                        // visually sit on the rail. The active button is filled with the
+                        // panel surface color so it reads as "open panel".
+                        background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
                         border: 'none',
                         color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
                         boxShadow: 'none',
@@ -177,9 +177,10 @@ export function ActivityRail({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          // Inactive buttons are filled to match the rail surface so they sit on the rail.
-                          // The active utility button is transparent so the panel surface shows through.
-                          background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                          // Inactive buttons are filled to match the rail surface.
+                          // The active utility button is filled with the panel surface color
+                          // so it matches the open panel visual language.
+                          background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
                           border: 'none',
                           color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
                           boxShadow: 'none',
@@ -220,9 +221,6 @@ export function ActivityRail({
         }}
         aria-label="Panel Activity Rail"
       >
-        {/* top spacer */}
-        <div style={{ height: 8 }} />
-
         <div style={{ flex: 1 }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
@@ -242,8 +240,9 @@ export function ActivityRail({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      // Inactive buttons filled; active button transparent with no decoration.
-                      background: active ? 'transparent' : 'var(--color-activity-rail-background)',
+                      // Inactive buttons filled; active button uses the panel surface color
+                      // so the user can immediately associate the open panel with this icon.
+                      background: active ? 'var(--color-panel-background)' : 'var(--color-activity-rail-background)',
                       border: 'none',
                       color: active ? 'var(--color-text-on-surface)' : 'var(--color-text-secondary)',
                       boxShadow: 'none',
@@ -295,8 +294,6 @@ export function ActivityRail({
             );
           })}
         </div>
-
-        <div style={{ height: 8 }} />
       </aside>
     </TooltipProvider>
   );
