@@ -259,8 +259,6 @@ export function ActivityRail({
           })}
         </div>
 
-        <div style={{ height: 8 }} />
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
           {utilityActivities.map((activity) => {
             const active = isActive(activity.id, activity.side);
