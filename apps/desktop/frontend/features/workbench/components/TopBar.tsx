@@ -141,9 +141,9 @@ export function TopBar({ className }: TopBarProps) {
       }}
       {...(isTauriEnv ? { 'data-tauri-drag-region': 'true' } : {})}
     >
-      {/* LEFT ZONE — brand + hamburger/menu (hamburger only when window is half-screen or narrow) */}
+      {/* LEFT ZONE — brand + hamburger/menu (hamburger only when window is half-screen) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        {/* Brand icon (always shown) */}
+        {/* Brand icon (always shown) — use accent color for consistent identity */}
         <div
           style={{
             width: 32,
@@ -158,10 +158,10 @@ export function TopBar({ className }: TopBarProps) {
           }}
           aria-hidden
         >
-          <Icon name="star" size={14} />
+          <Icon name="star" size={14} className="text-accent" />
         </div>
 
-        {/* Brand name — only visible on wide layouts and when NOT in a half-screen tiled state */}
+        {/* Brand name — visible only on full (wide) screen and hidden when window is tiled half-screen */}
         <div style={{ minWidth: 0, overflow: 'hidden', flex: '0 1 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {layoutMode === 'wide' && !isHalfScreen && (
             <div
@@ -182,9 +182,8 @@ export function TopBar({ className }: TopBarProps) {
           )}
         </div>
 
-        {/* Hamburger menu: only when the window is half-screen OR explicitly narrow.
-            This prevents the hamburger from appearing on full-size "medium" windows. */}
-        {(isHalfScreen || layoutMode === 'narrow') && (
+        {/* Hamburger menu: ONLY when window is half-screen (user requested). On narrow we keep compact controls but no hamburger. */}
+        {isHalfScreen && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
             <button
               ref={menuBtnRef}
@@ -238,7 +237,7 @@ export function TopBar({ className }: TopBarProps) {
           </div>
         )}
 
-        {/* On wide layouts show the full MenuBar inline (desktop) */}
+        {/* On wide layouts show the full MenuBar inline (desktop) — hide when half-screen */}
         {!isMac && layoutMode === 'wide' && !isHalfScreen && <div style={{ marginLeft: 8, minWidth: 0, overflow: 'hidden' }}><MenuBar /></div>}
       </div>
 
@@ -249,7 +248,7 @@ export function TopBar({ className }: TopBarProps) {
 
       {/* RIGHT ZONE — search / actions / window controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', minWidth: 0 }}>
-        {/* Search: icon on narrow, compact input on medium, full input on wide */}
+        {/* Search: icon on narrow, compact input on half-screen, full input on wide */}
         {layoutMode === 'narrow' ? (
           <button
             onClick={() => activateLeftPanel('search')}
@@ -270,8 +269,8 @@ export function TopBar({ className }: TopBarProps) {
               borderRadius: 8,
               background: 'var(--color-panel-header-background, var(--color-panel-background))',
               border: '1px solid var(--color-border)',
-              minWidth: layoutMode === 'medium' ? 120 : 160,
-              maxWidth: layoutMode === 'medium' ? 220 : 360,
+              minWidth: isHalfScreen ? 120 : 160,
+              maxWidth: isHalfScreen ? 220 : 360,
               flex: '0 1 auto',
               boxSizing: 'border-box',
             }}
@@ -280,19 +279,19 @@ export function TopBar({ className }: TopBarProps) {
             <Icon name="search" size={12} />
             <input
               type="search"
-              placeholder="Search"
+              placeholder={layoutMode === 'wide' && !isHalfScreen ? 'Search (Ctrl+Shift+F)' : 'Search'}
               onFocus={() => activateLeftPanel('search')}
               className="bg-transparent outline-none"
               style={{
                 color: 'var(--color-text-primary)',
-                fontSize: 13,
+                fontSize: 12,
                 border: 'none',
                 width: '100%',
-                minWidth: 40,
+                minWidth: 48,
                 height: 28,
                 flex: '1 1 auto',
                 boxSizing: 'border-box',
-                padding: 0,
+                padding: '0 2px',
               }}
               aria-label="Search workspace"
               data-no-drag="true"
