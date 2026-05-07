@@ -32,48 +32,48 @@ export function TopBar({ className }: TopBarProps) {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [popupPos, setPopupPos] = useState<{ left: number; top: number }>({ left: 8, top: LAYOUT.topBarHeight + 6 });
 
-  // Determine whether the app window is effectively tiled to half the screen.
-  // Use the display's availWidth when available and include a small tolerance so
-  // common tiling/tiling-with-panels don't prevent detection. This is intentionally
-  // robust across different WMs and monitor setups.
+  // Determine whether the app window is effectively tiled to (approximately) half the primary display.
+  // Many window managers and tiling setups report slightly different metrics (outerWidth vs screen.availWidth),
+  // so we use a conservative, multi-heuristic approach and a small tolerance to avoid false negatives.
   const [isHalfScreen, setIsHalfScreen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      const screenWidth =
-        (window.screen && (window.screen.availWidth || window.screen.width)) ||
-        window.outerWidth ||
-        window.innerWidth ||
-        0;
-      const threshold = Math.max(1, Math.floor(screenWidth / 2) + 12); // 12px tolerance
-      return window.innerWidth <= threshold;
+      const screenWidth = (window.screen && (window.screen.availWidth || window.screen.width)) || window.outerWidth || window.innerWidth || 0;
+      const half = Math.max(1, Math.round(screenWidth / 2));
+      // Consider it half-screen when innerWidth is <= half + tolerance OR outerWidth is close to half.
+      const tolerance = 8; // small tolerance to avoid WM rounding issues
+      return window.innerWidth <= (half + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - half) <= tolerance);
     } catch {
       return false;
     }
   });
 
   useEffect(() => {
-    const onResize = () => {
+    const computeHalf = () => {
       try {
-        const screenWidth =
-          (window.screen && (window.screen.availWidth || window.screen.width)) ||
-          window.outerWidth ||
-          window.innerWidth ||
-          0;
-        const threshold = Math.max(1, Math.floor(screenWidth / 2) + 12);
-        setIsHalfScreen(window.innerWidth <= threshold);
+        const screenWidth = (window.screen && (window.screen.availWidth || window.screen.width)) || window.outerWidth || window.innerWidth || 0;
+        const half = Math.max(1, Math.round(screenWidth / 2));
+        const tolerance = 8;
+        const isHalf = window.innerWidth <= (half + tolerance) || (window.outerWidth && Math.abs(window.outerWidth - half) <= tolerance);
+        setIsHalfScreen(isHalf);
       } catch {
         setIsHalfScreen(false);
       }
     };
 
-    window.addEventListener('resize', onResize);
-    window.addEventListener('orientationchange', onResize);
+    // Keep detection robust across resize/orientation changes and when window metrics update.
+    window.addEventListener('resize', computeHalf);
+    window.addEventListener('orientationchange', computeHalf);
+    // Also listen for visibility change to recompute when returning from other displays
+    document.addEventListener('visibilitychange', computeHalf);
+
     // initialize once
-    onResize();
+    computeHalf();
 
     return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('orientationchange', onResize);
+      window.removeEventListener('resize', computeHalf);
+      window.removeEventListener('orientationchange', computeHalf);
+      document.removeEventListener('visibilitychange', computeHalf);
     };
   }, []);
 
