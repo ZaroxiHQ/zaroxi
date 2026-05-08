@@ -51,10 +51,11 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Improved Tree-sitter highlight flow:
-  // - Use backend's highlight_document on tab switch to leverage server-side buffer/cache (fast when doc already open).
-  // - Fall back to highlight_text (exact text) for edits and when highlight_document returns nothing.
-  // - Keep currently-displayed highlights until a new authoritative result arrives.
+  // Improved, non-flickering Tree-sitter highlight flow:
+  // - Keep currently visible highlights until an authoritative backend response arrives.
+  // - Use highlight_document on tab switch (server buffer/cache) for speed.
+  // - Use highlight_text for edits; debounce minimally for large files.
+  // - Cache authoritative results keyed by exact text so switching back is instant.
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
     [],
@@ -65,7 +66,7 @@ function useFullHighlight(
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
 
-  const SMALL_FILE_THRESHOLD = 1_500; // chars
+  const SMALL_FILE_THRESHOLD = 1500; // chars
   const MIN_DEBOUNCE_MS = 20;
   const MAX_DEBOUNCE_MS = 120;
 
@@ -76,7 +77,7 @@ function useFullHighlight(
       return;
     }
 
-    // If exact cached result exists, apply immediately.
+    // If an exact cached result exists, apply it immediately (no network).
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
       setLines(cached.lines);
@@ -91,7 +92,7 @@ function useFullHighlight(
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
-    // Primary fetch for exact text (used on edits)
+    // Fetch authoritative highlights for the exact text (used on edits).
     const fetchExact = async () => {
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
@@ -104,14 +105,25 @@ function useFullHighlight(
         });
         if (cancelled || reqIdRef.current !== thisReq) return;
 
+        // Cache authoritative result and apply only if changed to avoid reflows.
+        const prev = cacheRef.current.get(documentId);
+        const sameText = prev && prev.text === text;
+        const sameLines =
+          sameText &&
+          prev!.lines.length === (res.lines || []).length &&
+          JSON.stringify(prev!.lines) === JSON.stringify(res.lines || []);
+
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
-        setLines(res.lines || []);
+        if (!sameLines) {
+          setLines(res.lines || []);
+        }
       } catch (err) {
         console.warn('highlight_text failed:', err);
+        // Keep existing UI; do not clear on error.
       }
     };
 
-    // Attempt to fetch using the server-side cached buffer (faster on tab switch when doc already open server-side)
+    // Try using server-side cached highlights (fast on doc switch when buffer open)
     const fetchDocumentRange = async (): Promise<boolean> => {
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_document', {
@@ -125,30 +137,26 @@ function useFullHighlight(
         if (cancelled || reqIdRef.current !== thisReq) return false;
 
         if (res.lines && res.lines.length > 0) {
-          // Build full-text string from returned lines for cache key (concatenation)
-          const fullTextFromResp = res.lines.map((l) => l.text + '\n').join('');
-          cacheRef.current.set(documentId, { text: text, lines: res.lines });
+          // Cache under the current editor text to allow instant reuse.
+          cacheRef.current.set(documentId, { text, lines: res.lines });
           setLines(res.lines);
           return true;
         }
       } catch (err) {
-        // If highlight_document is unavailable or errors, ignore and fallback.
-        // eslint-disable-next-line no-console
+        // highlight_document may not be available for this document; fall back.
         console.debug('highlight_document failed or not present:', err);
       }
       return false;
     };
 
-    // Clear any pending debounce
+    // Clear pending debounce
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
 
-    // Strategy:
-    // - On doc switch: try highlight_document first (uses server buffer/cache).
-    //   If that returns spans, apply them. If not, fall back to exact text fetch.
-    // - On edits: for small files fetch immediately; for larger files debounce a short time.
+    // Strategy: on doc switch try server cached highlights first; otherwise
+    // for edits prefer exact text highlights. Never clear the UI while fetching.
     const doWork = async () => {
       if (isDocSwitch) {
         const got = await fetchDocumentRange();
@@ -161,10 +169,10 @@ function useFullHighlight(
     };
 
     if (!cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD) {
-      // Run immediately
+      // Immediate fetch for first-open, doc switch, or small files.
       void doWork();
     } else {
-      // Adaptive debounce for edits
+      // Adaptive debounce for edits on larger files.
       const adaptiveMs = Math.max(
         MIN_DEBOUNCE_MS,
         Math.min(MAX_DEBOUNCE_MS, Math.floor(text.length / 200))
