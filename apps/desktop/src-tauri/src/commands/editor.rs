@@ -470,38 +470,50 @@ pub async fn highlight_text(
     };
 
     // If plain detection produced PlainText, try simple content heuristics.
+    // NOTE: avoid referencing concrete LanguageId enum variants that may not exist.
+    // Instead map heuristics to a synthetic filename and use LanguageId::from_path,
+    // which centralises language mapping (including dynamic grammars).
     if lang == LanguageId::PlainText {
         let txt = full_text.as_str();
 
         // Shebang detection (#! /usr/bin/env bash, python, etc.)
         if txt.starts_with("#!") {
-            if txt.contains("bash") || txt.contains("sh") {
-                lang = LanguageId::Bash;
+            let ext_hint = if txt.contains("bash") || txt.contains("sh") {
+                "sh"
             } else if txt.contains("python") {
-                lang = LanguageId::Python;
+                "py"
             } else if txt.contains("node") || txt.contains("nodejs") {
-                lang = LanguageId::JavaScript;
+                "js"
+            } else {
+                ""
+            };
+            if !ext_hint.is_empty() {
+                let fake = std::path::PathBuf::from(format!("file.{}", ext_hint));
+                lang = LanguageId::from_path(fake.as_path());
             }
         }
 
         // TOML detection: common markers like [package] or key = "value"
         if lang == LanguageId::PlainText {
             if txt.contains("[package]") || (txt.contains("=") && txt.contains("version")) {
-                lang = LanguageId::Toml;
+                let fake = std::path::PathBuf::from("file.toml");
+                lang = LanguageId::from_path(fake.as_path());
             }
         }
 
         // Rust heuristics
         if lang == LanguageId::PlainText {
-            if txt.contains("fn ") || txt.contains("pub ") && txt.contains("crate") {
-                lang = LanguageId::Rust;
+            if txt.contains("fn ") || (txt.contains("pub ") && txt.contains("crate")) {
+                let fake = std::path::PathBuf::from("file.rs");
+                lang = LanguageId::from_path(fake.as_path());
             }
         }
 
         // Markdown heuristics: headers or fenced code blocks
         if lang == LanguageId::PlainText {
             if txt.contains("\n# ") || txt.starts_with("# ") || txt.contains("```") {
-                lang = LanguageId::Markdown;
+                let fake = std::path::PathBuf::from("file.md");
+                lang = LanguageId::from_path(fake.as_path());
             }
         }
     }
