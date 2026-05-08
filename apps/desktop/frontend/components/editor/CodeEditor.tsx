@@ -413,8 +413,9 @@ export function CodeEditor({
               style={{
                 height: totalLines * lineHeight,
                 position: 'relative',
-                width: 'max-content',
+                width: '100%',
                 pointerEvents: 'none',
+                boxSizing: 'border-box',
               }}
             >
               <div
@@ -426,8 +427,9 @@ export function CodeEditor({
                     -visibleStartLine * lineHeight
                   }px, 0px)`,
                   whiteSpace: 'pre',
-                  width: 'max-content',
+                  width: '100%',
                   pointerEvents: 'none',
+                  boxSizing: 'border-box',
                 }}
               >
                 {visibleHighlighted.map((hl) => (

@@ -339,7 +339,7 @@ pub async fn highlight_document(
         let line_end = *line_offsets.get(idx + 1).unwrap_or(&full_text.len());
 
         // Guard against degenerate offsets.
-        let line_len = line_end.saturating_sub(line_start);
+        let line_len_bytes = line_end.saturating_sub(line_start);
         let raw = if line_start <= full_text.len() && line_end <= full_text.len() {
             &full_text[line_start..line_end]
         } else {
@@ -352,15 +352,30 @@ pub async fn highlight_document(
             Cow::Borrowed(raw)
         };
 
+        // Convert the line byte-range into character offsets so the frontend receives
+        // character indices (not raw byte offsets). This keeps the highlight overlay
+        // aligned with the editor's text slicing logic.
+        let line_start_char = document.byte_to_char(line_start);
+        let line_end_char = document.byte_to_char(line_end);
+        let line_len_chars = line_end_char.saturating_sub(line_start_char);
+
         let mut line_spans: Vec<HighlightSpanDto> = Vec::new();
         for sp in &spans {
             if sp.end <= line_start || sp.start >= line_end {
                 continue;
             }
-            // Use saturating operations to avoid overflows when the span starts/ends
-            // outside the current line (i.e., spans that cross line boundaries).
-            let rel_start = sp.start.saturating_sub(line_start);
-            let rel_end = sp.end.saturating_sub(line_start).min(line_len);
+
+            // Convert span byte offsets to character offsets, then make them relative
+            // to the start of the current line. Clamp to the visible character length
+            // of the line to avoid out-of-bounds indices.
+            let span_start_char = document.byte_to_char(sp.start);
+            let span_end_char = document.byte_to_char(sp.end);
+
+            let rel_start = span_start_char.saturating_sub(line_start_char);
+            let rel_end = span_end_char
+                .saturating_sub(line_start_char)
+                .min(line_len_chars);
+
             let token_type = highlight_tag_to_string(sp.highlight);
             let color = tag_to_color(sp.highlight, &theme_colors).map(color_to_hex);
             line_spans.push(HighlightSpanDto {
