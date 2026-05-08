@@ -51,11 +51,11 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Simple, reliable highlight flow:
-  // - Use a small per-document cache keyed by exact text.
-  // - On doc switch or when no cached entry exists, fetch immediately.
-  // - On edits use a short debounce to avoid flooding the backend.
-  // - Always apply backend result (including empty result) as authoritative.
+  // Reliable Tree-sitter backed highlight flow:
+  // - Per-document cache keyed by exact text (frontend-side) to avoid re-fetching.
+  // - Immediate fetch on document switch (so highlights appear as soon as possible).
+  // - Debounce only when typing (edits) to reduce IPC churn.
+  // - No client-side regex fallback: highlights come from Tree-sitter via backend.
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
     [],
@@ -64,19 +64,25 @@ function useFullHighlight(
   const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[] }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
+  const prevDocRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
+      prevDocRef.current = documentId;
       return;
     }
 
-    // If cache has exact same text, reuse it immediately.
+    // If exact cached result exists, apply immediately.
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
       setLines(cached.lines);
+      prevDocRef.current = documentId;
       return;
     }
+
+    const isDocSwitch = prevDocRef.current !== documentId;
+    prevDocRef.current = documentId;
 
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
@@ -93,16 +99,15 @@ function useFullHighlight(
           },
         });
 
-        // Ignore stale responses.
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // Cache authoritative result (may be empty) so future tab switches are instant.
+        // Cache authoritative result (may be empty) so subsequent switches are instant.
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
 
-        // Apply result (allow empty arrays to clear previous fallback).
+        // Apply authoritative backend result.
         setLines(res.lines || []);
       } catch (err) {
-        // On error, keep current visible lines (don't clear) but log the failure.
+        // On error, keep current visible lines (do not clear).
         console.warn('highlight_text failed:', err);
       }
     };
@@ -113,12 +118,14 @@ function useFullHighlight(
       debounceRef.current = null;
     }
 
-    // If no cached entry exists (likely tab switch / first open), fetch immediately.
-    // Otherwise debounce to avoid flooding while typing.
-    if (!cached) {
+    if (isDocSwitch) {
+      // Immediate fetch on tab/document switch so highlights appear promptly.
       void doFetch();
     } else {
-      debounceRef.current = window.setTimeout(doFetch, 120);
+      // Debounce only on edits to avoid flooding the backend while typing.
+      debounceRef.current = window.setTimeout(() => {
+        void doFetch();
+      }, 160);
     }
 
     return () => {
