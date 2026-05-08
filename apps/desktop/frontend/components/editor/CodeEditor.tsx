@@ -485,6 +485,9 @@ export function CodeEditor({
               // Defensive: focus the real textarea if any event reaches the overlay.
               // Do NOT preventDefault() here — letting the underlying textarea handle
               // native pointer behavior ensures IME/composition and focus work reliably.
+              // The overlay is intentionally non-interactive (pointer-events: none)
+              // so clicks pass through to the real textarea. We keep it above the
+              // textarea visually so highlighted markup is always visible.
               textareaRef.current?.focus();
             }}
             className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
@@ -494,9 +497,9 @@ export function CodeEditor({
               fontSize: '0.875rem',
               whiteSpace: 'pre',
               overflowWrap: 'normal',
-              // Defensive: ensure overlay never receives pointer events and is visually behind the textarea.
+              // Defensive: ensure overlay never receives pointer events and is visually above the textarea.
               pointerEvents: 'none',
-              zIndex: 0,
+              zIndex: 30,
             }}
           >
             <div
@@ -548,7 +551,7 @@ export function CodeEditor({
           key={activeFilePath}
           ref={textareaRef}
           tabIndex={0}
-          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-20 scroll-hidden"
+          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
           style={{
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
