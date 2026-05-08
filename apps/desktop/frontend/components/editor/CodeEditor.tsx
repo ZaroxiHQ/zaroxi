@@ -846,11 +846,17 @@ export function CodeEditor({
       const before = newVal.slice(0, pos).match(/\n/g);
       st.cursorLine = before ? before.length + 1 : 1;
 
-      // Notify container of the change and mark dirty. Do not force a synchronous
-      // React update here – the native textarea already reflects the user's typing.
+      // Notify container of the change. Do not force a synchronous React update here –
+      // the native textarea already reflects the user's typing.
       onChange(newVal);
-      useTabsStore.getState().markDirty(activeFilePath);
 
+      // NOTE:
+      // markDirty was removed from the hot input path here because writing to the
+      // global tabs store on every keystroke caused wide re-renders (TabStrip,
+      // other subscribers) and blocked the UI thread. The container debounces
+      // and performs markDirty/Cache updates at a lower frequency to keep typing
+      // instant while still marking tabs dirty promptly.
+      //
       // Coalesce React re-renders onto the next animation frame so the overlay/gutter
       // update does not block typing and does not remount excessively.
       scheduleRender();

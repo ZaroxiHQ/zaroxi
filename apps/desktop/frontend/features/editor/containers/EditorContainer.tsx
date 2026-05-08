@@ -58,6 +58,19 @@ export function EditorContainer() {
     activeFilePathRef.current = activeFilePath;
   }, [activeFilePath]);
 
+  // Debounce handle for coalescing frequent keystrokes into a single state update.
+  // This prevents setContent/markDirty from running on every character and
+  // avoids re-render storms across the app. The timer is cleared on unmount.
+  const debounceRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, []);
+
   // Stable save handler that reads latest values from refs.
   const handleEditorSave = useCallback(async () => {
     const path = activeFilePathRef.current;
@@ -175,13 +188,31 @@ export function EditorContainer() {
   };
 
   const handleEditorChange = (value: string) => {
-    setContent(value);
-    // Update the frontend cache so that switching away and back doesn't lose edits
-    if (activeFilePath) {
-      WorkspaceService.updateCachedContent(activeFilePath, value);
-      // Mark the tab as dirty
-      useTabsStore.getState().markDirty(activeFilePath);
+    // HOT PATH: update local ref immediately so save/shortcuts always read the latest text.
+    // This is intentionally cheap and does not cause React re-renders.
+    contentRef.current = value;
+
+    // Debounce committing the text into React state and global stores.
+    // We avoid calling setContent/useTabsStore.markDirty on each keystroke because
+    // that caused wide rerenders and input jank. Instead we flush once per burst.
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
     }
+
+    // 200ms coalescing window: tuned to keep UI responsive while still updating
+    // the container/store frequently enough for autosave/preview features.
+    debounceRef.current = window.setTimeout(() => {
+      // Flush authoritative content into React state (infrequent).
+      setContent(contentRef.current);
+
+      // Persist to frontend document cache and mark dirty once per burst.
+      if (activeFilePathRef.current) {
+        WorkspaceService.updateCachedContent(activeFilePathRef.current, contentRef.current);
+        useTabsStore.getState().markDirty(activeFilePathRef.current);
+      }
+
+      debounceRef.current = null;
+    }, 200);
   };
 
   // NOTE: `handleEditorSave` has been replaced above with a ref-backed,
