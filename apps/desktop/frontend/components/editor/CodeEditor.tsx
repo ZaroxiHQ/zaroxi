@@ -52,42 +52,40 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Goals:
-  // - Never clear currently visible highlights while new ones are computing.
-  // - Apply only the latest authoritative result (request-id gated).
-  // - Cache results keyed by exact text + returned server version.
-  // - Minimal debounce/coalescing for continuous typing.
-  const [lines, setLines] = useReducer(
-    (_prev: HighlightLine[], next: HighlightLine[]) => next,
-    [],
+  // New contract: return a Map<lineIndex, HighlightLine> so the view layer can
+  // reuse unchanged objects by identity. The hook keeps a per-document cache
+  // keyed by exact text and only swaps the visible mapping when an authoritative
+  // result arrives. This prevents any visible "clear and re-render" flicker.
+  const [mapState, setMapState] = useReducer(
+    (_prev: Map<number, HighlightLine>, next: Map<number, HighlightLine>) => next,
+    new Map<number, HighlightLine>(),
   );
 
-  const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[]; version?: number }>>(new Map());
+  const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
   const retriesRef = useRef<Map<string, number>>(new Map());
 
-  // Throttling / sizing parameters tuned for responsiveness
-  const SMALL_FILE_THRESHOLD = 1500; // chars
-  const MIN_DEBOUNCE_MS = 20;
-  const MAX_DEBOUNCE_MS = 80; // smaller max to avoid long waits
-  const EDIT_THROTTLE_MS = 250; // if last fetch older than this, fetch immediately on edit
+  // Tuned scheduling parameters to avoid pointless roundtrips while typing.
+  const SMALL_FILE_THRESHOLD = 1500;
+  const MIN_DEBOUNCE_MS = 40;
+  const MAX_DEBOUNCE_MS = 120;
+  const EDIT_THROTTLE_MS = 300;
 
   const lastFetchRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!documentId || !enabled) {
-      // preserve previous highlights for other documents; only clear when explicitly disabled
-      setLines([]);
+      setMapState(new Map());
       prevDocRef.current = documentId;
       return;
     }
 
-    // If an exact cached result exists for the same text, apply it immediately.
+    // Fast path: exact cached text -> apply stable map immediately.
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
-      setLines(cached.lines);
+      setMapState(cached.map);
       prevDocRef.current = documentId;
       return;
     }
@@ -104,24 +102,40 @@ function useFullHighlight(
       lastFetchRef.current.set(documentId, Date.now());
     };
 
-    // Helper: safely apply result only if still the latest request.
     const applyResultIfCurrent = (resLines: HighlightLine[], resVersion?: number) => {
       if (cancelled || reqIdRef.current !== thisReq) return false;
-      const prev = cacheRef.current.get(documentId);
-      const sameText = prev && prev.text === text;
-      const sameLines =
-        sameText &&
-        prev!.lines.length === resLines.length &&
-        JSON.stringify(prev!.lines) === JSON.stringify(resLines);
+
+      // Convert array -> Map for stable per-line lookup
+      const newMap = new Map<number, HighlightLine>();
+      for (const l of resLines) {
+        newMap.set(l.index, l);
+      }
 
       // Cache authoritative result
-      cacheRef.current.set(documentId, { text, lines: resLines, version: resVersion });
+      cacheRef.current.set(documentId, { text, map: newMap, version: resVersion });
 
-      if (!sameLines) {
-        setLines(resLines);
-        return true;
+      // Swap visible map only when it differs structurally to avoid forcing
+      // React to re-create subtrees. We compare sizes + a shallow JSON fingerprint
+      const prev = cacheRef.current.get(documentId);
+      // We already set cache above; compare to mapState for decision
+      const sameMap =
+        mapState.size === newMap.size &&
+        (() => {
+          for (const [k, v] of newMap) {
+            const prevV = mapState.get(k);
+            if (!prevV) return false;
+            if (prevV.text !== v.text) return false;
+            if (prevV.spans.length !== v.spans.length) return false;
+            // cheap check: compare JSON of spans (acceptable since spans are small)
+            if (JSON.stringify(prevV.spans) !== JSON.stringify(v.spans)) return false;
+          }
+          return true;
+        })();
+
+      if (!sameMap) {
+        setMapState(newMap);
       }
-      return false;
+      return true;
     };
 
     const fetchExact = async () => {
@@ -137,15 +151,14 @@ function useFullHighlight(
         });
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        const prev = cacheRef.current.get(documentId);
         const resLines = res.lines || [];
         const resVersion = res.version;
 
+        const prevCache = cacheRef.current.get(documentId);
         const resEmpty = resLines.length === 0;
-        const hasPrevNonEmpty = prev && prev.text === text && prev.lines && prev.lines.length > 0;
+        const hasPrevNonEmpty = prevCache && prevCache.text === text && prevCache.map.size > 0;
 
         if (resEmpty && hasPrevNonEmpty) {
-          // schedule a short retry instead of clobbering
           const attempts = retriesRef.current.get(documentId) ?? 0;
           if (attempts < 2) {
             retriesRef.current.set(documentId, attempts + 1);
@@ -167,7 +180,6 @@ function useFullHighlight(
         applyResultIfCurrent(resLines, resVersion);
       } catch (err) {
         console.warn('highlight_text failed:', err);
-        // keep existing UI
       }
     };
 
@@ -201,7 +213,6 @@ function useFullHighlight(
 
     const doWork = async () => {
       if (isDocSwitch) {
-        // concurrent: try server-side fast path and editorial exact path
         void fetchDocumentRange();
         void fetchExact();
       } else {
@@ -215,7 +226,10 @@ function useFullHighlight(
       !cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD || (now - lastFetch) >= EDIT_THROTTLE_MS;
 
     if (shouldImmediateEditFetch) {
-      void doWork();
+      // Schedule on next animation frame to coalesce micro-bursts of edits.
+      requestAnimationFrame(() => {
+        void doWork();
+      });
     } else {
       const adaptiveMs = Math.max(
         MIN_DEBOUNCE_MS,
@@ -235,7 +249,7 @@ function useFullHighlight(
     };
   }, [documentId, text, enabled, theme, language]);
 
-  return lines;
+  return mapState;
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,6 +367,9 @@ const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> =
     );
   },
   (prevProps, nextProps) => {
+    // Fast identity check: if the hl object reference is identical we bail out immediately.
+    if (prevProps.hl === nextProps.hl && prevProps.lineHeight === nextProps.lineHeight) return true;
+
     const a = prevProps.hl;
     const b = nextProps.hl;
     if (a.index !== b.index) return false;
@@ -520,7 +537,7 @@ export function CodeEditor({
 
   /* –– syntax highlight model (per‑display document) –– */
   const highlightsEnabled = !largeFile && !!activeFilePath;
-  const allHighlighted = useFullHighlight(
+  const highlightedMap = useFullHighlight(
     activeFilePath,
     activeState.value,
     highlightsEnabled,
@@ -538,44 +555,65 @@ export function CodeEditor({
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
   const visibleHighlighted = useMemo(() => {
-    // Build a quick lookup of highlighted lines returned from the backend.
-    const map = new Map<number, HighlightLine>();
-    for (const l of allHighlighted) {
-      map.set(l.index, l);
+    // highlightedMap is a Map<number, HighlightLine> produced by the hook.
+    // We will reuse previous line objects by identity when nothing changed so
+    // the memoized HighlightedLineView components can bail out quickly.
+    const prevRef = (visibleHighlighted as any)?._prevRef as React.MutableRefObject<Map<number, HighlightLine> | undefined> | undefined;
+    // Keep a per-call ref cached on the function object to retain previous objects.
+    if (!((visibleHighlighted as any)?._prevRef)) {
+      (visibleHighlighted as any)._prevRef = { current: new Map<number, HighlightLine>() };
     }
+    const prev = (visibleHighlighted as any)._prevRef.current as Map<number, HighlightLine>;
 
     const lines: HighlightLine[] = [];
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      // Derive authoritative line text from the active document (single source of truth).
       const start = lineStarts[idx] ?? activeState.value.length;
       const end = lineStarts[idx + 1] ?? activeState.value.length;
       let authoritative = activeState.value.slice(start, end);
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
-      // If the backend returned a highlighted line for this index, use its spans
-      // but ALWAYS render the authoritative text from the editor's buffer. This
-      // avoids mismatches where the backend-provided `text` differs from the
-      // frontend buffer (causing missing spans or out-of-bounds indices).
-      const hl = map.get(idx);
-      if (hl) {
-        lines.push({
+      const backendHl = highlightedMap.get(idx);
+      if (backendHl) {
+        // If previously we created an identical line object, reuse it (identity)
+        const prevObj = prev.get(idx);
+        const spansEqual = prevObj && prevObj.spans.length === backendHl.spans.length &&
+          prevObj.spans.length > 0 &&
+          JSON.stringify(prevObj.spans) === JSON.stringify(backendHl.spans) &&
+          prevObj.text === authoritative;
+        if (spansEqual && prevObj) {
+          lines.push(prevObj);
+          continue;
+        }
+        const created: HighlightLine = {
           index: idx,
           text: authoritative,
-          spans: hl.spans,
-        });
+          spans: backendHl.spans,
+        };
+        lines.push(created);
+        prev.set(idx, created);
         continue;
       }
 
-      // Fallback: render plain text with no spans.
-      lines.push({
+      // Fallback plain text line - try to reuse previous plain line object
+      const prevPlain = prev.get(idx);
+      if (prevPlain && prevPlain.spans.length === 0 && prevPlain.text === authoritative) {
+        lines.push(prevPlain);
+        continue;
+      }
+
+      const plainLine: HighlightLine = {
         index: idx,
         text: authoritative,
         spans: [],
-      });
+      };
+      lines.push(plainLine);
+      prev.set(idx, plainLine);
     }
 
+    // store back prev map for next render
+    (visibleHighlighted as any)._prevRef.current = prev;
     return lines;
-  }, [allHighlighted, visibleStartLine, visibleEndLine, activeState.value, lineStarts]);
+  }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts]);
 
   /* –– gutter –– */
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
