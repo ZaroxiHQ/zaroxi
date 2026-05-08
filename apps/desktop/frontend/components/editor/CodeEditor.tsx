@@ -66,6 +66,8 @@ function useFullHighlight(
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
+  // Track retry attempts for documents to avoid caching transient empty highlights.
+  const retriesRef = useRef<Map<string, number>>(new Map());
 
   // Throttling / sizing parameters
   const SMALL_FILE_THRESHOLD = 1500; // chars
@@ -105,7 +107,13 @@ function useFullHighlight(
     };
 
     // Fetch authoritative highlights for the exact text (used on edits).
+    // Behavior:
+    // - If backend returns non-empty spans, cache+apply them.
+    // - If backend returns an empty span set, do NOT clobber an existing non-empty cache.
+    //   Instead, perform a few short retries (in case detection/parsing is racing) before
+    //   accepting an empty authoritative result.
     const fetchExact = async () => {
+      // record a fetch timestamp for throttling decisions
       recordFetch();
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
@@ -118,17 +126,50 @@ function useFullHighlight(
         });
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // Cache authoritative result and apply only if changed to avoid reflows.
         const prev = cacheRef.current.get(documentId);
+        const resLines = res.lines || [];
+
+        // If backend returned empty spans, avoid clobbering an existing non-empty cached result.
+        const resEmpty = resLines.length === 0;
+        const hasPrevNonEmpty = prev && prev.text === text && prev.lines && prev.lines.length > 0;
+
+        if (resEmpty && hasPrevNonEmpty) {
+          // Transient empty: retry a few times before accepting emptiness.
+          const attempts = retriesRef.current.get(documentId) ?? 0;
+          if (attempts < 3) {
+            retriesRef.current.set(documentId, attempts + 1);
+            const backoff = 120 * (attempts + 1);
+            // schedule a retry without blocking current execution; guard by current request id
+            setTimeout(() => {
+              // only retry if this request id is still relevant (prevents runaway retries after doc switch)
+              if (!cancelled && reqIdRef.current === thisReq) {
+                void fetchExact();
+              }
+            }, backoff);
+            // Do not update cache/UI now.
+            console.debug('[highlight] empty response detected — scheduled retry', { documentId, attempts: attempts + 1 });
+            return;
+          } else {
+            // Retries exhausted: fall through and accept empty result.
+            retriesRef.current.delete(documentId);
+          }
+        } else {
+          // Successful non-empty result — clear any retry counter.
+          retriesRef.current.delete(documentId);
+        }
+
+        // Determine whether lines actually changed to avoid unnecessary re-renders.
         const sameText = prev && prev.text === text;
         const sameLines =
           sameText &&
-          prev!.lines.length === (res.lines || []).length &&
-          JSON.stringify(prev!.lines) === JSON.stringify(res.lines || []);
+          prev!.lines.length === resLines.length &&
+          JSON.stringify(prev!.lines) === JSON.stringify(resLines);
 
-        cacheRef.current.set(documentId, { text, lines: res.lines || [] });
+        // Cache authoritative result (may be empty after retries exhausted).
+        cacheRef.current.set(documentId, { text, lines: resLines });
+
         if (!sameLines) {
-          setLines(res.lines || []);
+          setLines(resLines);
         }
       } catch (err) {
         console.warn('highlight_text failed:', err);
