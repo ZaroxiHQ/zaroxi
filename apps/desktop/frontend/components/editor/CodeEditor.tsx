@@ -147,6 +147,7 @@ function useFullHighlight(
     if (cached && cached.text === text) {
       // Avoid setting state if we already applied this cached result.
       if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
+        console.debug('[highlight] applying cached highlights', { documentId, lines: cached.lines?.length });
         setLines(cached.lines);
         lastAppliedRef.current = { documentId, textHash: currentTextHash };
       }
@@ -158,11 +159,13 @@ function useFullHighlight(
       const immediate = computeImmediateFallback(text, language);
       // Only apply fallback if we haven't already applied the same text.
       if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
+        console.debug('[highlight] applying immediate fallback highlights', { documentId, lines: immediate.length });
         setLines(immediate);
         lastAppliedRef.current = { documentId, textHash: currentTextHash };
       }
     } catch (e) {
       // Fallback highlighter must not throw; ignore.
+      console.warn('[highlight] fallback failed', e);
     }
 
     let cancelled = false;
@@ -172,6 +175,7 @@ function useFullHighlight(
 
     const doFetch = async () => {
       try {
+        console.debug('[highlight] requesting highlight_text', { documentId, length: text.length, language });
         // First attempt: ask the backend to highlight the exact text, using any language hint.
         const args = {
           request: {
@@ -182,9 +186,13 @@ function useFullHighlight(
           },
         };
         const res: HighlightResponse = await bridge.invoke('highlight_text', args);
+        console.debug('[highlight] highlight_text response', { documentId, lines: res?.lines?.length });
 
         // Only apply if still current and not cancelled.
-        if (cancelled || reqIdRef.current !== thisReq) return;
+        if (cancelled || reqIdRef.current !== thisReq) {
+          console.debug('[highlight] response ignored (stale/cancelled)', { documentId });
+          return;
+        }
 
         // Cache the spans by the exact text and apply them only if they differ
         // from what we've already applied for this document/text. This avoids
@@ -192,11 +200,13 @@ function useFullHighlight(
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
         const applied = lastAppliedRef.current;
         if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
+          console.debug('[highlight] applying backend highlights', { documentId, count: res.lines?.length });
           setLines(res.lines || []);
           lastAppliedRef.current = { documentId, textHash: currentTextHash };
         } else {
           // If we already applied the same text (unlikely here), still update cache.
           // No UI update necessary.
+          console.debug('[highlight] backend highlights match already applied state', { documentId });
         }
       } catch (err) {
         console.warn('full highlight (text) failed:', err);
