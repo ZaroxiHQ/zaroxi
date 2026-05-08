@@ -51,10 +51,11 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Improved, non-flickering Tree-sitter highlight flow:
+  // Improved, non-flickering Tree-sitter highlight flow with throttled edits:
   // - Keep currently visible highlights until an authoritative backend response arrives.
   // - Use highlight_document on tab switch (server buffer/cache) for speed.
-  // - Use highlight_text for edits; debounce minimally for large files.
+  // - Use highlight_text for edits; debounce minimally for continuous typing,
+  //   but allow an immediate fetch when enough time has passed since the last fetch.
   // - Cache authoritative results keyed by exact text so switching back is instant.
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
@@ -66,9 +67,14 @@ function useFullHighlight(
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
 
+  // Throttling / sizing parameters
   const SMALL_FILE_THRESHOLD = 1500; // chars
   const MIN_DEBOUNCE_MS = 20;
   const MAX_DEBOUNCE_MS = 120;
+  const EDIT_THROTTLE_MS = 300; // if last fetch older than this, fetch immediately on edit
+
+  // Track last fetch timestamps per document so edits don't always wait for debounce.
+  const lastFetchRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!documentId || !enabled) {
@@ -92,8 +98,15 @@ function useFullHighlight(
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
+    // Helper to record a fetch timestamp
+    const recordFetch = () => {
+      if (!documentId) return;
+      lastFetchRef.current.set(documentId, Date.now());
+    };
+
     // Fetch authoritative highlights for the exact text (used on edits).
     const fetchExact = async () => {
+      recordFetch();
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
@@ -125,6 +138,7 @@ function useFullHighlight(
 
     // Try using server-side cached highlights (fast on doc switch when buffer open)
     const fetchDocumentRange = async (): Promise<boolean> => {
+      recordFetch();
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_document', {
           request: {
@@ -157,18 +171,10 @@ function useFullHighlight(
 
     // Strategy: on doc switch try server cached highlights first; otherwise
     // for edits prefer exact text highlights. Never clear the UI while fetching.
-    //
     // Optimization: when switching documents, launch both the server-side range
-    // highlight and the exact-text highlight concurrently. This reduces perceived
-    // latency because whichever completes first will apply highlights; the
-    // other will either be redundant or be skipped by its own stale-request guard.
-    // We still keep the single-request guards (reqIdRef / cancelled) inside each
-    // fetch helper so late responses won't clobber newer results.
+    // highlight and the exact-text highlight concurrently.
     const doWork = async () => {
       if (isDocSwitch) {
-        // Fire both requests in parallel and let them race to apply the first
-        // authoritative result. We do not await both here because we want the
-        // UI to stay responsive and accept whichever arrives first.
         void fetchDocumentRange();
         void fetchExact();
       } else {
@@ -176,8 +182,15 @@ function useFullHighlight(
       }
     };
 
-    if (!cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD) {
-      // Immediate fetch for first-open, doc switch, or small files.
+    // Decide immediate vs debounced fetch:
+    // - Immediate when first-open, doc-switch, or small files.
+    // - For edits: immediate if last fetch was older than EDIT_THROTTLE_MS, else short debounce.
+    const lastFetch = documentId ? lastFetchRef.current.get(documentId) ?? 0 : 0;
+    const now = Date.now();
+    const shouldImmediateEditFetch =
+      !cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD || (now - lastFetch) >= EDIT_THROTTLE_MS;
+
+    if (shouldImmediateEditFetch) {
       void doWork();
     } else {
       // Adaptive debounce for edits on larger files.
