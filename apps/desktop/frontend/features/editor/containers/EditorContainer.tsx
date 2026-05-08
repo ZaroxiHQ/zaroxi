@@ -25,7 +25,13 @@ export function EditorContainer() {
     contentTruncated?: boolean;
   }>({});
   const [initialHighlight, setInitialHighlight] = useState<any>(null);
-  
+
+  // Strong identity bindings for the visible editor:
+  // - currentDocumentId: authoritative id returned by backend (document_id)
+  // - currentRevision: authoritative revision/version for the text
+  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
+  const [currentRevision, setCurrentRevision] = useState<number | null>(null);
+
   // Determine active file path:
   // Prefer the active tab's id when the active tab represents a file.
   // Fallback to the workspace explorer active file for other cases.
@@ -35,6 +41,18 @@ export function EditorContainer() {
   useEffect(() => {
     // Only try to load a real file when we have a path to load.
     if (activeFilePath && activeTab?.kind === 'file') {
+      // Pre-clear transient UI immediately and bump load token so any in-flight
+      // responses targeted at the previous active file are canceled.
+      loadSeqRef.current++;
+      setInitialHighlight(null);
+      setContent(''); // avoid showing previous-file content
+      setLanguage(undefined);
+      setFileInfo({});
+      setCurrentDocumentId(null);
+      setCurrentRevision(null);
+
+      // Now kick off the actual load (async). The request is guarded by the
+      // per-load sequence token created inside loadFile().
       loadFile(activeFilePath);
     }
   }, [activeFilePath, activeTab]);
@@ -165,12 +183,16 @@ export function EditorContainer() {
         // If the active file changed while we awaited the cache, drop this result.
         if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
 
+        // Apply authoritative identity from cache
+        setCurrentDocumentId(cached.documentId ?? path);
+        setCurrentRevision((cached as any).version ?? null);
+
         setContent(cached.content);
-        setLanguage(cached.language ?? undefined);
+        setLanguage((cached as any).language ?? undefined);
         setFileInfo({
           lineCount: cached.lineCount,
           charCount: cached.charCount,
-          largeFileMode: cached.largeFileMode,
+          largeFileMode: (cached as any).largeFileMode,
           contentTruncated: cached.contentTruncated,
         });
 
@@ -204,18 +226,23 @@ export function EditorContainer() {
       // Drop outdated responses
       if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
 
+      // Bind the authoritative document identity and revision before applying text.
+      setCurrentDocumentId(response.documentId ?? path);
+      setCurrentRevision((response as any).version ?? null);
+
       setContent(response.content ?? '');
       setLanguage(response.language ?? undefined);
       setFileInfo({
-        lineCount: (response as any).lineCount,
-        charCount: (response as any).charCount,
-        largeFileMode: (response as any).largeFileMode,
-        contentTruncated: (response as any).contentTruncated,
+        lineCount: (response as any).line_count ?? (response as any).lineCount,
+        charCount: (response as any).char_count ?? (response as any).charCount,
+        largeFileMode: (response as any).file_class ?? (response as any).largeFileMode,
+        contentTruncated: (response as any).content_truncated ?? (response as any).contentTruncated,
       });
 
-      if ((response as any).initialHighlight) {
+      if ((response as any).initial_highlight || (response as any).initialHighlight) {
+        const ih = (response as any).initial_highlight ?? (response as any).initialHighlight;
         if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
-          setInitialHighlight((response as any).initialHighlight);
+          setInitialHighlight(ih);
         }
       } else {
         try {
@@ -233,6 +260,8 @@ export function EditorContainer() {
       setLanguage(undefined);
       setFileName('error.txt');
       setFileInfo({});
+      setCurrentDocumentId(null);
+      setCurrentRevision(null);
     } finally {
       // Only clear loading if this is still the active request.
       if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
@@ -240,6 +269,12 @@ export function EditorContainer() {
       }
     }
   };
+
+  // Keep refs to the latest identity values so callbacks can check them without re-registration
+  const currentDocumentIdRef = useRef<string | null>(currentDocumentId);
+  useEffect(() => { currentDocumentIdRef.current = currentDocumentId; }, [currentDocumentId]);
+  const currentRevisionRef = useRef<number | null>(currentRevision);
+  useEffect(() => { currentRevisionRef.current = currentRevision; }, [currentRevision]);
 
   const handleEditorChange = (value: string) => {
     // HOT PATH: update local ref immediately so save/shortcuts always read the latest text.

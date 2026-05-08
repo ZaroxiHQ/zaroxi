@@ -474,7 +474,14 @@ const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> =
 /*  Viewport / helpers                                                */
 /* ------------------------------------------------------------------ */
 interface CodeEditorProps {
-  initialValue: string;
+  /**
+   * The authoritative document identity that the editor should bind to.
+   * When null/undefined the editor renders an empty view (e.g., Welcome).
+   */
+  tabId?: string | null; // the UI tab id owning this view (used only for store lookups)
+  documentId?: string | null; // authoritative backend document id (preferred key)
+  revision?: number | null; // authoritative revision/version for the provided text
+  initialValue: string; // the text to display for the given documentId/revision
   onChange: (value: string) => void;
   filePath?: string;
   language?: string;
@@ -535,17 +542,28 @@ export function CodeEditor({
   theme = 'dark',
 }: CodeEditorProps) {
   /* –– editor‑states map (persists across re‑renders) –– */
+  // Keyed by authoritative documentId (not by path or tab index). When no
+  // documentId is provided (e.g., Welcome) we use a reserved key but avoid
+  // reusing state between different documents.
   const editorStates = useRef<Map<string, EditorState>>(new Map());
   // We force a re‑render whenever we mutate the map so React picks up the new data.
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
 
-  /* derive a stable key for the *active* document */
-  const activeFilePath = filePath ?? '__no_file__';
+  /* derive a stable key for the *active* document (authoritative) */
+  const activeDocKey = documentId ?? '__no_doc__';
 
-  /* –– initialise state for a file that is opened for the first time –– */
-  if (!editorStates.current.has(activeFilePath)) {
-    editorStates.current.set(activeFilePath, {
-      value: initialValue,
+  /* –– initialise state for a document that is opened for the first time –– */
+  if (documentId && !editorStates.current.has(activeDocKey)) {
+    editorStates.current.set(activeDocKey, {
+      value: initialValue ?? '',
+      scrollTop: 0,
+      scrollLeft: 0,
+      cursorLine: 1,
+    });
+  } else if (!documentId && !editorStates.current.has(activeDocKey)) {
+    // Ensure a blank state exists for the reserved key so the view renders safely.
+    editorStates.current.set(activeDocKey, {
+      value: '',
       scrollTop: 0,
       scrollLeft: 0,
       cursorLine: 1,
@@ -553,35 +571,32 @@ export function CodeEditor({
   }
 
   /**
-   * Keep the editor state in sync with incoming `initialValue` for the active file.
-   *
-   * Rationale:
-   * - `initialValue` is populated asynchronously by the container (openFile).
-   * - The editor stores per-file state in a ref'd Map and only sets the initial
-   *   value once when the entry is created. That means an async load can leave
-   *   the map entry with an empty string unless we explicitly adopt the newly
-   *   provided content here.
+   * Adopt the incoming `initialValue` only when it belongs to the authoritative
+   * documentId + revision that the editor is currently bound to.
    *
    * Policy:
-   * - Only adopt `initialValue` when the tab is not marked dirty (we don't want
-   *   to clobber user edits).
-   * - Reset caret/scroll for a fresh load.
+   * - Only adopt when the tab is not dirty (do not clobber user edits).
+   * - Only adopt when `documentId` is present and matches the currently active key.
+   * - Reset viewport/caret for a fresh authoritative load.
    */
   useEffect(() => {
-    const state = editorStates.current.get(activeFilePath);
+    const state = editorStates.current.get(activeDocKey);
     if (!state) return;
 
     // If incoming content is identical, nothing to do.
     if (state.value === initialValue) return;
 
     // If the tab is dirty (user edited locally), do not overwrite local edits.
-    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeFilePath);
+    const tab = tabId ? useTabsStore.getState().tabs.find((t) => t.id === tabId) : undefined;
     const isDirty = tab?.isDirty ?? false;
     if (isDirty) {
       return;
     }
 
-    // Adopt the freshly loaded content for this file and reset viewport/caret.
+    // Only adopt when we have an authoritative documentId.
+    if (!documentId) return;
+
+    // Adopt the freshly loaded content for this document and reset viewport/caret.
     state.value = initialValue;
     state.cursorLine = 1;
     state.scrollTop = 0;
@@ -604,10 +619,10 @@ export function CodeEditor({
 
     // Mark that we've adopted a new active document so layout-effects don't
     // perform redundant DOM writes that could disturb the caret.
-    prevActiveFileRef.current = activeFilePath;
+    prevActiveDocumentRef.current = activeDocKey;
 
     forceUpdate();
-  }, [activeFilePath, initialValue]);
+  }, [activeDocKey, documentId, revision, initialValue, tabId]);
 
   /* read the *current* document’s state (always in‑sync with the map) */
   const activeState = editorStates.current.get(activeFilePath)!;
@@ -616,10 +631,10 @@ export function CodeEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightOuterRef = useRef<HTMLDivElement>(null);
-  // Track when the active file changes so we only perform immediate DOM-value syncs
+  // Track when the active document changes so we only perform immediate DOM-value syncs
   // on a document switch. This prevents overwriting the caret/selection during normal typing.
   // Initialize to null so the first mount performs a sync to populate the uncontrolled textarea.
-  const prevActiveFileRef = useRef<string | null>(null);
+  const prevActiveDocumentRef = useRef<string | null>(null);
   // Throttle RAF handle to coalesce frequent keystrokes into a single render frame.
   // This keeps typing immediate (native textarea) while still updating overlay/gutter
   // at animation-frame granularity to avoid jank.
@@ -652,14 +667,14 @@ export function CodeEditor({
   const [displayText, setDisplayText] = useState<string>(activeState.value);
   useEffect(() => {
     // If we switched documents, apply displayText synchronously so overlay metrics compute now.
-    if (prevActiveFileRef.current !== activeFilePath) {
+    if (prevActiveDocumentRef.current !== activeDocKey) {
       setDisplayText(activeState.value);
-      prevActiveFileRef.current = activeFilePath;
+      prevActiveDocumentRef.current = activeDocKey;
       return;
     }
     const id = window.setTimeout(() => setDisplayText(activeState.value), 120);
     return () => window.clearTimeout(id);
-  }, [activeState.value, activeFilePath]);
+  }, [activeState.value, activeDocKey]);
 
   /* –– line metrics (derived from the debounced display text to keep the hot path cheap) –– */
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
@@ -676,7 +691,7 @@ export function CodeEditor({
   // Use the debounced displayText for highlighting. This ensures backend/engine
   // work is driven by a lower-frequency signal while typing remains instant.
   const highlightedMap = useFullHighlight(
-    activeFilePath,
+    documentId ?? null,
     displayText,
     highlightsEnabled,
     theme,
@@ -684,6 +699,8 @@ export function CodeEditor({
     // Treat "plaintext" as "unknown" so the backend can derive the language
     // from the file path instead of being forced to PlainText.
     language && language !== 'plaintext' ? language : undefined,
+    // initialHighlight is provided by the container and must be applied only for the matching revision.
+    initialHighlight ?? null,
   );
 
   /* –– viewport (visible lines) –– */
@@ -853,13 +870,13 @@ export function CodeEditor({
     ta.scrollLeft = activeState.scrollLeft;
     // Only sync the DOM textarea value when the active document changed.
     // This avoids clobbering the native caret/selection during normal typing.
-    if (prevActiveFileRef.current !== activeFilePath) {
+    if (prevActiveDocumentRef.current !== activeDocKey) {
       if (ta.value !== activeState.value) {
         ta.value = activeState.value;
       }
-      prevActiveFileRef.current = activeFilePath;
+      prevActiveDocumentRef.current = activeDocKey;
     }
-  }, [activeFilePath]);
+  }, [activeDocKey]);
 
   /* –– scroll event –– */
   const handleTextareaScroll = useCallback(
@@ -874,7 +891,7 @@ export function CodeEditor({
       current.scrollLeft = sLeft;
       forceUpdate();
     },
-    [activeFilePath],
+    [activeDocKey],
   );
 
   /* –– cursor tracking –– */
@@ -886,14 +903,14 @@ export function CodeEditor({
     const val = ta.value;
     const before = val.slice(0, pos).match(/\n/g);
     const line = before ? before.length + 1 : 1;
-    const st = editorStates.current.get(activeFilePath)!;
+    const st = editorStates.current.get(activeDocKey)!;
     // Keep the authoritative in-memory document in sync with the DOM so caret/overlay calculations align.
     if (st.value !== val) {
       st.value = val;
     }
     st.cursorLine = line;
     forceUpdate();
-  }, [activeFilePath]);
+  }, [activeDocKey]);
 
   /* –– edit handling –– */
   const scheduleRender = useCallback(() => {
@@ -933,7 +950,7 @@ export function CodeEditor({
       // update does not block typing and does not remount excessively.
       scheduleRender();
     },
-    [onChange, readOnly, activeFilePath, scheduleRender],
+    [onChange, readOnly, activeDocKey, scheduleRender],
   );
 
   /* –– render –– */

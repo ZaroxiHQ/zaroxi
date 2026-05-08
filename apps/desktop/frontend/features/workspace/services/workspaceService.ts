@@ -261,7 +261,9 @@ export class WorkspaceService {
       contentTruncated: docResponse.contentTruncated,
     };
 
-    // Store in frontend document cache for instant subsequent access
+    // Store in frontend document cache for instant subsequent access.
+    // Include the authoritative documentId and version returned by the backend
+    // so the frontend can strongly bind editor state to the backend identity.
     documentCache.set(request.path, {
       content: response.content,
       language: response.language,
@@ -270,6 +272,9 @@ export class WorkspaceService {
       largeFileMode: response.largeFileMode,
       contentTruncated: response.contentTruncated,
       isDirty: false,
+      // Backend-supplied identity fields:
+      documentId: docResponse.documentId ?? request.path,
+      version: (docResponse as any).version ?? 0,
       initialHighlight: docResponse.initialHighlight,
     });
 
@@ -561,15 +566,23 @@ export class WorkspaceService {
    * Get a cached document from the frontend cache without any IPC call.
    * Returns null if the document is not in the cache.
    */
-  static getCachedDocument(path: string): OpenFileResponse | null {
+  /**
+   * Return a frontend-cached document snapshot if available.
+   *
+   * NOTE: this returns the richer OpenDocument-like response including the
+   * backend documentId and version so the editor can bind state by identity.
+   */
+  static getCachedDocument(path: string): OpenDocumentResponse | null {
     const cached = documentCache.get(path);
     if (!cached) return null;
     return {
+      documentId: (cached as any).documentId ?? path,
+      path,
+      lineCount: cached.lineCount ?? 0,
+      charCount: cached.charCount ?? 0,
+      largeFileMode: cached.largeFileMode ?? 'Normal',
+      isReadOnly: false,
       content: cached.content,
-      language: cached.language,
-      lineCount: cached.lineCount,
-      charCount: cached.charCount,
-      largeFileMode: cached.largeFileMode,
       contentTruncated: cached.contentTruncated,
       initialHighlight: cached.initialHighlight,
     };
