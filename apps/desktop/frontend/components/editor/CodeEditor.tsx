@@ -586,6 +586,9 @@ export function CodeEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightOuterRef = useRef<HTMLDivElement>(null);
+  // Track when the active file changes so we only perform immediate DOM-value syncs
+  // on a document switch. This prevents overwriting the caret/selection during normal typing.
+  const prevActiveFileRef = useRef<string | null>(activeFilePath);
   // Throttle RAF handle to coalesce frequent keystrokes into a single render frame.
   // This keeps typing immediate (native textarea) while still updating overlay/gutter
   // at animation-frame granularity to avoid jank.
@@ -613,14 +616,19 @@ export function CodeEditor({
   }, []);
 
   // Debounced display text used by the non-urgent highlight pipeline.
-  // Keeping a small coalesce window prevents the heavy highlight + overlay
-  // work from running on every keystroke while leaving the native textarea
-  // and caret fully responsive.
+  // On document switch we update immediately so the overlay can paint without
+  // an obvious 'raw text first / syntax later' flash.
   const [displayText, setDisplayText] = useState<string>(activeState.value);
   useEffect(() => {
+    // If we switched documents, apply displayText synchronously so overlay metrics compute now.
+    if (prevActiveFileRef.current !== activeFilePath) {
+      setDisplayText(activeState.value);
+      prevActiveFileRef.current = activeFilePath;
+      return;
+    }
     const id = window.setTimeout(() => setDisplayText(activeState.value), 120);
     return () => window.clearTimeout(id);
-  }, [activeState.value]);
+  }, [activeState.value, activeFilePath]);
 
   /* –– line metrics (derived from the debounced display text to keep the hot path cheap) –– */
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
@@ -809,14 +817,18 @@ export function CodeEditor({
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+    // Always restore scroll positions for visual continuity.
     ta.scrollTop = activeState.scrollTop;
     ta.scrollLeft = activeState.scrollLeft;
-    // For uncontrolled textarea we must ensure the DOM value matches the authoritative state
-    // when switching files or when an external load replaces the content.
-    if (ta.value !== activeState.value) {
-      ta.value = activeState.value;
+    // Only sync the DOM textarea value when the active document changed.
+    // This avoids clobbering the native caret/selection during normal typing.
+    if (prevActiveFileRef.current !== activeFilePath) {
+      if (ta.value !== activeState.value) {
+        ta.value = activeState.value;
+      }
+      prevActiveFileRef.current = activeFilePath;
     }
-  }, [activeFilePath, activeState.value]);
+  }, [activeFilePath]);
 
   /* –– scroll event –– */
   const handleTextareaScroll = useCallback(
@@ -839,12 +851,18 @@ export function CodeEditor({
     const ta = textareaRef.current;
     if (!ta) return;
     const pos = ta.selectionStart;
-    const before = activeState.value.slice(0, pos).match(/\n/g);
+    // Use the DOM value (ta.value) rather than any possibly-stale state snapshot.
+    const val = ta.value;
+    const before = val.slice(0, pos).match(/\n/g);
     const line = before ? before.length + 1 : 1;
     const st = editorStates.current.get(activeFilePath)!;
+    // Keep the authoritative in-memory document in sync with the DOM so caret/overlay calculations align.
+    if (st.value !== val) {
+      st.value = val;
+    }
     st.cursorLine = line;
     forceUpdate();
-  }, [activeFilePath, activeState.value]);
+  }, [activeFilePath]);
 
   /* –– edit handling –– */
   const scheduleRender = useCallback(() => {
@@ -971,7 +989,6 @@ export function CodeEditor({
 
         {/* editable textarea (uncontrolled for immediate typing responsiveness) */}
         <textarea
-          key={activeFilePath}
           ref={textareaRef}
           tabIndex={0}
           className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
