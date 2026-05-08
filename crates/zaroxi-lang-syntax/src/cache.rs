@@ -25,6 +25,7 @@ static CACHE: LazyLock<Mutex<HashMap<PathBuf, DocumentSyntaxState>>> =
 
 // ── Per‑document state ────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct DocumentSyntaxState {
     /// The document version for which `spans` is valid.
     version: u64,

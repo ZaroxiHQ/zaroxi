@@ -78,6 +78,7 @@ pub struct EditRequest {
 
 /// Request to save a full file contents.  The frontend uses this to atomically
 /// write the provided content to disk (and update any in‑memory cache).
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveFileRequest {
@@ -278,6 +279,7 @@ pub async fn get_line_count(document_id: String) -> Result<usize, String> {
     Ok(guard.document.len_lines())
 }
 
+#[allow(dead_code)]
 #[command]
 pub async fn get_document_content(document_id: String) -> Result<String, String> {
     let path = std::path::PathBuf::from(&document_id);
@@ -572,6 +574,7 @@ pub async fn highlight_text(
 /// The frontend calls this command when it has the authoritative current text
 /// and wishes to persist it.  The command also attempts to update the server-side
 /// cached document (if present) so subsequent read/save operations remain coherent.
+#[allow(dead_code)]
 #[command]
 pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
     eprintln!("[save_file] writing path={}", request.path);
