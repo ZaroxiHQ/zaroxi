@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { WorkspaceService } from '@/features/workspace/services/workspaceService';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
@@ -358,16 +358,23 @@ export function EditorContainer() {
   }, [handleEditorSave]);
 
   // Build CodeEditor session prop from current visible LocalSession
-  const visibleSession = useMemo(() => {
+  // NOTE: previously this used useMemo with only renderSessionId as dependency.
+  // That produced a stale visibleSession when sessionsRef (a ref) was mutated
+  // but renderSessionId did not change — leaving the editor bound to an
+  // empty placeholder. We now compute the session each render directly so
+  // it always reads the latest sessionsRef and contentRef.
+  const visibleSession = (() => {
     const tabId = renderSessionId;
     const sess = tabId ? sessionsRef.current.get(tabId) ?? null : null;
+
+    // If there is no session object yet, prefer an existing hot-path contentRef
+    // (last known text) to avoid rendering a blank editor while loading.
     if (!sess) {
-      // Fallback: empty session
       return {
         tabId: tabId ?? null,
         documentId: null,
         revision: null,
-        text: '',
+        text: contentRef.current ?? '',
         language: undefined,
         initialHighlight: null,
         isLoading: false,
@@ -375,18 +382,21 @@ export function EditorContainer() {
         contentTruncated: false,
       } as any;
     }
+
     return {
       tabId: sess.tabId,
       documentId: sess.documentId ?? sess.filePath ?? `__no_doc__:${sess.tabId}`,
       revision: sess.revision ?? null,
-      text: sess.text,
+      // Prefer the authoritative session text; fall back to last hot-path contentRef
+      // to avoid briefly showing an empty editor during async hydration.
+      text: sess.text ?? contentRef.current ?? '',
       language: sess.language ?? undefined,
       initialHighlight: sess.initialHighlight ?? null,
       isLoading: sess.isLoading,
       loadSeq: sess.loadSeq,
       contentTruncated: sess.contentTruncated ?? false,
     } as any;
-  }, [renderSessionId, /* sessionsRef changes don't trigger memo so we rely on forceUpdate */]);
+  })();
 
   // If active tab is welcome, render WelcomeView
   if (activeTab?.kind === 'welcome') {
@@ -401,12 +411,18 @@ export function EditorContainer() {
   return (
     <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
       <div className="flex-1 overflow-hidden code-editor-font min-h-0 bg-editor w-full min-w-0">
-        <CodeEditor
-          session={visibleSession}
-          onChange={handleEditorChange}
-          onSave={handleEditorSave}
-          readOnly={false}
-        />
+        {visibleSession.isLoading && (!visibleSession.text || visibleSession.text.length === 0) ? (
+          <div className="h-full flex items-center justify-center text-muted-foreground text-sm p-4 bg-editor">
+            Loading file…
+          </div>
+        ) : (
+          <CodeEditor
+            session={visibleSession}
+            onChange={handleEditorChange}
+            onSave={handleEditorSave}
+            readOnly={false}
+          />
+        )}
       </div>
     </div>
   );
