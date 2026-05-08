@@ -197,11 +197,32 @@ function useFullHighlight(
           return;
         }
 
-        // If backend returned no spans, treat result as non-authoritative and
-        // do NOT cache an empty result. This prevents an empty backend response
-        // from permanently overriding a later successful highlight computation.
+        // Detailed debug: log a small sample of returned lines and their span counts
+        try {
+          const sample = (res.lines || []).slice(0, 6).map((l) => ({ idx: l.index, spans: l.spans.length }));
+          console.debug('[highlight] sample response lines (first 6):', { documentId, sample });
+        } catch (e) {
+          // ignore any debug formatting errors
+        }
+
+        // If backend returned no spans at all, prefer keeping the existing fallback/cached highlights
+        // so the UI doesn't flash to plain text. However, if we have no cached result for this
+        // document, apply an explicit empty set to indicate "no highlights available".
         if (!res.lines || res.lines.length === 0) {
-          console.debug('[highlight] backend returned empty spans; skipping cache and leaving fallback/cached highlights intact', { documentId });
+          const hasCache = cacheRef.current.has(documentId);
+          console.debug('[highlight] backend returned empty spans', { documentId, hasCache });
+          if (!hasCache) {
+            // No cached highlights exist: apply empty to reflect authoritative result.
+            cacheRef.current.set(documentId, { text, lines: [] });
+            // Only update UI if we haven't already applied this text.
+            const applied = lastAppliedRef.current;
+            if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
+              console.debug('[highlight] applying authoritative empty highlights', { documentId });
+              setLines([]);
+              lastAppliedRef.current = { documentId, textHash: currentTextHash };
+            }
+          }
+          // If we do have a cache, keep it (do not clobber fallback).
           return;
         }
 
