@@ -105,36 +105,55 @@ function useFullHighlight(
     const applyResultIfCurrent = (resLines: HighlightLine[], resVersion?: number) => {
       if (cancelled || reqIdRef.current !== thisReq) return false;
 
-      // Convert array -> Map for stable per-line lookup
+      // Prefer reusing any previously cached objects (stable identity) when possible.
+      const prevCacheEntry = cacheRef.current.get(documentId);
+      const prevMapForReuse = prevCacheEntry ? prevCacheEntry.map : mapState;
+
+      // Build a new Map but reuse previous objects where the spans/text are identical.
       const newMap = new Map<number, HighlightLine>();
+      let anyDifferent = false;
+
       for (const l of resLines) {
-        newMap.set(l.index, l);
+        const idx = l.index;
+        const prevHL = prevMapForReuse ? prevMapForReuse.get(idx) : undefined;
+        const resSpansJson = JSON.stringify(l.spans);
+
+        if (prevHL && prevHL.text === l.text && JSON.stringify(prevHL.spans) === resSpansJson) {
+          // Reuse the previous object reference to preserve identity.
+          newMap.set(idx, prevHL);
+          const prevStateHL = mapState.get(idx);
+          if (prevStateHL !== prevHL) anyDifferent = true;
+        } else {
+          // Create a fresh object for changed/new lines.
+          const created: HighlightLine = {
+            index: idx,
+            text: l.text,
+            spans: l.spans,
+          };
+          newMap.set(idx, created);
+
+          const prevStateHL = mapState.get(idx);
+          if (
+            !prevStateHL ||
+            prevStateHL.text !== created.text ||
+            JSON.stringify(prevStateHL.spans) !== resSpansJson
+          ) {
+            anyDifferent = true;
+          }
+        }
       }
 
-      // Cache authoritative result
+      // If map sizes differ it's a structural change.
+      if (mapState.size !== newMap.size) anyDifferent = true;
+
+      // Cache authoritative result (store the newMap for future reuse).
       cacheRef.current.set(documentId, { text, map: newMap, version: resVersion });
 
-      // Swap visible map only when it differs structurally to avoid forcing
-      // React to re-create subtrees. We compare sizes + a shallow JSON fingerprint
-      const prev = cacheRef.current.get(documentId);
-      // We already set cache above; compare to mapState for decision
-      const sameMap =
-        mapState.size === newMap.size &&
-        (() => {
-          for (const [k, v] of newMap) {
-            const prevV = mapState.get(k);
-            if (!prevV) return false;
-            if (prevV.text !== v.text) return false;
-            if (prevV.spans.length !== v.spans.length) return false;
-            // cheap check: compare JSON of spans (acceptable since spans are small)
-            if (JSON.stringify(prevV.spans) !== JSON.stringify(v.spans)) return false;
-          }
-          return true;
-        })();
-
-      if (!sameMap) {
+      // Update visible state only when something actually changed to avoid visual flash.
+      if (anyDifferent) {
         setMapState(newMap);
       }
+
       return true;
     };
 
