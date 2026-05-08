@@ -39,10 +39,20 @@ export function EditorContainer() {
     }
   }, [activeFilePath, activeTab]);
 
-  // Clear any seeded highlight payload when switching files so that the editor
-  // doesn't reuse highlights for the wrong document.
+  // When switching active file we immediately clear any seeded highlight and
+  // the visible content. This is intentional: showing the previous file's
+  // content in the new tab is the root cause of the wrong-content bug.
+  // We keep this immediate swap fast and then hydrate the authoritative
+  // content (from frontend cache or backend) guarded by a load sequence token.
   useEffect(() => {
+    // clear any previously-seeded highlight and visible text immediately
     setInitialHighlight(null);
+    setContent('');
+    setLanguage(undefined);
+    setFileInfo({});
+    // bump load sequence to cancel any in-flight operations targeted at
+    // the previously active file.
+    loadSeqRef.current++;
   }, [activeFilePath]);
 
   // Keep refs to the latest content and active path so keyboard handler
@@ -131,70 +141,97 @@ export function EditorContainer() {
 
 
   const loadFile = async (path: string) => {
+    // create a local sequence token to detect stale async results
+    const mySeq = ++loadSeqRef.current;
     setIsLoading(true);
-    // Do not clear content immediately: keep existing visible content until
-    // the new content is loaded. Clearing here caused the highlighter to
-    // request highlights for an empty buffer which produced flicker and made
-    // highlighting appear only after the second load. Preserve the previous
-    // content until we have the authoritative response.
+
+    // Immediately clear the visible UI (no stale content from previous file)
+    setInitialHighlight(null);
+    setContent('');
+    setLanguage(undefined);
+    setFileName(path.split(/[\\/]/).pop() || 'file');
+    setFileInfo({});
+
     try {
       // First try to get from frontend cache (no IPC call)
       const cached = WorkspaceService.getCachedDocument(path);
       if (cached) {
+        // If the active file changed while we awaited the cache, drop this result.
+        if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
+
         setContent(cached.content);
         setLanguage(cached.language ?? undefined);
-        setFileName(path.split(/[\\/]/).pop() || 'file');
         setFileInfo({
           lineCount: cached.lineCount,
           charCount: cached.charCount,
           largeFileMode: cached.largeFileMode,
           contentTruncated: cached.contentTruncated,
         });
-        // If the frontend cache already contains an initialHighlight snapshot,
-        // apply it synchronously for the first paint. Otherwise fall back to
-        // a best-effort background fetch.
+
+        // Apply any cached initial highlight synchronously if present.
         if ((cached as any).initialHighlight) {
-          setInitialHighlight((cached as any).initialHighlight);
+          if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
+            setInitialHighlight((cached as any).initialHighlight);
+          }
         } else {
-          WorkspaceService.fetchHighlights(path).then((h) => {
-            if (h) setInitialHighlight(h);
-          }).catch(() => {});
+          // Otherwise fetch highlights in background but guard application.
+          try {
+            const h = await WorkspaceService.fetchHighlights(path);
+            if (mySeq === loadSeqRef.current && activeFilePathRef.current === path && h) {
+              setInitialHighlight(h);
+            }
+          } catch {
+            // non-fatal
+          }
         }
-        setIsLoading(false);
+
+        // Final guard before finishing
+        if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
+          setIsLoading(false);
+        }
         return;
       }
 
-      // Not in cache, ask the backend for the authoritative document.
-      // openDocument will attempt to return a compact highlight snapshot
-      // when available so we can render text + syntax together on first paint.
+      // Not in cache: request authoritative document from backend
       const response = await WorkspaceService.openDocument(path);
-      setContent(response.content);
+
+      // Drop outdated responses
+      if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
+
+      setContent(response.content ?? '');
       setLanguage(response.language ?? undefined);
-      setFileName(path.split(/[\\/]/).pop() || 'file');
       setFileInfo({
-        lineCount: response.lineCount,
-        charCount: response.charCount,
-        largeFileMode: response.largeFileMode,
-        contentTruncated: response.contentTruncated,
+        lineCount: (response as any).lineCount,
+        charCount: (response as any).charCount,
+        largeFileMode: (response as any).largeFileMode,
+        contentTruncated: (response as any).contentTruncated,
       });
 
-      // If the backend returned an initial highlight snapshot, use it synchronously.
-      // Otherwise kick off a best-effort background fetch (non-blocking).
       if ((response as any).initialHighlight) {
-        setInitialHighlight((response as any).initialHighlight);
+        if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
+          setInitialHighlight((response as any).initialHighlight);
+        }
       } else {
-        WorkspaceService.fetchHighlights(path).then((h) => {
-          if (h) setInitialHighlight(h);
-        }).catch(() => {});
+        try {
+          const h = await WorkspaceService.fetchHighlights(path);
+          if (mySeq === loadSeqRef.current && activeFilePathRef.current === path && h) {
+            setInitialHighlight(h);
+          }
+        } catch {
+          // ignore
+        }
       }
     } catch (error) {
-      // Failed to load file
+      if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
       setContent(`// Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setLanguage(undefined);
       setFileName('error.txt');
       setFileInfo({});
     } finally {
-      setIsLoading(false);
+      // Only clear loading if this is still the active request.
+      if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
+        setIsLoading(false);
+      }
     }
   };
 

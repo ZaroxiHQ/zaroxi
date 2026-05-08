@@ -618,7 +618,8 @@ export function CodeEditor({
   const highlightOuterRef = useRef<HTMLDivElement>(null);
   // Track when the active file changes so we only perform immediate DOM-value syncs
   // on a document switch. This prevents overwriting the caret/selection during normal typing.
-  const prevActiveFileRef = useRef<string | null>(activeFilePath);
+  // Initialize to null so the first mount performs a sync to populate the uncontrolled textarea.
+  const prevActiveFileRef = useRef<string | null>(null);
   // Throttle RAF handle to coalesce frequent keystrokes into a single render frame.
   // This keeps typing immediate (native textarea) while still updating overlay/gutter
   // at animation-frame granularity to avoid jank.
