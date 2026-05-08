@@ -12,7 +12,7 @@ import { LineNumberGutter } from './gutter/LineNumberGutter';
 import { GUTTER_CONFIG } from './gutter/GutterConfig';
 import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
-import { invoke } from '@tauri-apps/api/core';
+import { bridge } from '@/lib/bridge';
 
 /* ------------------------------------------------------------------ */
 /*  Highlight model (unchanged via backend)                            */
@@ -34,8 +34,19 @@ interface HighlightResponse {
 
 const FULL_LINES_LIMIT = 100_000;
 
+/**
+ * Request highlighting for the exact editor text currently displayed.
+ *
+ * Key properties:
+ * - Ensures highlights are always derived from the in-memory document text (single source of truth).
+ * - Debounces frequent edits to avoid flooding the backend.
+ * - Guards against out-of-order responses using a local request id.
+ *
+ * Returns an array of HighlightLine (same shape used previously).
+ */
 function useFullHighlight(
   documentId: string | null,
+  text: string,
   enabled: boolean,
   theme?: 'dark' | 'light',
 ) {
@@ -44,6 +55,9 @@ function useFullHighlight(
     [],
   );
 
+  const reqIdRef = useRef(0);
+  const debounceRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
@@ -51,34 +65,49 @@ function useFullHighlight(
     }
 
     let cancelled = false;
+    // bump request id for this batch
+    reqIdRef.current += 1;
+    const thisReq = reqIdRef.current;
 
-    async function fetch() {
+    const doFetch = async () => {
       // Clear stale highlights immediately so previous document's spans never
       // appear over the new file content.
       setLines([]);
       try {
-        const res: HighlightResponse = await invoke('highlight_document', {
+        // Use the bridge wrapper which normalizes errors
+        const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
             documentId,
-            startLine: 0,
-            count: FULL_LINES_LIMIT,
+            text,
             theme: theme ?? 'dark',
           },
         });
-        if (!cancelled) {
+        // Only apply if this response matches the latest request id and not cancelled.
+        if (!cancelled && reqIdRef.current === thisReq) {
           setLines(res.lines);
         }
       } catch (err) {
-        console.warn('full highlight failed:', err);
-        if (!cancelled) setLines([]);
+        console.warn('full highlight (text) failed:', err);
+        if (!cancelled && reqIdRef.current === thisReq) setLines([]);
       }
-    }
+    };
 
-    fetch();
+    // Debounce to avoid making a request on every keystroke.
+    // Small delay keeps editor feeling responsive while avoiding high IPC churn.
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
+    }
+    // Use a short debounce; immediate for large documents could be disabled by caller.
+    debounceRef.current = window.setTimeout(doFetch, 120);
+
     return () => {
       cancelled = true;
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
     };
-  }, [documentId, enabled, theme]);
+  }, [documentId, text, enabled, theme]);
 
   return lines;
 }
@@ -277,6 +306,7 @@ export function CodeEditor({
   const highlightsEnabled = !largeFile && !!activeFilePath;
   const allHighlighted = useFullHighlight(
     activeFilePath,
+    activeState.value,
     highlightsEnabled,
     theme,
   );

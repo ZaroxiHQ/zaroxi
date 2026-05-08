@@ -85,6 +85,17 @@ pub struct HighlightRequest {
     pub theme: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HighlightTextRequest {
+    /// Document identifier (path or document id)
+    pub document_id: String,
+    /// Full text to highlight (UTF-8)
+    pub text: String,
+    /// Optional theme name: "dark" or "light".  If omitted, dark is used.
+    pub theme: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct HighlightResponse {
     pub lines: Vec<HighlightedLine>,
@@ -394,6 +405,135 @@ pub async fn highlight_document(
     }
 
     eprintln!("[highlight_document] returning {} lines", response_lines.len());
+    Ok(HighlightResponse {
+        lines: response_lines,
+    })
+}
+
+/// Highlight arbitrary text supplied by the frontend and return the same
+/// DTO as `highlight_document`.
+///
+/// This command is used by the editor to request highlighting for the exact
+/// in-memory text the user is editing (single source of truth).  It computes
+/// a stable hash of the text and passes it to the cache helper so that the
+/// highlighting pipeline can reuse work for identical inputs while never
+/// using highlights computed for a different text.
+///
+/// Important: this does NOT mutate the server-side buffer cache and is safe
+/// to call on every edited frame (the frontend will debounce).
+#[command]
+pub async fn highlight_text(
+    request: HighlightTextRequest,
+) -> Result<HighlightResponse, String> {
+    eprintln!("[highlight_text] request for document_id={}", request.document_id);
+
+    let path = std::path::PathBuf::from(&request.document_id);
+    let full_text = request.text;
+    let theme_colors = match request.theme.as_deref() {
+        Some("light") => SemanticColors::light(),
+        _ => SemanticColors::dark(),
+    };
+
+    // Detect language from the path (fallback to PlainText).
+    let lang = LanguageId::from_path(path.as_path());
+    if lang == LanguageId::PlainText {
+        eprintln!("[highlight_text] PlainText -> returning empty");
+        return Ok(HighlightResponse { lines: vec![] });
+    }
+
+    let engine = HighlightEngine::new();
+
+    // Compute a version/hash for this exact text so the cache keys highlights to
+    // the supplied contents (prevents stale highlights from other documents).
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    full_text.hash(&mut hasher);
+    let version = hasher.finish();
+
+    eprintln!("[highlight_text] invoking cache compute (version={})", version);
+
+    let spans = cache::get_or_compute(
+        &path,
+        version,
+        &full_text,
+        lang,
+        PARSER_POOL.clone(),
+        &engine,
+    )
+    .map_err(|e| format!("Highlight error: {}", e))?;
+
+    eprintln!("[highlight_text] got {} total spans", spans.len());
+
+    // Map spans into requested line range covering the whole document text.
+    use std::borrow::Cow;
+    let line_count = full_text.lines().count();
+
+    let mut line_offsets = Vec::with_capacity(line_count + 1);
+    line_offsets.push(0usize);
+    for (pos, b) in full_text.bytes().enumerate() {
+        if b == b'\n' {
+            line_offsets.push(pos + 1);
+        }
+    }
+
+    let mut response_lines = Vec::with_capacity(line_count);
+
+    for idx in 0..line_count {
+        let line_start = *line_offsets.get(idx).unwrap_or(&full_text.len());
+        let line_end = *line_offsets.get(idx + 1).unwrap_or(&full_text.len());
+
+        // Guard against degenerate offsets.
+        let raw = if line_start <= full_text.len() && line_end <= full_text.len() {
+            &full_text[line_start..line_end]
+        } else {
+            ""
+        };
+
+        let display = if raw.ends_with('\n') {
+            Cow::Owned(raw[..raw.len() - 1].to_owned())
+        } else {
+            Cow::Borrowed(raw)
+        };
+
+        // Convert byte offsets to character offsets by counting chars up to the byte position.
+        let line_start_char = full_text[..line_start].chars().count();
+        let line_end_char = full_text[..line_end].chars().count();
+        let line_len_chars = line_end_char.saturating_sub(line_start_char);
+
+        let mut line_spans: Vec<HighlightSpanDto> = Vec::new();
+        for sp in &spans {
+            if sp.end <= line_start || sp.start >= line_end {
+                continue;
+            }
+
+            // Convert span byte offsets to character offsets.
+            let span_start_char = full_text[..sp.start.min(full_text.len())].chars().count();
+            let span_end_char = full_text[..sp.end.min(full_text.len())].chars().count();
+
+            let rel_start = span_start_char.saturating_sub(line_start_char);
+            let rel_end = span_end_char
+                .saturating_sub(line_start_char)
+                .min(line_len_chars);
+
+            let token_type = highlight_tag_to_string(sp.highlight);
+            let color = tag_to_color(sp.highlight, &theme_colors).map(color_to_hex);
+            line_spans.push(HighlightSpanDto {
+                start: rel_start,
+                end: rel_end,
+                token_type,
+                color,
+            });
+        }
+        line_spans.sort_by_key(|s| s.start);
+        response_lines.push(HighlightedLine {
+            index: idx,
+            text: display.into_owned(),
+            spans: line_spans,
+        });
+    }
+
+    eprintln!("[highlight_text] returning {} lines", response_lines.len());
     Ok(HighlightResponse {
         lines: response_lines,
     })
