@@ -150,16 +150,24 @@ export function EditorContainer() {
           largeFileMode: cached.largeFileMode,
           contentTruncated: cached.contentTruncated,
         });
-        // Seed highlights asynchronously (best-effort). Failure is non-fatal.
-        WorkspaceService.fetchHighlights(path).then((h) => {
-          if (h) setInitialHighlight(h);
-        }).catch(() => {});
+        // If the frontend cache already contains an initialHighlight snapshot,
+        // apply it synchronously for the first paint. Otherwise fall back to
+        // a best-effort background fetch.
+        if ((cached as any).initialHighlight) {
+          setInitialHighlight((cached as any).initialHighlight);
+        } else {
+          WorkspaceService.fetchHighlights(path).then((h) => {
+            if (h) setInitialHighlight(h);
+          }).catch(() => {});
+        }
         setIsLoading(false);
         return;
       }
 
-      // Not in cache, fetch from backend (which will use the Rust cache)
-      const response = await WorkspaceService.openFile({ path });
+      // Not in cache, ask the backend for the authoritative document.
+      // openDocument will attempt to return a compact highlight snapshot
+      // when available so we can render text + syntax together on first paint.
+      const response = await WorkspaceService.openDocument(path);
       setContent(response.content);
       setLanguage(response.language ?? undefined);
       setFileName(path.split(/[\\/]/).pop() || 'file');
@@ -170,12 +178,15 @@ export function EditorContainer() {
         contentTruncated: response.contentTruncated,
       });
 
-      // Seed highlights asynchronously (best-effort). If the backend already
-      // has cached spans for this file+version this will be fast and allows the
-      // editor to display syntax immediately.
-      WorkspaceService.fetchHighlights(path).then((h) => {
-        if (h) setInitialHighlight(h);
-      }).catch(() => {});
+      // If the backend returned an initial highlight snapshot, use it synchronously.
+      // Otherwise kick off a best-effort background fetch (non-blocking).
+      if ((response as any).initialHighlight) {
+        setInitialHighlight((response as any).initialHighlight);
+      } else {
+        WorkspaceService.fetchHighlights(path).then((h) => {
+          if (h) setInitialHighlight(h);
+        }).catch(() => {});
+      }
     } catch (error) {
       // Failed to load file
       setContent(`// Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);

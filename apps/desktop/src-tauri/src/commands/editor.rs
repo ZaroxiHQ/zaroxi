@@ -42,6 +42,11 @@ pub struct OpenDocumentResponse {
     /// Optional detected language identifier (e.g. "rust", "toml").
     /// Present when the backend can infer a language from the path.
     pub language: Option<String>,
+    /// Optional compact highlight snapshot to use for the first paint.
+    /// When present the frontend MUST render syntax from this snapshot
+    /// immediately to avoid a visible second-phase highlight pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_highlight: Option<HighlightResponse>,
 }
 
 const TRUNCATE_CHARS: usize = 50_000;
@@ -165,6 +170,88 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
         (document.len_lines(), document.len_chars())
     };
 
+    // Attempt to seed a compact initial highlight snapshot from the server-side cache.
+    // We only use the cached spans (no expensive re-computation) to ensure the open path
+    // can present syntax immediately when available. If no cached spans exist we return None
+    // and let the frontend fall back to a cheap local rendering while an async highlight
+    // may run later.
+    let initial_highlight = (|| -> Result<Option<HighlightResponse>, String> {
+        if let Some(cached_spans) = cache::get_cached(&path, document.version(), lang) {
+            use std::borrow::Cow;
+
+            let line_count = content.lines().count();
+            let mut line_offsets = Vec::with_capacity(line_count + 1);
+            line_offsets.push(0usize);
+            for (pos, b) in content.bytes().enumerate() {
+                if b == b'\n' {
+                    line_offsets.push(pos + 1);
+                }
+            }
+
+            let mut response_lines = Vec::with_capacity(line_count);
+
+            for idx in 0..line_count {
+                let line_start = *line_offsets.get(idx).unwrap_or(&content.len());
+                let line_end = *line_offsets.get(idx + 1).unwrap_or(&content.len());
+
+                let raw = if line_start <= content.len() && line_end <= content.len() {
+                    &content[line_start..line_end]
+                } else {
+                    ""
+                };
+
+                let display = if raw.ends_with('\n') {
+                    Cow::Owned(raw[..raw.len() - 1].to_owned())
+                } else {
+                    Cow::Borrowed(raw)
+                };
+
+                // Convert byte offsets to character offsets using the loaded document.
+                let line_start_char = document.byte_to_char(line_start);
+                let line_end_char = document.byte_to_char(line_end);
+                let line_len_chars = line_end_char.saturating_sub(line_start_char);
+
+                let mut line_spans: Vec<HighlightSpanDto> = Vec::new();
+                for sp in &cached_spans {
+                    if sp.end <= line_start || sp.start >= line_end {
+                        continue;
+                    }
+
+                    let span_start_char = document.byte_to_char(sp.start);
+                    let span_end_char = document.byte_to_char(sp.end);
+
+                    let rel_start = span_start_char.saturating_sub(line_start_char);
+                    let rel_end = span_end_char
+                        .saturating_sub(line_start_char)
+                        .min(line_len_chars);
+
+                    let token_type = highlight_tag_to_string(sp.highlight);
+                    // Omit color in the compact snapshot; frontend can map token types to theme.
+                    line_spans.push(HighlightSpanDto {
+                        start: rel_start,
+                        end: rel_end,
+                        token_type,
+                        color: None,
+                    });
+                }
+                line_spans.sort_by_key(|s| s.start);
+                response_lines.push(HighlightedLine {
+                    index: idx,
+                    text: display.into_owned(),
+                    spans: line_spans,
+                });
+            }
+
+            Ok(Some(HighlightResponse {
+                lines: response_lines,
+                version: document.version(),
+            }))
+        } else {
+            Ok(None)
+        }
+    })()
+    .map_err(|e| format!("Failed to build initial highlight: {}", e))?;
+
     Ok(OpenDocumentResponse {
         document_id: path.clone(),
         path,
@@ -178,6 +265,7 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
         // Detect language from the requested path so the frontend can request
         // highlighting using an explicit language hint when available.
         language: Some(LanguageId::from_path(path_buf.as_path()).as_str().to_string()),
+        initial_highlight,
     })
 }
 

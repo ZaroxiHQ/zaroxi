@@ -15,6 +15,8 @@ const documentCache = new Map<string, {
   largeFileMode?: string;
   contentTruncated?: boolean;
   isDirty: boolean;
+  // Optional initial highlight snapshot returned by openDocument (used for first-paint)
+  initialHighlight?: any;
 }>();
 
 // Domain types (mirror Rust DTOs)
@@ -104,6 +106,8 @@ export interface OpenDocumentResponse {
   content?: string;
   /** Indicates whether the returned content was truncated (file was large). */
   contentTruncated?: boolean;
+  /** Optional compact highlight snapshot provided by the backend for first-paint. */
+  initialHighlight?: any;
 }
 
 export interface VisibleLinesRequest {
@@ -266,6 +270,7 @@ export class WorkspaceService {
       largeFileMode: response.largeFileMode,
       contentTruncated: response.contentTruncated,
       isDirty: false,
+      initialHighlight: docResponse.initialHighlight,
     });
 
     return response;
@@ -566,6 +571,7 @@ export class WorkspaceService {
       charCount: cached.charCount,
       largeFileMode: cached.largeFileMode,
       contentTruncated: cached.contentTruncated,
+      initialHighlight: cached.initialHighlight,
     };
   }
 

@@ -284,8 +284,14 @@ function useFullHighlight(
 
     const lastFetch = documentId ? lastFetchRef.current.get(documentId) ?? 0 : 0;
     const now = Date.now();
+    // Be conservative about triggering backend fetches for edits.
+    // Immediate fetch if:
+    //  - no local cached snapshot exists
+    //  - this is a document switch (we want first paint)
+    // Otherwise, for small files allow a throttle window to coalesce edits
+    // before making a remote request so typing remains snappy.
     const shouldImmediateEditFetch =
-      !cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD || (now - lastFetch) >= EDIT_THROTTLE_MS;
+      !cached || isDocSwitch || ((text.length <= SMALL_FILE_THRESHOLD) && ((now - lastFetch) >= EDIT_THROTTLE_MS));
 
     if (shouldImmediateEditFetch) {
       // Schedule on next animation frame to coalesce micro-bursts of edits.
@@ -476,6 +482,10 @@ interface CodeEditorProps {
   className?: string;
   contentTruncated?: boolean;
   theme?: 'dark' | 'light';
+  // Optional initial highlight snapshot provided by the open_document command.
+  // When present the editor will render this snapshot immediately for the
+  // first paint to avoid a visible second-phase highlight pass.
+  initialHighlight?: { lines: HighlightLine[]; version?: number } | null;
 }
 
 const TRUNCATE_CHARS = 50_000;
