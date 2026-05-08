@@ -1,29 +1,22 @@
 /**
- * CodeEditor (refactored to consume a single VisibleEditorSession)
+ * CodeEditor (simplified and deterministic)
  *
- * Summary of changes:
- *  - CodeEditor now accepts a single `session` prop (owned by EditorContainer).
- *  - Internal editorStates map is keyed strictly by documentId (not tabId).
- *  - Textarea DOM sync is performed deterministically whenever the active session
- *    changes or when the session.text differs from the DOM, ensuring Rule 2/3.
- *  - All async highlight requests are driven from `session.documentId` + `displayText`.
- *  - The typing hot path remains unchanged: uncontrolled textarea for native typing,
- *    ephemeral updates propagated to container via onChange (hot) and debounced commit.
- *
- * Important: this file intentionally contains additional comments describing root-cause fixes.
+ * Key changes:
+ * - Consumes a single authoritative `session` prop.
+ * - Maintains a controlled textarea value seeded from session.text on session identity/load changes.
+ * - Typing updates local value and notifies container via onChange immediately.
+ * - Highlight overlay is always derived from the textarea's visible value.
+ * - No hidden adoption or contentRef games.
  */
 
 import React, {
   useState,
   useEffect,
-  useLayoutEffect,
   useRef,
-  useReducer,
   useCallback,
   useMemo,
 } from 'react';
 import { cn } from '@/lib/utils';
-import { useTabsStore } from '@/features/tabs/store';
 import { LineNumberGutter } from './gutter/LineNumberGutter';
 import { GUTTER_CONFIG } from './gutter/GutterConfig';
 import { computeGutterWidth } from './gutter/GutterLayout';
@@ -31,7 +24,7 @@ import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
 
 /* ------------------------------------------------------------------ */
-/*  Highlight model (unchanged)                                       */
+/*  Highlight model (unchanged small types)                            */
 /* ------------------------------------------------------------------ */
 interface HighlightSpan {
   start: number;
@@ -53,11 +46,6 @@ interface HighlightResponse {
 const FULL_LINES_LIMIT = 100_000;
 
 /* ----------------------------- Session prop ------------------------ */
-/**
- * The editor now receives exactly one "session" object which is the single
- * source of truth for visible document identity and text. EditorContainer owns
- * this object and enforces load-sequence protection.
- */
 export interface EditorSession {
   tabId?: string | null;
   documentId: string;
@@ -71,21 +59,8 @@ export interface EditorSession {
 }
 
 interface CodeEditorProps {
-  // Accept either an explicit session object (new API) OR legacy individual props.
-  // This keeps the component backwards-compatible while we migrate callers.
   session?: EditorSession;
-
-  // Legacy props (kept for compatibility)
-  tabId?: string | null;
-  documentId?: string | null;
-  revision?: number | null;
-  initialValue?: string;
-  language?: string;
-  initialHighlight?: any | null;
-  contentTruncated?: boolean;
-
-  // Common callbacks / presentation
-  onChange: (value: string) => void; // hot-path: immediate local changes
+  onChange: (value: string) => void;
   onSave?: () => void;
   readOnly?: boolean;
   className?: string;
@@ -106,7 +81,8 @@ function stableHashString(s: string): string {
 
 /* ------------------------------------------------------------------ */
 /*  useFullHighlight (keeps behaviour but accepts explicit session id) */
-/* ------------------------------------------------------------------ */
+/*  We keep this mostly unchanged and reuse it to drive overlay highlights.
+*/
 function useFullHighlight(
   documentId: string | null,
   text: string,
@@ -115,16 +91,11 @@ function useFullHighlight(
   language?: string,
   initialHighlight?: { lines: HighlightLine[]; version?: number },
 ) {
-  const [mapState, setMapState] = useReducer(
-    (_prev: Map<number, HighlightLine>, next: Map<number, HighlightLine>) => next,
-    new Map<number, HighlightLine>(),
-  );
+  const [mapState, setMapState] = React.useState<Map<number, HighlightLine>>(new Map());
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
-  const retriesRef = useRef<Map<string, number>>(new Map());
-  const lastFetchRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!documentId || !enabled) {
@@ -135,7 +106,7 @@ function useFullHighlight(
 
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
-      setMapState(cached.map);
+      setMapState(new Map(cached.map));
       prevDocRef.current = documentId;
       return;
     }
@@ -147,59 +118,21 @@ function useFullHighlight(
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
-    const recordFetch = () => {
-      if (!documentId) return;
-      lastFetchRef.current.set(documentId, Date.now());
-    };
-
     const applyResultIfCurrent = (resLines: { index: number; text: string; spans: HighlightSpan[] }[], resVersion?: number) => {
       if (cancelled || reqIdRef.current !== thisReq) return false;
 
-      const prevCacheEntry = cacheRef.current.get(documentId);
-      const prevMapForReuse = prevCacheEntry ? prevCacheEntry.map : mapState;
       const newMap = new Map<number, HighlightLine>();
-      let anyDifferent = false;
-
       for (const l of resLines) {
-        const idx = l.index;
-        const resSpansJson = JSON.stringify(l.spans);
-        const prevHL = prevMapForReuse ? prevMapForReuse.get(idx) : undefined;
-        if (prevHL && prevHL.text === l.text && JSON.stringify(prevHL.spans) === resSpansJson) {
-          newMap.set(idx, prevHL);
-          const prevStateHL = mapState.get(idx);
-          if (prevStateHL !== prevHL) anyDifferent = true;
-        } else {
-          const uid = `${documentId}:${resVersion ?? 0}:${idx}`;
-          const created: HighlightLine = {
-            uid,
-            index: idx,
-            text: l.text,
-            spans: l.spans,
-          };
-          newMap.set(idx, created);
-          const prevStateHL = mapState.get(idx);
-          if (
-            !prevStateHL ||
-            prevStateHL.text !== created.text ||
-            JSON.stringify(prevStateHL.spans) !== resSpansJson
-          ) {
-            anyDifferent = true;
-          }
-        }
+        const uid = `${documentId}:${resVersion ?? 0}:${l.index}`;
+        newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
-
-      if (mapState.size !== newMap.size) anyDifferent = true;
 
       cacheRef.current.set(documentId, { text, map: newMap, version: resVersion });
-
-      if (anyDifferent) {
-        setMapState(newMap);
-      }
+      setMapState(newMap);
       return true;
     };
 
     const fetchExact = async () => {
-      recordFetch();
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
@@ -210,99 +143,20 @@ function useFullHighlight(
           },
         });
         if (cancelled || reqIdRef.current !== thisReq) return;
-
-        const resLines = res.lines || [];
-        const resVersion = res.version;
-
-        const prevCache = cacheRef.current.get(documentId);
-        const resEmpty = resLines.length === 0;
-        const hasPrevNonEmpty = prevCache && prevCache.text === text && prevCache.map.size > 0;
-
-        if (resEmpty && hasPrevNonEmpty) {
-          const attempts = retriesRef.current.get(documentId) ?? 0;
-          if (attempts < 2) {
-            retriesRef.current.set(documentId, attempts + 1);
-            const backoff = 80 * (attempts + 1);
-            setTimeout(() => {
-              if (!cancelled && reqIdRef.current === thisReq) {
-                void fetchExact();
-              }
-            }, backoff);
-            return;
-          } else {
-            retriesRef.current.delete(documentId);
-          }
-        } else {
-          retriesRef.current.delete(documentId);
-        }
-
-        const normalized = resLines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
-        applyResultIfCurrent(normalized, resVersion);
-      } catch (err) {
-        // Non-fatal
-      }
-    };
-
-    const fetchDocumentRange = async (): Promise<boolean> => {
-      recordFetch();
-      try {
-        const res: HighlightResponse = await bridge.invoke('highlight_document', {
-          request: {
-            documentId,
-            startLine: 0,
-            count: FULL_LINES_LIMIT,
-            theme: theme ?? 'dark',
-          },
-        });
-        if (cancelled || reqIdRef.current !== thisReq) return false;
-        if (res.lines && res.lines.length > 0) {
-          const normalized = res.lines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
-          applyResultIfCurrent(normalized, res.version);
-          return true;
-        }
+        const normalized = res.lines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
+        applyResultIfCurrent(normalized, res.version);
       } catch {
         // ignore
       }
-      return false;
     };
 
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-
-    const doWork = async () => {
-      if (isDocSwitch) {
-        if (initialHighlight && Array.isArray(initialHighlight.lines) && initialHighlight.lines.length > 0) {
-          try {
-            applyResultIfCurrent(initialHighlight.lines.map((l:any) => ({ index: l.index, text: l.text, spans: l.spans })), initialHighlight.version);
-          } catch {}
-        }
-        const gotRange = await fetchDocumentRange();
-        void fetchExact();
-        return gotRange;
-      } else {
-        await fetchExact();
-      }
-    };
-
-    const lastFetch = documentId ? lastFetchRef.current.get(documentId) ?? 0 : 0;
-    const now = Date.now();
-    const SMALL_FILE_THRESHOLD = 1500;
-    const EDIT_THROTTLE_MS = 300;
-    const shouldImmediateEditFetch =
-      !cached || isDocSwitch || ((text.length <= SMALL_FILE_THRESHOLD) && ((now - lastFetch) >= EDIT_THROTTLE_MS));
-
-    if (shouldImmediateEditFetch) {
-      requestAnimationFrame(() => {
-        void doWork();
-      });
-    } else {
-      const adaptiveMs = Math.max(40, Math.min(120, Math.floor(text.length / 300)));
-      debounceRef.current = window.setTimeout(() => {
-        void doWork();
-      }, adaptiveMs);
-    }
+    debounceRef.current = window.setTimeout(() => {
+      void fetchExact();
+    }, Math.max(30, Math.min(120, Math.floor(text.length / 300))));
 
     return () => {
       cancelled = true;
@@ -311,13 +165,13 @@ function useFullHighlight(
         debounceRef.current = null;
       }
     };
-  }, [documentId, text, enabled, theme, language]);
+  }, [documentId, text, enabled, theme, language, initialHighlight]);
 
   return mapState;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Span merging / render (unchanged)                                 */
+/*  Span merging / render                                              */
 /* ------------------------------------------------------------------ */
 function mergeSpans(spans: HighlightSpan[], lineLen: number): HighlightSpan[] {
   if (spans.length === 0 || lineLen === 0) return [];
@@ -402,7 +256,7 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Line view (unchanged)                                             */
+/*  Line view                                                          */
 /* ------------------------------------------------------------------ */
 const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> = React.memo(
   ({ hl, lineHeight }) => {
@@ -441,7 +295,7 @@ const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> =
 );
 
 /* ------------------------------------------------------------------ */
-/*  Simple helpers                                                     */
+/*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 function computeLineStarts(text: string): number[] {
   const starts: number[] = [0];
@@ -456,7 +310,7 @@ function computeLineStarts(text: string): number[] {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Editor implementation (session-driven)                            */
+/*  Simplified Editor implementation                                   */
 /* ------------------------------------------------------------------ */
 export function CodeEditor(props: CodeEditorProps) {
   const {
@@ -467,81 +321,49 @@ export function CodeEditor(props: CodeEditorProps) {
     theme = 'dark',
   } = props;
 
-  // Normalize a single authoritative session object for internal usage.
-  // Priority:
-  // 1) props.session (new API)
-  // 2) synthesize from legacy props (documentId + initialValue)
   const session: EditorSession = props.session ?? {
-    tabId: props.tabId ?? null,
-    documentId: props.documentId ?? props.tabId ?? '__no_doc__',
-    revision: props.revision ?? null,
-    text: props.initialValue ?? '',
-    language: props.language ?? undefined,
-    initialHighlight: typeof props.initialHighlight !== 'undefined' ? props.initialHighlight : null,
+    tabId: null,
+    documentId: '__no_doc__',
+    revision: null,
+    text: '',
+    language: undefined,
+    initialHighlight: null,
     isLoading: false,
     loadSeq: 0,
-    contentTruncated: props.contentTruncated ?? false,
+    contentTruncated: false,
   };
-  // Editor states keyed strictly by documentId (single authoritative id)
-  const editorStates = useRef<Map<string, EditorState>>(new Map());
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
 
-  // Determine active key (documentId only) to avoid mixing tab identity into local state.
-  const activeDocKey = `${session.documentId ?? '__no_doc__'}`;
+  // Controlled value that reflects the visible text.
+  const [value, setValue] = useState<string>(session.text ?? '');
+  // Keep a session identity to decide when to resync the controlled value
+  const lastSessionIdRef = useRef<string | number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Initialize state for this documentId if missing
-  if (!editorStates.current.has(activeDocKey)) {
-    editorStates.current.set(activeDocKey, {
-      value: session.text ?? '',
-      scrollTop: 0,
-      scrollLeft: 0,
-      cursorLine: 1,
-    });
-  }
-
-  // Read current editor state
-  const activeState = editorStates.current.get(activeDocKey)!;
-
-  // Refs
-  const containerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const highlightOuterRef = useRef<HTMLDivElement>(null);
-  const prevDocRef = useRef<string | null>(null);
-  const rafScheduledRef = useRef<number | null>(null);
-
-  // Huge file guard
-  const largeFile = session.contentTruncated ?? (session.text.length >= 50_000);
-
-  // Container size
-  const [containerHeight, setContainerHeight] = useReducer((_p:number, n:number)=>n, 0);
-  useEffect(()=>{
-    const el = containerRef.current;
-    if(!el) return;
-    const obs = new ResizeObserver(entries=>{
-      for(const e of entries) setContainerHeight(e.contentRect.height);
-    });
-    obs.observe(el);
-    return ()=>obs.disconnect();
-  },[]);
-
-  // Display text (debounced) used by highlight pipeline
-  const [displayText, setDisplayText] = useState<string>(activeState.value);
-  useEffect(()=>{
-    // If document switched, update immediately
-    if (prevDocRef.current !== activeDocKey) {
-      setDisplayText(activeState.value);
-      prevDocRef.current = activeDocKey;
-      return;
+  // Sync from session to local controlled value when session identity or loadSeq changes.
+  useEffect(() => {
+    const sessionIdentity = `${session.documentId}::${session.loadSeq ?? 0}`;
+    if (lastSessionIdRef.current !== sessionIdentity) {
+      // New session or new load result -> adopt session.text deterministically.
+      lastSessionIdRef.current = sessionIdentity;
+      setValue(session.text ?? '');
     }
-    const id = window.setTimeout(()=>setDisplayText(activeState.value), 120);
-    return ()=>window.clearTimeout(id);
-  }, [activeState.value, activeDocKey]);
+    // If session.text changed (e.g., backend pushed an update) and it's different
+    // and belongs to the current session identity, adopt it.
+    // Avoid stomping while user is mid-typing: however the container owns text and
+    // will write authoritative updates; we keep the simple rule: adopt when loadSeq changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.documentId, session.loadSeq]);
 
+  // Derived UI state
+  const largeFile = session.contentTruncated ?? (value.length >= 50_000);
+
+  // Highlighting: always derive from the visible text `value`.
+  const displayText = value;
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
-  const displayLineStarts = useMemo(()=>computeLineStarts(displayText), [displayText]);
+  const displayLineStarts = useMemo(() => computeLineStarts(displayText), [displayText]);
   const totalLines = displayLineStarts.length;
 
-  // Highlighting: only enabled when not large and we have a documentId
   const highlightsEnabled = !largeFile && !!session.documentId;
   const highlightedMap = useFullHighlight(
     session.documentId ?? null,
@@ -552,62 +374,39 @@ export function CodeEditor(props: CodeEditorProps) {
     session.initialHighlight ?? null,
   );
 
-  const visibleStartLine = Math.floor(activeState.scrollTop / lineHeight);
-  const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight)/lineHeight)*2;
+  // Compute overlay lines for visible area
+  const [containerHeight, setContainerHeight] = useState<number>(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setContainerHeight(e.contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const scrollTopRef = useRef<number>(0);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
+  const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  // Local highlighter for visible lines
-  const localHighlightLine = useCallback((lineText: string): HighlightSpan[]=>{
-    const spans: HighlightSpan[] = [];
-    if(!lineText) return spans;
-    const commentIdx = lineText.indexOf('//');
-    if(commentIdx!==-1) { spans.push({ start: commentIdx, end: lineText.length, token_type: 'comment' }); return spans; }
-    const stringRe = /(["'])(?:\\.|(?!\1).)*\1/g;
-    let m: RegExpExecArray|null;
-    while((m=stringRe.exec(lineText))!==null) spans.push({ start: m.index, end: m.index+m[0].length, token_type:'string' });
-    const numRe = /\b\d+(\.\d+)?\b/g;
-    while((m=numRe.exec(lineText))!==null) spans.push({ start: m.index, end: m.index+m[0].length, token_type:'number' });
-    const kwRe = /\b(fn|function|return|if|else|for|while|const|let|var|pub|use|mod|struct|enum|impl|class|import|switch|case)\b/g;
-    while((m=kwRe.exec(lineText))!==null) spans.push({ start: m.index, end: m.index+m[0].length, token_type:'keyword' });
-    spans.sort((a,b)=>a.start-b.start || (a.end-a.start)-(b.end-b.start));
-    const merged: HighlightSpan[] = [];
-    for(const sp of spans){
-      const s = Math.max(0, sp.start);
-      const e = Math.min(lineText.length, sp.end);
-      if(e<=s) continue;
-      const last = merged[merged.length-1];
-      if(!last || s>=last.end) merged.push({ start: s, end: e, token_type: sp.token_type, color: sp.color });
-      else if(e>last.end) last.end = e;
+  const overlayHighlighted = useMemo(() => {
+    const lines: HighlightLine[] = [];
+    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+      const start = displayLineStarts[idx] ?? displayText.length;
+      const end = displayLineStarts[idx + 1] ?? displayText.length;
+      let authoritative = displayText.slice(start, end);
+      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+      const backendHl = highlightedMap.get(idx);
+      const usedSpans = backendHl ? backendHl.spans : [];
+      const uid = backendHl && backendHl.uid ? backendHl.uid : `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
+      lines.push({ uid, index: idx, text: authoritative, spans: usedSpans });
     }
-    return merged;
-  },[]);
-
-  const [overlayHighlighted, setOverlayHighlighted] = useState<HighlightLine[]>([]);
-  useEffect(()=>{
-    let rafId: number|null = null;
-    let cancelled = false;
-    const doCompute = ()=>{
-      if(cancelled) return;
-      const lines: HighlightLine[] = [];
-      const localLineStarts = displayLineStarts;
-      const totalDisplayLines = localLineStarts.length;
-      const startIdx = Math.max(visibleStartLine, 0);
-      const endIdx = Math.min(visibleEndLine, totalDisplayLines);
-      for(let idx=startIdx; idx<endIdx; idx++){
-        const start = localLineStarts[idx] ?? displayText.length;
-        const end = localLineStarts[idx+1] ?? displayText.length;
-        let authoritative = displayText.slice(start,end);
-        if(authoritative.endsWith('\n')) authoritative = authoritative.slice(0,-1);
-        const backendHl = highlightedMap.get(idx);
-        const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
-        const uid = backendHl && backendHl.uid ? backendHl.uid : `${activeDocKey}:${stableHashString(authoritative)}:${idx}`;
-        lines.push({ uid, index: idx, text: authoritative, spans: usedSpans });
-      }
-      if(!cancelled) setOverlayHighlighted(lines);
-    };
-    rafId = requestAnimationFrame(doCompute);
-    return ()=>{ cancelled = true; if(rafId) cancelAnimationFrame(rafId); };
-  }, [highlightedMap, visibleStartLine, visibleEndLine, displayLineStarts, localHighlightLine, activeDocKey]);
+    return lines;
+  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
@@ -615,70 +414,22 @@ export function CodeEditor(props: CodeEditorProps) {
   const MAX_OVERLAY_HEIGHT = 10_000_000;
   const overlayEnabled = highlightsEnabled && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
 
-  // Ensure the native textarea DOM always matches the active session.text whenever the documentId changes
-  // or when the session.text differs from the stored activeState.value. This prevents "blank" windows
-  // where the session indicates a document but the DOM still shows previous content.
-  useLayoutEffect(() => {
-    // On document switch or when the authoritative session text differs from the
-    // in-memory editor state, synchronously adopt the session.text into our
-    // editorStates map so the next paint contains the correct text.
-    if (prevDocRef.current !== activeDocKey || activeState.value !== session.text) {
-      activeState.value = session.text;
-      prevDocRef.current = activeDocKey;
-      // Ensure the component re-renders to pick up the updated activeState.value.
-      forceUpdate();
-    }
+  // Handlers
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      if (effectiveReadOnly) return;
+      const v = e.target.value;
+      setValue(v);
+      onChange(v);
+    },
+    [onChange, effectiveReadOnly],
+  );
 
-    // Restore scroll positions deterministically every layout pass.
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.scrollTop = activeState.scrollTop;
-    ta.scrollLeft = activeState.scrollLeft;
-  }, [activeDocKey, session.documentId, session.text, activeState.scrollTop, activeState.scrollLeft, activeState.value]);
-
-  const handleTextareaScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>)=>{
-    if(!e.currentTarget) return;
-    const sTop = e.currentTarget.scrollTop;
-    const sLeft = e.currentTarget.scrollLeft;
-    const current = editorStates.current.get(activeDocKey)!;
-    current.scrollTop = sTop;
-    current.scrollLeft = sLeft;
-    forceUpdate();
-  }, [activeDocKey]);
-
-  const handleSelect = useCallback(()=>{
-    const ta = textareaRef.current;
-    if(!ta) return;
-    const pos = ta.selectionStart;
-    const val = ta.value;
-    const before = val.slice(0,pos).match(/\n/g);
-    const line = before ? before.length + 1 : 1;
-    const st = editorStates.current.get(activeDocKey)!;
-    if (st.value !== val) st.value = val;
-    st.cursorLine = line;
-    forceUpdate();
-  }, [activeDocKey]);
-
-  const scheduleRender = useCallback(()=>{
-    if(rafScheduledRef.current !== null) return;
-    rafScheduledRef.current = requestAnimationFrame(()=>{
-      rafScheduledRef.current = null;
-      forceUpdate();
-    });
-  },[]);
-
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>)=>{
-    if(effectiveReadOnly) return;
-    const newVal = e.target.value;
-    const st = editorStates.current.get(activeDocKey)!;
-    st.value = newVal;
-    const pos = e.target.selectionStart;
-    const before = newVal.slice(0,pos).match(/\n/g);
-    st.cursorLine = before ? before.length + 1 : 1;
-    // Notify container immediately (hot path)
-    onChange(newVal);
-    scheduleRender();
-  }, [onChange, effectiveReadOnly, activeDocKey, scheduleRender]);
+  const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    const top = e.currentTarget.scrollTop;
+    scrollTopRef.current = top;
+    setScrollTop(top);
+  }, []);
 
   // Render
   return (
@@ -687,9 +438,9 @@ export function CodeEditor(props: CodeEditorProps) {
         <div className="shrink-0 relative overflow-hidden" style={{ width: gutterWidth }}>
           <LineNumberGutter
             lineCount={totalLines}
-            cursorLine={activeState.cursorLine}
+            cursorLine={1}
             lineHeight={lineHeight}
-            scrollTop={activeState.scrollTop}
+            scrollTop={scrollTop}
             containerHeight={containerHeight}
           />
         </div>
@@ -704,10 +455,9 @@ export function CodeEditor(props: CodeEditorProps) {
 
         {overlayEnabled && (
           <div
-            ref={highlightOuterRef}
             aria-hidden="true"
             tabIndex={-1}
-            onMouseDown={()=>{ textareaRef.current?.focus(); }}
+            onMouseDown={() => { textareaRef.current?.focus(); }}
             className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
             style={{
               lineHeight: `${lineHeight}px`,
@@ -719,19 +469,19 @@ export function CodeEditor(props: CodeEditorProps) {
               zIndex: 30,
             }}
           >
-            <div style={{ position: 'relative', height: totalLines * lineHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
+            <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
               <div style={{
                 position: 'absolute',
                 top: 0,
                 left: 0,
-                transform: `translate3d(${-activeState.scrollLeft}px, ${-activeState.scrollTop}px, 0px)`,
+                transform: `translate3d(${-0}px, ${-scrollTop}px, 0px)`,
                 whiteSpace: 'pre',
                 width: '100%',
-                height: totalLines * lineHeight,
+                height: totalHeight,
                 pointerEvents: 'none',
                 boxSizing: 'border-box',
               }}>
-                {overlayHighlighted.map((hl)=>(<HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />))}
+                {overlayHighlighted.map((hl) => (<HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />))}
               </div>
             </div>
           </div>
@@ -754,13 +504,10 @@ export function CodeEditor(props: CodeEditorProps) {
             WebkitTextFillColor: highlightsEnabled ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
-          value={activeState.value}
+          value={value}
           readOnly={effectiveReadOnly}
           onChange={handleChange}
-          onScroll={handleTextareaScroll}
-          onSelect={handleSelect}
-          onClick={() => textareaRef.current?.focus()}
-          onMouseDown={() => textareaRef.current?.focus()}
+          onScroll={handleScroll}
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"
