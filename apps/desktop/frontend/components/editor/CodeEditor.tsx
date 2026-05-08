@@ -576,6 +576,26 @@ export function CodeEditor({
     state.cursorLine = 1;
     state.scrollTop = 0;
     state.scrollLeft = 0;
+
+    // Update the real textarea DOM immediately so the uncontrolled textarea
+    // remains the single source of truth for typing/caret. This prevents
+    // a delayed mismatch between internal state and the DOM which can cause
+    // unexpected caret jumps when the editor adopts newly-loaded content.
+    const ta = textareaRef.current;
+    if (ta && ta.value !== initialValue) {
+      // Set value and move caret to start (consistent with resetting cursorLine).
+      ta.value = initialValue;
+      try {
+        ta.setSelectionRange(0, 0);
+      } catch (e) {
+        // ignore if selection range not supported for some reason
+      }
+    }
+
+    // Mark that we've adopted a new active document so layout-effects don't
+    // perform redundant DOM writes that could disturb the caret.
+    prevActiveFileRef.current = activeFilePath;
+
     forceUpdate();
   }, [activeFilePath, initialValue]);
 
