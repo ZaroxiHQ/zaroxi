@@ -17,6 +17,11 @@ import { bridge } from '@/lib/bridge';
 /* ------------------------------------------------------------------ */
 /*  Highlight model (unchanged via backend)                            */
 /* ------------------------------------------------------------------ */
+/**
+ * We add a small stable `uid` to each HighlightLine produced by the backend
+ * or created locally. The uid allows the renderer to keep DOM nodes stable
+ * across asynchronous updates and reduces remounts/flashing.
+ */
 interface HighlightSpan {
   start: number;
   end: number;
@@ -24,7 +29,8 @@ interface HighlightSpan {
   color?: string;
 }
 interface HighlightLine {
-  index: number;
+  uid: string;           // stable identifier for this logical line presentation
+  index: number;         // current 0-based line index (used for positioning)
   text: string;
   spans: HighlightSpan[];
 }
@@ -38,12 +44,10 @@ const FULL_LINES_LIMIT = 100_000;
 /**
  * Request highlighting for the exact editor text currently displayed.
  *
- * Key properties:
- * - Ensures highlights are always derived from the in-memory document text (single source of truth).
- * - Debounces frequent edits to avoid flooding the backend.
- * - Guards against out-of-order responses using a local request id.
- *
- * Returns an array of HighlightLine (same shape used previously).
+ * Improvements made here:
+ * - Each created HighlightLine now receives a stable uid based on documentId + version + lineIndex.
+ * - Responses are ignored when a newer request id exists (existing behavior preserved).
+ * - Cached authoritative maps are stored in cacheRef keyed by documentId + text to allow immediate reuse.
  */
 function useFullHighlight(
   documentId: string | null,
@@ -52,15 +56,13 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // New contract: return a Map<lineIndex, HighlightLine> so the view layer can
-  // reuse unchanged objects by identity. The hook keeps a per-document cache
-  // keyed by exact text and only swaps the visible mapping when an authoritative
-  // result arrives. This prevents any visible "clear and re-render" flicker.
+  // Return a Map<lineIndex, HighlightLine> so the view layer can reuse unchanged objects by identity.
   const [mapState, setMapState] = useReducer(
     (_prev: Map<number, HighlightLine>, next: Map<number, HighlightLine>) => next,
     new Map<number, HighlightLine>(),
   );
 
+  // Per-document cache: exact text -> stable map + version
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
@@ -102,36 +104,41 @@ function useFullHighlight(
       lastFetchRef.current.set(documentId, Date.now());
     };
 
-    const applyResultIfCurrent = (resLines: HighlightLine[], resVersion?: number) => {
+    /**
+     * When applying a backend result we:
+     * - Reuse any previous objects at the same line index when text+spans match.
+     * - Assign a deterministic uid for each created line: `${documentId}:${resVersion}:${idx}`
+     *   so that the renderer can use the uid as a stable key.
+     */
+    const applyResultIfCurrent = (resLines: { index: number; text: string; spans: HighlightSpan[] }[], resVersion?: number) => {
       if (cancelled || reqIdRef.current !== thisReq) return false;
 
-      // Prefer reusing any previously cached objects (stable identity) when possible.
       const prevCacheEntry = cacheRef.current.get(documentId);
       const prevMapForReuse = prevCacheEntry ? prevCacheEntry.map : mapState;
 
-      // Build a new Map but reuse previous objects where the spans/text are identical.
       const newMap = new Map<number, HighlightLine>();
       let anyDifferent = false;
 
       for (const l of resLines) {
         const idx = l.index;
-        const prevHL = prevMapForReuse ? prevMapForReuse.get(idx) : undefined;
         const resSpansJson = JSON.stringify(l.spans);
 
+        const prevHL = prevMapForReuse ? prevMapForReuse.get(idx) : undefined;
         if (prevHL && prevHL.text === l.text && JSON.stringify(prevHL.spans) === resSpansJson) {
-          // Reuse the previous object reference to preserve identity.
+          // reuse object and preserve uid
           newMap.set(idx, prevHL);
           const prevStateHL = mapState.get(idx);
           if (prevStateHL !== prevHL) anyDifferent = true;
         } else {
-          // Create a fresh object for changed/new lines.
+          // create new object with deterministic uid
+          const uid = `${documentId}:${resVersion ?? 0}:${idx}`;
           const created: HighlightLine = {
+            uid,
             index: idx,
             text: l.text,
             spans: l.spans,
           };
           newMap.set(idx, created);
-
           const prevStateHL = mapState.get(idx);
           if (
             !prevStateHL ||
@@ -143,13 +150,11 @@ function useFullHighlight(
         }
       }
 
-      // If map sizes differ it's a structural change.
       if (mapState.size !== newMap.size) anyDifferent = true;
 
-      // Cache authoritative result (store the newMap for future reuse).
+      // Cache authoritative result for this exact text so future opens can use it immediately.
       cacheRef.current.set(documentId, { text, map: newMap, version: resVersion });
 
-      // Update visible state only when something actually changed to avoid visual flash.
       if (anyDifferent) {
         setMapState(newMap);
       }
@@ -196,7 +201,9 @@ function useFullHighlight(
           retriesRef.current.delete(documentId);
         }
 
-        applyResultIfCurrent(resLines, resVersion);
+        // Map backend DTO to minimal tuples to avoid carrying any unexpected fields.
+        const normalized = resLines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
+        applyResultIfCurrent(normalized, resVersion);
       } catch (err) {
         console.warn('highlight_text failed:', err);
       }
@@ -216,7 +223,8 @@ function useFullHighlight(
         if (cancelled || reqIdRef.current !== thisReq) return false;
 
         if (res.lines && res.lines.length > 0) {
-          applyResultIfCurrent(res.lines, res.version);
+          const normalized = res.lines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
+          applyResultIfCurrent(normalized, res.version);
           return true;
         }
       } catch (err) {
@@ -232,8 +240,11 @@ function useFullHighlight(
 
     const doWork = async () => {
       if (isDocSwitch) {
-        void fetchDocumentRange();
+        // Try range fetch first — it gives us many lines quickly for initial painting.
+        const gotRange = await fetchDocumentRange();
+        // Always request the precise highlighting for the exact text as well to ensure correctness.
         void fetchExact();
+        return gotRange;
       } else {
         await fetchExact();
       }
@@ -379,8 +390,9 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
 /**
  * Highlighted line renderer - memoized to avoid rebuilding DOM for unchanged lines.
  *
- * Uses a shallow structural comparison of spans + text to decide whether to bail out.
- * This prevents large parts of the overlay from re-rendering while typing.
+ * Notes:
+ * - We use `uid` as the component key in the parent list. The memo comparator
+ *   compares uid/text/spans to determine equality and avoid unnecessary DOM churn.
  */
 const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> = React.memo(
   ({ hl, lineHeight }) => {
@@ -402,12 +414,11 @@ const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> =
     );
   },
   (prevProps, nextProps) => {
-    // Fast identity check: if the hl object reference is identical we bail out immediately.
-    if (prevProps.hl === nextProps.hl && prevProps.lineHeight === nextProps.lineHeight) return true;
+    // If uid didn't change and lineHeight unchanged, skip work.
+    if (prevProps.hl.uid === nextProps.hl.uid && prevProps.lineHeight === nextProps.lineHeight) return true;
 
     const a = prevProps.hl;
     const b = nextProps.hl;
-    if (a.index !== b.index) return false;
     if (a.text !== b.text) return false;
     if (a.spans.length !== b.spans.length) return false;
     for (let i = 0; i < a.spans.length; i++) {
@@ -589,10 +600,15 @@ export function CodeEditor({
     Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  // Per-component ref that retains previously-created line objects by fingerprint.
-  // Keying by a fingerprint (text + spans) stabilises identity across insert/delete
-  // operations so unchanged lines don't remount or visibly refresh.
-  const visiblePrevRef = useRef<Map<string, HighlightLine>>(new Map());
+  /**
+   * visiblePrevRef stores a histogram of previously-rendered line objects keyed
+   * by fingerprint (text + spans). Each entry is an array of available instances
+   * (this handles duplicate identical lines in the viewport). When building the
+   * new visible slice, we attempt to reuse an available instance for the same
+   * fingerprint. This preserves object identity and prevents remounts / flashes
+   * for unchanged content even when scrolling or nearby edits shift indices.
+   */
+  const visiblePrevRef = useRef<Map<string, HighlightLine[]>>(new Map());
 
   /**
    * Lightweight local highlighter for visible lines.
@@ -642,13 +658,19 @@ export function CodeEditor({
   }, []);
 
   const visibleHighlighted = useMemo(() => {
-    // Prev map keyed by fingerprint: "<text>|<spans-json>"
-    const prev = visiblePrevRef.current;
-    const newPrev = new Map<string, HighlightLine>();
+    const prevBuckets = visiblePrevRef.current;
+    const newBuckets = new Map<string, HighlightLine[]>();
     const lines: HighlightLine[] = [];
 
     const fingerprint = (text: string, spans: HighlightSpan[]) =>
       text + '|' + (spans.length ? JSON.stringify(spans) : '[]');
+
+    // Populate an availability map so each identical fingerprint can reuse
+    // previously-rendered instances in FIFO order.
+    const available = new Map<string, HighlightLine[]>();
+    for (const [k, arr] of prevBuckets.entries()) {
+      available.set(k, arr.slice());
+    }
 
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
       const start = lineStarts[idx] ?? activeState.value.length;
@@ -670,32 +692,40 @@ export function CodeEditor({
       const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
       const key = fingerprint(authoritative, usedSpans);
 
-      const existing = prev.get(key);
-      if (existing && existing.text === authoritative && JSON.stringify(existing.spans) === JSON.stringify(usedSpans)) {
-        // Reuse the existing object but ensure the index is set for positioning.
-        // We clone the object shallowly to provide the current index while preserving
-        // the spans array reference (cheap) so the render comparator can fast-check spans.
-        const reused: HighlightLine = {
-          index: idx,
-          text: existing.text,
-          spans: existing.spans,
-        };
-        lines.push(reused);
-        newPrev.set(key, reused);
+      // Try to reuse an existing instance for this exact fingerprint
+      const bucket = available.get(key);
+      if (bucket && bucket.length > 0) {
+        const instance = bucket.shift()!;
+        // Update index for positioning while preserving uid and spans identity.
+        instance.index = idx;
+        instance.text = authoritative;
+        instance.spans = usedSpans;
+        lines.push(instance);
+
+        // Record for next cycle reuse
+        const outArr = newBuckets.get(key) ?? [];
+        outArr.push(instance);
+        newBuckets.set(key, outArr);
         continue;
       }
 
+      // No reusable instance: create a new one. Use backend uid when available for stability,
+      // otherwise derive a locally-stable uid using documentId + a timestamp fallback.
+      const uid = backendHl && backendHl.uid ? backendHl.uid : `${documentId}:${Date.now()}:${idx}`;
       const created: HighlightLine = {
+        uid,
         index: idx,
         text: authoritative,
         spans: usedSpans,
       };
       lines.push(created);
-      newPrev.set(key, created);
+      const outArr = newBuckets.get(key) ?? [];
+      outArr.push(created);
+      newBuckets.set(key, outArr);
     }
 
-    // Trim cache to only currently visible fingerprints to limit memory growth.
-    visiblePrevRef.current = newPrev;
+    // Save for next render; we keep only the visible bucketed instances to limit memory use.
+    visiblePrevRef.current = newBuckets;
     return lines;
   }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts, localHighlightLine]);
 
@@ -850,11 +880,10 @@ export function CodeEditor({
                 }}
               >
                 {visibleHighlighted.map((hl) => (
-                  // Use the numeric line index as the stable key so React won't
-                  // remount the highlighted line nodes on every small content change.
-                  // The memoized HighlightedLineView uses object identity + shallow
-                  // comparison to avoid DOM updates for unchanged lines.
-                  <HighlightedLineView key={hl.index} hl={hl} lineHeight={lineHeight} />
+                  // Use the stable uid as the key. This is the critical change that
+                  // prevents large remounts when lines are inserted/removed elsewhere
+                  // in the document; the uid is preserved for identical content.
+                  <HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />
                 ))}
               </div>
             </div>
