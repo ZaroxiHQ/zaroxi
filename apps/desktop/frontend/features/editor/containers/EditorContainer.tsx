@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { WorkspaceService } from '@/features/workspace/services/workspaceService';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
@@ -38,22 +38,76 @@ export function EditorContainer() {
     }
   }, [activeFilePath, activeTab]);
 
-  // Add keyboard shortcut for save (Ctrl+S) - separate effect to avoid re-registering on every file change
+  // Keep refs to the latest content and active path so keyboard handler
+  // and save callback always use the authoritative values without causing
+  // frequent re-registration on every keystroke.
+  const contentRef = useRef(content);
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
+  const activeFilePathRef = useRef(activeFilePath);
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath;
+  }, [activeFilePath]);
+
+  // Stable save handler that reads latest values from refs.
+  const handleEditorSave = useCallback(async () => {
+    const path = activeFilePathRef.current;
+    if (!path) return;
+    const contentToSave = contentRef.current ?? '';
+
+    try {
+      await WorkspaceService.saveFile({
+        path,
+        content: contentToSave,
+      });
+      // File saved successfully: mark as clean.
+      useTabsStore.getState().markClean(path);
+      WorkspaceService.markDocumentClean(path);
+
+      const saveBtn = document.querySelector('.save-button');
+      if (saveBtn) {
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = 'Saved!';
+        saveBtn.classList.add('bg-green-500');
+        setTimeout(() => {
+          if (saveBtn.textContent === 'Saved!') {
+            saveBtn.textContent = originalText;
+            saveBtn.classList.remove('bg-green-500');
+          }
+        }, 1000);
+      }
+    } catch (error) {
+      const saveBtn = document.querySelector('.save-button');
+      if (saveBtn) {
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = 'Error!';
+        saveBtn.classList.add('bg-red-500');
+        setTimeout(() => {
+          if (saveBtn.textContent === 'Error!') {
+            saveBtn.textContent = originalText;
+            saveBtn.classList.remove('bg-red-500');
+          }
+        }, 1000);
+      }
+    }
+  }, []);
+
+  // Add keyboard shortcut for save (Ctrl+S). The handler is registered once
+  // and calls the stable `handleEditorSave` which reads current refs.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (activeFilePath) {
-          handleEditorSave();
-        }
+        handleEditorSave();
       }
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeFilePath]);
+  }, [handleEditorSave]);
 
 
   const loadFile = async (path: string) => {
@@ -108,52 +162,11 @@ export function EditorContainer() {
     }
   };
 
-  const handleEditorSave = async () => {
-    if (!activeFilePath) {
-      // No file path to save to
-      return;
-    }
-    
-    try {
-      await WorkspaceService.saveFile({
-        path: activeFilePath,
-        content: content,
-      });
-      // File saved successfully
-      // Mark tab as clean after successful save
-      if (activeFilePath) {
-        useTabsStore.getState().markClean(activeFilePath);
-        WorkspaceService.markDocumentClean(activeFilePath);
-      }
-      // Show a temporary success message
-      const saveBtn = document.querySelector('.save-button');
-      if (saveBtn) {
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = 'Saved!';
-        saveBtn.classList.add('bg-green-500');
-        setTimeout(() => {
-          if (saveBtn.textContent === 'Saved!') {
-            saveBtn.textContent = originalText;
-            saveBtn.classList.remove('bg-green-500');
-          }
-        }, 1000);
-      }
-    } catch (error) {
-      // Failed to save file
-      const saveBtn = document.querySelector('.save-button');
-      if (saveBtn) {
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = 'Error!';
-        saveBtn.classList.add('bg-red-500');
-        setTimeout(() => {
-          if (saveBtn.textContent === 'Error!') {
-            saveBtn.textContent = originalText;
-            saveBtn.classList.remove('bg-red-500');
-          }
-        }, 1000);
-      }
-    }
-  };
+  // NOTE: `handleEditorSave` has been replaced above with a ref-backed,
+  // stable callback so the keyboard handler uses the latest content/path
+  // without re-registering on every keystroke. The old implementation is
+  // intentionally removed to avoid stale-closure bugs that caused the wrong
+  // content to be written on save (e.g. saving the previously active tab).
 
   // Render the Welcome tab as a completely different view (after hooks so rule of hooks is satisfied)
   if (activeTab?.kind === 'welcome') {

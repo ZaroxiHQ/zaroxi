@@ -248,7 +248,9 @@ export class WorkspaceService {
     const content = docResponse.content ?? '';
     const response: OpenFileResponse = {
       content,
-      language: undefined,
+      // Use language detected by the backend when available. Previously this
+      // was left undefined which caused the editor to treat files as plaintext.
+      language: docResponse.language,
       lineCount: docResponse.lineCount,
       charCount: docResponse.charCount,
       largeFileMode: docResponse.largeFileMode,
