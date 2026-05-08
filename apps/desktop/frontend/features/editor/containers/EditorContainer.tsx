@@ -39,20 +39,21 @@ export function EditorContainer() {
     }
   }, [activeFilePath, activeTab]);
 
-  // When switching active file we immediately clear any seeded highlight and
-  // the visible content. This is intentional: showing the previous file's
-  // content in the new tab is the root cause of the wrong-content bug.
-  // We keep this immediate swap fast and then hydrate the authoritative
-  // content (from frontend cache or backend) guarded by a load sequence token.
+  // When switching active file we clear any seeded highlight and update file metadata.
+  // We intentionally do NOT increment the load sequence token here because `loadFile()`
+  // itself creates a fresh sequence token at start. Incrementing the sequence from this
+  // effect races with `loadFile()` when both effects run on the same update which can
+  // cause the in-flight loader to be considered stale and drop its result (leaving the
+  // editor blank). Also avoid clearing the visible content immediately to prevent a
+  // blank flash while the authoritative content is being loaded.
   useEffect(() => {
-    // clear any previously-seeded highlight and visible text immediately
+    // clear seeded highlight and metadata for the new active file
     setInitialHighlight(null);
-    setContent('');
     setLanguage(undefined);
     setFileInfo({});
-    // bump load sequence to cancel any in-flight operations targeted at
-    // the previously active file.
-    loadSeqRef.current++;
+    // NOTE: do not call setContent('') here and do not bump loadSeqRef.
+    // `loadFile()` will increment loadSeqRef at the very start of its run,
+    // which is the single authoritative cancellation token for in-flight ops.
   }, [activeFilePath]);
 
   // Keep refs to the latest content and active path so keyboard handler
