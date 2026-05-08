@@ -618,26 +618,22 @@ export function CodeEditor(props: CodeEditorProps) {
   // Ensure the native textarea DOM always matches the active session.text whenever the documentId changes
   // or when the session.text differs from the stored activeState.value. This prevents "blank" windows
   // where the session indicates a document but the DOM still shows previous content.
-  useLayoutEffect(()=>{
-    const ta = textareaRef.current;
-    if(!ta) return;
-    // Always restore scroll positions
-    ta.scrollTop = activeState.scrollTop;
-    ta.scrollLeft = activeState.scrollLeft;
-    // If the session.documentId changed OR the activeState.value differs from session.text,
-    // synchronise the DOM immediately. This is stricter than previous logic and prevents
-    // transient blank states. We avoid clobbering during normal typing because session.text
-    // will be kept in sync by the container only when debounced — immediate typing isn't affected.
-    if (prevDocRef.current !== activeDocKey || ta.value !== activeState.value || activeState.value !== session.text) {
-      // If the container owns a different authoritative text, update both internal state and DOM.
+  useLayoutEffect(() => {
+    // On document switch or when the authoritative session text differs from the
+    // in-memory editor state, synchronously adopt the session.text into our
+    // editorStates map so the next paint contains the correct text.
+    if (prevDocRef.current !== activeDocKey || activeState.value !== session.text) {
       activeState.value = session.text;
-      if (ta.value !== session.text) {
-        ta.value = session.text;
-        try { ta.setSelectionRange(0,0); } catch {}
-      }
       prevDocRef.current = activeDocKey;
+      // Ensure the component re-renders to pick up the updated activeState.value.
       forceUpdate();
     }
+
+    // Restore scroll positions deterministically every layout pass.
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.scrollTop = activeState.scrollTop;
+    ta.scrollLeft = activeState.scrollLeft;
   }, [activeDocKey, session.documentId, session.text, activeState.scrollTop, activeState.scrollLeft, activeState.value]);
 
   const handleTextareaScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>)=>{
@@ -758,13 +754,13 @@ export function CodeEditor(props: CodeEditorProps) {
             WebkitTextFillColor: highlightsEnabled ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
-          defaultValue={activeState.value}
+          value={activeState.value}
           readOnly={effectiveReadOnly}
           onChange={handleChange}
           onScroll={handleTextareaScroll}
           onSelect={handleSelect}
-          onClick={()=>textareaRef.current?.focus()}
-          onMouseDown={()=>textareaRef.current?.focus()}
+          onClick={() => textareaRef.current?.focus()}
+          onMouseDown={() => textareaRef.current?.focus()}
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"

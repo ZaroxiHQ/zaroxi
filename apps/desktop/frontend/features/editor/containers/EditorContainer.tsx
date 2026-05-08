@@ -132,21 +132,64 @@ export function EditorContainer() {
 
     let sess = sessionsRef.current.get(tabId);
     if (!sess) {
-      // Create a new session placeholder and trigger load if it's a file
-      sess = {
-        tabId,
-        documentId: null,
-        filePath: tab.kind === 'file' ? tab.id : null,
-        revision: null,
-        text: '',
-        language: undefined,
-        initialHighlight: null,
-        isLoading: tab.kind === 'file',
-        loadSeq: 0,
-        contentTruncated: false,
-        isDirty: false,
-      };
+      // Create a new session placeholder and try to seed from frontend cache synchronously.
+      // This prevents a transient blank editor when switching tabs by showing cached content
+      // immediately if available. If no cache exists we fall back to an empty placeholder
+      // and start the async load.
+      let seededSession: LocalSession | null = null;
+      if (tab.kind === 'file') {
+        const cached = WorkspaceService.getCachedDocument(tab.id);
+        if (cached) {
+          seededSession = {
+            tabId,
+            documentId: cached.documentId ?? tab.id,
+            filePath: tab.id,
+            revision: (cached as any).version ?? null,
+            text: cached.content ?? '',
+            language: (cached as any).language ?? undefined,
+            initialHighlight: (cached as any).initialHighlight ?? null,
+            isLoading: false,
+            loadSeq: 0,
+            contentTruncated: cached.contentTruncated ?? false,
+            lineCount: cached.lineCount,
+            charCount: cached.charCount,
+            isDirty: (cached as any).isDirty ?? false,
+          };
+        }
+      }
+
+      if (seededSession) {
+        sess = seededSession;
+      } else {
+        // No cached snapshot available — create a minimal placeholder and allow loadFileForSession to fetch.
+        sess = {
+          tabId,
+          documentId: null,
+          filePath: tab.kind === 'file' ? tab.id : null,
+          revision: null,
+          text: '',
+          language: undefined,
+          initialHighlight: null,
+          isLoading: tab.kind === 'file',
+          loadSeq: 0,
+          contentTruncated: false,
+          lineCount: undefined,
+          charCount: undefined,
+          isDirty: false,
+        };
+      }
+
       setSession(tabId, sess);
+
+      // If we seeded text synchronously, ensure the editor hot-path sees it immediately.
+      // This writes the hot-path contentRef and schedules a render so CodeEditor receives
+      // a non-empty text value on first paint instead of a blank editor.
+      if (sess.text && sess.text.length > 0) {
+        contentRef.current = sess.text;
+        if (activeTabIdRef.current === tabId) {
+          forceUpdate((x) => x + 1);
+        }
+      }
     }
 
     // If this is a file tab and we have no documentId/text, load it.
