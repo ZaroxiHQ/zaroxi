@@ -556,10 +556,65 @@ export function CodeEditor({
 
   // Per-component ref that retains previously-created line objects by index.
   // This is used to preserve object identity for lines that haven't changed so
-  // memoized line renderers can bail out quickly. Important: do NOT reference
-  // `visibleHighlighted` here — the previous implementation did and caused a
-  // TDZ ReferenceError when React evaluated the initializer.
+  // memoized line renderers can bail out quickly.
   const visiblePrevRef = useRef<Map<number, HighlightLine>>(new Map());
+
+  /**
+   * Lightweight local highlighter for visible lines.
+   * This provides an immediate, deterministic visual result while the
+   * authoritative backend highlighting is pending. The heuristic is intentionally
+   * small and fast (regex-based) and only applied to visible lines to avoid
+   * adding CPU cost during continuous typing.
+   */
+  const localHighlightLine = useCallback((lineText: string): HighlightSpan[] => {
+    const spans: HighlightSpan[] = [];
+    if (!lineText || lineText.length === 0) return spans;
+
+    // Quick comment detection (// ...). Apply comment span from '//' to end.
+    const commentIdx = lineText.indexOf('//');
+    if (commentIdx !== -1) {
+      spans.push({ start: commentIdx, end: lineText.length, token_type: 'comment' });
+      // Comments dominate the rest of the line so we can return early.
+      return spans;
+    }
+
+    // Strings (simple double/single-quoted, not full JS-escape aware)
+    const stringRe = /(["'])(?:\\.|(?!\1).)*\1/g;
+    let m: RegExpExecArray | null;
+    while ((m = stringRe.exec(lineText)) !== null) {
+      spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'string' });
+    }
+
+    // Numbers
+    const numRe = /\b\d+(\.\d+)?\b/g;
+    while ((m = numRe.exec(lineText)) !== null) {
+      spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'number' });
+    }
+
+    // Common keywords (small set) - lightweight heuristic
+    const kwRe = /\b(fn|function|return|if|else|for|while|const|let|var|pub|use|mod|struct|enum|impl|class|import|switch|case)\b/g;
+    while ((m = kwRe.exec(lineText)) !== null) {
+      spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'keyword' });
+    }
+
+    // Sort and clip spans, prefer earlier start
+    spans.sort((a, b) => a.start - b.start || (a.end - a.start) - (b.end - b.start));
+    // Merge overlaps by keeping the earliest/innermost spans (simple pass)
+    const merged: HighlightSpan[] = [];
+    for (const sp of spans) {
+      const s = Math.max(0, sp.start);
+      const e = Math.min(lineText.length, sp.end);
+      if (e <= s) continue;
+      const last = merged[merged.length - 1];
+      if (!last || s >= last.end) {
+        merged.push({ start: s, end: e, token_type: sp.token_type, color: sp.color });
+      } else if (e > last.end) {
+        // overlap: extend if this span goes further but keep token_type of last (prefers earlier)
+        last.end = e;
+      }
+    }
+    return merged;
+  }, []);
 
   const visibleHighlighted = useMemo(() => {
     // highlightedMap is a Map<number, HighlightLine> produced by the hook.
@@ -575,13 +630,13 @@ export function CodeEditor({
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
       const backendHl = highlightedMap.get(idx);
+
       if (backendHl) {
-        // If previously we created an identical line object, reuse it (identity)
+        // Backend authoritative spans exist for this line. Prefer them.
         const prevObj = prev.get(idx);
         const spansEqual =
           prevObj &&
           prevObj.spans.length === backendHl.spans.length &&
-          prevObj.spans.length > 0 &&
           JSON.stringify(prevObj.spans) === JSON.stringify(backendHl.spans) &&
           prevObj.text === authoritative;
         if (spansEqual && prevObj) {
@@ -598,26 +653,29 @@ export function CodeEditor({
         continue;
       }
 
-      // Fallback plain text line - try to reuse previous plain line object
-      const prevPlain = prev.get(idx);
-      if (prevPlain && prevPlain.spans.length === 0 && prevPlain.text === authoritative) {
-        lines.push(prevPlain);
+      // No backend spans yet -> produce a fast local highlight for immediate UI.
+      // Try to reuse a previous object when possible to preserve identity.
+      const prevObj = prev.get(idx);
+      const localSpans = localHighlightLine(authoritative);
+
+      if (prevObj && prevObj.spans.length > 0 && JSON.stringify(prevObj.spans) === JSON.stringify(localSpans) && prevObj.text === authoritative) {
+        lines.push(prevObj);
         continue;
       }
 
-      const plainLine: HighlightLine = {
+      const created: HighlightLine = {
         index: idx,
         text: authoritative,
-        spans: [],
+        spans: localSpans,
       };
-      lines.push(plainLine);
-      prev.set(idx, plainLine);
+      lines.push(created);
+      prev.set(idx, created);
     }
 
     // store back prev map for next render
     visiblePrevRef.current = prev;
     return lines;
-  }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts]);
+  }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts, localHighlightLine]);
 
   /* –– gutter –– */
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
