@@ -268,6 +268,43 @@ export function CodeEditor({
     });
   }
 
+  /**
+   * Keep the editor state in sync with incoming `initialValue` for the active file.
+   *
+   * Rationale:
+   * - `initialValue` is populated asynchronously by the container (openFile).
+   * - The editor stores per-file state in a ref'd Map and only sets the initial
+   *   value once when the entry is created. That means an async load can leave
+   *   the map entry with an empty string unless we explicitly adopt the newly
+   *   provided content here.
+   *
+   * Policy:
+   * - Only adopt `initialValue` when the tab is not marked dirty (we don't want
+   *   to clobber user edits).
+   * - Reset caret/scroll for a fresh load.
+   */
+  useEffect(() => {
+    const state = editorStates.current.get(activeFilePath);
+    if (!state) return;
+
+    // If incoming content is identical, nothing to do.
+    if (state.value === initialValue) return;
+
+    // If the tab is dirty (user edited locally), do not overwrite local edits.
+    const tab = useTabsStore.getState().tabs.find((t) => t.id === activeFilePath);
+    const isDirty = tab?.isDirty ?? false;
+    if (isDirty) {
+      return;
+    }
+
+    // Adopt the freshly loaded content for this file and reset viewport/caret.
+    state.value = initialValue;
+    state.cursorLine = 1;
+    state.scrollTop = 0;
+    state.scrollLeft = 0;
+    forceUpdate();
+  }, [activeFilePath, initialValue]);
+
   /* read the *current* document’s state (always in‑sync with the map) */
   const activeState = editorStates.current.get(activeFilePath)!;
 
