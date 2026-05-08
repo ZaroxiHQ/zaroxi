@@ -341,16 +341,22 @@ pub async fn highlight_document(
         _ => SemanticColors::dark(),
     };
 
-    eprintln!("[highlight_document] fetching spans from cache...");
-    let spans = cache::get_or_compute(
-        &path,
-        version,
-        &full_text,
-        lang,
-        PARSER_POOL.clone(),
-        &engine,
-    )
-    .map_err(|e| format!("Highlight error: {}", e))?;
+    eprintln!("[highlight_document] checking local cache for version={}", version);
+    let spans = if let Some(s) = cache::get_cached(&path, version, lang) {
+        eprintln!("[highlight_document] cache hit for version={}", version);
+        s
+    } else {
+        eprintln!("[highlight_document] cache miss - computing spans...");
+        cache::get_or_compute(
+            &path,
+            version,
+            &full_text,
+            lang,
+            PARSER_POOL.clone(),
+            &engine,
+        )
+        .map_err(|e| format!("Highlight error: {}", e))?
+    };
 
     eprintln!("[highlight_document] got {} total spans", spans.len());
 
@@ -542,17 +548,23 @@ pub async fn highlight_text(
 
     // version hash already computed above
 
-    eprintln!("[highlight_text] invoking cache compute (version={})", version);
+    eprintln!("[highlight_text] checking local cache for version={}", version);
 
-    let spans = cache::get_or_compute(
-        &path,
-        version,
-        &full_text,
-        lang,
-        PARSER_POOL.clone(),
-        &engine,
-    )
-    .map_err(|e| format!("Highlight error: {}", e))?;
+    let spans = if let Some(s) = cache::get_cached(&path, version, lang) {
+        eprintln!("[highlight_text] cache hit for version={}", version);
+        s
+    } else {
+        eprintln!("[highlight_text] cache miss - computing spans...");
+        cache::get_or_compute(
+            &path,
+            version,
+            &full_text,
+            lang,
+            PARSER_POOL.clone(),
+            &engine,
+        )
+        .map_err(|e| format!("Highlight error: {}", e))?
+    };
 
     eprintln!("[highlight_text] got {} total spans", spans.len());
 

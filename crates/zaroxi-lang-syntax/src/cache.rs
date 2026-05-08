@@ -101,6 +101,20 @@ pub fn get_or_compute(
     Ok(spans)
 }
 
+/// Return cached spans if present and matching the provided version and language.
+/// This is a fast, non-computing lookup used by the frontend to avoid a visible
+/// recompute/flash when a previously computed highlight exists for the same
+/// document+version.
+pub fn get_cached(path: &PathBuf, version: u64, language: LanguageId) -> Option<Vec<HighlightSpan>> {
+    let guard = CACHE.lock();
+    if let Some(state) = guard.get(path) {
+        if state.version == version && state.language == language {
+            return Some(state.spans.clone());
+        }
+    }
+    None
+}
+
 /// Invalidate the cache entry for `path` (usually after an edit).
 pub fn invalidate(path: &PathBuf) {
     CACHE.lock().remove(path);
