@@ -270,9 +270,13 @@ export class WorkspaceService {
   }
 
   static async saveFile(request: SaveFileRequest): Promise<void> {
-    // Invalidate frontend document cache for this path after a save
-    documentCache.delete(request.path);
-    return await bridge.invoke<void>('save_file', { request });
+    try {
+      await bridge.invoke<void>('save_file', { request });
+      // Invalidate frontend document cache for this path after a successful save
+      documentCache.delete(request.path);
+    } catch (error) {
+      throw error;
+    }
   }
 
   static async openFileDialog(): Promise<OpenDialogResponse> {

@@ -49,6 +49,7 @@ function useFullHighlight(
   text: string,
   enabled: boolean,
   theme?: 'dark' | 'light',
+  language?: string,
 ) {
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
@@ -80,6 +81,7 @@ function useFullHighlight(
             documentId,
             text,
             theme: theme ?? 'dark',
+            language: language ?? undefined,
           },
         });
         // Only apply if this response matches the latest request id and not cancelled.
@@ -107,7 +109,7 @@ function useFullHighlight(
         debounceRef.current = null;
       }
     };
-  }, [documentId, text, enabled, theme]);
+  }, [documentId, text, enabled, theme, language]);
 
   return lines;
 }
@@ -346,6 +348,8 @@ export function CodeEditor({
     activeState.value,
     highlightsEnabled,
     theme,
+    // pass frontend-known language hint (if any) to improve detection
+    language,
   );
 
   /* –– viewport (visible lines) –– */

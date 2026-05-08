@@ -39,6 +39,9 @@ pub struct OpenDocumentResponse {
     pub content: String,
     pub content_truncated: bool,
     pub version: u64,
+    /// Optional detected language identifier (e.g. "rust", "toml").
+    /// Present when the backend can infer a language from the path.
+    pub language: Option<String>,
 }
 
 const TRUNCATE_CHARS: usize = 50_000;
@@ -73,6 +76,15 @@ pub struct EditRequest {
     pub new_text: String,
 }
 
+/// Request to save a full file contents.  The frontend uses this to atomically
+/// write the provided content to disk (and update any in‑memory cache).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFileRequest {
+    pub path: String,
+    pub content: String,
+}
+
 // ── Highlight request / response DTOs ─────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +106,9 @@ pub struct HighlightTextRequest {
     pub text: String,
     /// Optional theme name: "dark" or "light".  If omitted, dark is used.
     pub theme: Option<String>,
+    /// Optional language hint (e.g. "rust", "toml", "js") provided by the frontend.
+    /// When present, the backend will prefer this to infer the Tree-sitter language.
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +172,9 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
         content,
         content_truncated,
         version: document.version(),
+        // Detect language from the requested path so the frontend can request
+        // highlighting using an explicit language hint when available.
+        language: Some(LanguageId::from_path(path_buf.as_path()).as_str().to_string()),
     })
 }
 
@@ -434,8 +452,16 @@ pub async fn highlight_text(
         _ => SemanticColors::dark(),
     };
 
-    // Detect language from the path (fallback to PlainText).
-    let lang = LanguageId::from_path(path.as_path());
+    // Determine language: prefer explicit language provided by the frontend,
+    // otherwise derive from the document id path.
+    let lang = if let Some(lang_hint) = request.language.as_deref() {
+        // Build a synthetic filename using the hint so `from_path` can use its logic.
+        // This avoids having to duplicate mapping logic here.
+        let fake = std::path::PathBuf::from(format!("file.{}", lang_hint));
+        LanguageId::from_path(fake.as_path())
+    } else {
+        LanguageId::from_path(path.as_path())
+    };
     if lang == LanguageId::PlainText {
         eprintln!("[highlight_text] PlainText -> returning empty");
         return Ok(HighlightResponse { lines: vec![] });
@@ -537,6 +563,47 @@ pub async fn highlight_text(
     Ok(HighlightResponse {
         lines: response_lines,
     })
+}
+
+/// Save a file by writing the provided content to disk.
+///
+/// The frontend calls this command when it has the authoritative current text
+/// and wishes to persist it.  The command also attempts to update the server-side
+/// cached document (if present) so subsequent read/save operations remain coherent.
+#[command]
+pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
+    eprintln!("[save_file] writing path={}", request.path);
+
+    let path = std::path::PathBuf::from(&request.path);
+
+    // Write to disk first.  This mirrors typical editor semantics where the
+    // frontend sends final content for atomic overwrite.
+    std::fs::write(&path, &request.content)
+        .map_err(|e| format!("Failed to write file {}: {}", request.path, e))?;
+
+    // If the BufferManager has a cached document for this path, update it so
+    // backend-side highlights / saves remain consistent.
+    if let Some(cached_arc) = BUFFER_MANAGER.get_cached(&path).await {
+        let mut guard = cached_arc.lock();
+        let doc = &mut guard.document;
+        // Replace whole document contents: delete existing chars, insert new content.
+        let len_chars = doc.len_chars();
+        if let Err(e) = doc.delete_range(0, len_chars) {
+            eprintln!("[save_file] failed to clear existing cached document: {}", e);
+        }
+        if let Err(e) = doc.insert(0, &request.content) {
+            eprintln!("[save_file] failed to insert new content into cached document: {}", e);
+        }
+        // Update metadata
+        if let Ok(meta) = std::fs::metadata(&path) {
+            guard.meta.file_size = meta.len();
+            guard.meta.mtime_secs = mtime_secs(&meta);
+            guard.meta.version = doc.version();
+            guard.meta.is_dirty = false;
+        }
+    }
+
+    Ok(())
 }
 
 // ── stub ──────────────────────────────────────────────────────────
