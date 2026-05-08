@@ -339,6 +339,27 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
     return lineText;
   }
 
+  // Lightweight mapping from semantic token -> CSS variable name.
+  // If the backend doesn't provide an explicit color we try to resolve a theme
+  // colour from the document root so our fast local/highlight path can show
+  // coloured tokens immediately.
+  const CSS_VAR_MAP: Record<string, string> = {
+    keyword: '--color-syntax-keyword',
+    function: '--color-syntax-function',
+    method: '--color-syntax-method',
+    string: '--color-syntax-string',
+    comment: '--color-syntax-comment',
+    type: '--color-syntax-type',
+    variable: '--color-syntax-variable',
+    constant: '--color-syntax-constant',
+    number: '--color-syntax-number',
+    operator: '--color-syntax-operator',
+    punctuation: '--color-syntax-punctuation',
+    property: '--color-syntax-property',
+  };
+
+  const rootStyle = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null;
+
   const segments: React.ReactNode[] = [];
   let last = 0;
   for (let i = 0; i < merged.length; i++) {
@@ -347,8 +368,24 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
       segments.push(lineText.slice(last, sp.start));
     }
     const key = `${sp.start}-${i}`;
+
+    // Choose inline style priority: backend-provided color -> theme CSS variable -> none.
+    let style: React.CSSProperties | undefined = undefined;
+    if (sp.color) {
+      style = { color: sp.color };
+    } else {
+      const cssVar = CSS_VAR_MAP[sp.token_type];
+      if (cssVar && rootStyle) {
+        const v = rootStyle.getPropertyValue(cssVar).trim();
+        if (v) style = { color: v };
+      }
+    }
+
+    // Stable class name for token type (sanitise to safe class name)
+    const tokenClass = `syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`;
+
     segments.push(
-      <span key={key} style={sp.color ? { color: sp.color } : undefined}>
+      <span key={key} className={style ? undefined : tokenClass} style={style}>
         {lineText.slice(sp.start, sp.end)}
       </span>,
     );
