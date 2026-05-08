@@ -586,18 +586,24 @@ pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
     // If the BufferManager has a cached document for this path, update it so
     // backend-side highlights / saves remain consistent.
     if let Some(cached_arc) = BUFFER_MANAGER.get_cached(&path).await {
-        let mut guard = cached_arc.lock();
-        let doc = &mut guard.document;
-        // Replace whole document contents: delete existing chars, insert new content.
-        let len_chars = doc.len_chars();
-        if let Err(e) = doc.delete_range(0, len_chars) {
-            eprintln!("[save_file] failed to clear existing cached document: {}", e);
+        // Phase 1: Mutate document under lock and then drop the lock to avoid
+        // holding simultaneous mutable borrows of different fields of the guard.
+        {
+            let mut guard = cached_arc.lock();
+            // Replace whole document contents: delete existing chars, insert new content.
+            let len_chars = guard.document.len_chars();
+            if let Err(e) = guard.document.delete_range(0, len_chars) {
+                eprintln!("[save_file] failed to clear existing cached document: {}", e);
+            }
+            if let Err(e) = guard.document.insert(0, &request.content) {
+                eprintln!("[save_file] failed to insert new content into cached document: {}", e);
+            }
+            // Drop guard at end of this scope so we can re-lock to update metadata.
         }
-        if let Err(e) = doc.insert(0, &request.content) {
-            eprintln!("[save_file] failed to insert new content into cached document: {}", e);
-        }
-        // Update metadata
+
+        // Phase 2: Update metadata under a fresh lock to avoid overlapping mutable borrows.
         if let Ok(meta) = std::fs::metadata(&path) {
+            let mut guard = cached_arc.lock();
             guard.meta.file_size = meta.len();
             // Compute modification time in seconds since UNIX_EPOCH without relying
             // on a helper function present elsewhere.
@@ -607,7 +613,8 @@ pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            guard.meta.version = doc.version();
+            // Read version while holding the lock (safe) and assign to metadata.
+            guard.meta.version = guard.document.version();
             guard.meta.is_dirty = false;
         }
     }
