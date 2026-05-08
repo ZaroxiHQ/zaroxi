@@ -112,7 +112,11 @@ export function EditorContainer() {
 
   const loadFile = async (path: string) => {
     setIsLoading(true);
-    setContent('');  // Clear previous content to avoid ghosting
+    // Do not clear content immediately: keep existing visible content until
+    // the new content is loaded. Clearing here caused the highlighter to
+    // request highlights for an empty buffer which produced flicker and made
+    // highlighting appear only after the second load. Preserve the previous
+    // content until we have the authoritative response.
     try {
       // First try to get from frontend cache (no IPC call)
       const cached = WorkspaceService.getCachedDocument(path);
