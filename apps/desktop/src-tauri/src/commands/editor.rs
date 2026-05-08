@@ -457,15 +457,56 @@ pub async fn highlight_text(
     };
 
     // Determine language: prefer explicit language provided by the frontend,
-    // otherwise derive from the document id path.
-    let lang = if let Some(lang_hint) = request.language.as_deref() {
+    // otherwise derive from the document id path. If detection yields PlainText,
+    // attempt lightweight, content-based heuristics (shebangs, markers) before
+    // giving up. This helps with script files lacking an extension and with
+    // files whose grammars are present but not detectable via path alone.
+    let mut lang = if let Some(lang_hint) = request.language.as_deref() {
         // Build a synthetic filename using the hint so `from_path` can use its logic.
-        // This avoids having to duplicate mapping logic here.
         let fake = std::path::PathBuf::from(format!("file.{}", lang_hint));
         LanguageId::from_path(fake.as_path())
     } else {
         LanguageId::from_path(path.as_path())
     };
+
+    // If plain detection produced PlainText, try simple content heuristics.
+    if lang == LanguageId::PlainText {
+        let txt = full_text.as_str();
+
+        // Shebang detection (#! /usr/bin/env bash, python, etc.)
+        if txt.starts_with("#!") {
+            if txt.contains("bash") || txt.contains("sh") {
+                lang = LanguageId::Bash;
+            } else if txt.contains("python") {
+                lang = LanguageId::Python;
+            } else if txt.contains("node") || txt.contains("nodejs") {
+                lang = LanguageId::JavaScript;
+            }
+        }
+
+        // TOML detection: common markers like [package] or key = "value"
+        if lang == LanguageId::PlainText {
+            if txt.contains("[package]") || (txt.contains("=") && txt.contains("version")) {
+                lang = LanguageId::Toml;
+            }
+        }
+
+        // Rust heuristics
+        if lang == LanguageId::PlainText {
+            if txt.contains("fn ") || txt.contains("pub ") && txt.contains("crate") {
+                lang = LanguageId::Rust;
+            }
+        }
+
+        // Markdown heuristics: headers or fenced code blocks
+        if lang == LanguageId::PlainText {
+            if txt.contains("\n# ") || txt.starts_with("# ") || txt.contains("```") {
+                lang = LanguageId::Markdown;
+            }
+        }
+    }
+
+    // If still PlainText after heuristics, return empty (no grammar available).
     if lang == LanguageId::PlainText {
         eprintln!("[highlight_text] PlainText -> returning empty");
         return Ok(HighlightResponse { lines: vec![] });

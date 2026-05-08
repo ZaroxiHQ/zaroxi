@@ -434,6 +434,23 @@ export function CodeEditor({
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
 
+  // Prevent creating extremely tall overlay containers which can crash or
+  // destabilize the renderer when many large files are opened. If the visual
+  // overlay would exceed MAX_OVERLAY_HEIGHT, we disable the overlay for this
+  // document and fall back to plain textarea rendering.
+  const totalHeight = totalLines * lineHeight;
+  const MAX_OVERLAY_HEIGHT = 10_000_000; // 10 million px safe guard
+  const overlayEnabled = highlightsEnabled && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
+  if (!overlayEnabled && highlightsEnabled) {
+    // Keep a debug trace for diagnostics; this is safe in dev but inexpensive.
+    // eslint-disable-next-line no-console
+    console.debug('[highlight] overlay disabled due to excessive height', {
+      document: activeFilePath,
+      totalLines,
+      totalHeight,
+    });
+  }
+
   /* –– synchronize textarea native scroll position when the active file changes –– */
   useLayoutEffect(() => {
     const ta = textareaRef.current;
@@ -519,18 +536,13 @@ export function CodeEditor({
         )}
 
         {/* highlight overlay */}
-        {highlightsEnabled && (
+        {overlayEnabled && (
           <div
             ref={highlightOuterRef}
             aria-hidden="true"
             tabIndex={-1}
             onMouseDown={() => {
               // Defensive: focus the real textarea if any event reaches the overlay.
-              // Do NOT preventDefault() here — letting the underlying textarea handle
-              // native pointer behavior ensures IME/composition and focus work reliably.
-              // The overlay is intentionally non-interactive (pointer-events: none)
-              // so clicks pass through to the real textarea. We keep it above the
-              // textarea visually so highlighted markup is always visible.
               textareaRef.current?.focus();
             }}
             className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
