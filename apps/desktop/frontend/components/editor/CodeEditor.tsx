@@ -554,16 +554,18 @@ export function CodeEditor({
     Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
+  // Per-component ref that retains previously-created line objects by index.
+  // This is used to preserve object identity for lines that haven't changed so
+  // memoized line renderers can bail out quickly. Important: do NOT reference
+  // `visibleHighlighted` here — the previous implementation did and caused a
+  // TDZ ReferenceError when React evaluated the initializer.
+  const visiblePrevRef = useRef<Map<number, HighlightLine>>(new Map());
+
   const visibleHighlighted = useMemo(() => {
     // highlightedMap is a Map<number, HighlightLine> produced by the hook.
     // We will reuse previous line objects by identity when nothing changed so
     // the memoized HighlightedLineView components can bail out quickly.
-    const prevRef = (visibleHighlighted as any)?._prevRef as React.MutableRefObject<Map<number, HighlightLine> | undefined> | undefined;
-    // Keep a per-call ref cached on the function object to retain previous objects.
-    if (!((visibleHighlighted as any)?._prevRef)) {
-      (visibleHighlighted as any)._prevRef = { current: new Map<number, HighlightLine>() };
-    }
-    const prev = (visibleHighlighted as any)._prevRef.current as Map<number, HighlightLine>;
+    const prev = visiblePrevRef.current;
 
     const lines: HighlightLine[] = [];
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
@@ -576,7 +578,9 @@ export function CodeEditor({
       if (backendHl) {
         // If previously we created an identical line object, reuse it (identity)
         const prevObj = prev.get(idx);
-        const spansEqual = prevObj && prevObj.spans.length === backendHl.spans.length &&
+        const spansEqual =
+          prevObj &&
+          prevObj.spans.length === backendHl.spans.length &&
           prevObj.spans.length > 0 &&
           JSON.stringify(prevObj.spans) === JSON.stringify(backendHl.spans) &&
           prevObj.text === authoritative;
@@ -611,7 +615,7 @@ export function CodeEditor({
     }
 
     // store back prev map for next render
-    (visibleHighlighted as any)._prevRef.current = prev;
+    visiblePrevRef.current = prev;
     return lines;
   }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts]);
 
