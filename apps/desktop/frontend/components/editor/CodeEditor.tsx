@@ -546,23 +546,30 @@ export function CodeEditor({
 
     const lines: HighlightLine[] = [];
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      // If the backend returned a highlighted line for this index, use it.
+      // Derive authoritative line text from the active document (single source of truth).
+      const start = lineStarts[idx] ?? activeState.value.length;
+      const end = lineStarts[idx + 1] ?? activeState.value.length;
+      let authoritative = activeState.value.slice(start, end);
+      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+
+      // If the backend returned a highlighted line for this index, use its spans
+      // but ALWAYS render the authoritative text from the editor's buffer. This
+      // avoids mismatches where the backend-provided `text` differs from the
+      // frontend buffer (causing missing spans or out-of-bounds indices).
       const hl = map.get(idx);
       if (hl) {
-        lines.push(hl);
+        lines.push({
+          index: idx,
+          text: authoritative,
+          spans: hl.spans,
+        });
         continue;
       }
 
-      // Fallback: derive the exact visible line text from the authoritative editor text.
-      // This ensures the overlay always renders the real document content (single source of truth)
-      // even when the backend hasn't produced highlights (e.g. PlainText or language not available).
-      const start = lineStarts[idx] ?? activeState.value.length;
-      const end = lineStarts[idx + 1] ?? activeState.value.length;
-      let raw = activeState.value.slice(start, end);
-      if (raw.endsWith('\n')) raw = raw.slice(0, -1);
+      // Fallback: render plain text with no spans.
       lines.push({
         index: idx,
-        text: raw,
+        text: authoritative,
         spans: [],
       });
     }
