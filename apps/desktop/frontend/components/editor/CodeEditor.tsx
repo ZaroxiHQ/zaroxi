@@ -256,6 +256,21 @@ function useFullHighlight(
 
     const doWork = async () => {
       if (isDocSwitch) {
+        // If the container provided an initial highlight payload for this doc
+        // (produced by the backend or preloaded by the container), apply it
+        // immediately so the editor appears highlighted without waiting for
+        // the async fetch roundtrip.
+        if (initialHighlight && Array.isArray(initialHighlight.lines) && initialHighlight.lines.length > 0) {
+          const normalized = initialHighlight.lines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
+          // Best-effort: apply the provided result synchronously (will be ignored
+          // if a newer request id exists).
+          try {
+            applyResultIfCurrent(normalized, initialHighlight.version);
+          } catch (e) {
+            // swallow; fallback to normal fetching below
+          }
+        }
+
         // Try range fetch first — it gives us many lines quickly for initial painting.
         const gotRange = await fetchDocumentRange();
         // Always request the precise highlighting for the exact text as well to ensure correctness.
