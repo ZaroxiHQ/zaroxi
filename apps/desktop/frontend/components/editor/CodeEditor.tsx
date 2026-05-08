@@ -1,4 +1,5 @@
 import React, {
+  useState,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -643,7 +644,10 @@ export function CodeEditor({
    * fingerprint. This preserves object identity and prevents remounts / flashes
    * for unchanged content even when scrolling or nearby edits shift indices.
    */
-  const visiblePrevRef = useRef<Map<string, HighlightLine[]>>(new Map());
+  // visiblePrevRef removed — overlay updates are scheduled off the hot input path
+  // to guarantee typing/caret updates are always immediate while we compute
+  // the highlight overlay asynchronously (RAF). This avoids expensive
+  // fingerprinting and bucket reuse on the keystroke path.
 
   /**
    * Lightweight local highlighter for visible lines.
@@ -692,77 +696,70 @@ export function CodeEditor({
     return merged;
   }, []);
 
-  const visibleHighlighted = useMemo(() => {
-    const prevBuckets = visiblePrevRef.current;
-    const newBuckets = new Map<string, HighlightLine[]>();
-    const lines: HighlightLine[] = [];
+  // Overlay highlight lines are computed asynchronously to avoid blocking the typing path.
+  // We compute a minimal, stable set of HighlightLine objects on the next animation
+  // frame and store them in `overlayHighlighted`. This prevents the expensive
+  // fingerprinting, bucket copying and JSON.stringify work from running during
+  // the keystroke-render path.
+  const [overlayHighlighted, setOverlayHighlighted] = useState<HighlightLine[]>([]);
 
-    const fingerprint = (text: string, spans: HighlightSpan[]) =>
-      text + '|' + (spans.length ? JSON.stringify(spans) : '[]');
+  useEffect(() => {
+    let rafId: number | null = null;
+    let cancelled = false;
 
-    // Populate an availability map so each identical fingerprint can reuse
-    // previously-rendered instances in FIFO order.
-    const available = new Map<string, HighlightLine[]>();
-    for (const [k, arr] of prevBuckets.entries()) {
-      available.set(k, arr.slice());
-    }
+    const doCompute = () => {
+      if (cancelled) return;
+      const lines: HighlightLine[] = [];
 
-    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      const start = lineStarts[idx] ?? activeState.value.length;
-      const end = lineStarts[idx + 1] ?? activeState.value.length;
-      let authoritative = activeState.value.slice(start, end);
-      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+      for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+        const start = lineStarts[idx] ?? activeState.value.length;
+        const end = lineStarts[idx + 1] ?? activeState.value.length;
+        let authoritative = activeState.value.slice(start, end);
+        if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
-      // Prefer backend spans for this index; if missing, try to match by text (handles shifted indices).
-      let backendHl = highlightedMap.get(idx);
-      if (!backendHl) {
-        for (const v of highlightedMap.values()) {
-          if (v.text === authoritative) {
-            backendHl = v;
-            break;
-          }
-        }
+        // Prefer backend-provided highlight for exact index when available.
+        // Avoid scanning the whole map by text — that was expensive. If backend
+        // doesn't have this index, use the cheap local highlighter.
+        const backendHl = highlightedMap.get(idx);
+        const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
+
+        // Stabilise UID: prefer backend uid, otherwise derive a simple stable uid.
+        const uid =
+          backendHl && backendHl.uid
+            ? backendHl.uid
+            : `${activeFilePath}:${stableHashString(authoritative)}:${idx}`;
+
+        lines.push({
+          uid,
+          index: idx,
+          text: authoritative,
+          spans: usedSpans,
+        });
       }
 
-      const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
-      const key = fingerprint(authoritative, usedSpans);
-
-      // Try to reuse an existing instance for this exact fingerprint
-      const bucket = available.get(key);
-      if (bucket && bucket.length > 0) {
-        const instance = bucket.shift()!;
-        // Update index for positioning while preserving uid and spans identity.
-        instance.index = idx;
-        instance.text = authoritative;
-        instance.spans = usedSpans;
-        lines.push(instance);
-
-        // Record for next cycle reuse
-        const outArr = newBuckets.get(key) ?? [];
-        outArr.push(instance);
-        newBuckets.set(key, outArr);
-        continue;
+      if (!cancelled) {
+        // Replace overlay lines in one state update (async, off hot-path).
+        setOverlayHighlighted(lines);
       }
+    };
 
-      // No reusable instance: create a new one. Use backend uid when available for stability,
-      // otherwise derive a locally-stable uid using a stable hash of the line fingerprint.
-      const uid = backendHl && backendHl.uid ? backendHl.uid : `${activeFilePath}:${stableHashString(key)}:${idx}`;
-      const created: HighlightLine = {
-        uid,
-        index: idx,
-        text: authoritative,
-        spans: usedSpans,
-      };
-      lines.push(created);
-      const outArr = newBuckets.get(key) ?? [];
-      outArr.push(created);
-      newBuckets.set(key, outArr);
-    }
+    // Schedule compute on next animation frame so typing isn't blocked by heavy work.
+    rafId = requestAnimationFrame(doCompute);
 
-    // Save for next render; we keep only the visible bucketed instances to limit memory use.
-    visiblePrevRef.current = newBuckets;
-    return lines;
-  }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts, localHighlightLine]);
+    return () => {
+      cancelled = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [
+    // Dependencies: any change that should update the overlay (highlight map, viewport, text)
+    highlightedMap,
+    visibleStartLine,
+    visibleEndLine,
+    activeState.value,
+    lineStarts,
+    localHighlightLine,
+    activeFilePath,
+  ]);
 
   /* –– gutter –– */
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
@@ -933,10 +930,9 @@ export function CodeEditor({
                   boxSizing: 'border-box',
                 }}
               >
-                {visibleHighlighted.map((hl) => (
-                  // Use the stable uid as the key. This is the critical change that
-                  // prevents large remounts when lines are inserted/removed elsewhere
-                  // in the document; the uid is preserved for identical content.
+                {overlayHighlighted.map((hl) => (
+                  // Use the stable uid as the key. Overlay updates are deferred so these
+                  // objects are relatively stable and won't be recomputed on every keystroke.
                   <HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />
                 ))}
               </div>
