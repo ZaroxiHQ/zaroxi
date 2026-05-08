@@ -15,7 +15,7 @@ export function EditorContainer() {
   );
 
   const [content, setContent] = useState<string>('');
-  const [language, setLanguage] = useState<string>('plaintext');
+  const [language, setLanguage] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string>('editor');
   const [fileInfo, setFileInfo] = useState<{
@@ -118,7 +118,7 @@ export function EditorContainer() {
       const cached = WorkspaceService.getCachedDocument(path);
       if (cached) {
         setContent(cached.content);
-        setLanguage(cached.language || 'plaintext');
+        setLanguage(cached.language ?? undefined);
         setFileName(path.split(/[\\/]/).pop() || 'file');
         setFileInfo({
           lineCount: cached.lineCount,
@@ -133,7 +133,7 @@ export function EditorContainer() {
       // Not in cache, fetch from backend (which will use the Rust cache)
       const response = await WorkspaceService.openFile({ path });
       setContent(response.content);
-      setLanguage(response.language || 'plaintext');
+      setLanguage(response.language ?? undefined);
       setFileName(path.split(/[\\/]/).pop() || 'file');
       setFileInfo({
         lineCount: response.lineCount,
@@ -144,7 +144,7 @@ export function EditorContainer() {
     } catch (error) {
       // Failed to load file
       setContent(`// Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setLanguage('plaintext');
+      setLanguage(undefined);
       setFileName('error.txt');
       setFileInfo({});
     } finally {

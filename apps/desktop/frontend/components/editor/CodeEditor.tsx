@@ -378,8 +378,10 @@ export function CodeEditor({
     activeState.value,
     highlightsEnabled,
     theme,
-    // pass frontend-known language hint (if any) to improve detection
-    language,
+    // pass frontend-known language hint (if any) to improve detection.
+    // Treat "plaintext" as "unknown" so the backend can derive the language
+    // from the file path instead of being forced to PlainText.
+    language && language !== 'plaintext' ? language : undefined,
   );
 
   /* –– viewport (visible lines) –– */
