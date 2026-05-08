@@ -75,18 +75,48 @@ function useFullHighlight(
       // appear over the new file content.
       setLines([]);
       try {
-        // Use the bridge wrapper which normalizes errors
-        const res: HighlightResponse = await bridge.invoke('highlight_text', {
+        // First attempt: ask the backend to highlight the exact text, using any
+        // language hint the frontend can provide.
+        const args = {
           request: {
             documentId,
             text,
             theme: theme ?? 'dark',
             language: language ?? undefined,
           },
-        });
-        // Only apply if this response matches the latest request id and not cancelled.
-        if (!cancelled && reqIdRef.current === thisReq) {
+        };
+        const res: HighlightResponse = await bridge.invoke('highlight_text', args);
+
+        // If we got spans, apply them (guarded by req id and cancellation).
+        if (!cancelled && reqIdRef.current === thisReq && res.lines && res.lines.length > 0) {
           setLines(res.lines);
+          return;
+        }
+
+        // If no spans were returned and a language hint was provided, retry
+        // without the hint so the backend can detect language from the path.
+        if (!cancelled && reqIdRef.current === thisReq && (!res.lines || res.lines.length === 0) && language) {
+          try {
+            const retryRes: HighlightResponse = await bridge.invoke('highlight_text', {
+              request: {
+                documentId,
+                text,
+                theme: theme ?? 'dark',
+                // omit language to let backend detect
+              },
+            });
+            if (!cancelled && reqIdRef.current === thisReq) {
+              setLines(retryRes.lines);
+            }
+            return;
+          } catch (retryErr) {
+            console.warn('highlight_text retry without language failed:', retryErr);
+          }
+        }
+
+        // Fallback: apply whatever (possibly empty) result we have.
+        if (!cancelled && reqIdRef.current === thisReq) {
+          setLines(res.lines || []);
         }
       } catch (err) {
         console.warn('full highlight (text) failed:', err);
