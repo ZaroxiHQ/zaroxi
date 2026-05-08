@@ -113,8 +113,10 @@ pub struct HighlightTextRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HighlightResponse {
     pub lines: Vec<HighlightedLine>,
+    pub version: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -429,6 +431,7 @@ pub async fn highlight_document(
     eprintln!("[highlight_document] returning {} lines", response_lines.len());
     Ok(HighlightResponse {
         lines: response_lines,
+        version,
     })
 }
 
@@ -619,6 +622,7 @@ pub async fn highlight_text(
     eprintln!("[highlight_text] returning {} lines", response_lines.len());
     Ok(HighlightResponse {
         lines: response_lines,
+        version,
     })
 }
 

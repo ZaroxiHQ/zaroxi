@@ -1,4 +1,4 @@
-import {
+import React, {
   useEffect,
   useLayoutEffect,
   useRef,
@@ -30,6 +30,7 @@ interface HighlightLine {
 }
 interface HighlightResponse {
   lines: HighlightLine[];
+  version: number;
 }
 
 const FULL_LINES_LIMIT = 100_000;
@@ -51,41 +52,39 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Improved, non-flickering Tree-sitter highlight flow with throttled edits:
-  // - Keep currently visible highlights until an authoritative backend response arrives.
-  // - Use highlight_document on tab switch (server buffer/cache) for speed.
-  // - Use highlight_text for edits; debounce minimally for continuous typing,
-  //   but allow an immediate fetch when enough time has passed since the last fetch.
-  // - Cache authoritative results keyed by exact text so switching back is instant.
+  // Goals:
+  // - Never clear currently visible highlights while new ones are computing.
+  // - Apply only the latest authoritative result (request-id gated).
+  // - Cache results keyed by exact text + returned server version.
+  // - Minimal debounce/coalescing for continuous typing.
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
     [],
   );
 
-  const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[] }>>(new Map());
+  const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[]; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
-  // Track retry attempts for documents to avoid caching transient empty highlights.
   const retriesRef = useRef<Map<string, number>>(new Map());
 
-  // Throttling / sizing parameters
+  // Throttling / sizing parameters tuned for responsiveness
   const SMALL_FILE_THRESHOLD = 1500; // chars
   const MIN_DEBOUNCE_MS = 20;
-  const MAX_DEBOUNCE_MS = 120;
-  const EDIT_THROTTLE_MS = 300; // if last fetch older than this, fetch immediately on edit
+  const MAX_DEBOUNCE_MS = 80; // smaller max to avoid long waits
+  const EDIT_THROTTLE_MS = 250; // if last fetch older than this, fetch immediately on edit
 
-  // Track last fetch timestamps per document so edits don't always wait for debounce.
   const lastFetchRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!documentId || !enabled) {
+      // preserve previous highlights for other documents; only clear when explicitly disabled
       setLines([]);
       prevDocRef.current = documentId;
       return;
     }
 
-    // If an exact cached result exists, apply it immediately (no network).
+    // If an exact cached result exists for the same text, apply it immediately.
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
       setLines(cached.lines);
@@ -100,20 +99,32 @@ function useFullHighlight(
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
-    // Helper to record a fetch timestamp
     const recordFetch = () => {
       if (!documentId) return;
       lastFetchRef.current.set(documentId, Date.now());
     };
 
-    // Fetch authoritative highlights for the exact text (used on edits).
-    // Behavior:
-    // - If backend returns non-empty spans, cache+apply them.
-    // - If backend returns an empty span set, do NOT clobber an existing non-empty cache.
-    //   Instead, perform a few short retries (in case detection/parsing is racing) before
-    //   accepting an empty authoritative result.
+    // Helper: safely apply result only if still the latest request.
+    const applyResultIfCurrent = (resLines: HighlightLine[], resVersion?: number) => {
+      if (cancelled || reqIdRef.current !== thisReq) return false;
+      const prev = cacheRef.current.get(documentId);
+      const sameText = prev && prev.text === text;
+      const sameLines =
+        sameText &&
+        prev!.lines.length === resLines.length &&
+        JSON.stringify(prev!.lines) === JSON.stringify(resLines);
+
+      // Cache authoritative result
+      cacheRef.current.set(documentId, { text, lines: resLines, version: resVersion });
+
+      if (!sameLines) {
+        setLines(resLines);
+        return true;
+      }
+      return false;
+    };
+
     const fetchExact = async () => {
-      // record a fetch timestamp for throttling decisions
       recordFetch();
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
@@ -128,56 +139,38 @@ function useFullHighlight(
 
         const prev = cacheRef.current.get(documentId);
         const resLines = res.lines || [];
+        const resVersion = res.version;
 
-        // If backend returned empty spans, avoid clobbering an existing non-empty cached result.
         const resEmpty = resLines.length === 0;
         const hasPrevNonEmpty = prev && prev.text === text && prev.lines && prev.lines.length > 0;
 
         if (resEmpty && hasPrevNonEmpty) {
-          // Transient empty: retry a few times before accepting emptiness.
+          // schedule a short retry instead of clobbering
           const attempts = retriesRef.current.get(documentId) ?? 0;
-          if (attempts < 3) {
+          if (attempts < 2) {
             retriesRef.current.set(documentId, attempts + 1);
-            const backoff = 120 * (attempts + 1);
-            // schedule a retry without blocking current execution; guard by current request id
+            const backoff = 80 * (attempts + 1);
             setTimeout(() => {
-              // only retry if this request id is still relevant (prevents runaway retries after doc switch)
               if (!cancelled && reqIdRef.current === thisReq) {
                 void fetchExact();
               }
             }, backoff);
-            // Do not update cache/UI now.
-            console.debug('[highlight] empty response detected — scheduled retry', { documentId, attempts: attempts + 1 });
+            console.debug('[highlight] transient empty — retry scheduled', { documentId, attempts: attempts + 1 });
             return;
           } else {
-            // Retries exhausted: fall through and accept empty result.
             retriesRef.current.delete(documentId);
           }
         } else {
-          // Successful non-empty result — clear any retry counter.
           retriesRef.current.delete(documentId);
         }
 
-        // Determine whether lines actually changed to avoid unnecessary re-renders.
-        const sameText = prev && prev.text === text;
-        const sameLines =
-          sameText &&
-          prev!.lines.length === resLines.length &&
-          JSON.stringify(prev!.lines) === JSON.stringify(resLines);
-
-        // Cache authoritative result (may be empty after retries exhausted).
-        cacheRef.current.set(documentId, { text, lines: resLines });
-
-        if (!sameLines) {
-          setLines(resLines);
-        }
+        applyResultIfCurrent(resLines, resVersion);
       } catch (err) {
         console.warn('highlight_text failed:', err);
-        // Keep existing UI; do not clear on error.
+        // keep existing UI
       }
     };
 
-    // Try using server-side cached highlights (fast on doc switch when buffer open)
     const fetchDocumentRange = async (): Promise<boolean> => {
       recordFetch();
       try {
@@ -192,30 +185,23 @@ function useFullHighlight(
         if (cancelled || reqIdRef.current !== thisReq) return false;
 
         if (res.lines && res.lines.length > 0) {
-          // Cache under the current editor text to allow instant reuse.
-          cacheRef.current.set(documentId, { text, lines: res.lines });
-          setLines(res.lines);
+          applyResultIfCurrent(res.lines, res.version);
           return true;
         }
       } catch (err) {
-        // highlight_document may not be available for this document; fall back.
         console.debug('highlight_document failed or not present:', err);
       }
       return false;
     };
 
-    // Clear pending debounce
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
 
-    // Strategy: on doc switch try server cached highlights first; otherwise
-    // for edits prefer exact text highlights. Never clear the UI while fetching.
-    // Optimization: when switching documents, launch both the server-side range
-    // highlight and the exact-text highlight concurrently.
     const doWork = async () => {
       if (isDocSwitch) {
+        // concurrent: try server-side fast path and editorial exact path
         void fetchDocumentRange();
         void fetchExact();
       } else {
@@ -223,9 +209,6 @@ function useFullHighlight(
       }
     };
 
-    // Decide immediate vs debounced fetch:
-    // - Immediate when first-open, doc-switch, or small files.
-    // - For edits: immediate if last fetch was older than EDIT_THROTTLE_MS, else short debounce.
     const lastFetch = documentId ? lastFetchRef.current.get(documentId) ?? 0 : 0;
     const now = Date.now();
     const shouldImmediateEditFetch =
@@ -234,10 +217,9 @@ function useFullHighlight(
     if (shouldImmediateEditFetch) {
       void doWork();
     } else {
-      // Adaptive debounce for edits on larger files.
       const adaptiveMs = Math.max(
         MIN_DEBOUNCE_MS,
-        Math.min(MAX_DEBOUNCE_MS, Math.floor(text.length / 200))
+        Math.min(MAX_DEBOUNCE_MS, Math.floor(text.length / 300)),
       );
       debounceRef.current = window.setTimeout(() => {
         void doWork();
@@ -344,6 +326,48 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
   }
   return segments;
 }
+
+/**
+ * Highlighted line renderer - memoized to avoid rebuilding DOM for unchanged lines.
+ *
+ * Uses a shallow structural comparison of spans + text to decide whether to bail out.
+ * This prevents large parts of the overlay from re-rendering while typing.
+ */
+const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> = React.memo(
+  ({ hl, lineHeight }) => {
+    const content = useMemo(() => renderSpans(hl.spans, hl.text), [hl.spans, hl.text]);
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          top: hl.index * lineHeight,
+          left: 0,
+          height: lineHeight,
+          lineHeight: `${lineHeight}px`,
+          whiteSpace: 'pre',
+          pointerEvents: 'none',
+        }}
+      >
+        {content}
+      </div>
+    );
+  },
+  (prevProps, nextProps) => {
+    const a = prevProps.hl;
+    const b = nextProps.hl;
+    if (a.index !== b.index) return false;
+    if (a.text !== b.text) return false;
+    if (a.spans.length !== b.spans.length) return false;
+    for (let i = 0; i < a.spans.length; i++) {
+      const sa = a.spans[i];
+      const sb = b.spans[i];
+      if (sa.start !== sb.start || sa.end !== sb.end || sa.token_type !== sb.token_type || sa.color !== sb.color) {
+        return false;
+      }
+    }
+    return true; // equal -> skip update
+  },
+);
 
 /* ------------------------------------------------------------------ */
 /*  Viewport / helpers                                                */
@@ -704,20 +728,7 @@ export function CodeEditor({
                 }}
               >
                 {visibleHighlighted.map((hl) => (
-                  <div
-                    key={hl.index}
-                    style={{
-                      position: 'absolute',
-                      top: hl.index * lineHeight,
-                      left: 0,
-                      height: lineHeight,
-                      lineHeight: `${lineHeight}px`,
-                      whiteSpace: 'pre',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    {renderSpans(hl.spans, hl.text)}
-                  </div>
+                  <HighlightedLineView key={hl.index} hl={hl} lineHeight={lineHeight} />
                 ))}
               </div>
             </div>
