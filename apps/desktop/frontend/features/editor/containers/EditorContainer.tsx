@@ -331,7 +331,7 @@ export function EditorContainer() {
           onChange={handleEditorChange}
           language={language}
           readOnly={false}
-          initialHighlight={initialHighlight}
+          initialHighlight={typeof initialHighlight !== 'undefined' ? initialHighlight : null}
         />
       </div>
     </div>

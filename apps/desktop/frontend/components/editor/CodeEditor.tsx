@@ -703,7 +703,7 @@ export function CodeEditor({
     // from the file path instead of being forced to PlainText.
     language && language !== 'plaintext' ? language : undefined,
     // initialHighlight is provided by the container and must be applied only for the matching revision.
-    initialHighlight ?? null,
+    (typeof initialHighlight !== 'undefined' ? initialHighlight : null),
   );
 
   /* –– viewport (visible lines) –– */
