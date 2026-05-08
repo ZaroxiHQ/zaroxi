@@ -196,7 +196,7 @@ pub async fn get_visible_lines(
     let document = &guard.document;
     // Record the document version early so early-return paths can include it
     // in the HighlightResponse (prevents constructing responses missing `version`).
-    let version = document.version();
+    let _version = document.version();
     let total_lines = document.len_lines();
     let mut lines = Vec::new();
     let start_line = request.start_line.min(total_lines);
@@ -312,6 +312,7 @@ pub async fn highlight_document(
         .ok_or_else(|| "Document not found in cache".to_string())?;
     let guard = cached_arc.lock();
     let document = &guard.document;
+    let version = document.version();
 
     eprintln!("[highlight_document] document file_class={:?}", document.file_class());
 
