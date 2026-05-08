@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { WorkspaceService } from '@/features/workspace/services/workspaceService';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
