@@ -155,13 +155,16 @@ function useFullHighlight(
     }
 
     // Immediately apply a lightweight fallback so the user sees colored text on first paint.
+    // IMPORTANT: do NOT update `lastAppliedRef` here. The fallback is non-authoritative:
+    // updating lastAppliedRef would prevent the backend authoritative highlights from
+    // being applied when they arrive (causing the "appears after second open" symptom).
     try {
       const immediate = computeImmediateFallback(text, language);
-      // Only apply fallback if we haven't already applied the same text.
-      if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
+      if (immediate.length > 0) {
         console.debug('[highlight] applying immediate fallback highlights', { documentId, lines: immediate.length });
+        // Apply fallback visually but do NOT mark it as the last applied authoritative result.
         setLines(immediate);
-        lastAppliedRef.current = { documentId, textHash: currentTextHash };
+        // Note: do NOT set lastAppliedRef here.
       }
     } catch (e) {
       // Fallback highlighter must not throw; ignore.
@@ -194,14 +197,24 @@ function useFullHighlight(
           return;
         }
 
+        // If backend returned no spans, treat result as non-authoritative and
+        // do NOT cache an empty result. This prevents an empty backend response
+        // from permanently overriding a later successful highlight computation.
+        if (!res.lines || res.lines.length === 0) {
+          console.debug('[highlight] backend returned empty spans; skipping cache and leaving fallback/cached highlights intact', { documentId });
+          return;
+        }
+
         // Cache the spans by the exact text and apply them only if they differ
         // from what we've already applied for this document/text. This avoids
         // visible reflows when the same highlights are reapplied.
-        cacheRef.current.set(documentId, { text, lines: res.lines || [] });
+        cacheRef.current.set(documentId, { text, lines: res.lines });
         const applied = lastAppliedRef.current;
         if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
-          console.debug('[highlight] applying backend highlights', { documentId, count: res.lines?.length });
-          setLines(res.lines || []);
+          console.debug('[highlight] applying backend highlights', { documentId, count: res.lines.length });
+          setLines(res.lines);
+          // Mark this authoritative backend result as applied so subsequent logic
+          // can avoid unnecessary re-renders for the same content.
           lastAppliedRef.current = { documentId, textHash: currentTextHash };
         } else {
           // If we already applied the same text (unlikely here), still update cache.
