@@ -83,7 +83,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::workspace::list_directory,
             commands::workspace::get_workspace_tree,
             commands::workspace::open_file,
-            commands::workspace::save_file,
+            commands::workspace::save_file_workspace,
             commands::workspace::open_file_dialog,
             commands::editor::open_document,
             commands::editor::get_visible_lines,

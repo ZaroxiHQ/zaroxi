@@ -368,7 +368,9 @@ pub async fn highlight_document(
         let line_end = *line_offsets.get(idx + 1).unwrap_or(&full_text.len());
 
         // Guard against degenerate offsets.
-        let line_len_bytes = line_end.saturating_sub(line_start);
+        // Keep the byte length calculation but prefix with an underscore to avoid
+        // "unused variable" warnings while preserving the original intent.
+        let _line_len_bytes = line_end.saturating_sub(line_start);
         let raw = if line_start <= full_text.len() && line_end <= full_text.len() {
             &full_text[line_start..line_end]
         } else {
@@ -597,7 +599,14 @@ pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
         // Update metadata
         if let Ok(meta) = std::fs::metadata(&path) {
             guard.meta.file_size = meta.len();
-            guard.meta.mtime_secs = mtime_secs(&meta);
+            // Compute modification time in seconds since UNIX_EPOCH without relying
+            // on a helper function present elsewhere.
+            guard.meta.mtime_secs = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             guard.meta.version = doc.version();
             guard.meta.is_dirty = false;
         }
