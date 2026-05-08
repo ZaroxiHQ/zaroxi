@@ -339,27 +339,13 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
     return lineText;
   }
 
-  // Lightweight mapping from semantic token -> CSS variable name.
-  // If the backend doesn't provide an explicit color we try to resolve a theme
-  // colour from the document root so our fast local/highlight path can show
-  // coloured tokens immediately.
-  const CSS_VAR_MAP: Record<string, string> = {
-    keyword: '--color-syntax-keyword',
-    function: '--color-syntax-function',
-    method: '--color-syntax-method',
-    string: '--color-syntax-string',
-    comment: '--color-syntax-comment',
-    type: '--color-syntax-type',
-    variable: '--color-syntax-variable',
-    constant: '--color-syntax-constant',
-    number: '--color-syntax-number',
-    operator: '--color-syntax-operator',
-    punctuation: '--color-syntax-punctuation',
-    property: '--color-syntax-property',
-  };
-
-  const rootStyle = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null;
-
+  // Render spans using token-type class names only.
+  // Rationale:
+  // - We do NOT hardcode a mapping from token -> CSS color here.
+  // - Styling comes from theme CSS (token classes) or the backend may include
+  //   an explicit `color` on a span (used as a last-resort inline override).
+  // - Keeping styling purely class-driven allows Tree-sitter / theme to evolve
+  //   without client-side mappings and reduces layout churn.
   const segments: React.ReactNode[] = [];
   let last = 0;
   for (let i = 0; i < merged.length; i++) {
@@ -369,25 +355,18 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
     }
     const key = `${sp.start}-${i}`;
 
-    // Choose inline style priority: backend-provided color -> theme CSS variable -> none.
-    let style: React.CSSProperties | undefined = undefined;
-    if (sp.color) {
-      style = { color: sp.color };
-    } else {
-      const cssVar = CSS_VAR_MAP[sp.token_type];
-      if (cssVar && rootStyle) {
-        const v = rootStyle.getPropertyValue(cssVar).trim();
-        if (v) style = { color: v };
-      }
-    }
+    // Stable token class derived from token_type (sanitised).
+    const tokenClass = `syntax-${String(sp.token_type || 'plain')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')}`;
 
-    // Stable class name for token type (sanitise to safe class name)
-    const tokenClass = `syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`;
+    // Only apply inline style when backend provided a concrete color.
+    const style: React.CSSProperties | undefined = sp.color ? { color: sp.color } : undefined;
 
     segments.push(
-      <span key={key} className={style ? undefined : tokenClass} style={style}>
+      <span key={key} className={tokenClass} style={style}>
         {lineText.slice(sp.start, sp.end)}
-      </span>,
+      </span>
     );
     last = sp.end;
   }
@@ -870,12 +849,13 @@ export function CodeEditor({
                   boxSizing: 'border-box',
                 }}
               >
-                {visibleHighlighted.map((hl) => {
-                  // Use a stable key based on content+spans fingerprint so that React
-                  // can preserve component instances across insert/delete shifts.
-                  const key = hl.text + '|' + (hl.spans.length ? JSON.stringify(hl.spans) : '[]');
-                  return <HighlightedLineView key={key} hl={hl} lineHeight={lineHeight} />;
-                })}
+                {visibleHighlighted.map((hl) => (
+                  // Use the numeric line index as the stable key so React won't
+                  // remount the highlighted line nodes on every small content change.
+                  // The memoized HighlightedLineView uses object identity + shallow
+                  // comparison to avoid DOM updates for unchanged lines.
+                  <HighlightedLineView key={hl.index} hl={hl} lineHeight={lineHeight} />
+                ))}
               </div>
             </div>
           </div>
