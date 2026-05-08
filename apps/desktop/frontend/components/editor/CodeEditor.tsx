@@ -552,8 +552,11 @@ export function CodeEditor({
   // We force a re‑render whenever we mutate the map so React picks up the new data.
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
 
-  /* derive a stable key for the *active* document (authoritative) */
-  const activeDocKey = documentId ?? '__no_doc__';
+  /* derive a stable key for the *active* document (authoritative)
+     Use a composite of documentId + tabId so editor state is strictly bound
+     to the visible tab. This prevents accidental reuse of a previous document's
+     state when backend ids are temporarily missing during fast switches. */
+  const activeDocKey = `${documentId ?? '__no_doc__'}::${tabId ?? '__no_tab__'}`;
 
   /* –– initialise state for a document that is opened for the first time –– */
   if (documentId && !editorStates.current.has(activeDocKey)) {
@@ -858,7 +861,8 @@ export function CodeEditor({
     // Keep a debug trace for diagnostics; this is safe in dev but inexpensive.
     // eslint-disable-next-line no-console
     console.debug('[highlight] overlay disabled due to excessive height', {
-      document: activeFilePath,
+      // Prefer the human-readable filePath when available, otherwise fall back to the internal key.
+      document: filePath ?? activeDocKey,
       totalLines,
       totalHeight,
     });
@@ -929,7 +933,7 @@ export function CodeEditor({
       if (readOnly) return;
       const newVal = e.target.value;
 
-      const st = editorStates.current.get(activeFilePath)!;
+      const st = editorStates.current.get(activeDocKey)!;
       // Update the authoritative in‑memory value immediately (single source of truth).
       st.value = newVal;
 
