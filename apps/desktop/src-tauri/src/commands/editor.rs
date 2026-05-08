@@ -117,21 +117,21 @@ pub struct HighlightTextRequest {
     pub language: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HighlightResponse {
     pub lines: Vec<HighlightedLine>,
     pub version: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HighlightedLine {
     pub index: usize,
     pub text: String,
     pub spans: Vec<HighlightSpanDto>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HighlightSpanDto {
     pub start: usize,
     pub end: usize,
@@ -146,6 +146,8 @@ pub struct HighlightSpanDto {
 #[command]
 pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String> {
     let path_buf = std::path::PathBuf::from(&path);
+    // Determine language early so we can consult the syntax cache during open.
+    let lang = LanguageId::from_path(path_buf.as_path());
     let cached_arc = BUFFER_MANAGER
         .open_document(&path_buf, &zaroxi_ops_file::FileLoader)
         .await
@@ -176,7 +178,7 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
     // and let the frontend fall back to a cheap local rendering while an async highlight
     // may run later.
     let initial_highlight = (|| -> Result<Option<HighlightResponse>, String> {
-        if let Some(cached_spans) = cache::get_cached(&path, document.version(), lang) {
+        if let Some(cached_spans) = cache::get_cached(&path_buf, document.version(), lang) {
             use std::borrow::Cow;
 
             let line_count = content.lines().count();
