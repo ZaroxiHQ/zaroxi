@@ -194,6 +194,9 @@ pub async fn get_visible_lines(
         .ok_or_else(|| "Document not found in cache".to_string())?;
     let guard = cached_arc.lock();
     let document = &guard.document;
+    // Record the document version early so early-return paths can include it
+    // in the HighlightResponse (prevents constructing responses missing `version`).
+    let version = document.version();
     let total_lines = document.len_lines();
     let mut lines = Vec::new();
     let start_line = request.start_line.min(total_lines);
@@ -314,7 +317,7 @@ pub async fn highlight_document(
 
     if document.file_class() == FileClass::Large {
         eprintln!("[highlight_document] document is Large -> returning empty");
-        return Ok(HighlightResponse { lines: vec![] });
+        return Ok(HighlightResponse { lines: vec![], version });
     }
 
     let lang =
@@ -323,10 +326,9 @@ pub async fn highlight_document(
 
     if lang == LanguageId::PlainText {
         eprintln!("[highlight_document] PlainText -> returning empty");
-        return Ok(HighlightResponse { lines: vec![] });
+        return Ok(HighlightResponse { lines: vec![], version });
     }
 
-    let version = document.version();
     let full_text = document.text();
     eprintln!("[highlight_document] document version={}, text len={}", version, full_text.len());
 
@@ -454,6 +456,14 @@ pub async fn highlight_text(
 
     let path = std::path::PathBuf::from(&request.document_id);
     let full_text = request.text;
+    // Compute a stable version/hash for this exact text up-front so early-return
+    // paths and the rest of the function can refer to the same `version`.
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    full_text.hash(&mut hasher);
+    let version = hasher.finish();
+
     let theme_colors = match request.theme.as_deref() {
         Some("light") => SemanticColors::light(),
         _ => SemanticColors::dark(),
@@ -524,18 +534,12 @@ pub async fn highlight_text(
     // If still PlainText after heuristics, return empty (no grammar available).
     if lang == LanguageId::PlainText {
         eprintln!("[highlight_text] PlainText -> returning empty");
-        return Ok(HighlightResponse { lines: vec![] });
+        return Ok(HighlightResponse { lines: vec![], version });
     }
 
     let engine = HighlightEngine::new();
 
-    // Compute a version/hash for this exact text so the cache keys highlights to
-    // the supplied contents (prevents stale highlights from other documents).
-    use std::hash::{Hash, Hasher};
-    use std::collections::hash_map::DefaultHasher;
-    let mut hasher = DefaultHasher::new();
-    full_text.hash(&mut hasher);
-    let version = hasher.finish();
+    // version hash already computed above
 
     eprintln!("[highlight_text] invoking cache compute (version={})", version);
 
