@@ -612,6 +612,16 @@ export function CodeEditor({
     return () => observer.disconnect();
   }, []);
 
+  // Debounced display text used by the non-urgent highlight pipeline.
+  // Keeping a small coalesce window prevents the heavy highlight + overlay
+  // work from running on every keystroke while leaving the native textarea
+  // and caret fully responsive.
+  const [displayText, setDisplayText] = useState<string>(activeState.value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDisplayText(activeState.value), 120);
+    return () => window.clearTimeout(id);
+  }, [activeState.value]);
+
   /* –– line metrics (derived from the debounced display text to keep the hot path cheap) –– */
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
   // Compute line starts from the debounced `displayText` (low-frequency).
@@ -623,16 +633,6 @@ export function CodeEditor({
 
   /* –– syntax highlight model (per‑display document) –– */
   const highlightsEnabled = !largeFile && !!activeFilePath;
-
-  // Debounced display text used by the non-urgent highlight pipeline.
-  // Keeping a small coalesce window prevents the heavy highlight + overlay
-  // work from running on every keystroke while leaving the native textarea
-  // and caret fully responsive.
-  const [displayText, setDisplayText] = useState<string>(activeState.value);
-  useEffect(() => {
-    const id = window.setTimeout(() => setDisplayText(activeState.value), 120);
-    return () => window.clearTimeout(id);
-  }, [activeState.value]);
 
   // Use the debounced displayText for highlighting. This ensures backend/engine
   // work is driven by a lower-frequency signal while typing remains instant.
