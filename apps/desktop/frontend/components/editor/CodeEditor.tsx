@@ -612,10 +612,14 @@ export function CodeEditor({
     return () => observer.disconnect();
   }, []);
 
-  /* –– line metrics (always derived from the active document’s value) –– */
+  /* –– line metrics (derived from the debounced display text to keep the hot path cheap) –– */
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
-  const lineStarts = useMemo(() => computeLineStarts(activeState.value), [activeState.value]);
-  const totalLines = lineStarts.length;
+  // Compute line starts from the debounced `displayText` (low-frequency).
+  // Doing this on `displayText` (which is debounced) prevents scanning the
+  // entire live buffer on every keystroke — that full scan was the main
+  // source of input jank for large files.
+  const displayLineStarts = useMemo(() => computeLineStarts(displayText), [displayText]);
+  const totalLines = displayLineStarts.length;
 
   /* –– syntax highlight model (per‑display document) –– */
   const highlightsEnabled = !largeFile && !!activeFilePath;
@@ -724,9 +728,9 @@ export function CodeEditor({
       if (cancelled) return;
       const lines: HighlightLine[] = [];
 
-      // Compute line starts from the debounced display text (cheap linear pass
-      // limited to visible range) so that heavy work isn't triggered by every keystroke.
-      const localLineStarts = computeLineStarts(displayText);
+      // Use the precomputed displayLineStarts (derived from debounced displayText)
+      // so we avoid recomputing line starts on the hot keystroke path.
+      const localLineStarts = displayLineStarts;
       const totalDisplayLines = localLineStarts.length;
 
       const startIdx = Math.max(visibleStartLine, 0);
@@ -771,11 +775,11 @@ export function CodeEditor({
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [
-    // Dependencies: any change that should update the overlay (highlight map, viewport, debounced text)
+    // Dependencies: any change that should update the overlay (highlight map, viewport, debounced display-line data)
     highlightedMap,
     visibleStartLine,
     visibleEndLine,
-    displayText,
+    displayLineStarts,
     localHighlightLine,
     activeFilePath,
   ]);
