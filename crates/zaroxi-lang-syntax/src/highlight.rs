@@ -172,12 +172,13 @@ impl HighlightEngine {
         eprintln!("DEBUG: Executing query, source length: {} bytes", source.len());
         eprintln!("DEBUG: Root node: start={}, end={}", root_node.start_byte(), root_node.end_byte());
 
-        // Use StreamingIterator to iterate over query matches
-        let mut matches = cursor.matches(query, root_node, source.as_bytes());
+        // Iterate over query matches using QueryCursor::matches which returns a Vec<QueryMatch>.
+        // This produces deterministic ordering and avoids reliance on StreamingIterator.
+        let matches = cursor.matches(query, root_node, source.as_bytes());
         let mut match_count = 0;
-        while let Some(match_) = StreamingIterator::next(&mut matches) {
+        for m in matches {
             match_count += 1;
-            for capture in match_.captures {
+            for capture in m.captures {
                 let node = capture.node;
                 let start = node.start_byte();
                 let end = node.end_byte();
