@@ -585,6 +585,10 @@ export function CodeEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightOuterRef = useRef<HTMLDivElement>(null);
+  // Throttle RAF handle to coalesce frequent keystrokes into a single render frame.
+  // This keeps typing immediate (native textarea) while still updating overlay/gutter
+  // at animation-frame granularity to avoid jank.
+  const rafScheduledRef = useRef<number | null>(null);
 
   /* –– huge‑file guard –– */
   const largeFile = contentTruncated ?? (initialValue.length >= TRUNCATE_CHARS);
@@ -781,13 +785,18 @@ export function CodeEditor({
     });
   }
 
-  /* –– synchronize textarea native scroll position when the active file changes –– */
+  /* –– synchronize textarea native scroll position and value when the active file changes –– */
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.scrollTop = activeState.scrollTop;
     ta.scrollLeft = activeState.scrollLeft;
-  }, [activeFilePath]);
+    // For uncontrolled textarea we must ensure the DOM value matches the authoritative state
+    // when switching files or when an external load replaces the content.
+    if (ta.value !== activeState.value) {
+      ta.value = activeState.value;
+    }
+  }, [activeFilePath, activeState.value]);
 
   /* –– scroll event –– */
   const handleTextareaScroll = useCallback(
@@ -818,24 +827,38 @@ export function CodeEditor({
   }, [activeFilePath, activeState.value]);
 
   /* –– edit handling –– */
+  const scheduleRender = useCallback(() => {
+    if (rafScheduledRef.current !== null) return;
+    rafScheduledRef.current = requestAnimationFrame(() => {
+      rafScheduledRef.current = null;
+      forceUpdate();
+    });
+  }, []);
+
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       if (readOnly) return;
       const newVal = e.target.value;
 
       const st = editorStates.current.get(activeFilePath)!;
+      // Update the authoritative in‑memory value immediately (single source of truth).
       st.value = newVal;
-      forceUpdate();
 
-      onChange(newVal);
+      // Update cursor line immediately for responsive UI feedback.
       const pos = e.target.selectionStart;
       const before = newVal.slice(0, pos).match(/\n/g);
       st.cursorLine = before ? before.length + 1 : 1;
 
-      // mark dirty in the tabs store once we leave the handler
+      // Notify container of the change and mark dirty. Do not force a synchronous
+      // React update here – the native textarea already reflects the user's typing.
+      onChange(newVal);
       useTabsStore.getState().markDirty(activeFilePath);
+
+      // Coalesce React re-renders onto the next animation frame so the overlay/gutter
+      // update does not block typing and does not remount excessively.
+      scheduleRender();
     },
-    [onChange, readOnly, activeFilePath],
+    [onChange, readOnly, activeFilePath, scheduleRender],
   );
 
   /* –– render –– */
@@ -921,7 +944,7 @@ export function CodeEditor({
           </div>
         )}
 
-        {/* editable textarea */}
+        {/* editable textarea (uncontrolled for immediate typing responsiveness) */}
         <textarea
           key={activeFilePath}
           ref={textareaRef}
@@ -945,7 +968,8 @@ export function CodeEditor({
             // When the editor is read-only we hide the caret.
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
-          value={activeState.value}
+          // Use uncontrolled textarea to make typing native and instant.
+          defaultValue={activeState.value}
           readOnly={effectiveReadOnly}
           onChange={handleChange}
           onScroll={handleTextareaScroll}
