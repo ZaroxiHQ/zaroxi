@@ -51,11 +51,12 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
-  // Reliable Tree-sitter backed highlight flow:
-  // - Per-document cache keyed by exact text (frontend-side) to avoid re-fetching.
-  // - Immediate fetch on document switch (so highlights appear as soon as possible).
-  // - Debounce only when typing (edits) to reduce IPC churn.
-  // - No client-side regex fallback: highlights come from Tree-sitter via backend.
+  // Tree-sitter backed highlight flow with improved responsiveness:
+  // - Per-document cache keyed by exact text to avoid redundant requests.
+  // - Immediate fetch on document switch or when no cache exists.
+  // - Very short debounce while typing for large files; immediate fetch for small files.
+  // - Crucially: keep currently displayed highlights until authoritative backend
+  //   response arrives (avoid clearing UI while fetching).
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
     [],
@@ -65,6 +66,10 @@ function useFullHighlight(
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const prevDocRef = useRef<string | null>(null);
+
+  const SMALL_FILE_THRESHOLD = 1_500; // chars: fetch immediately for small files
+  const MIN_DEBOUNCE_MS = 20; // minimal debounce for edits
+  const MAX_DEBOUNCE_MS = 120; // maximal debounce for very large files
 
   useEffect(() => {
     if (!documentId || !enabled) {
@@ -101,14 +106,14 @@ function useFullHighlight(
 
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // Cache authoritative result (may be empty) so subsequent switches are instant.
+        // Cache authoritative result (may be empty)
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
 
         // Apply authoritative backend result.
         setLines(res.lines || []);
       } catch (err) {
-        // On error, keep current visible lines (do not clear).
         console.warn('highlight_text failed:', err);
+        // Do not clear existing highlights on error; keep what's visible.
       }
     };
 
@@ -118,14 +123,18 @@ function useFullHighlight(
       debounceRef.current = null;
     }
 
-    if (isDocSwitch) {
-      // Immediate fetch on tab/document switch so highlights appear promptly.
+    // If no cache exists (first open) or doc switch or small file -> immediate fetch.
+    if (!cached || isDocSwitch || text.length <= SMALL_FILE_THRESHOLD) {
       void doFetch();
     } else {
-      // Debounce only on edits to avoid flooding the backend while typing.
+      // Adaptive debounce: smaller for smaller files/edits, larger for big files.
+      const adaptiveMs = Math.max(
+        MIN_DEBOUNCE_MS,
+        Math.min(MAX_DEBOUNCE_MS, Math.floor(text.length / 200))
+      );
       debounceRef.current = window.setTimeout(() => {
         void doFetch();
-      }, 160);
+      }, adaptiveMs);
     }
 
     return () => {
