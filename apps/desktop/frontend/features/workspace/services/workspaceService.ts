@@ -275,8 +275,21 @@ export class WorkspaceService {
     try {
       // Call the workspace-scoped save command (renamed on the backend to avoid conflicts).
       await bridge.invoke<void>('save_file_workspace', { request });
-      // Invalidate frontend document cache for this path after a successful save
-      documentCache.delete(request.path);
+
+      // Update frontend document cache for this path after a successful save.
+      // Previously we deleted the cache entry which caused the highlighter to
+      // re-request highlights and the UI to flash. Instead, update the cached
+      // content and mark it clean so the frontend and highlighter reuse the
+      // same authoritative text and avoid unnecessary refreshes.
+      const cached = documentCache.get(request.path);
+      if (cached) {
+        cached.content = request.content;
+        cached.charCount = request.content.length;
+        cached.lineCount = request.content.split('\n').length;
+        cached.contentTruncated = false;
+        cached.isDirty = false;
+      }
+
     } catch (error) {
       throw error;
     }

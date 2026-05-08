@@ -63,6 +63,10 @@ function useFullHighlight(
 
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
+  const lastAppliedRef = useRef<{
+    documentId: string | null;
+    textHash: number | null;
+  }>({ documentId: null, textHash: null });
 
   // Synchronous lightweight fallback highlighter for immediate visual feedback.
   // This runs on the exact `text` supplied by the editor (single source of truth)
@@ -118,25 +122,44 @@ function useFullHighlight(
     return out;
   }
 
+  // Helper to compute a simple hash for the supplied text.
+  function hashText(s: string): number {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return h >>> 0;
+  }
+
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
+      lastAppliedRef.current = { documentId, textHash: null };
       return;
     }
+
+    const currentTextHash = hashText(text);
 
     // If we have cached highlights for this document and the source text is identical,
     // reuse them immediately and skip an IPC roundtrip.
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
-      setLines(cached.lines);
+      // Avoid setting state if we already applied this cached result.
+      if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
+        setLines(cached.lines);
+        lastAppliedRef.current = { documentId, textHash: currentTextHash };
+      }
       return;
     }
 
     // Immediately apply a lightweight fallback so the user sees colored text on first paint.
     try {
       const immediate = computeImmediateFallback(text, language);
-      if (immediate.length > 0) {
+      // Only apply fallback if we haven't already applied the same text.
+      if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
         setLines(immediate);
+        lastAppliedRef.current = { documentId, textHash: currentTextHash };
       }
     } catch (e) {
       // Fallback highlighter must not throw; ignore.
@@ -163,12 +186,23 @@ function useFullHighlight(
         // Only apply if still current and not cancelled.
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // Apply and cache the authoritative backend spans (may be empty).
+        // Cache the spans by the exact text and apply them only if they differ
+        // from what we've already applied for this document/text. This avoids
+        // visible reflows when the same highlights are reapplied.
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
-        setLines(res.lines || []);
+        const applied = lastAppliedRef.current;
+        if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
+          setLines(res.lines || []);
+          lastAppliedRef.current = { documentId, textHash: currentTextHash };
+        } else {
+          // If we already applied the same text (unlikely here), still update cache.
+          // No UI update necessary.
+        }
       } catch (err) {
         console.warn('full highlight (text) failed:', err);
-        if (!cancelled && reqIdRef.current === thisReq) setLines([]);
+        if (!cancelled && reqIdRef.current === thisReq) {
+          // Leave whatever fallback/cached highlights are currently visible instead of clearing.
+        }
       }
     };
 
@@ -180,12 +214,16 @@ function useFullHighlight(
 
     // When switching document or language, fetch immediately (no debounce) so backend highlights arrive quickly.
     // Otherwise debounce to batch keystrokes.
-    const isDocSwitch = true; // always fetch promptly; frontend fallback already provides immediate feedback
+    const isDocSwitch = lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash;
+
     if (isDocSwitch) {
-      // run without extra delay
+      // run without extra delay to get authoritative highlights soon
       void doFetch();
     } else {
-      debounceRef.current = window.setTimeout(doFetch, 120);
+      // Debounce edits to avoid flooding the backend when typing; still fetch after short delay.
+      debounceRef.current = window.setTimeout(() => {
+        void doFetch();
+      }, 120);
     }
 
     return () => {
