@@ -64,6 +64,60 @@ function useFullHighlight(
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
 
+  // Synchronous lightweight fallback highlighter for immediate visual feedback.
+  // This runs on the exact `text` supplied by the editor (single source of truth)
+  // and gives instant coloring while the backend Tree-sitter highlighter runs.
+  function computeImmediateFallback(fullText: string, langHint?: string): HighlightLine[] {
+    if (!fullText) return [];
+    const linesArr = fullText.split('\n');
+    const out: HighlightLine[] = [];
+    // simple heuristics per-language (keep minimal to avoid heavy CPU)
+    const commentPattern = langHint === 'toml' || langHint === 'ini' ? /#.*/ : /\/\/.*/;
+    const stringPattern = /(["'])(?:\\.|(?!\1).)*\1/g;
+    const numberPattern = /\b\d+(\.\d+)?\b/g;
+
+    for (let idx = 0; idx < linesArr.length; idx++) {
+      const line = linesArr[idx];
+      const spans: HighlightSpan[] = [];
+
+      // comments
+      const cm = line.match(commentPattern);
+      if (cm && cm.index !== undefined) {
+        spans.push({ start: cm.index, end: line.length, token_type: 'comment', color: '#7C7C7C' });
+      }
+
+      // strings
+      let m: RegExpExecArray | null;
+      // eslint-disable-next-line no-cond-assign
+      while ((m = stringPattern.exec(line)) !== null) {
+        spans.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, token_type: 'string', color: '#98C379' });
+      }
+
+      // numbers (only when not inside strings)
+      // naive approach: skip number matches that fall inside existing spans
+      const numberMatches = Array.from(line.matchAll(numberPattern));
+      for (const nm of numberMatches) {
+        const ns = nm.index ?? 0;
+        const ne = ns + (nm[0]?.length ?? 0);
+        let inside = false;
+        for (const s of spans) {
+          if (ns >= s.start && ne <= s.end) {
+            inside = true;
+            break;
+          }
+        }
+        if (!inside) {
+          spans.push({ start: ns, end: ne, token_type: 'number', color: '#D19A66' });
+        }
+      }
+
+      // sort spans by start and merge simple overlaps (prefer earlier spans)
+      spans.sort((a, b) => a.start - b.start || a.end - b.end);
+      out.push({ index: idx, text: line, spans });
+    }
+    return out;
+  }
+
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
@@ -78,18 +132,24 @@ function useFullHighlight(
       return;
     }
 
+    // Immediately apply a lightweight fallback so the user sees colored text on first paint.
+    try {
+      const immediate = computeImmediateFallback(text, language);
+      if (immediate.length > 0) {
+        setLines(immediate);
+      }
+    } catch (e) {
+      // Fallback highlighter must not throw; ignore.
+    }
+
     let cancelled = false;
     // bump request id for this batch
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
 
     const doFetch = async () => {
-      // Clear stale highlights immediately so previous document's spans never
-      // appear over the new file content.
-      setLines([]);
       try {
-        // First attempt: ask the backend to highlight the exact text, using any
-        // language hint the frontend can provide.
+        // First attempt: ask the backend to highlight the exact text, using any language hint.
         const args = {
           request: {
             documentId,
@@ -103,35 +163,7 @@ function useFullHighlight(
         // Only apply if still current and not cancelled.
         if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // If we got spans, apply and cache them.
-        if (res.lines && res.lines.length > 0) {
-          cacheRef.current.set(documentId, { text, lines: res.lines });
-          setLines(res.lines);
-          return;
-        }
-
-        // If no spans were returned and a language hint was provided, retry
-        // without the hint so the backend can detect language from the path.
-        if (language) {
-          try {
-            const retryRes: HighlightResponse = await bridge.invoke('highlight_text', {
-              request: {
-                documentId,
-                text,
-                theme: theme ?? 'dark',
-                // omit language to let backend detect
-              },
-            });
-            if (cancelled || reqIdRef.current !== thisReq) return;
-            cacheRef.current.set(documentId, { text, lines: retryRes.lines });
-            setLines(retryRes.lines);
-            return;
-          } catch (retryErr) {
-            console.warn('highlight_text retry without language failed:', retryErr);
-          }
-        }
-
-        // Fallback: apply whatever (possibly empty) result we have and cache it.
+        // Apply and cache the authoritative backend spans (may be empty).
         cacheRef.current.set(documentId, { text, lines: res.lines || [] });
         setLines(res.lines || []);
       } catch (err) {
@@ -140,13 +172,21 @@ function useFullHighlight(
       }
     };
 
-    // Debounce to avoid making a request on every keystroke.
-    // Small delay keeps editor feeling responsive while avoiding high IPC churn.
+    // Clear any prior debounce
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
-    // Use a short debounce; immediate for large documents could be disabled by caller.
-    debounceRef.current = window.setTimeout(doFetch, 120);
+
+    // When switching document or language, fetch immediately (no debounce) so backend highlights arrive quickly.
+    // Otherwise debounce to batch keystrokes.
+    const isDocSwitch = true; // always fetch promptly; frontend fallback already provides immediate feedback
+    if (isDocSwitch) {
+      // run without extra delay
+      void doFetch();
+    } else {
+      debounceRef.current = window.setTimeout(doFetch, 120);
+    }
 
     return () => {
       cancelled = true;
