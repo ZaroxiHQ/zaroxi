@@ -247,8 +247,13 @@ pub struct SaveFileRequest {
     pub content: String,
 }
 
+/// Save a file (workspace-scoped command).
+///
+/// Renamed to `save_file_workspace` to avoid a macro/command-name collision
+/// with the editor module. The frontend will invoke this command under the
+/// new name. Behavior: write the provided content to disk atomically.
 #[command]
-pub async fn save_file(request: SaveFileRequest) -> Result<(), String> {
+pub async fn save_file_workspace(request: SaveFileRequest) -> Result<(), String> {
     use std::fs;
 
     let path = PathBuf::from(&request.path);

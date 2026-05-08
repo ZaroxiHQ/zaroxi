@@ -271,7 +271,8 @@ export class WorkspaceService {
 
   static async saveFile(request: SaveFileRequest): Promise<void> {
     try {
-      await bridge.invoke<void>('save_file', { request });
+      // Call the workspace-scoped save command (renamed on the backend to avoid conflicts).
+      await bridge.invoke<void>('save_file_workspace', { request });
       // Invalidate frontend document cache for this path after a successful save
       documentCache.delete(request.path);
     } catch (error) {
