@@ -354,13 +354,38 @@ export function CodeEditor({
     Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  const visibleHighlighted = useMemo(
-    () =>
-      allHighlighted.filter(
-        (l) => l.index >= visibleStartLine && l.index < visibleEndLine,
-      ),
-    [allHighlighted, visibleStartLine, visibleEndLine],
-  );
+  const visibleHighlighted = useMemo(() => {
+    // Build a quick lookup of highlighted lines returned from the backend.
+    const map = new Map<number, HighlightLine>();
+    for (const l of allHighlighted) {
+      map.set(l.index, l);
+    }
+
+    const lines: HighlightLine[] = [];
+    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+      // If the backend returned a highlighted line for this index, use it.
+      const hl = map.get(idx);
+      if (hl) {
+        lines.push(hl);
+        continue;
+      }
+
+      // Fallback: derive the exact visible line text from the authoritative editor text.
+      // This ensures the overlay always renders the real document content (single source of truth)
+      // even when the backend hasn't produced highlights (e.g. PlainText or language not available).
+      const start = lineStarts[idx] ?? activeState.value.length;
+      const end = lineStarts[idx + 1] ?? activeState.value.length;
+      let raw = activeState.value.slice(start, end);
+      if (raw.endsWith('\n')) raw = raw.slice(0, -1);
+      lines.push({
+        index: idx,
+        text: raw,
+        spans: [],
+      });
+    }
+
+    return lines;
+  }, [allHighlighted, visibleStartLine, visibleEndLine, activeState.value, lineStarts]);
 
   /* –– gutter –– */
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
@@ -538,11 +563,9 @@ export function CodeEditor({
             // when required. This avoids composition/caret failures on some platforms.
             color: highlightsEnabled ? 'transparent' : undefined,
             WebkitTextFillColor: highlightsEnabled ? 'transparent' : undefined,
-            caretColor: highlightsEnabled
-              ? 'var(--editor-cursor-color, #E2E8F0)'
-              : effectiveReadOnly
-                ? 'transparent'
-                : undefined,
+            // Keep the caret visible even when the text color is transparent so the user can type.
+            // When the editor is read-only we hide the caret.
+            caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={activeState.value}
           readOnly={effectiveReadOnly}
