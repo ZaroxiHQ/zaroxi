@@ -157,12 +157,20 @@ function useFullHighlight(
 
     // Strategy: on doc switch try server cached highlights first; otherwise
     // for edits prefer exact text highlights. Never clear the UI while fetching.
+    //
+    // Optimization: when switching documents, launch both the server-side range
+    // highlight and the exact-text highlight concurrently. This reduces perceived
+    // latency because whichever completes first will apply highlights; the
+    // other will either be redundant or be skipped by its own stale-request guard.
+    // We still keep the single-request guards (reqIdRef / cancelled) inside each
+    // fetch helper so late responses won't clobber newer results.
     const doWork = async () => {
       if (isDocSwitch) {
-        const got = await fetchDocumentRange();
-        if (!got) {
-          await fetchExact();
-        }
+        // Fire both requests in parallel and let them race to apply the first
+        // authoritative result. We do not await both here because we want the
+        // UI to stay responsive and accept whichever arrives first.
+        void fetchDocumentRange();
+        void fetchExact();
       } else {
         await fetchExact();
       }
