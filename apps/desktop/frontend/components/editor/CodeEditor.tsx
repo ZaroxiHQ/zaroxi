@@ -389,12 +389,10 @@ export function CodeEditor({
             ref={highlightOuterRef}
             aria-hidden="true"
             tabIndex={-1}
-            onMouseDown={(e) => {
-              // Defensive: ensure clicks on the overlay focus the real textarea.
-              // We preventDefault here so the overlay never takes focus; pointer-events: none
-              // should already allow clicks to pass through, but some stacking-context edge cases
-              // justify this extra guard.
-              e.preventDefault();
+            onMouseDown={() => {
+              // Defensive: focus the real textarea if any event reaches the overlay.
+              // Do NOT preventDefault() here — letting the underlying textarea handle
+              // native pointer behavior ensures IME/composition and focus work reliably.
               textareaRef.current?.focus();
             }}
             className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
@@ -411,8 +409,8 @@ export function CodeEditor({
           >
             <div
               style={{
-                height: totalLines * lineHeight,
                 position: 'relative',
+                height: totalLines * lineHeight,
                 width: '100%',
                 pointerEvents: 'none',
                 boxSizing: 'border-box',
@@ -423,17 +421,28 @@ export function CodeEditor({
                   position: 'absolute',
                   top: 0,
                   left: 0,
-                  transform: `translate3d(${-activeState.scrollLeft}px, ${
-                    -visibleStartLine * lineHeight
-                  }px, 0px)`,
+                  // Use exact pixel scrollTop for vertical sync and scrollLeft for horizontal sync.
+                  transform: `translate3d(${-activeState.scrollLeft}px, ${-activeState.scrollTop}px, 0px)`,
                   whiteSpace: 'pre',
                   width: '100%',
+                  height: totalLines * lineHeight,
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
                 }}
               >
                 {visibleHighlighted.map((hl) => (
-                  <div key={hl.index} style={{ minHeight: lineHeight, pointerEvents: 'none' }}>
+                  <div
+                    key={hl.index}
+                    style={{
+                      position: 'absolute',
+                      top: hl.index * lineHeight,
+                      left: 0,
+                      height: lineHeight,
+                      lineHeight: `${lineHeight}px`,
+                      whiteSpace: 'pre',
+                      pointerEvents: 'none',
+                    }}
+                  >
                     {renderSpans(hl.spans, hl.text)}
                   </div>
                 ))}
@@ -457,7 +466,11 @@ export function CodeEditor({
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
+            // Hide the underlying textarea text while highlighting is enabled, but
+            // preserve IME/composition and caret by also setting the WebKit text-fill
+            // when required. This avoids composition/caret failures on some platforms.
             color: highlightsEnabled ? 'transparent' : undefined,
+            WebkitTextFillColor: highlightsEnabled ? 'transparent' : undefined,
             caretColor: highlightsEnabled
               ? 'var(--editor-cursor-color, #E2E8F0)'
               : effectiveReadOnly
