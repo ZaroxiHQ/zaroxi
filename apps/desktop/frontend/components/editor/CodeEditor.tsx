@@ -267,11 +267,14 @@ function useFullHighlight(
 function mergeSpans(spans: HighlightSpan[], lineLen: number): HighlightSpan[] {
   if (spans.length === 0 || lineLen === 0) return [];
 
-  // Sort spans by start (primary) then end (secondary) to ensure stable,
-  // left-to-right processing. Previous implementation sorted by span length,
-  // which produced incorrect overlay ordering and prevented highlights from
-  // being rendered correctly.
+  // Sort spans so that the innermost (shortest) spans get applied first,
+  // then by start position. This implements "innermost wins" behavior:
+  // short, precise tokens (e.g. identifiers, strings) override larger spans
+  // that may cover the same area (e.g. parent expressions or comment spans).
   const sorted = [...spans].sort((a, b) => {
+    const la = (a.end - a.start);
+    const lb = (b.end - b.start);
+    if (la !== lb) return la - lb; // shorter spans first
     const s = a.start - b.start;
     return s !== 0 ? s : (a.end - b.end);
   });
