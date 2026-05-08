@@ -1,11 +1,12 @@
 import { bridge } from '@/lib/bridge';
 
-// Cache for opened files to avoid re‑loading from disk.
-const fileCache = new Map<string, OpenFileResponse>();
-
 // Frontend-side document cache that mirrors the Rust cache.
 // Keyed by canonical file path, stores the full document content and metadata.
 // This allows tab switching to be instant without any IPC call.
+//
+// NOTE: consolidate to a single canonical cache (documentCache) so that
+// openFile, updateCachedContent, markDocumentDirty, and save flow all
+// operate on the same entries.
 const documentCache = new Map<string, {
   content: string;
   language?: string;
@@ -230,10 +231,17 @@ export class WorkspaceService {
   }
 
   static async openFile(request: OpenFileRequest): Promise<OpenFileResponse> {
-    // Return cached version if available
-    const cached = fileCache.get(request.path);
+    // Return cached version if available (frontend document cache)
+    const cached = documentCache.get(request.path);
     if (cached) {
-      return cached;
+      return {
+        content: cached.content,
+        language: cached.language,
+        lineCount: cached.lineCount,
+        charCount: cached.charCount,
+        largeFileMode: cached.largeFileMode,
+        contentTruncated: cached.contentTruncated,
+      };
     }
 
     const docResponse = await this.openDocument(request.path);
@@ -247,15 +255,23 @@ export class WorkspaceService {
       contentTruncated: docResponse.contentTruncated,
     };
 
-    // Store in cache
-    fileCache.set(request.path, response);
+    // Store in frontend document cache for instant subsequent access
+    documentCache.set(request.path, {
+      content: response.content,
+      language: response.language,
+      lineCount: response.lineCount,
+      charCount: response.charCount,
+      largeFileMode: response.largeFileMode,
+      contentTruncated: response.contentTruncated,
+      isDirty: false,
+    });
 
     return response;
   }
 
   static async saveFile(request: SaveFileRequest): Promise<void> {
-    // Invalidate cache for this path after a save
-    fileCache.delete(request.path);
+    // Invalidate frontend document cache for this path after a save
+    documentCache.delete(request.path);
     return await bridge.invoke<void>('save_file', { request });
   }
 

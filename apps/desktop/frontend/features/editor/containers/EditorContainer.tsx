@@ -25,9 +25,11 @@ export function EditorContainer() {
     contentTruncated?: boolean;
   }>({});
   
-  // Get active file path from workspace store
+  // Determine active file path:
+  // Prefer the active tab's id when the active tab represents a file.
+  // Fallback to the workspace explorer active file for other cases.
   const { explorerUI } = useWorkspaceStore();
-  const activeFilePath = explorerUI.activeFilePath;
+  const activeFilePath = activeTab?.kind === 'file' ? activeTab.id : explorerUI.activeFilePath;
 
   useEffect(() => {
     // Only try to load a real file when we have a path to load.

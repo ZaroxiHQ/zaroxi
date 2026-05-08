@@ -395,6 +395,9 @@ export function CodeEditor({
               fontSize: '0.875rem',
               whiteSpace: 'pre',
               overflowWrap: 'normal',
+              // Defensive: ensure overlay never receives pointer events and is behind the textarea.
+              pointerEvents: 'none',
+              zIndex: 0,
             }}
           >
             <div
@@ -428,6 +431,7 @@ export function CodeEditor({
 
         {/* editable textarea */}
         <textarea
+          key={activeFilePath}
           ref={textareaRef}
           className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
           style={{
