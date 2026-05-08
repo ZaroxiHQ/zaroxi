@@ -261,10 +261,30 @@ function useFullHighlight(
     const isDocSwitch = lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash;
 
     if (isDocSwitch) {
-      // run without extra delay to get authoritative highlights soon
-      void doFetch();
+      // If the editor hasn't had a chance to populate the authoritative text yet
+      // (common during tab switches when `initialValue` adoption runs), delay the
+      // fetch a few milliseconds. This avoids requesting highlights for an empty
+      // or stale text and prevents the backend from returning an empty result
+      // that would obscure a valid cached highlight.
+      if (!text || text.length === 0) {
+        // tiny delay to let the editor adoption effect run; still much faster than a visible flicker.
+        if (debounceRef.current) {
+          window.clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
+        debounceRef.current = window.setTimeout(() => {
+          if (!cancelled) void doFetch();
+        }, 12);
+      } else {
+        // run without extra delay to get authoritative highlights soon
+        void doFetch();
+      }
     } else {
       // Debounce edits to avoid flooding the backend when typing; still fetch after short delay.
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
       debounceRef.current = window.setTimeout(() => {
         void doFetch();
       }, 120);
