@@ -554,52 +554,43 @@ export function CodeEditor({
     Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  // Per-component ref that retains previously-created line objects by index.
-  // This is used to preserve object identity for lines that haven't changed so
-  // memoized line renderers can bail out quickly.
-  const visiblePrevRef = useRef<Map<number, HighlightLine>>(new Map());
+  // Per-component ref that retains previously-created line objects by fingerprint.
+  // Keying by a fingerprint (text + spans) stabilises identity across insert/delete
+  // operations so unchanged lines don't remount or visibly refresh.
+  const visiblePrevRef = useRef<Map<string, HighlightLine>>(new Map());
 
   /**
    * Lightweight local highlighter for visible lines.
-   * This provides an immediate, deterministic visual result while the
-   * authoritative backend highlighting is pending. The heuristic is intentionally
-   * small and fast (regex-based) and only applied to visible lines to avoid
-   * adding CPU cost during continuous typing.
+   * Provides an immediate, deterministic visual rendering while backend spans are pending.
+   * Only applied to visible lines to avoid CPU cost during continuous typing.
    */
   const localHighlightLine = useCallback((lineText: string): HighlightSpan[] => {
     const spans: HighlightSpan[] = [];
     if (!lineText || lineText.length === 0) return spans;
 
-    // Quick comment detection (// ...). Apply comment span from '//' to end.
     const commentIdx = lineText.indexOf('//');
     if (commentIdx !== -1) {
       spans.push({ start: commentIdx, end: lineText.length, token_type: 'comment' });
-      // Comments dominate the rest of the line so we can return early.
       return spans;
     }
 
-    // Strings (simple double/single-quoted, not full JS-escape aware)
     const stringRe = /(["'])(?:\\.|(?!\1).)*\1/g;
     let m: RegExpExecArray | null;
     while ((m = stringRe.exec(lineText)) !== null) {
       spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'string' });
     }
 
-    // Numbers
     const numRe = /\b\d+(\.\d+)?\b/g;
     while ((m = numRe.exec(lineText)) !== null) {
       spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'number' });
     }
 
-    // Common keywords (small set) - lightweight heuristic
     const kwRe = /\b(fn|function|return|if|else|for|while|const|let|var|pub|use|mod|struct|enum|impl|class|import|switch|case)\b/g;
     while ((m = kwRe.exec(lineText)) !== null) {
       spans.push({ start: m.index, end: m.index + m[0].length, token_type: 'keyword' });
     }
 
-    // Sort and clip spans, prefer earlier start
     spans.sort((a, b) => a.start - b.start || (a.end - a.start) - (b.end - b.start));
-    // Merge overlaps by keeping the earliest/innermost spans (simple pass)
     const merged: HighlightSpan[] = [];
     for (const sp of spans) {
       const s = Math.max(0, sp.start);
@@ -609,7 +600,6 @@ export function CodeEditor({
       if (!last || s >= last.end) {
         merged.push({ start: s, end: e, token_type: sp.token_type, color: sp.color });
       } else if (e > last.end) {
-        // overlap: extend if this span goes further but keep token_type of last (prefers earlier)
         last.end = e;
       }
     }
@@ -617,63 +607,60 @@ export function CodeEditor({
   }, []);
 
   const visibleHighlighted = useMemo(() => {
-    // highlightedMap is a Map<number, HighlightLine> produced by the hook.
-    // We will reuse previous line objects by identity when nothing changed so
-    // the memoized HighlightedLineView components can bail out quickly.
+    // Prev map keyed by fingerprint: "<text>|<spans-json>"
     const prev = visiblePrevRef.current;
-
+    const newPrev = new Map<string, HighlightLine>();
     const lines: HighlightLine[] = [];
+
+    const fingerprint = (text: string, spans: HighlightSpan[]) =>
+      text + '|' + (spans.length ? JSON.stringify(spans) : '[]');
+
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
       const start = lineStarts[idx] ?? activeState.value.length;
       const end = lineStarts[idx + 1] ?? activeState.value.length;
       let authoritative = activeState.value.slice(start, end);
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
-      const backendHl = highlightedMap.get(idx);
-
-      if (backendHl) {
-        // Backend authoritative spans exist for this line. Prefer them.
-        const prevObj = prev.get(idx);
-        const spansEqual =
-          prevObj &&
-          prevObj.spans.length === backendHl.spans.length &&
-          JSON.stringify(prevObj.spans) === JSON.stringify(backendHl.spans) &&
-          prevObj.text === authoritative;
-        if (spansEqual && prevObj) {
-          lines.push(prevObj);
-          continue;
+      // Prefer backend spans for this index; if missing, try to match by text (handles shifted indices).
+      let backendHl = highlightedMap.get(idx);
+      if (!backendHl) {
+        for (const v of highlightedMap.values()) {
+          if (v.text === authoritative) {
+            backendHl = v;
+            break;
+          }
         }
-        const created: HighlightLine = {
-          index: idx,
-          text: authoritative,
-          spans: backendHl.spans,
-        };
-        lines.push(created);
-        prev.set(idx, created);
-        continue;
       }
 
-      // No backend spans yet -> produce a fast local highlight for immediate UI.
-      // Try to reuse a previous object when possible to preserve identity.
-      const prevObj = prev.get(idx);
-      const localSpans = localHighlightLine(authoritative);
+      const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
+      const key = fingerprint(authoritative, usedSpans);
 
-      if (prevObj && prevObj.spans.length > 0 && JSON.stringify(prevObj.spans) === JSON.stringify(localSpans) && prevObj.text === authoritative) {
-        lines.push(prevObj);
+      const existing = prev.get(key);
+      if (existing && existing.text === authoritative && JSON.stringify(existing.spans) === JSON.stringify(usedSpans)) {
+        // Reuse the existing object but ensure the index is set for positioning.
+        // We clone the object shallowly to provide the current index while preserving
+        // the spans array reference (cheap) so the render comparator can fast-check spans.
+        const reused: HighlightLine = {
+          index: idx,
+          text: existing.text,
+          spans: existing.spans,
+        };
+        lines.push(reused);
+        newPrev.set(key, reused);
         continue;
       }
 
       const created: HighlightLine = {
         index: idx,
         text: authoritative,
-        spans: localSpans,
+        spans: usedSpans,
       };
       lines.push(created);
-      prev.set(idx, created);
+      newPrev.set(key, created);
     }
 
-    // store back prev map for next render
-    visiblePrevRef.current = prev;
+    // Trim cache to only currently visible fingerprints to limit memory growth.
+    visiblePrevRef.current = newPrev;
     return lines;
   }, [highlightedMap, visibleStartLine, visibleEndLine, activeState.value, lineStarts, localHighlightLine]);
 
@@ -827,9 +814,12 @@ export function CodeEditor({
                   boxSizing: 'border-box',
                 }}
               >
-                {visibleHighlighted.map((hl) => (
-                  <HighlightedLineView key={hl.index} hl={hl} lineHeight={lineHeight} />
-                ))}
+                {visibleHighlighted.map((hl) => {
+                  // Use a stable key based on content+spans fingerprint so that React
+                  // can preserve component instances across insert/delete shifts.
+                  const key = hl.text + '|' + (hl.spans.length ? JSON.stringify(hl.spans) : '[]');
+                  return <HighlightedLineView key={key} hl={hl} lineHeight={lineHeight} />;
+                })}
               </div>
             </div>
           </div>
