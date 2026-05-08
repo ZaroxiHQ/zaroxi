@@ -81,6 +81,11 @@ export function EditorContainer() {
     };
   }, []);
 
+  // Sequence token to guard against stale async responses when loading files.
+  // Incremented for each loadFile() invocation. All async results check the
+  // current sequence and the activeFilePathRef before applying updates.
+  const loadSeqRef = useRef(0);
+
   // Stable save handler that reads latest values from refs.
   const handleEditorSave = useCallback(async () => {
     const path = activeFilePathRef.current;
