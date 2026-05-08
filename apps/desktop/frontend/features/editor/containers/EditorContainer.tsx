@@ -322,17 +322,32 @@ export function EditorContainer() {
   return (
     <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
       <div className="flex-1 overflow-hidden code-editor-font min-h-0 bg-editor w-full min-w-0">
-        <CodeEditor
-          tabId={activeTab?.id ?? undefined}
-          documentId={currentDocumentId ?? activeFilePath ?? undefined}
-          revision={currentRevision ?? undefined}
-          filePath={activeFilePath || undefined}
-          initialValue={content}
-          onChange={handleEditorChange}
-          language={language}
-          readOnly={false}
-          initialHighlight={typeof initialHighlight !== 'undefined' ? initialHighlight : null}
-        />
+        {(() => {
+          // Normalize a single authoritative session object and pass it down.
+          // This ensures the editor receives exactly one visible identity tuple
+          // (documentId + revision + text + highlight) and prevents partial-updates
+          // when legacy individual props are used.
+          const session = {
+            tabId: activeTab?.id ?? null,
+            documentId: currentDocumentId ?? activeFilePath ?? '__no_doc__',
+            revision: currentRevision ?? null,
+            text: content ?? '',
+            language: language ?? undefined,
+            initialHighlight: typeof initialHighlight !== 'undefined' ? initialHighlight : null,
+            isLoading: isLoading,
+            loadSeq: loadSeqRef.current,
+            contentTruncated: fileInfo.contentTruncated ?? false,
+          } as any;
+
+          return (
+            <CodeEditor
+              session={session}
+              onChange={handleEditorChange}
+              onSave={handleEditorSave}
+              readOnly={false}
+            />
+          );
+        })()}
       </div>
     </div>
   );
