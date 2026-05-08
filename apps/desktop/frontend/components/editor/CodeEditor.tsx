@@ -711,7 +711,7 @@ export function CodeEditor({
 
       // No reusable instance: create a new one. Use backend uid when available for stability,
       // otherwise derive a locally-stable uid using documentId + a timestamp fallback.
-      const uid = backendHl && backendHl.uid ? backendHl.uid : `${documentId}:${Date.now()}:${idx}`;
+      const uid = backendHl && backendHl.uid ? backendHl.uid : `${activeFilePath}:${Date.now()}:${idx}`;
       const created: HighlightLine = {
         uid,
         index: idx,
