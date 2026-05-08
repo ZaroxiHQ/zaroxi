@@ -388,6 +388,15 @@ export function CodeEditor({
           <div
             ref={highlightOuterRef}
             aria-hidden="true"
+            tabIndex={-1}
+            onMouseDown={(e) => {
+              // Defensive: ensure clicks on the overlay focus the real textarea.
+              // We preventDefault here so the overlay never takes focus; pointer-events: none
+              // should already allow clicks to pass through, but some stacking-context edge cases
+              // justify this extra guard.
+              e.preventDefault();
+              textareaRef.current?.focus();
+            }}
             className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
             style={{
               lineHeight: `${lineHeight}px`,
@@ -395,7 +404,7 @@ export function CodeEditor({
               fontSize: '0.875rem',
               whiteSpace: 'pre',
               overflowWrap: 'normal',
-              // Defensive: ensure overlay never receives pointer events and is behind the textarea.
+              // Defensive: ensure overlay never receives pointer events and is visually behind the textarea.
               pointerEvents: 'none',
               zIndex: 0,
             }}
@@ -405,6 +414,7 @@ export function CodeEditor({
                 height: totalLines * lineHeight,
                 position: 'relative',
                 width: 'max-content',
+                pointerEvents: 'none',
               }}
             >
               <div
@@ -417,10 +427,11 @@ export function CodeEditor({
                   }px, 0px)`,
                   whiteSpace: 'pre',
                   width: 'max-content',
+                  pointerEvents: 'none',
                 }}
               >
                 {visibleHighlighted.map((hl) => (
-                  <div key={hl.index} style={{ minHeight: lineHeight }}>
+                  <div key={hl.index} style={{ minHeight: lineHeight, pointerEvents: 'none' }}>
                     {renderSpans(hl.spans, hl.text)}
                   </div>
                 ))}
@@ -433,7 +444,8 @@ export function CodeEditor({
         <textarea
           key={activeFilePath}
           ref={textareaRef}
-          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
+          tabIndex={0}
+          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-20 scroll-hidden"
           style={{
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
@@ -442,6 +454,7 @@ export function CodeEditor({
             overflowWrap: 'normal',
             overflowX: 'auto',
             overflowY: 'auto',
+            pointerEvents: 'auto',
             color: highlightsEnabled ? 'transparent' : undefined,
             caretColor: highlightsEnabled
               ? 'var(--editor-cursor-color, #E2E8F0)'
@@ -455,6 +468,10 @@ export function CodeEditor({
           onScroll={handleTextareaScroll}
           onSelect={handleSelect}
           onClick={() => textareaRef.current?.focus()}
+          onMouseDown={() => {
+            // ensure clicks always focus the underlying textarea; defensive for mobile and composed events.
+            textareaRef.current?.focus();
+          }}
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"
