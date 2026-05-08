@@ -56,12 +56,25 @@ function useFullHighlight(
     [],
   );
 
+  // Per-document cache: maps documentId -> { text, lines } so we can reuse
+  // highlights when switching back to a tab without re-requesting if the text
+  // has not changed. This prevents unnecessary refreshes when opening/switching tabs.
+  const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[] }>>(new Map());
+
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
+      return;
+    }
+
+    // If we have cached highlights for this document and the source text is identical,
+    // reuse them immediately and skip an IPC roundtrip.
+    const cached = cacheRef.current.get(documentId);
+    if (cached && cached.text === text) {
+      setLines(cached.lines);
       return;
     }
 
@@ -87,15 +100,19 @@ function useFullHighlight(
         };
         const res: HighlightResponse = await bridge.invoke('highlight_text', args);
 
-        // If we got spans, apply them (guarded by req id and cancellation).
-        if (!cancelled && reqIdRef.current === thisReq && res.lines && res.lines.length > 0) {
+        // Only apply if still current and not cancelled.
+        if (cancelled || reqIdRef.current !== thisReq) return;
+
+        // If we got spans, apply and cache them.
+        if (res.lines && res.lines.length > 0) {
+          cacheRef.current.set(documentId, { text, lines: res.lines });
           setLines(res.lines);
           return;
         }
 
         // If no spans were returned and a language hint was provided, retry
         // without the hint so the backend can detect language from the path.
-        if (!cancelled && reqIdRef.current === thisReq && (!res.lines || res.lines.length === 0) && language) {
+        if (language) {
           try {
             const retryRes: HighlightResponse = await bridge.invoke('highlight_text', {
               request: {
@@ -105,19 +122,18 @@ function useFullHighlight(
                 // omit language to let backend detect
               },
             });
-            if (!cancelled && reqIdRef.current === thisReq) {
-              setLines(retryRes.lines);
-            }
+            if (cancelled || reqIdRef.current !== thisReq) return;
+            cacheRef.current.set(documentId, { text, lines: retryRes.lines });
+            setLines(retryRes.lines);
             return;
           } catch (retryErr) {
             console.warn('highlight_text retry without language failed:', retryErr);
           }
         }
 
-        // Fallback: apply whatever (possibly empty) result we have.
-        if (!cancelled && reqIdRef.current === thisReq) {
-          setLines(res.lines || []);
-        }
+        // Fallback: apply whatever (possibly empty) result we have and cache it.
+        cacheRef.current.set(documentId, { text, lines: res.lines || [] });
+        setLines(res.lines || []);
       } catch (err) {
         console.warn('full highlight (text) failed:', err);
         if (!cancelled && reqIdRef.current === thisReq) setLines([]);
