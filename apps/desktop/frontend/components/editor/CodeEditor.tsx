@@ -619,9 +619,22 @@ export function CodeEditor({
 
   /* –– syntax highlight model (per‑display document) –– */
   const highlightsEnabled = !largeFile && !!activeFilePath;
+
+  // Debounced display text used by the non-urgent highlight pipeline.
+  // Keeping a small coalesce window prevents the heavy highlight + overlay
+  // work from running on every keystroke while leaving the native textarea
+  // and caret fully responsive.
+  const [displayText, setDisplayText] = useState<string>(activeState.value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDisplayText(activeState.value), 120);
+    return () => window.clearTimeout(id);
+  }, [activeState.value]);
+
+  // Use the debounced displayText for highlighting. This ensures backend/engine
+  // work is driven by a lower-frequency signal while typing remains instant.
   const highlightedMap = useFullHighlight(
     activeFilePath,
-    activeState.value,
+    displayText,
     highlightsEnabled,
     theme,
     // pass frontend-known language hint (if any) to improve detection.
@@ -711,15 +724,22 @@ export function CodeEditor({
       if (cancelled) return;
       const lines: HighlightLine[] = [];
 
-      for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-        const start = lineStarts[idx] ?? activeState.value.length;
-        const end = lineStarts[idx + 1] ?? activeState.value.length;
-        let authoritative = activeState.value.slice(start, end);
+      // Compute line starts from the debounced display text (cheap linear pass
+      // limited to visible range) so that heavy work isn't triggered by every keystroke.
+      const localLineStarts = computeLineStarts(displayText);
+      const totalDisplayLines = localLineStarts.length;
+
+      const startIdx = Math.max(visibleStartLine, 0);
+      const endIdx = Math.min(visibleEndLine, totalDisplayLines);
+
+      for (let idx = startIdx; idx < endIdx; idx++) {
+        const start = localLineStarts[idx] ?? displayText.length;
+        const end = localLineStarts[idx + 1] ?? displayText.length;
+        let authoritative = displayText.slice(start, end);
         if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
-        // Prefer backend-provided highlight for exact index when available.
-        // Avoid scanning the whole map by text — that was expensive. If backend
-        // doesn't have this index, use the cheap local highlighter.
+        // Prefer backend-provided highlight for this index when available.
+        // If backend doesn't have it, fall back to cheap local highlighter.
         const backendHl = highlightedMap.get(idx);
         const usedSpans = backendHl ? backendHl.spans : localHighlightLine(authoritative);
 
@@ -751,12 +771,11 @@ export function CodeEditor({
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [
-    // Dependencies: any change that should update the overlay (highlight map, viewport, text)
+    // Dependencies: any change that should update the overlay (highlight map, viewport, debounced text)
     highlightedMap,
     visibleStartLine,
     visibleEndLine,
-    activeState.value,
-    lineStarts,
+    displayText,
     localHighlightLine,
     activeFilePath,
   ]);
