@@ -532,6 +532,9 @@ interface EditorState {
  * local edits survive tab switches.
  */
 export function CodeEditor({
+  tabId,
+  documentId,
+  revision,
   initialValue,
   onChange,
   filePath,
