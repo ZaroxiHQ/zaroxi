@@ -51,243 +51,74 @@ function useFullHighlight(
   theme?: 'dark' | 'light',
   language?: string,
 ) {
+  // Simple, reliable highlight flow:
+  // - Use a small per-document cache keyed by exact text.
+  // - On doc switch or when no cached entry exists, fetch immediately.
+  // - On edits use a short debounce to avoid flooding the backend.
+  // - Always apply backend result (including empty result) as authoritative.
   const [lines, setLines] = useReducer(
     (_prev: HighlightLine[], next: HighlightLine[]) => next,
     [],
   );
 
-  // Per-document cache: maps documentId -> { text, lines } so we can reuse
-  // highlights when switching back to a tab without re-requesting if the text
-  // has not changed. This prevents unnecessary refreshes when opening/switching tabs.
   const cacheRef = useRef<Map<string, { text: string; lines: HighlightLine[] }>>(new Map());
-
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
-  const lastAppliedRef = useRef<{
-    documentId: string | null;
-    textHash: number | null;
-  }>({ documentId: null, textHash: null });
-
-  // Synchronous lightweight fallback highlighter for immediate visual feedback.
-  // This runs on the exact `text` supplied by the editor (single source of truth)
-  // and gives instant coloring while the backend Tree-sitter highlighter runs.
-  function computeImmediateFallback(fullText: string, langHint?: string): HighlightLine[] {
-    if (!fullText) return [];
-    const linesArr = fullText.split('\n');
-    const out: HighlightLine[] = [];
-    // simple heuristics per-language (keep minimal to avoid heavy CPU)
-    const commentPattern = langHint === 'toml' || langHint === 'ini' ? /#.*/ : /\/\/.*/;
-    const stringPattern = /(["'])(?:\\.|(?!\1).)*\1/g;
-    const numberPattern = /\b\d+(\.\d+)?\b/g;
-
-    for (let idx = 0; idx < linesArr.length; idx++) {
-      const line = linesArr[idx];
-      const spans: HighlightSpan[] = [];
-
-      // comments
-      const cm = line.match(commentPattern);
-      if (cm && cm.index !== undefined) {
-        spans.push({ start: cm.index, end: line.length, token_type: 'comment', color: '#7C7C7C' });
-      }
-
-      // strings
-      let m: RegExpExecArray | null;
-      // eslint-disable-next-line no-cond-assign
-      while ((m = stringPattern.exec(line)) !== null) {
-        spans.push({ start: m.index ?? 0, end: (m.index ?? 0) + m[0].length, token_type: 'string', color: '#98C379' });
-      }
-
-      // numbers (only when not inside strings)
-      // naive approach: skip number matches that fall inside existing spans
-      const numberMatches = Array.from(line.matchAll(numberPattern));
-      for (const nm of numberMatches) {
-        const ns = nm.index ?? 0;
-        const ne = ns + (nm[0]?.length ?? 0);
-        let inside = false;
-        for (const s of spans) {
-          if (ns >= s.start && ne <= s.end) {
-            inside = true;
-            break;
-          }
-        }
-        if (!inside) {
-          spans.push({ start: ns, end: ne, token_type: 'number', color: '#D19A66' });
-        }
-      }
-
-      // sort spans by start and merge simple overlaps (prefer earlier spans)
-      spans.sort((a, b) => a.start - b.start || a.end - b.end);
-      out.push({ index: idx, text: line, spans });
-    }
-    return out;
-  }
-
-  // Helper to compute a simple hash for the supplied text.
-  function hashText(s: string): number {
-    let h = 2166136261 >>> 0;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
-    }
-    return h >>> 0;
-  }
 
   useEffect(() => {
     if (!documentId || !enabled) {
       setLines([]);
-      lastAppliedRef.current = { documentId, textHash: null };
       return;
     }
 
-    const currentTextHash = hashText(text);
-
-    // If we have cached highlights for this document and the source text is identical,
-    // reuse them immediately and skip an IPC roundtrip.
+    // If cache has exact same text, reuse it immediately.
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
-      // Avoid setting state if we already applied this cached result.
-      if (lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash) {
-        console.debug('[highlight] applying cached highlights', { documentId, lines: cached.lines?.length });
-        setLines(cached.lines);
-        lastAppliedRef.current = { documentId, textHash: currentTextHash };
-      }
+      setLines(cached.lines);
       return;
     }
 
-    // Immediately apply a lightweight fallback so the user sees colored text on first paint.
-    // IMPORTANT: do NOT update `lastAppliedRef` here. The fallback is non-authoritative:
-    // updating lastAppliedRef would prevent the backend authoritative highlights from
-    // being applied when they arrive (causing the "appears after second open" symptom).
-    try {
-      const immediate = computeImmediateFallback(text, language);
-      if (immediate.length > 0) {
-        console.debug('[highlight] applying immediate fallback highlights', { documentId, lines: immediate.length });
-        // Apply fallback visually but do NOT mark it as the last applied authoritative result.
-        setLines(immediate);
-        // Note: do NOT set lastAppliedRef here.
-      }
-    } catch (e) {
-      // Fallback highlighter must not throw; ignore.
-      console.warn('[highlight] fallback failed', e);
-    }
-
-    let cancelled = false;
-    // bump request id for this batch
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
+    let cancelled = false;
 
     const doFetch = async () => {
       try {
-        console.debug('[highlight] requesting highlight_text', { documentId, length: text.length, language });
-        // First attempt: ask the backend to highlight the exact text, using any language hint.
-        const args = {
+        const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
             documentId,
             text,
             theme: theme ?? 'dark',
             language: language ?? undefined,
           },
-        };
-        const res: HighlightResponse = await bridge.invoke('highlight_text', args);
-        console.debug('[highlight] highlight_text response', { documentId, lines: res?.lines?.length });
+        });
 
-        // Only apply if still current and not cancelled.
-        if (cancelled || reqIdRef.current !== thisReq) {
-          console.debug('[highlight] response ignored (stale/cancelled)', { documentId });
-          return;
-        }
+        // Ignore stale responses.
+        if (cancelled || reqIdRef.current !== thisReq) return;
 
-        // Detailed debug: log a small sample of returned lines and their span counts
-        try {
-          const sample = (res.lines || []).slice(0, 6).map((l) => ({ idx: l.index, spans: l.spans.length }));
-          console.debug('[highlight] sample response lines (first 6):', { documentId, sample });
-        } catch (e) {
-          // ignore any debug formatting errors
-        }
+        // Cache authoritative result (may be empty) so future tab switches are instant.
+        cacheRef.current.set(documentId, { text, lines: res.lines || [] });
 
-        // If backend returned no spans at all, prefer keeping the existing fallback/cached highlights
-        // so the UI doesn't flash to plain text. However, if we have no cached result for this
-        // document, apply an explicit empty set to indicate "no highlights available".
-        if (!res.lines || res.lines.length === 0) {
-          const hasCache = cacheRef.current.has(documentId);
-          console.debug('[highlight] backend returned empty spans', { documentId, hasCache });
-          if (!hasCache) {
-            // No cached highlights exist: apply empty to reflect authoritative result.
-            cacheRef.current.set(documentId, { text, lines: [] });
-            // Only update UI if we haven't already applied this text.
-            const applied = lastAppliedRef.current;
-            if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
-              console.debug('[highlight] applying authoritative empty highlights', { documentId });
-              setLines([]);
-              lastAppliedRef.current = { documentId, textHash: currentTextHash };
-            }
-          }
-          // If we do have a cache, keep it (do not clobber fallback).
-          return;
-        }
-
-        // Cache the spans by the exact text and apply them only if they differ
-        // from what we've already applied for this document/text. This avoids
-        // visible reflows when the same highlights are reapplied.
-        cacheRef.current.set(documentId, { text, lines: res.lines });
-        const applied = lastAppliedRef.current;
-        if (applied.documentId !== documentId || applied.textHash !== currentTextHash) {
-          console.debug('[highlight] applying backend highlights', { documentId, count: res.lines.length });
-          setLines(res.lines);
-          // Mark this authoritative backend result as applied so subsequent logic
-          // can avoid unnecessary re-renders for the same content.
-          lastAppliedRef.current = { documentId, textHash: currentTextHash };
-        } else {
-          // If we already applied the same text (unlikely here), still update cache.
-          // No UI update necessary.
-          console.debug('[highlight] backend highlights match already applied state', { documentId });
-        }
+        // Apply result (allow empty arrays to clear previous fallback).
+        setLines(res.lines || []);
       } catch (err) {
-        console.warn('full highlight (text) failed:', err);
-        if (!cancelled && reqIdRef.current === thisReq) {
-          // Leave whatever fallback/cached highlights are currently visible instead of clearing.
-        }
+        // On error, keep current visible lines (don't clear) but log the failure.
+        console.warn('highlight_text failed:', err);
       }
     };
 
-    // Clear any prior debounce
+    // Clear any pending debounce
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
 
-    // When switching document or language, fetch immediately (no debounce) so backend highlights arrive quickly.
-    // Otherwise debounce to batch keystrokes.
-    const isDocSwitch = lastAppliedRef.current.documentId !== documentId || lastAppliedRef.current.textHash !== currentTextHash;
-
-    if (isDocSwitch) {
-      // If the editor hasn't had a chance to populate the authoritative text yet
-      // (common during tab switches when `initialValue` adoption runs), delay the
-      // fetch a few milliseconds. This avoids requesting highlights for an empty
-      // or stale text and prevents the backend from returning an empty result
-      // that would obscure a valid cached highlight.
-      if (!text || text.length === 0) {
-        // tiny delay to let the editor adoption effect run; still much faster than a visible flicker.
-        if (debounceRef.current) {
-          window.clearTimeout(debounceRef.current);
-          debounceRef.current = null;
-        }
-        debounceRef.current = window.setTimeout(() => {
-          if (!cancelled) void doFetch();
-        }, 12);
-      } else {
-        // run without extra delay to get authoritative highlights soon
-        void doFetch();
-      }
+    // If no cached entry exists (likely tab switch / first open), fetch immediately.
+    // Otherwise debounce to avoid flooding while typing.
+    if (!cached) {
+      void doFetch();
     } else {
-      // Debounce edits to avoid flooding the backend when typing; still fetch after short delay.
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
-      debounceRef.current = window.setTimeout(() => {
-        void doFetch();
-      }, 120);
+      debounceRef.current = window.setTimeout(doFetch, 120);
     }
 
     return () => {
