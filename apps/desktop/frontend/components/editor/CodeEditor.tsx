@@ -247,6 +247,7 @@ export function CodeEditor({
   initialValue,
   onChange,
   filePath,
+  language,
   readOnly = false,
   className,
   contentTruncated,
