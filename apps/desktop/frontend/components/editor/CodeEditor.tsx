@@ -628,7 +628,7 @@ export function CodeEditor({
   }, [activeDocKey, documentId, revision, initialValue, tabId]);
 
   /* read the *current* document’s state (always in‑sync with the map) */
-  const activeState = editorStates.current.get(activeFilePath)!;
+  const activeState = editorStates.current.get(activeDocKey)!;
 
   /* –– refs –– */
   const containerRef = useRef<HTMLDivElement>(null);
@@ -689,7 +689,7 @@ export function CodeEditor({
   const totalLines = displayLineStarts.length;
 
   /* –– syntax highlight model (per‑display document) –– */
-  const highlightsEnabled = !largeFile && !!activeFilePath;
+  const highlightsEnabled = !largeFile && !!documentId;
 
   // Use the debounced displayText for highlighting. This ensures backend/engine
   // work is driven by a lower-frequency signal while typing remains instant.
@@ -810,7 +810,7 @@ export function CodeEditor({
         const uid =
           backendHl && backendHl.uid
             ? backendHl.uid
-            : `${activeFilePath}:${stableHashString(authoritative)}:${idx}`;
+            : `${activeDocKey}:${stableHashString(authoritative)}:${idx}`;
 
         lines.push({
           uid,
@@ -840,7 +840,7 @@ export function CodeEditor({
     visibleEndLine,
     displayLineStarts,
     localHighlightLine,
-    activeFilePath,
+    activeDocKey,
   ]);
 
   /* –– gutter –– */
@@ -889,7 +889,7 @@ export function CodeEditor({
       const sLeft = e.currentTarget.scrollLeft;
 
       // mutate the map and schedule a re‑render so the overlay / gutter stay in sync
-      const current = editorStates.current.get(activeFilePath)!;
+      const current = editorStates.current.get(activeDocKey)!;
       current.scrollTop = sTop;
       current.scrollLeft = sLeft;
       forceUpdate();
