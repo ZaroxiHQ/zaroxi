@@ -42,6 +42,21 @@ interface HighlightResponse {
 const FULL_LINES_LIMIT = 100_000;
 
 /**
+ * Compute a small, stable 32‑bit hash for a string and return it as hex.
+ * Used to derive locally-stable UIDs for lines created on the client so that
+ * identical content keeps the same identity across renders.
+ */
+function stableHashString(s: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  // Return hex representation (short and stable across platforms).
+  return (h >>> 0).toString(16);
+}
+
+/**
  * Request highlighting for the exact editor text currently displayed.
  *
  * Improvements made here:
@@ -55,6 +70,7 @@ function useFullHighlight(
   enabled: boolean,
   theme?: 'dark' | 'light',
   language?: string,
+  initialHighlight?: { lines: HighlightLine[]; version?: number },
 ) {
   // Return a Map<lineIndex, HighlightLine> so the view layer can reuse unchanged objects by identity.
   const [mapState, setMapState] = useReducer(
@@ -710,8 +726,8 @@ export function CodeEditor({
       }
 
       // No reusable instance: create a new one. Use backend uid when available for stability,
-      // otherwise derive a locally-stable uid using documentId + a timestamp fallback.
-      const uid = backendHl && backendHl.uid ? backendHl.uid : `${activeFilePath}:${Date.now()}:${idx}`;
+      // otherwise derive a locally-stable uid using a stable hash of the line fingerprint.
+      const uid = backendHl && backendHl.uid ? backendHl.uid : `${activeFilePath}:${stableHashString(key)}:${idx}`;
       const created: HighlightLine = {
         uid,
         index: idx,

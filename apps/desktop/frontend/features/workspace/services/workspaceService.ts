@@ -271,6 +271,30 @@ export class WorkspaceService {
     return response;
   }
 
+  /**
+   * Fetch authoritative highlights for the given path from the backend.
+   * This is used by the editor container immediately after opening a file to
+   * seed the editor highlight cache so highlights appear instantly.
+   */
+  static async fetchHighlights(path: string): Promise<any | null> {
+    const isTauri = typeof window !== 'undefined' && (window.__TAURI__ !== undefined || (window as any).__TAURI_INTERNALS__ !== undefined || navigator.userAgent.includes('Tauri'));
+    if (!isTauri) return null;
+
+    try {
+      const result = await bridge.invoke<any>('highlight_document', {
+        request: {
+          documentId: path,
+          startLine: 0,
+          count: 100000,
+        },
+      });
+      return result;
+    } catch (error) {
+      // Non-fatal — return null so caller falls back to normal behaviour.
+      return null;
+    }
+  }
+
   static async saveFile(request: SaveFileRequest): Promise<void> {
     try {
       // Call the workspace-scoped save command (renamed on the backend to avoid conflicts).

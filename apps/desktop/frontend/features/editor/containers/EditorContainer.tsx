@@ -24,6 +24,7 @@ export function EditorContainer() {
     largeFileMode?: string;
     contentTruncated?: boolean;
   }>({});
+  const [initialHighlight, setInitialHighlight] = useState<any>(null);
   
   // Determine active file path:
   // Prefer the active tab's id when the active tab represents a file.
@@ -37,6 +38,12 @@ export function EditorContainer() {
       loadFile(activeFilePath);
     }
   }, [activeFilePath, activeTab]);
+
+  // Clear any seeded highlight payload when switching files so that the editor
+  // doesn't reuse highlights for the wrong document.
+  useEffect(() => {
+    setInitialHighlight(null);
+  }, [activeFilePath]);
 
   // Keep refs to the latest content and active path so keyboard handler
   // and save callback always use the authoritative values without causing
@@ -130,6 +137,10 @@ export function EditorContainer() {
           largeFileMode: cached.largeFileMode,
           contentTruncated: cached.contentTruncated,
         });
+        // Seed highlights asynchronously (best-effort). Failure is non-fatal.
+        WorkspaceService.fetchHighlights(path).then((h) => {
+          if (h) setInitialHighlight(h);
+        }).catch(() => {});
         setIsLoading(false);
         return;
       }
@@ -145,6 +156,13 @@ export function EditorContainer() {
         largeFileMode: response.largeFileMode,
         contentTruncated: response.contentTruncated,
       });
+
+      // Seed highlights asynchronously (best-effort). If the backend already
+      // has cached spans for this file+version this will be fast and allows the
+      // editor to display syntax immediately.
+      WorkspaceService.fetchHighlights(path).then((h) => {
+        if (h) setInitialHighlight(h);
+      }).catch(() => {});
     } catch (error) {
       // Failed to load file
       setContent(`// Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -190,6 +208,7 @@ export function EditorContainer() {
           onChange={handleEditorChange}
           language={language}
           readOnly={false}
+          initialHighlight={initialHighlight}
         />
       </div>
     </div>
