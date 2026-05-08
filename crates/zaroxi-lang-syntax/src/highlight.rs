@@ -2,7 +2,7 @@
 
 use crate::error::SyntaxError;
 use crate::language::LanguageId;
-use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{Query, QueryCursor, Tree};
 
 /// A highlight span in the document
 #[derive(Debug, Clone)]
