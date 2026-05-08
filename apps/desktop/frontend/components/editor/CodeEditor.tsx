@@ -150,7 +150,14 @@ function useFullHighlight(
 function mergeSpans(spans: HighlightSpan[], lineLen: number): HighlightSpan[] {
   if (spans.length === 0 || lineLen === 0) return [];
 
-  const sorted = [...spans].sort((a, b) => (a.end - a.start) - (b.end - b.start));
+  // Sort spans by start (primary) then end (secondary) to ensure stable,
+  // left-to-right processing. Previous implementation sorted by span length,
+  // which produced incorrect overlay ordering and prevented highlights from
+  // being rendered correctly.
+  const sorted = [...spans].sort((a, b) => {
+    const s = a.start - b.start;
+    return s !== 0 ? s : (a.end - b.end);
+  });
 
   const charTokens: Array<{ tokenType: string; color?: string } | null> =
     new Array(lineLen).fill(null);
