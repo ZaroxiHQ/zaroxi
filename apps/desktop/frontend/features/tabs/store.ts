@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
 
 export type TabKind = 'file' | 'welcome';
 
@@ -38,19 +39,31 @@ export const useTabsStore = create<TabsState>()(
         const { tabs } = get();
         const existing = tabs.find((t) => t.id === id);
         if (existing) {
+          // Activate the existing tab and synchronize workspace active file.
           set({ activeTabId: id });
+          if (kind === 'file') {
+            useWorkspaceStore.getState().setActiveFilePath(id);
+          } else {
+            useWorkspaceStore.getState().setActiveFilePath(null);
+          }
           return;
         }
         const newTab: Tab = {
           id,
           title,
-          isDirty: kind === 'file' ? false : false, // special tabs are never dirty
+          isDirty: false, // tabs are created clean by default
           kind,
         };
         set({
           tabs: [...tabs, newTab],
           activeTabId: id,
         });
+        // Ensure workspace explorer activeFilePath follows the active tab for file tabs.
+        if (kind === 'file') {
+          useWorkspaceStore.getState().setActiveFilePath(id);
+        } else {
+          useWorkspaceStore.getState().setActiveFilePath(null);
+        }
       },
 
       closeTab: (id) => {
@@ -77,6 +90,19 @@ export const useTabsStore = create<TabsState>()(
         }
         set({ tabs: newTabs, activeTabId: newActive });
 
+        // Keep workspace explorer activeFilePath in sync with the newly active tab.
+        if (newActive) {
+          // If the new active tab is a file tab, set the explorer active path; otherwise clear it.
+          const newTabObj = newTabs.find((t) => t.id === newActive);
+          if (newTabObj?.kind === 'file') {
+            useWorkspaceStore.getState().setActiveFilePath(newActive);
+          } else {
+            useWorkspaceStore.getState().setActiveFilePath(null);
+          }
+        } else {
+          useWorkspaceStore.getState().setActiveFilePath(null);
+        }
+
         // If the last tab was closed, re‑open the Welcome tab automatically.
         if (newTabs.length === 0) {
           get().openFile(WELCOME_TAB_ID, 'Welcome', 'welcome');
@@ -84,7 +110,14 @@ export const useTabsStore = create<TabsState>()(
       },
 
       setActiveTab: (id) => {
+        const { tabs } = get();
+        const tab = tabs.find((t) => t.id === id);
         set({ activeTabId: id });
+        if (tab?.kind === 'file') {
+          useWorkspaceStore.getState().setActiveFilePath(id);
+        } else {
+          useWorkspaceStore.getState().setActiveFilePath(null);
+        }
       },
 
       markDirty: (id) => {
