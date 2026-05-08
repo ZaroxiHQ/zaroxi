@@ -37,6 +37,13 @@ impl LanguageId {
         // Fall back to well‑known built‑in mappings and a broad set of
         // common programming language extensions (map to dynamic grammars
         // when not represented as a static enum variant).
+        //
+        // Important:
+        // - Do NOT return `LanguageId::Dynamic(ext)` for non‑'static ext strings.
+        //   `from_extension_dynamic` / `from_filename_dynamic` above already consult
+        //   the runtime registry and return &'static ids when available.
+        // - If no dynamic grammar is registered for an extension, we don't fabricate
+        //   a `Dynamic` with a borrowed ext (that would require 'static lifetime).
         match ext {
             // Rust / TOML / Markdown (static)
             "rs" => return LanguageId::Rust,
@@ -59,7 +66,6 @@ impl LanguageId {
             "html" | "htm" | "xhtml" => return LanguageId::Dynamic("html"),
             "xml" | "xsd" | "xsl" => return LanguageId::Dynamic("xml"),
             "yaml" | "yml" => return LanguageId::Dynamic("yaml"),
-            "toml" => return LanguageId::Toml,
             "ini" => return LanguageId::Dynamic("ini"),
 
             // Go / Java / Kotlin / Scala
@@ -101,23 +107,16 @@ impl LanguageId {
             // Other common languages
             "dart" => return LanguageId::Dynamic("dart"),
             "swift" => return LanguageId::Dynamic("swift"),
-            "scala" => return LanguageId::Dynamic("scala"),
-            "kt" | "kts" => return LanguageId::Dynamic("kotlin"),
             "sql" => return LanguageId::Dynamic("sql"),
-            "erl" => return LanguageId::Dynamic("erlang"),
             "pp" => return LanguageId::Dynamic("puppet"),
             "gradle" | "groovy" => return LanguageId::Dynamic("groovy"),
             "make" | "mak" => return LanguageId::Dynamic("makefile"),
             "cmake" => return LanguageId::Dynamic("cmake"),
-            "Dockerfile" => return LanguageId::Dynamic("dockerfile"),
-            "toml" => return LanguageId::Toml,
-            "yaml" => return LanguageId::Dynamic("yaml"),
-            "yml" => return LanguageId::Dynamic("yaml"),
             "zig" => return LanguageId::Dynamic("zig"),
             "nix" => return LanguageId::Dynamic("nix"),
 
-            // Fallback: try dynamic grammars using the extension as the id.
-            other if !other.is_empty() => return LanguageId::Dynamic(other),
+            // If we reach here, prefer to rely on the dynamic registry (checked earlier).
+            // Do not fabricate a Dynamic variant from a borrowed `ext` string.
             _ => {}
         }
 
