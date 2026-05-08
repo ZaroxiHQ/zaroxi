@@ -34,33 +34,90 @@ impl LanguageId {
             return LanguageId::Dynamic(lang_id);
         }
 
-        // Fall back to well‑known built‑in mappings.
+        // Fall back to well‑known built‑in mappings and a broad set of
+        // common programming language extensions (map to dynamic grammars
+        // when not represented as a static enum variant).
         match ext {
+            // Rust / TOML / Markdown (static)
             "rs" => return LanguageId::Rust,
             "toml" => return LanguageId::Toml,
             "md" | "markdown" => return LanguageId::Markdown,
-            "js" | "jsx" => return LanguageId::Dynamic("javascript"),
-            "ts" => return LanguageId::Dynamic("typescript"),
+
+            // JavaScript / TypeScript family
+            "js" | "jsx" | "mjs" | "cjs" => return LanguageId::Dynamic("javascript"),
+            "ts" | "mts" | "cts" => return LanguageId::Dynamic("typescript"),
             "tsx" => return LanguageId::Dynamic("tsx"),
-            "py" => return LanguageId::Dynamic("python"),
+
+            // Python
+            "py" | "pyi" => return LanguageId::Dynamic("python"),
+
+            // Web / data formats
             "json" => return LanguageId::Dynamic("json"),
             "css" => return LanguageId::Dynamic("css"),
-            "html" | "htm" => return LanguageId::Dynamic("html"),
+            "scss" => return LanguageId::Dynamic("scss"),
+            "less" => return LanguageId::Dynamic("less"),
+            "html" | "htm" | "xhtml" => return LanguageId::Dynamic("html"),
+            "xml" | "xsd" | "xsl" => return LanguageId::Dynamic("xml"),
+            "yaml" | "yml" => return LanguageId::Dynamic("yaml"),
+            "toml" => return LanguageId::Toml,
+            "ini" => return LanguageId::Dynamic("ini"),
+
+            // Go / Java / Kotlin / Scala
             "go" => return LanguageId::Dynamic("go"),
             "java" => return LanguageId::Dynamic("java"),
-            "sh" | "bash" => return LanguageId::Dynamic("bash"),
+            "kt" | "kts" => return LanguageId::Dynamic("kotlin"),
+            "scala" => return LanguageId::Dynamic("scala"),
+
+            // C family
             "c" | "h" => return LanguageId::Dynamic("c"),
-            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => {
+            "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hh" | "hxx" | "ipp" => {
                 return LanguageId::Dynamic("cpp");
             }
             "cs" => return LanguageId::Dynamic("c_sharp"),
+            "objc" | "mm" => return LanguageId::Dynamic("objective_c"),
+
+            // Ruby / PHP / Perl / Lua
             "rb" => return LanguageId::Dynamic("ruby"),
+            "php" => return LanguageId::Dynamic("php"),
+            "pl" | "pm" => return LanguageId::Dynamic("perl"),
             "lua" => return LanguageId::Dynamic("lua"),
-            "yaml" | "yml" => return LanguageId::Dynamic("yaml"),
-            "zig" => return LanguageId::Dynamic("zig"),
-            "cmake" => return LanguageId::Dynamic("cmake"),
+
+            // Shells and scripts
+            "sh" | "bash" | "zsh" | "ksh" => return LanguageId::Dynamic("bash"),
+            "ps1" | "psm1" | "psd1" => return LanguageId::Dynamic("powershell"),
+
+            // Functional / niche languages
+            "hs" => return LanguageId::Dynamic("haskell"),
+            "erl" | "hrl" => return LanguageId::Dynamic("erlang"),
             "ex" | "exs" => return LanguageId::Dynamic("elixir"),
+            "clj" | "cljs" | "cljc" => return LanguageId::Dynamic("clojure"),
+            "rsw" => return LanguageId::Dynamic("rescript"),
+
+            // Scientific / data languages
+            "r" => return LanguageId::Dynamic("r"),
+            "jl" => return LanguageId::Dynamic("julia"),
+            "ipynb" => return LanguageId::Dynamic("json"),
+
+            // Other common languages
+            "dart" => return LanguageId::Dynamic("dart"),
+            "swift" => return LanguageId::Dynamic("swift"),
+            "scala" => return LanguageId::Dynamic("scala"),
+            "kt" | "kts" => return LanguageId::Dynamic("kotlin"),
+            "sql" => return LanguageId::Dynamic("sql"),
+            "erl" => return LanguageId::Dynamic("erlang"),
+            "pp" => return LanguageId::Dynamic("puppet"),
+            "gradle" | "groovy" => return LanguageId::Dynamic("groovy"),
+            "make" | "mak" => return LanguageId::Dynamic("makefile"),
+            "cmake" => return LanguageId::Dynamic("cmake"),
+            "Dockerfile" => return LanguageId::Dynamic("dockerfile"),
+            "toml" => return LanguageId::Toml,
+            "yaml" => return LanguageId::Dynamic("yaml"),
+            "yml" => return LanguageId::Dynamic("yaml"),
+            "zig" => return LanguageId::Dynamic("zig"),
             "nix" => return LanguageId::Dynamic("nix"),
+
+            // Fallback: try dynamic grammars using the extension as the id.
+            other if !other.is_empty() => return LanguageId::Dynamic(other),
             _ => {}
         }
 
