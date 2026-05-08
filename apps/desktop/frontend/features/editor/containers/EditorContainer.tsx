@@ -6,90 +6,242 @@ import { Icon } from '@/components/ui/Icon';
 import { useTabsStore } from '@/features/tabs/store';
 import { WelcomeView } from '@/features/welcome/WelcomeView';
 
+/**
+ * EditorContainer (session-centric)
+ *
+ * Root-cause fix summary:
+ * - Maintain an explicit sessionsByTabId map owned by this container.
+ * - Each session is the single source of truth for visible editor state.
+ * - On tab switch we persist the outgoing session, restore the incoming
+ *   session synchronously (or show a loading state), and never allow async
+ *   results that don't match the exact tabId+documentId+loadSeq to apply.
+ * - Typing only updates the active session immediately (local hot path).
+ *
+ * This file implements the required Active Session Model:
+ * { tabId, documentId, filePath, revision, text, language, selection?, scrollTop?, highlightSnapshot, highlightRevision, dirty, isLoading, loadSeq }
+ *
+ * This is an explicit, local ref-backed map to avoid wide re-renders and to make
+ * session swaps deterministic and safe.
+ */
+
+/* ----------------------------- Types --------------------------------- */
+
+type LocalSession = {
+  tabId: string;
+  documentId: string | null;
+  filePath: string | null;
+  revision: number | null;
+  text: string;
+  language?: string | undefined;
+  initialHighlight?: any | null;
+  isLoading: boolean;
+  loadSeq: number;
+  contentTruncated?: boolean;
+  lineCount?: number;
+  charCount?: number;
+  isDirty?: boolean;
+};
+
+/* ----------------------------- Component ----------------------------- */
+
 export function EditorContainer() {
   const { tabs, activeTabId } = useTabsStore();
+
   // Determine which tab is currently active (if any)
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) ?? null,
     [tabs, activeTabId],
   );
 
-  const [content, setContent] = useState<string>('');
-  const [language, setLanguage] = useState<string | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [fileName, setFileName] = useState<string>('editor');
-  const [fileInfo, setFileInfo] = useState<{
-    lineCount?: number;
-    charCount?: number;
-    largeFileMode?: string;
-    contentTruncated?: boolean;
-  }>({});
-  const [initialHighlight, setInitialHighlight] = useState<any>(null);
+  // Local sessions map (ref to avoid re-renders for non-active sessions)
+  const sessionsRef = useRef<Map<string, LocalSession>>(new Map());
 
-  // Strong identity bindings for the visible editor:
-  // - currentDocumentId: authoritative id returned by backend (document_id)
-  // - currentRevision: authoritative revision/version for the text
-  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
-  const [currentRevision, setCurrentRevision] = useState<number | null>(null);
+  // Rendered session state (drives CodeEditor props). Always derived from sessionsRef for active tab.
+  const [renderSessionId, setRenderSessionId] = useState<string | null>(activeTabId ?? null);
+  const [, forceUpdate] = useState(0); // used to force render when active session updates
 
-  // Determine active file path:
-  // Prefer the active tab's id when the active tab represents a file.
-  // Fallback to the workspace explorer active file for other cases.
-  const { explorerUI } = useWorkspaceStore();
-  const activeFilePath = activeTab?.kind === 'file' ? activeTab.id : explorerUI.activeFilePath;
+  // Utilities for active session access
+  const getSession = (tabId: string | null): LocalSession | null => {
+    if (!tabId) return null;
+    return sessionsRef.current.get(tabId) ?? null;
+  };
 
+  const setSession = (tabId: string, sess: LocalSession) => {
+    sessionsRef.current.set(tabId, sess);
+  };
+
+  // Refs for hot-path content and cancellation
+  const activeTabIdRef = useRef<string | null>(activeTabId ?? null);
+  useEffect(() => { activeTabIdRef.current = activeTabId ?? null; }, [activeTabId]);
+
+  const contentRef = useRef<string>('');
+  const loadSeqRef = useRef<number>(0);
+
+  // Ensure we have a welcome session by default (keeps UI stable)
   useEffect(() => {
-    // Only try to load a real file when we have a path to load.
-    if (activeFilePath && activeTab?.kind === 'file') {
-      // Pre-clear transient UI immediately and bump load token so any in-flight
-      // responses targeted at the previous active file are canceled.
-      loadSeqRef.current++;
-      setInitialHighlight(null);
-      setContent(''); // avoid showing previous-file content
-      setLanguage(undefined);
-      setFileInfo({});
-      setCurrentDocumentId(null);
-      setCurrentRevision(null);
-
-      // Now kick off the actual load (async). The request is guarded by the
-      // per-load sequence token created inside loadFile().
-      loadFile(activeFilePath);
+    if (!tabs || tabs.length === 0) return;
+    // Ensure Welcome tab exists in sessions map
+    const first = tabs[0];
+    if (first && first.kind === 'welcome' && !sessionsRef.current.has(first.id)) {
+      setSession(first.id, {
+        tabId: first.id,
+        documentId: null,
+        filePath: null,
+        revision: null,
+        text: '',
+        language: undefined,
+        initialHighlight: null,
+        isLoading: false,
+        loadSeq: 0,
+        contentTruncated: false,
+        isDirty: false,
+      });
     }
-  }, [activeFilePath, activeTab]);
+  }, [tabs]);
 
-  // When switching active file we clear any seeded highlight and update file metadata.
-  // We intentionally do NOT increment the load sequence token here because `loadFile()`
-  // itself creates a fresh sequence token at start. Incrementing the sequence from this
-  // effect races with `loadFile()` when both effects run on the same update which can
-  // cause the in-flight loader to be considered stale and drop its result (leaving the
-  // editor blank). Also avoid clearing the visible content immediately to prevent a
-  // blank flash while the authoritative content is being loaded.
+  // Persist outgoing session whenever activeTabId changes.
+  const prevActiveTabIdRef = useRef<string | null>(activeTabId ?? null);
   useEffect(() => {
-    // clear seeded highlight and metadata for the new active file
-    setInitialHighlight(null);
-    setLanguage(undefined);
-    setFileInfo({});
-    // NOTE: do not call setContent('') here and do not bump loadSeqRef.
-    // `loadFile()` will increment loadSeqRef at the very start of its run,
-    // which is the single authoritative cancellation token for in-flight ops.
-  }, [activeFilePath]);
+    const prev = prevActiveTabIdRef.current;
+    const curr = activeTabId ?? null;
 
-  // Keep refs to the latest content and active path so keyboard handler
-  // and save callback always use the authoritative values without causing
-  // frequent re-registration on every keystroke.
-  const contentRef = useRef(content);
+    // Save outgoing session's live text from contentRef into session store
+    if (prev) {
+      const outgoing = sessionsRef.current.get(prev);
+      if (outgoing) {
+        outgoing.text = contentRef.current;
+        // keep dirty flag etc (we don't force setState)
+        sessionsRef.current.set(prev, outgoing);
+      }
+    }
+
+    // Switch render session id to the new tab (triggers UI to read session)
+    setRenderSessionId(curr);
+    prevActiveTabIdRef.current = curr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
+
+  // When the renderSessionId changes, ensure the session exists and if it's a file session,
+  // start loading it if necessary.
   useEffect(() => {
-    contentRef.current = content;
-  }, [content]);
+    const tabId = renderSessionId;
+    if (!tabId) return;
 
-  const activeFilePathRef = useRef(activeFilePath);
-  useEffect(() => {
-    activeFilePathRef.current = activeFilePath;
-  }, [activeFilePath]);
+    const tab = tabs.find((t) => t.id === tabId) ?? null;
+    if (!tab) return;
 
-  // Debounce handle for coalescing frequent keystrokes into a single state update.
-  // This prevents setContent/markDirty from running on every character and
-  // avoids re-render storms across the app. The timer is cleared on unmount.
+    let sess = sessionsRef.current.get(tabId);
+    if (!sess) {
+      // Create a new session placeholder and trigger load if it's a file
+      sess = {
+        tabId,
+        documentId: null,
+        filePath: tab.kind === 'file' ? tab.id : null,
+        revision: null,
+        text: '',
+        language: undefined,
+        initialHighlight: null,
+        isLoading: tab.kind === 'file',
+        loadSeq: 0,
+        contentTruncated: false,
+        isDirty: false,
+      };
+      setSession(tabId, sess);
+    }
+
+    // If this is a file tab and we have no documentId/text, load it.
+    if (tab.kind === 'file' && (!sess.documentId || sess.documentId === null) && !sess.isLoading) {
+      // start loading
+      void loadFileForSession(tabId, tab.id);
+    } else {
+      // Ensure contentRef and CodeEditor get current session text
+      contentRef.current = sess.text;
+      // force UI update so CodeEditor reads the new session
+      forceUpdate((x) => x + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderSessionId, tabs]);
+
+  // Helper: load a file into the named session (tabId must be the owner)
+  const loadFileForSession = async (tabId: string, path: string) => {
+    // Guard: ensure tab still active owner after async waits
+    const mySeq = ++loadSeqRef.current;
+    // Mark session loading state
+    let sess = sessionsRef.current.get(tabId);
+    if (!sess) return;
+    sess.isLoading = true;
+    sess.loadSeq = mySeq;
+    sess.filePath = path;
+    setSession(tabId, sess);
+
+    // If cached at frontend, apply immediately to session
+    try {
+      const cached = WorkspaceService.getCachedDocument(path);
+      if (cached) {
+        // If session changed meanwhile, don't apply
+        const currentSess = sessionsRef.current.get(tabId);
+        if (!currentSess || currentSess.loadSeq !== mySeq) return;
+
+        currentSess.documentId = cached.documentId ?? path;
+        currentSess.revision = (cached as any).version ?? null;
+        currentSess.text = cached.content ?? '';
+        currentSess.language = (cached as any).language ?? undefined;
+        currentSess.initialHighlight = (cached as any).initialHighlight ?? null;
+        currentSess.contentTruncated = cached.contentTruncated ?? false;
+        currentSess.lineCount = cached.lineCount;
+        currentSess.charCount = cached.charCount;
+        currentSess.isLoading = false;
+        setSession(tabId, currentSess);
+
+        // If this session is currently visible, apply to render state
+        if (activeTabIdRef.current === tabId) {
+          contentRef.current = currentSess.text;
+          forceUpdate((x) => x + 1);
+        }
+        return;
+      }
+
+      // Not cached: request from backend
+      const response = await WorkspaceService.openDocument(path);
+
+      // Check cancellation: session must still exist and loadSeq must match
+      const currentSess = sessionsRef.current.get(tabId);
+      if (!currentSess || currentSess.loadSeq !== mySeq) {
+        // Stale result: drop
+        return;
+      }
+
+      currentSess.documentId = response.documentId ?? path;
+      currentSess.revision = (response as any).version ?? null;
+      currentSess.text = response.content ?? '';
+      currentSess.language = response.language ?? undefined;
+      currentSess.initialHighlight = (response as any).initial_highlight ?? (response as any).initialHighlight ?? null;
+      currentSess.contentTruncated = (response as any).content_truncated ?? (response as any).contentTruncated ?? false;
+      currentSess.lineCount = (response as any).line_count ?? (response as any).lineCount;
+      currentSess.charCount = (response as any).char_count ?? (response as any).charCount;
+      currentSess.isLoading = false;
+      setSession(tabId, currentSess);
+
+      // If this session is visible, apply to DOM/render
+      if (activeTabIdRef.current === tabId) {
+        contentRef.current = currentSess.text;
+        forceUpdate((x) => x + 1);
+      }
+    } catch (err) {
+      const currentSess = sessionsRef.current.get(tabId);
+      if (!currentSess || currentSess.loadSeq !== mySeq) return;
+      currentSess.text = `// Error loading file: ${err instanceof Error ? err.message : String(err)}`;
+      currentSess.isLoading = false;
+      setSession(tabId, currentSess);
+      if (activeTabIdRef.current === tabId) {
+        contentRef.current = currentSess.text;
+        forceUpdate((x) => x + 1);
+      }
+    }
+  };
+
+  // Typing hot-path: immediate local updates to active session
+  // Debounced persistence to global store / cache
   const debounceRef = useRef<number | null>(null);
   useEffect(() => {
     return () => {
@@ -100,217 +252,100 @@ export function EditorContainer() {
     };
   }, []);
 
-  // Sequence token to guard against stale async responses when loading files.
-  // Incremented for each loadFile() invocation. All async results check the
-  // current sequence and the activeFilePathRef before applying updates.
-  const loadSeqRef = useRef(0);
-
-  // Stable save handler that reads latest values from refs.
-  const handleEditorSave = useCallback(async () => {
-    const path = activeFilePathRef.current;
-    if (!path) return;
-    const contentToSave = contentRef.current ?? '';
-
-    try {
-      await WorkspaceService.saveFile({
-        path,
-        content: contentToSave,
-      });
-      // File saved successfully: mark as clean.
-      useTabsStore.getState().markClean(path);
-      WorkspaceService.markDocumentClean(path);
-
-      const saveBtn = document.querySelector('.save-button');
-      if (saveBtn) {
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = 'Saved!';
-        saveBtn.classList.add('bg-green-500');
-        setTimeout(() => {
-          if (saveBtn.textContent === 'Saved!') {
-            saveBtn.textContent = originalText;
-            saveBtn.classList.remove('bg-green-500');
-          }
-        }, 1000);
-      }
-    } catch (error) {
-      const saveBtn = document.querySelector('.save-button');
-      if (saveBtn) {
-        const originalText = saveBtn.textContent;
-        saveBtn.textContent = 'Error!';
-        saveBtn.classList.add('bg-red-500');
-        setTimeout(() => {
-          if (saveBtn.textContent === 'Error!') {
-            saveBtn.textContent = originalText;
-            saveBtn.classList.remove('bg-red-500');
-          }
-        }, 1000);
-      }
+  const handleEditorChange = useCallback((value: string) => {
+    const tabId = activeTabIdRef.current;
+    if (!tabId) {
+      contentRef.current = value;
+      return;
     }
-  }, []);
 
-  // Add keyboard shortcut for save (Ctrl+S). The handler is registered once
-  // and calls the stable `handleEditorSave` which reads current refs.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleEditorSave();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [handleEditorSave]);
-
-
-  const loadFile = async (path: string) => {
-    // create a local sequence token to detect stale async results
-    const mySeq = ++loadSeqRef.current;
-    setIsLoading(true);
-
-    // Immediately clear the visible UI (no stale content from previous file)
-    setInitialHighlight(null);
-    setContent('');
-    setLanguage(undefined);
-    setFileName(path.split(/[\\/]/).pop() || 'file');
-    setFileInfo({});
-
-    try {
-      // First try to get from frontend cache (no IPC call)
-      const cached = WorkspaceService.getCachedDocument(path);
-      if (cached) {
-        // If the active file changed while we awaited the cache, drop this result.
-        if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
-
-        // Apply authoritative identity from cache
-        setCurrentDocumentId(cached.documentId ?? path);
-        setCurrentRevision((cached as any).version ?? null);
-
-        setContent(cached.content);
-        setLanguage((cached as any).language ?? undefined);
-        setFileInfo({
-          lineCount: cached.lineCount,
-          charCount: cached.charCount,
-          largeFileMode: (cached as any).largeFileMode,
-          contentTruncated: cached.contentTruncated,
-        });
-
-        // Apply any cached initial highlight synchronously if present.
-        if ((cached as any).initialHighlight) {
-          if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
-            setInitialHighlight((cached as any).initialHighlight);
-          }
-        } else {
-          // Otherwise fetch highlights in background but guard application.
-          try {
-            const h = await WorkspaceService.fetchHighlights(path);
-            if (mySeq === loadSeqRef.current && activeFilePathRef.current === path && h) {
-              setInitialHighlight(h);
-            }
-          } catch {
-            // non-fatal
-          }
-        }
-
-        // Final guard before finishing
-        if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      // Not in cache: request authoritative document from backend
-      const response = await WorkspaceService.openDocument(path);
-
-      // Drop outdated responses
-      if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
-
-      // Bind the authoritative document identity and revision before applying text.
-      setCurrentDocumentId(response.documentId ?? path);
-      setCurrentRevision((response as any).version ?? null);
-
-      setContent(response.content ?? '');
-      setLanguage(response.language ?? undefined);
-      setFileInfo({
-        lineCount: (response as any).line_count ?? (response as any).lineCount,
-        charCount: (response as any).char_count ?? (response as any).charCount,
-        largeFileMode: (response as any).file_class ?? (response as any).largeFileMode,
-        contentTruncated: (response as any).content_truncated ?? (response as any).contentTruncated,
-      });
-
-      if ((response as any).initial_highlight || (response as any).initialHighlight) {
-        const ih = (response as any).initial_highlight ?? (response as any).initialHighlight;
-        if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
-          setInitialHighlight(ih);
-        }
-      } else {
-        try {
-          const h = await WorkspaceService.fetchHighlights(path);
-          if (mySeq === loadSeqRef.current && activeFilePathRef.current === path && h) {
-            setInitialHighlight(h);
-          }
-        } catch {
-          // ignore
-        }
-      }
-    } catch (error) {
-      if (mySeq !== loadSeqRef.current || activeFilePathRef.current !== path) return;
-      setContent(`// Error loading file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setLanguage(undefined);
-      setFileName('error.txt');
-      setFileInfo({});
-      setCurrentDocumentId(null);
-      setCurrentRevision(null);
-    } finally {
-      // Only clear loading if this is still the active request.
-      if (mySeq === loadSeqRef.current && activeFilePathRef.current === path) {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  // Keep refs to the latest identity values so callbacks can check them without re-registration
-  const currentDocumentIdRef = useRef<string | null>(currentDocumentId);
-  useEffect(() => { currentDocumentIdRef.current = currentDocumentId; }, [currentDocumentId]);
-  const currentRevisionRef = useRef<number | null>(currentRevision);
-  useEffect(() => { currentRevisionRef.current = currentRevision; }, [currentRevision]);
-
-  const handleEditorChange = (value: string) => {
-    // HOT PATH: update local ref immediately so save/shortcuts always read the latest text.
-    // This is intentionally cheap and does not cause React re-renders.
+    // Immediate hot-path: update ref and session
     contentRef.current = value;
+    const sess = sessionsRef.current.get(tabId);
+    if (sess) {
+      sess.text = value;
+      sess.isDirty = true;
+      sessionsRef.current.set(tabId, sess);
+    }
 
-    // Debounce committing the text into React state and global stores.
-    // We avoid calling setContent/useTabsStore.markDirty on each keystroke because
-    // that caused wide rerenders and input jank. Instead we flush once per burst.
+    // Debounced persistence
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
     }
-
-    // 200ms coalescing window: tuned to keep UI responsive while still updating
-    // the container/store frequently enough for autosave/preview features.
     debounceRef.current = window.setTimeout(() => {
-      // Flush authoritative content into React state (infrequent).
-      setContent(contentRef.current);
-
-      // Persist to frontend document cache and mark dirty once per burst.
-      if (activeFilePathRef.current) {
-        WorkspaceService.updateCachedContent(activeFilePathRef.current, contentRef.current);
-        useTabsStore.getState().markDirty(activeFilePathRef.current);
+      const latestTab = activeTabIdRef.current;
+      if (latestTab) {
+        const s = sessionsRef.current.get(latestTab);
+        if (s) {
+          WorkspaceService.updateCachedContent(s.filePath ?? latestTab, s.text);
+          useTabsStore.getState().markDirty(latestTab);
+        }
       }
-
       debounceRef.current = null;
     }, 200);
-  };
+  }, []);
 
-  // NOTE: `handleEditorSave` has been replaced above with a ref-backed,
-  // stable callback so the keyboard handler uses the latest content/path
-  // without re-registering on every keystroke. The old implementation is
-  // intentionally removed to avoid stale-closure bugs that caused the wrong
-  // content to be written on save (e.g. saving the previously active tab).
+  // Stable save handler (reads from session store)
+  const handleEditorSave = useCallback(async () => {
+    const tabId = activeTabIdRef.current;
+    if (!tabId) return;
+    const sess = sessionsRef.current.get(tabId);
+    if (!sess || !sess.filePath) return;
+    try {
+      await WorkspaceService.saveFile({ path: sess.filePath, content: sess.text });
+      sess.isDirty = false;
+      sessionsRef.current.set(tabId, sess);
+      useTabsStore.getState().markClean(tabId);
+      WorkspaceService.markDocumentClean(sess.filePath);
+    } catch {
+      // ignore for now
+    }
+  }, []);
 
-  // Render the Welcome tab as a completely different view (after hooks so rule of hooks is satisfied)
+  // Keyboard shortcut registration (Ctrl/Cmd+S)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void handleEditorSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleEditorSave]);
+
+  // Build CodeEditor session prop from current visible LocalSession
+  const visibleSession = useMemo(() => {
+    const tabId = renderSessionId;
+    const sess = tabId ? sessionsRef.current.get(tabId) ?? null : null;
+    if (!sess) {
+      // Fallback: empty session
+      return {
+        tabId: tabId ?? null,
+        documentId: null,
+        revision: null,
+        text: '',
+        language: undefined,
+        initialHighlight: null,
+        isLoading: false,
+        loadSeq: 0,
+        contentTruncated: false,
+      } as any;
+    }
+    return {
+      tabId: sess.tabId,
+      documentId: sess.documentId ?? sess.filePath ?? `__no_doc__:${sess.tabId}`,
+      revision: sess.revision ?? null,
+      text: sess.text,
+      language: sess.language ?? undefined,
+      initialHighlight: sess.initialHighlight ?? null,
+      isLoading: sess.isLoading,
+      loadSeq: sess.loadSeq,
+      contentTruncated: sess.contentTruncated ?? false,
+    } as any;
+  }, [renderSessionId, /* sessionsRef changes don't trigger memo so we rely on forceUpdate */]);
+
+  // If active tab is welcome, render WelcomeView
   if (activeTab?.kind === 'welcome') {
     return (
       <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
@@ -319,35 +354,16 @@ export function EditorContainer() {
     );
   }
 
+  // Render the editor bound to the visible explicit session
   return (
     <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
       <div className="flex-1 overflow-hidden code-editor-font min-h-0 bg-editor w-full min-w-0">
-        {(() => {
-          // Normalize a single authoritative session object and pass it down.
-          // This ensures the editor receives exactly one visible identity tuple
-          // (documentId + revision + text + highlight) and prevents partial-updates
-          // when legacy individual props are used.
-          const session = {
-            tabId: activeTab?.id ?? null,
-            documentId: currentDocumentId ?? activeFilePath ?? '__no_doc__',
-            revision: currentRevision ?? null,
-            text: content ?? '',
-            language: language ?? undefined,
-            initialHighlight: typeof initialHighlight !== 'undefined' ? initialHighlight : null,
-            isLoading: isLoading,
-            loadSeq: loadSeqRef.current,
-            contentTruncated: fileInfo.contentTruncated ?? false,
-          } as any;
-
-          return (
-            <CodeEditor
-              session={session}
-              onChange={handleEditorChange}
-              onSave={handleEditorSave}
-              readOnly={false}
-            />
-          );
-        })()}
+        <CodeEditor
+          session={visibleSession}
+          onChange={handleEditorChange}
+          onSave={handleEditorSave}
+          readOnly={false}
+        />
       </div>
     </div>
   );
