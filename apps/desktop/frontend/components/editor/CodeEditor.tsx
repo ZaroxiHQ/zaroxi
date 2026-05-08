@@ -71,7 +71,20 @@ export interface EditorSession {
 }
 
 interface CodeEditorProps {
-  session: EditorSession;
+  // Accept either an explicit session object (new API) OR legacy individual props.
+  // This keeps the component backwards-compatible while we migrate callers.
+  session?: EditorSession;
+
+  // Legacy props (kept for compatibility)
+  tabId?: string | null;
+  documentId?: string | null;
+  revision?: number | null;
+  initialValue?: string;
+  language?: string;
+  initialHighlight?: any | null;
+  contentTruncated?: boolean;
+
+  // Common callbacks / presentation
   onChange: (value: string) => void; // hot-path: immediate local changes
   onSave?: () => void;
   readOnly?: boolean;
@@ -445,14 +458,30 @@ function computeLineStarts(text: string): number[] {
 /* ------------------------------------------------------------------ */
 /*  Editor implementation (session-driven)                            */
 /* ------------------------------------------------------------------ */
-export function CodeEditor({
-  session,
-  onChange,
-  onSave,
-  readOnly = false,
-  className,
-  theme = 'dark',
-}: CodeEditorProps) {
+export function CodeEditor(props: CodeEditorProps) {
+  const {
+    onChange,
+    onSave,
+    readOnly = false,
+    className,
+    theme = 'dark',
+  } = props;
+
+  // Normalize a single authoritative session object for internal usage.
+  // Priority:
+  // 1) props.session (new API)
+  // 2) synthesize from legacy props (documentId + initialValue)
+  const session: EditorSession = props.session ?? {
+    tabId: props.tabId ?? null,
+    documentId: props.documentId ?? props.tabId ?? '__no_doc__',
+    revision: props.revision ?? null,
+    text: props.initialValue ?? '',
+    language: props.language ?? undefined,
+    initialHighlight: typeof props.initialHighlight !== 'undefined' ? props.initialHighlight : null,
+    isLoading: false,
+    loadSeq: 0,
+    contentTruncated: props.contentTruncated ?? false,
+  };
   // Editor states keyed strictly by documentId (single authoritative id)
   const editorStates = useRef<Map<string, EditorState>>(new Map());
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
