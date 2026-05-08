@@ -2,7 +2,7 @@
 
 use crate::error::SyntaxError;
 use crate::language::LanguageId;
-use tree_sitter::{Query, QueryCursor, Tree};
+use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
 
 /// A highlight span in the document
 #[derive(Debug, Clone)]
@@ -172,13 +172,13 @@ impl HighlightEngine {
         eprintln!("DEBUG: Executing query, source length: {} bytes", source.len());
         eprintln!("DEBUG: Root node: start={}, end={}", root_node.start_byte(), root_node.end_byte());
 
-        // Iterate over query matches using QueryCursor::matches which returns a Vec<QueryMatch>.
-        // This produces deterministic ordering and avoids reliance on StreamingIterator.
-        let matches = cursor.matches(query, root_node, source.as_bytes());
+        // Iterate over query matches using QueryCursor::matches which returns a streaming
+        // iterator. Use the StreamingIterator trait's `next` helper to walk matches.
+        let mut matches = cursor.matches(query, root_node, source.as_bytes());
         let mut match_count = 0;
-        for m in matches {
+        while let Some(m) = StreamingIterator::next(&mut matches) {
             match_count += 1;
-            for capture in m.captures {
+            for capture in m.captures.iter() {
                 let node = capture.node;
                 let start = node.start_byte();
                 let end = node.end_byte();
