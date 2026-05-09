@@ -905,18 +905,16 @@ export function CodeEditor(props: CodeEditorProps) {
             </pre>
           </div>
         ) : (
-          <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
-            <CustomSurface
-              value={value}
-              onChange={(v: string) => { setValue(v); onChange(v); }}
-              onCursorChange={(line: number, col: number) => setCursorLine(line)}
-              onScroll={handleScroll}
-              lines={overlayHighlighted}
-              lineHeight={lineHeight}
-              totalHeight={totalHeight}
-              className="flex-1"
-            />
-          </div>
+          <CustomSurface
+            value={value}
+            onChange={(v: string) => { setValue(v); onChange(v); }}
+            onCursorChange={(line: number, col: number) => setCursorLine(line)}
+            onScroll={handleScroll}
+            lines={overlayHighlighted}
+            lineHeight={lineHeight}
+            totalHeight={totalHeight}
+            className="flex-1 h-full"
+          />
         )}
       </div>
 
