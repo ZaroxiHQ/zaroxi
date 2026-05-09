@@ -37,13 +37,11 @@ import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
 import CustomSurface from './CustomSurface';
 
-// Frontend per-document syntax session store.
-// Keyed by documentId -> { text, map, version }. This allows highlight snapshots
-// to survive editor remounts and be reused across CodeEditor instances.
-const syntaxSessionStore = new Map<
-  string,
-  { text: string; map: Map<number, HighlightLine>; version?: number }
->();
+import { getDocumentSyntax, setDocumentSyntax } from './syntaxStore';
+
+// Frontend per-document syntax session store is now persisted in ./syntaxStore.
+// The local hook will consult and update that store instead of keeping the
+// authoritative snapshot solely in component-local state.
 
 /* ------------------------------------------------------------------ */
 /*  Highlight model (unchanged small types)                            */
@@ -179,8 +177,8 @@ function useHighlightSnapshot(
       const textKey = `${documentId}::${stableHashString(text)}`;
       cacheRef.current.set(textKey, { text, map: seeded, version: initialSnapshot.version });
       setMapState(new Map(seeded));
-      // Also populate global store for other mounts.
-      syntaxSessionStore.set(documentId, { text, map: new Map(seeded), version: initialSnapshot.version });
+      // Also populate document-bound store for other mounts.
+      setDocumentSyntax(documentId, { text, map: new Map(seeded), version: initialSnapshot.version, language: (initialSnapshot as any).language ?? undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, initialSnapshot]);
@@ -189,13 +187,20 @@ function useHighlightSnapshot(
   // No timers, no idle callbacks, no debouncing. Each request increments reqId and any
   // later-arriving responses that don't match the latest reqId are discarded.
   useEffect(() => {
-    if (!documentId || !enabled) {
+    if (!documentId) {
+      // No document -> clear visible map.
       setMapState(new Map());
       return;
     }
 
-    // Fast-path: if a global per-document session store has highlights for this exact text, reuse.
-    const global = documentId ? syntaxSessionStore.get(documentId) : undefined;
+    if (!enabled) {
+      // Temporarily disabled view (e.g., hidden tab) — do NOT clear the
+      // visible map. Keep prior snapshot visible so switching back is instant.
+      return;
+    }
+
+    // Fast-path: if a document-bound store has highlights for this exact text, reuse.
+    const global = documentId ? getDocumentSyntax(documentId) : undefined;
     if (global && global.text === text) {
       setMapState(new Map(global.map));
       return;
@@ -272,14 +277,14 @@ function useHighlightSnapshot(
           return updated;
         });
 
-        // Cache and global-store the incoming snapshot for future fast-paths.
+        // Cache and document-store the incoming snapshot for future fast-paths.
         const incomingMap = new Map<number, HighlightLine>();
         for (const l of res.lines) {
           const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
         cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
-        syntaxSessionStore.set(documentId, { text, map: new Map(incomingMap), version: res.version });
+        setDocumentSyntax(documentId, { text, map: new Map(incomingMap), version: res.version, language: res.language });
       } catch {
         // Non-fatal: keep previous snapshot visible.
       }
@@ -649,7 +654,7 @@ export function CodeEditor(props: CodeEditorProps) {
 
     // Try to reuse uids from the global syntaxSessionStore to avoid duplicate
     // keys and preserve DOM identity for unchanged lines across edits.
-    const prevSession = session.documentId ? syntaxSessionStore.get(session.documentId) : undefined;
+    const prevSession = session.documentId ? getDocumentSyntax(session.documentId) : undefined;
     const usedUids = new Set<string>();
 
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
@@ -685,7 +690,10 @@ export function CodeEditor(props: CodeEditorProps) {
       // tie-breaker. This reduces accidental key collisions while keeping uids
       // deterministic between renders for the same content.
       if (!uid) {
-        uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
+        // Keep uid independent of the numeric index so it remains stable when lines
+        // are inserted/deleted above this line. Using only documentId + text hash
+        // preserves identity across shifts and avoids remounting unchanged lines.
+        uid = `${session.documentId}:${stableHashString(authoritative)}`;
         usedUids.add(uid);
       }
 
