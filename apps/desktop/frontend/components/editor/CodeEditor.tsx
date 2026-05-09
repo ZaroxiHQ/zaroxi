@@ -80,62 +80,53 @@ function stableHashString(s: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  useFullHighlight (keeps behaviour but accepts explicit session id) */
-/*  We keep this mostly unchanged and reuse it to drive overlay highlights.
-*/
-function useFullHighlight(
+/*  Background highlight hook
+ *
+ * - Runs highlight_text for the full visible text in background (debounced).
+ * - Caches per-document results to avoid re-requesting identical text.
+ * - Uses reqIdRef gating to discard stale responses.
+ * - Returns Map<lineIndex, HighlightLine>.
+ */
+function useBackgroundHighlights(
   documentId: string | null,
   text: string,
   enabled: boolean,
   theme?: 'dark' | 'light',
-  language?: string,
-  initialHighlight?: { lines: HighlightLine[]; version?: number },
+  language?: string | undefined,
 ) {
-  const [mapState, setMapState] = React.useState<Map<number, HighlightLine>>(new Map());
+  const [mapState, setMapState] = useState<Map<number, HighlightLine>>(new Map());
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
-  const prevDocRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!documentId || !enabled) {
       setMapState(new Map());
-      prevDocRef.current = documentId;
       return;
     }
 
     const cached = cacheRef.current.get(documentId);
     if (cached && cached.text === text) {
       setMapState(new Map(cached.map));
-      prevDocRef.current = documentId;
       return;
     }
-
-    const isDocSwitch = prevDocRef.current !== documentId;
-    prevDocRef.current = documentId;
 
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
-    // Produce stable per-line UIDs that survive unrelated edits.
-    const applyResultIfCurrent = (resLines: { index: number; text: string; spans: HighlightSpan[] }[], resVersion?: number) => {
-      if (cancelled || reqIdRef.current !== thisReq) return false;
-
+    const applyResultIfCurrent = (res: HighlightResponse) => {
+      if (cancelled || reqIdRef.current !== thisReq) return;
       const newMap = new Map<number, HighlightLine>();
-      for (const l of resLines) {
-        // Use line text hash as the primary stability key. This avoids remount storms when
-        // other lines are inserted/deleted and the numeric version changes.
-        const uid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
-        newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
+      for (const l of res.lines) {
+        // keep the backend-provided index (line number) but we will assign stable UI uids later
+        newMap.set(l.index, { uid: l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`, index: l.index, text: l.text, spans: l.spans });
       }
-
-      cacheRef.current.set(documentId, { text, map: newMap, version: resVersion });
+      cacheRef.current.set(documentId, { text, map: newMap, version: res.version });
       setMapState(newMap);
-      return true;
     };
 
-    const fetchExact = async () => {
+    const fetch = async () => {
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
@@ -146,10 +137,9 @@ function useFullHighlight(
           },
         });
         if (cancelled || reqIdRef.current !== thisReq) return;
-        const normalized = res.lines.map((l) => ({ index: l.index, text: l.text, spans: l.spans }));
-        applyResultIfCurrent(normalized, res.version);
+        applyResultIfCurrent(res);
       } catch {
-        // ignore
+        // ignore errors - keep existing highlights if any
       }
     };
 
@@ -157,10 +147,10 @@ function useFullHighlight(
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    // Increase the minimum debounce so we don't churn highlights on every keystroke.
+    // Balanced debounce: don't block typing but avoid hammering background parser.
     debounceRef.current = window.setTimeout(() => {
-      void fetchExact();
-    }, Math.max(80, Math.min(200, Math.floor(text.length / 300))));
+      void fetch();
+    }, Math.max(40, Math.min(180, Math.floor(text.length / 500))));
 
     return () => {
       cancelled = true;
@@ -169,7 +159,7 @@ function useFullHighlight(
         debounceRef.current = null;
       }
     };
-  }, [documentId, text, enabled, theme, language, initialHighlight]);
+  }, [documentId, text, enabled, theme, language]);
 
   return mapState;
 }
@@ -369,13 +359,12 @@ export function CodeEditor(props: CodeEditorProps) {
   const totalLines = displayLineStarts.length;
 
   const highlightsEnabled = !largeFile && !!session.documentId;
-  const highlightedMap = useFullHighlight(
+  const highlightedMap = useBackgroundHighlights(
     session.documentId ?? null,
     displayText,
     highlightsEnabled,
     theme,
     session.language && session.language !== 'plaintext' ? session.language : undefined,
-    session.initialHighlight ?? null,
   );
 
   // Compute overlay lines for visible area
