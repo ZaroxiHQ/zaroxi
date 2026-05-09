@@ -558,69 +558,68 @@ export function CodeEditor(props: CodeEditorProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Use device pixel ratio for crisp rendering.
+    // Device pixel ratio handling
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height));
+    const cssWidth = Math.max(1, Math.floor(rect.width));
+    const cssHeight = Math.max(1, Math.floor(rect.height));
 
-    canvas.width = Math.max(1, Math.floor(width * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    // Backing store size for crisp rendering
+    canvas.width = Math.max(1, Math.floor(cssWidth * dpr));
+    canvas.height = Math.max(1, Math.floor(cssHeight * dpr));
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
 
-    // Reset transform for DPR
+    // Reset transform and scale for DPR
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    // Match textarea font/metrics exactly.
+    // Match textarea computed font exactly (use full `font` when available)
     const cs = window.getComputedStyle(ta);
-    const fontSize = cs.fontSize || '14px';
-    const fontFamily = cs.fontFamily || FONT_TOKENS.editor;
-    ctx.font = `${fontSize} ${fontFamily}`;
+    const font = (cs as any).font || `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    ctx.font = font;
     ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
 
-    // Default text color - fallback if spans lack color.
     const defaultFill = (cs.color as string) || '#cbd5e1';
 
-    // Draw each visible line at its absolute Y (relative to overlay container).
+    // Draw only the visible viewport region: align y by scrollTop so drawn text
+    // maps 1:1 with textarea glyph positions. Snap to device pixels to avoid
+    // subpixel blurring.
     for (let i = 0; i < overlayHighlighted.length; i++) {
       const hl = overlayHighlighted[i];
-      const y = hl.index * lineHeight;
-      const x = 0;
-
-      // If no spans, draw the whole line in default color.
+      const yCss = hl.index * lineHeight - scrollTopRef.current;
+      // Skip lines outside the canvas vertical range
+      if (yCss + lineHeight < 0 || yCss > cssHeight) continue;
+      // Align to device pixels to avoid blur
+      const y = Math.round(yCss * dpr) / dpr;
+      // No horizontal offset (x = 0)
+      // Render gaps and spans, using prefix measurement for exact x positions.
+      let cursor = 0;
       if (!hl.spans || hl.spans.length === 0) {
         ctx.fillStyle = defaultFill;
-        // Use fillText directly; canvas will clip when outside visible area.
-        ctx.fillText(hl.text, x, y);
+        ctx.fillText(hl.text, 0, y);
         continue;
       }
-
-      // Draw segments: plain gaps + colored tokens.
-      // We'll measure cumulative widths to position each segment precisely.
-      let cursor = 0;
-      // Precompute cumulative widths to avoid repeated measureText on same prefixes.
-      // We'll measure each segment individually.
       for (let si = 0; si < hl.spans.length; si++) {
         const sp = hl.spans[si];
-        // draw gap before span
         if (sp.start > cursor) {
           const gap = hl.text.slice(cursor, sp.start);
           ctx.fillStyle = defaultFill;
-          ctx.fillText(gap, x + ctx.measureText(hl.text.slice(0, cursor)).width, y);
+          const px = ctx.measureText(hl.text.slice(0, cursor)).width;
+          ctx.fillText(gap, px, y);
         }
-        // draw token
         const tokenText = hl.text.slice(sp.start, sp.end);
         ctx.fillStyle = sp.color || defaultFill;
-        ctx.fillText(tokenText, x + ctx.measureText(hl.text.slice(0, sp.start)).width, y);
+        const pxToken = ctx.measureText(hl.text.slice(0, sp.start)).width;
+        ctx.fillText(tokenText, pxToken, y);
         cursor = sp.end;
       }
-      // trailing gap
       if (cursor < hl.text.length) {
         const tail = hl.text.slice(cursor);
         ctx.fillStyle = defaultFill;
-        ctx.fillText(tail, x + ctx.measureText(hl.text.slice(0, cursor)).width, y);
+        const pxTail = ctx.measureText(hl.text.slice(0, cursor)).width;
+        ctx.fillText(tail, pxTail, y);
       }
     }
   }, [overlayHighlighted, lineHeight]);
@@ -740,7 +739,10 @@ export function CodeEditor(props: CodeEditorProps) {
             }}
           >
             <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
-              {/* Single canvas overlay that paints all visible lines. */}
+              {/* Single canvas overlay that paints all visible lines. We render only the
+                  viewport-sized canvas area (containerHeight) and translate it in sync
+                  with scroll to avoid drawing the entire document and to keep DPR
+                  aligned. */}
               <canvas
                 ref={overlayCanvasRef}
                 aria-hidden="true"
@@ -752,9 +754,10 @@ export function CodeEditor(props: CodeEditorProps) {
                   willChange: 'transform',
                   whiteSpace: 'pre',
                   width: '100%',
-                  height: totalHeight,
+                  height: containerHeight,
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
+                  imageRendering: '-webkit-optimize-contrast',
                 }}
               />
             </div>
@@ -774,10 +777,11 @@ export function CodeEditor(props: CodeEditorProps) {
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            // Do NOT hide native text. Restoring visible syntax requires the overlay
-            // to render on top of the textarea rather than making the textarea transparent.
-            // Keeping the textarea visible prevents accidental blank screens when the
-            // overlay is out-of-sync or empty. We still style the caret appropriately.
+            // Hide native text only when the overlay is fully ready and synchronized.
+            // This ensures a single readable text image (no ghosting). Otherwise keep
+            // the textarea visible as the authoritative text.
+            color: overlayReady ? 'transparent' : undefined,
+            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
