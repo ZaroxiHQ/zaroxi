@@ -735,74 +735,108 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       }}
     >
       {/* measurement canvas kept off-DOM */}
-  // Visible rendered lines + gutter (gutter rendered inside the same scrollable content
-  // so it natively scrolls with the text).
+  // Visible rendered lines with per-line two-column layout (gutter + content).
+  // Each line row is absolutely positioned for virtualization but internally
+  // structured as a flex row so gutter and content never overlap.
   <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
-    {showGutter && (
+    {lines.map((hl) => {
+      const top = Math.round(hl.index * lineHeight);
+      const gutterCellWidth = showGutter ? (gutterWidth ?? 0) : 0;
+      return (
+        <div
+          key={hl.uid}
+          style={{
+            position: 'absolute',
+            top,
+            left: 0,
+            right: 0,
+            height: lineHeight,
+            lineHeight: `${lineHeight}px`,
+            display: 'flex',
+            alignItems: 'center',
+            pointerEvents: 'auto', // allow row-level hit testing where needed
+            boxSizing: 'border-box',
+          }}
+          aria-hidden={true}
+        >
+          {/* Gutter cell: fixed width, right-aligned numbers */}
+          {showGutter && (
+            <div
+              style={{
+                flex: `0 0 ${gutterCellWidth}px`,
+                width: gutterCellWidth,
+                textAlign: 'right',
+                paddingRight: 8,
+                boxSizing: 'border-box',
+                color: 'var(--editor-gutter, rgba(140,150,160,1))',
+                fontFamily: FONT_TOKENS.editor,
+                fontSize: '0.875rem',
+                userSelect: 'none',
+                pointerEvents: 'none',
+              }}
+            >
+              {String(hl.index + 1)}
+            </div>
+          )}
+
+          {/* Content cell: starts immediately after gutter, contains the rendered spans */}
+          <div
+            style={{
+              flex: '1 1 auto',
+              whiteSpace: 'pre',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                // Keep pointerEvents none for the content rendering to let the surface
+                // handle input at the container level; text selection is handled via
+                // the hidden textarea and overlays.
+                pointerEvents: 'none',
+                color: 'var(--editor-foreground, #000)',
+              }}
+            >
+              {renderSpansElements(hl.spans, hl.text)}
+            </div>
+          </div>
+        </div>
+      );
+    })}
+
+    {/* Selection overlays */}
+    {selectionRanges.map((r, i) => (
       <div
+        key={`sel-${i}`}
         style={{
           position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: gutterWidth ?? 0,
-          overflow: 'hidden',
+          top: r.top,
+          left: r.left + (showGutter ? (gutterWidth ?? 0) : 0),
+          height: lineHeight,
+          width: Math.max(1, r.width),
+          background: 'var(--editor-selection, rgba(90, 120, 200, 0.25))',
           pointerEvents: 'none',
         }}
         aria-hidden={true}
-      >
-        <LineNumberGutter
-          lineCount={gutterLineCount ?? 0}
-          cursorLine={gutterCursorLine ?? 1}
-          lineHeight={gutterLineHeight ?? lineHeight}
-          // derive scrollTop / containerHeight from the actual scrolling container
-          // (containerRef is the real scroller)
-          scrollTop={(containerRef.current as any)?.scrollTop ?? 0}
-          containerHeight={(containerRef.current as any)?.clientHeight ?? 0}
-        />
-      </div>
+      />
+    ))}
+
+    {/* Custom caret (visible and theme-aware). Use CSS var --editor-foreground for coloring. */}
+    {isCollapsed && (
+      <div
+        style={{
+          position: 'absolute',
+          top: Math.round(caretCoords.top),
+          left: Math.round(caretCoords.left) + (showGutter ? (gutterWidth ?? 0) : 0),
+          width: 1,
+          height: Math.max(1, lineHeight),
+          background: 'var(--editor-foreground, #000)',
+          boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset',
+          pointerEvents: 'none',
+          animation: 'caret-blink 1s steps(2, start) infinite',
+        }}
+        aria-hidden={true}
+      />
     )}
-
-    <div style={{ marginLeft: showGutter ? (gutterWidth ?? 0) : 0 }}>
-      {lines.map((hl) => (
-        <LineView key={hl.uid} hl={hl} />
-      ))}
-
-      {/* Selection overlays */}
-      {selectionRanges.map((r, i) => (
-        <div
-          key={`sel-${i}`}
-          style={{
-            position: 'absolute',
-            top: r.top,
-            left: r.left + (showGutter ? (gutterWidth ?? 0) : 0),
-            height: lineHeight,
-            width: Math.max(1, r.width),
-            background: 'var(--editor-selection, rgba(90, 120, 200, 0.25))',
-            pointerEvents: 'none',
-          }}
-          aria-hidden={true}
-        />
-      ))}
-
-      {/* Custom caret (visible and theme-aware). Use CSS var --editor-foreground for coloring. */}
-      {isCollapsed && (
-        <div
-          style={{
-            position: 'absolute',
-            top: Math.round(caretCoords.top),
-            left: Math.round(caretCoords.left) + (showGutter ? (gutterWidth ?? 0) : 0),
-            width: 1,
-            height: Math.max(1, lineHeight),
-            background: 'var(--editor-foreground, #000)',
-            boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset',
-            pointerEvents: 'none',
-            animation: 'caret-blink 1s steps(2, start) infinite',
-          }}
-          aria-hidden={true}
-        />
-      )}
-    </div>
   </div>
 
       {/* Hidden textarea for IME/keyboard. Kept tiny and invisible to avoid creating a second readable layer.
