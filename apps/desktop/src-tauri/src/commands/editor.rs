@@ -422,7 +422,12 @@ pub async fn highlight_document(
 
     if document.file_class() == FileClass::Large {
         eprintln!("[highlight_document] document is Large -> returning empty");
-        return Ok(HighlightResponse { lines: vec![], version });
+        return Ok(HighlightResponse {
+            document_id: request.document_id.clone(),
+            language: LanguageId::PlainText.as_str().to_string(),
+            lines: vec![],
+            version,
+        });
     }
 
     // Resolve language deterministically: prefer a cached per-document value
@@ -445,7 +450,12 @@ pub async fn highlight_document(
 
     if lang == LanguageId::PlainText {
         eprintln!("[highlight_document] PlainText -> returning empty");
-        return Ok(HighlightResponse { lines: vec![], version });
+        return Ok(HighlightResponse {
+            document_id: request.document_id.clone(),
+            language: lang.as_str().to_string(),
+            lines: vec![],
+            version,
+        });
     }
 
     let full_text = document.text();
