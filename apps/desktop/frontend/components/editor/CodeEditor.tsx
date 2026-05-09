@@ -659,21 +659,8 @@ export function CodeEditor(props: CodeEditorProps) {
   const displayLineStarts = useMemo(() => computeLineStarts(displayText), [displayText]);
   const totalLines = displayLineStarts.length;
 
-  const highlightsEnabled = !largeFile && !!session.documentId;
-  // Use the new stable highlight snapshot hook (revision-aware).
-  // We pass the full visible text so the backend can compute stable line snapshots.
-  const highlightedMap = useHighlightSnapshot(
-    session.documentId ?? null,
-    displayText,
-    highlightsEnabled,
-    theme,
-    session.language && session.language !== 'plaintext' ? session.language : undefined,
-    session.initialHighlight ?? null,
-    visibleStartLine,
-    visibleCount,
-  );
-
-  // Compute overlay lines for visible area
+  // Compute overlay lines for visible area early so the highlight hook can
+  // request a visible-range snapshot immediately on mount.
   const [containerHeight, setContainerHeight] = useState<number>(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -695,6 +682,20 @@ export function CodeEditor(props: CodeEditorProps) {
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
+
+  const highlightsEnabled = !largeFile && !!session.documentId;
+  // Use the new stable highlight snapshot hook (revision-aware).
+  // We pass the full visible text so the backend can compute stable line snapshots.
+  const highlightedMap = useHighlightSnapshot(
+    session.documentId ?? null,
+    displayText,
+    highlightsEnabled,
+    theme,
+    session.language && session.language !== 'plaintext' ? session.language : undefined,
+    session.initialHighlight ?? null,
+    visibleStartLine,
+    visibleCount,
+  );
 
   // Build visible lines by using backend-provided per-line spans directly.
   // The backend returns spans that are already relative to each line's text.
