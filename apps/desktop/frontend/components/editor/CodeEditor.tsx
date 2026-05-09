@@ -28,6 +28,7 @@ import React, {
   useRef,
   useCallback,
   useMemo,
+  useLayoutEffect,
 } from 'react';
 import { cn } from '@/lib/utils';
 import { LineNumberGutter } from './gutter/LineNumberGutter';
