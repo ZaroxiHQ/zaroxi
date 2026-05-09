@@ -118,12 +118,15 @@ function useFullHighlight(
     const thisReq = reqIdRef.current;
     let cancelled = false;
 
+    // Produce stable per-line UIDs that survive unrelated edits.
     const applyResultIfCurrent = (resLines: { index: number; text: string; spans: HighlightSpan[] }[], resVersion?: number) => {
       if (cancelled || reqIdRef.current !== thisReq) return false;
 
       const newMap = new Map<number, HighlightLine>();
       for (const l of resLines) {
-        const uid = `${documentId}:${resVersion ?? 0}:${l.index}`;
+        // Use line text hash as the primary stability key. This avoids remount storms when
+        // other lines are inserted/deleted and the numeric version changes.
+        const uid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
         newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
 
@@ -154,9 +157,10 @@ function useFullHighlight(
       window.clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
+    // Increase the minimum debounce so we don't churn highlights on every keystroke.
     debounceRef.current = window.setTimeout(() => {
       void fetchExact();
-    }, Math.max(30, Math.min(120, Math.floor(text.length / 300))));
+    }, Math.max(80, Math.min(200, Math.floor(text.length / 300))));
 
     return () => {
       cancelled = true;
@@ -412,7 +416,7 @@ export function CodeEditor(props: CodeEditorProps) {
   const effectiveReadOnly = readOnly || largeFile;
   const totalHeight = totalLines * lineHeight;
   const MAX_OVERLAY_HEIGHT = 10_000_000;
-  const overlayEnabled = highlightsEnabled && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
+  const overlayEnabled = highlightsEnabled && highlightedMap.size > 0 && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
 
   // Handlers
   const handleChange = useCallback(
@@ -500,8 +504,8 @@ export function CodeEditor(props: CodeEditorProps) {
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            color: highlightsEnabled ? 'transparent' : undefined,
-            WebkitTextFillColor: highlightsEnabled ? 'transparent' : undefined,
+            color: overlayEnabled ? 'transparent' : undefined,
+            WebkitTextFillColor: overlayEnabled ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
