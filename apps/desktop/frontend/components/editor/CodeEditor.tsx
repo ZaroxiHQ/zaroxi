@@ -504,6 +504,11 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const [scrollTop, setScrollTop] = useState(0);
+  // Direct DOM ref for the overlay inner node so we can update transform/innerHTML
+  // synchronously on scroll to avoid a one-frame React lag that produced double
+  // / washed text. Updating the transform directly keeps the overlay perfectly
+  // lock-stepped with the textarea scrolling.
+  const overlayInnerRef = useRef<HTMLDivElement | null>(null);
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
@@ -552,6 +557,20 @@ export function CodeEditor(props: CodeEditorProps) {
     return lines;
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId, lineCharStarts]);
 
+  // Keep the overlay inner HTML synchronized when highlight data changes.
+  // We update innerHTML directly (not via React render) to avoid remount storms
+  // and to ensure the overlay text is updated in the same frame as our transform
+  // adjustments during scroll.
+  useEffect(() => {
+    const node = overlayInnerRef.current;
+    if (!node) return;
+    const parts: string[] = [];
+    for (const hl of overlayHighlighted) {
+      parts.push(renderSpansToHtml(hl.spans, hl.text));
+    }
+    node.innerHTML = parts.join('\n');
+  }, [overlayHighlighted]);
+
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
   const totalHeight = totalLines * lineHeight;
@@ -565,6 +584,22 @@ export function CodeEditor(props: CodeEditorProps) {
   // coverage check. The overlay is purely decorative; the native textarea text is always visible.
   // This prevents the editor from becoming blank if highlights are not yet available.
   const overlayAvailable = highlightsEnabled && highlightedMap.size > 0 && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
+
+  // When true the overlay has coverage and exact text matches for every visible line.
+  // Only in this state do we hide the native textarea text to avoid double-layer artifacts.
+  const overlayReady = useMemo(() => {
+    if (!overlayAvailable) return false;
+    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+      const hl = highlightedMap.get(idx);
+      if (!hl) return false;
+      const start = displayLineStarts[idx] ?? displayText.length;
+      const end = displayLineStarts[idx + 1] ?? displayText.length;
+      let authoritative = displayText.slice(start, end);
+      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+      if (hl.text !== authoritative) return false;
+    }
+    return true;
+  }, [overlayAvailable, highlightedMap, displayLineStarts, displayText, visibleStartLine, visibleEndLine]);
 
   // Handlers
   const handleChange = useCallback(
@@ -581,6 +616,13 @@ export function CodeEditor(props: CodeEditorProps) {
     const top = e.currentTarget.scrollTop;
     scrollTopRef.current = top;
     setScrollTop(top);
+
+    // Synchronously update overlay transform to avoid React state/paint lag that
+    // produced a visible double-layer/drift effect during fast scrolling.
+    const node = overlayInnerRef.current;
+    if (node) {
+      node.style.transform = `translate3d(0px, ${-top}px, 0px)`;
+    }
   }, []);
 
   // Render
@@ -635,9 +677,10 @@ export function CodeEditor(props: CodeEditorProps) {
                   boxSizing: 'border-box',
                 }}
               >
-                {overlayHighlighted.map((hl) => (
-                  <HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />
-                ))}
+                {/* Single stable inner node updated via useEffect to avoid per-line remounts.
+                    We still keep HighlightedLineView available for debugging, but the innerHTML
+                    path provides the stable paint required to eliminate scroll drift. */}
+                <div ref={overlayInnerRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }} />
               </div>
             </div>
           </div>
@@ -656,9 +699,11 @@ export function CodeEditor(props: CodeEditorProps) {
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            // Do NOT hide native text when overlay is active. The textarea is always
-            // the primary visible text layer; overlay is purely decorative. This
-            // prevents the editor from becoming blank when highlights are missing.
+            // Hide native text only when the overlay is fully ready and synchronized.
+            // This prevents the washed/duplicated text effect during scroll while
+            // preserving native visibility when highlights are not yet available.
+            color: overlayReady ? 'transparent' : undefined,
+            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
