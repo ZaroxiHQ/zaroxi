@@ -735,10 +735,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       }}
     >
       {/* measurement canvas kept off-DOM */}
-  // Visible rendered lines with per-line two-column layout (gutter + content).
-  // Each line row is absolutely positioned for virtualization but internally
-  // structured as a flex row so gutter and content never overlap.
-  <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
+      <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
     {lines.map((hl) => {
       const top = Math.round(hl.index * lineHeight);
       const gutterCellWidth = showGutter ? (gutterWidth ?? 0) : 0;
