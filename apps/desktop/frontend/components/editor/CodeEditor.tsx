@@ -720,15 +720,17 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Baseline reset: disable contenteditable rendering so textarea is sole readable layer.
-            We keep the wrapper for layout but make it non-interactive and hidden from assistive
-            tech to avoid any race/paint between overlay and textarea. */}
+        {/* MICRO-CHUNK 2.2 — Hide overlay presentation:
+            Make the overlay wrapper non-rendering (display:none) so no decorative
+            overlay content can appear visually. This is a minimal, reversible
+            change that keeps the overlay logic present but non-displaying. */}
         <div
           aria-hidden={true}
           tabIndex={-1}
           onMouseDown={() => { /* focus is handled by the textarea baseline; noop here */ }}
           className="absolute inset-0 overflow-auto pointer-events-none select-text text-editor-foreground"
           style={{
+            display: 'none',
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
             fontSize: '0.875rem',
