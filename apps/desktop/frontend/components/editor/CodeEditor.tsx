@@ -134,6 +134,8 @@ function useHighlightSnapshot(
   theme?: 'dark' | 'light',
   language?: string | undefined,
   initialSnapshot?: HighlightResponse | null,
+  visibleStart?: number,
+  visibleCount?: number,
 ) {
   const [mapState, setMapState] = useState<Map<number, HighlightLine>>(new Map());
   // cache keyed by documentId::textHash to avoid re-fetching identical inputs
@@ -145,9 +147,14 @@ function useHighlightSnapshot(
   // Seed cache from an optional server-provided initial snapshot (first-paint path).
   useEffect(() => {
     if (!documentId || !initialSnapshot) return;
-    // Reconstruct the snapshot text and only seed when it exactly matches current text.
+    // Reconstruct the snapshot text and be tolerant to trailing newline differences
+    // between the server-provided compact snapshot and the editor's full text.
     const reconstructed = initialSnapshot.lines.map((l) => l.text).join('\n');
-    if (reconstructed !== text) return;
+    const matchesText =
+      reconstructed === text ||
+      reconstructed + '\n' === text ||
+      (text.endsWith('\n') && reconstructed === text.slice(0, -1));
+    if (!matchesText) return;
 
     const textKey = `${documentId}::${stableHashString(text)}`;
     if (initialSnapshot.lines.length > 0) {
@@ -263,28 +270,71 @@ function useHighlightSnapshot(
     };
 
     // Prefer idle scheduling to avoid impacting typing responsiveness.
-    // However, perform an immediate first-fetch on mount when no initial snapshot
-    // is available to avoid a visible delay on open. Subsequent requests continue
-    // to use idle scheduling or short timeouts.
+    // Do a quick visible-range fetch *immediately* for the visible lines so the
+    // user sees syntax on screen without waiting for a full-document highlight.
+    // The full `highlight_text` run is scheduled via idle/timeouts as before.
+    const doVisibleFetch = async () => {
+      if (!documentId || typeof visibleStart !== 'number' || typeof visibleCount !== 'number') return;
+      try {
+        const res: HighlightResponse = await bridge.invoke('highlight_document', {
+          request: {
+            documentId,
+            startLine: visibleStart,
+            count: visibleCount,
+            theme: theme ?? 'dark',
+          },
+        });
+        if (cancelled || reqIdRef.current !== thisReq) return;
+        // Apply only the returned visible lines (applyResultIfCurrent handles per-line patching).
+        applyResultIfCurrent(res);
+      } catch {
+        // non-fatal
+      }
+    };
+
     if (firstFetchRef.current && !initialSnapshot) {
       firstFetchRef.current = false;
-      void fetch();
-    } else if ((window as any).requestIdleCallback) {
-      (window as any).requestIdleCallback(
-        () => {
+      // Immediate visible-range fetch to populate on-screen syntax quickly.
+      void doVisibleFetch();
+      // Schedule full-document highlighting later
+      if ((window as any).requestIdleCallback) {
+        (window as any).requestIdleCallback(
+          () => {
+            void fetch();
+          },
+          { timeout: 250 },
+        );
+      } else {
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        timerRef.current = window.setTimeout(() => {
           void fetch();
-        },
-        { timeout: 250 },
-      );
-    } else {
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
+          timerRef.current = null;
+        }, 60);
       }
-      timerRef.current = window.setTimeout(() => {
-        void fetch();
-        timerRef.current = null;
-      }, 60);
+    } else {
+      // For subsequent requests, still attempt a visible-range update ASAP, then
+      // schedule the heavier full-text highlight off the typing path.
+      void doVisibleFetch();
+      if ((window as any).requestIdleCallback) {
+        (window as any).requestIdleCallback(
+          () => {
+            void fetch();
+          },
+          { timeout: 250 },
+        );
+      } else {
+        if (timerRef.current) {
+          window.clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+        timerRef.current = window.setTimeout(() => {
+          void fetch();
+          timerRef.current = null;
+        }, 60);
+      }
     }
 
     return () => {
@@ -295,7 +345,7 @@ function useHighlightSnapshot(
       }
     };
     // Intentionally include `text` so we request a fresh snapshot whenever the visible text changes.
-  }, [documentId, text, enabled, theme, language]);
+  }, [documentId, text, enabled, theme, language, visibleStart, visibleCount]);
 
   return mapState;
 }
@@ -619,6 +669,8 @@ export function CodeEditor(props: CodeEditorProps) {
     theme,
     session.language && session.language !== 'plaintext' ? session.language : undefined,
     session.initialHighlight ?? null,
+    visibleStartLine,
+    visibleCount,
   );
 
   // Compute overlay lines for visible area
