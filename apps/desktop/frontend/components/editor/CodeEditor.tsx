@@ -642,6 +642,10 @@ export function CodeEditor(props: CodeEditorProps) {
   // Use a strict byte-size check (TextEncoder) to enforce the 5 MB rule.
   const initialLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
   const largeFileRef = useRef<boolean>(initialLarge);
+  // Log initial decision immediately for diagnosability.
+  if (initialLarge) {
+    console.info(`[CodeEditor] file ${session.documentId} initial large-file decision: true (session.contentTruncated=${String(session.contentTruncated)})`);
+  }
   // Local container ref used for measurements only. The CustomSurface component
   // remains the single vertical scroller (its own internal container).
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -693,6 +697,22 @@ export function CodeEditor(props: CodeEditorProps) {
     largeFile = largeFileRef.current;
   }
 
+  // Ensure any persisted syntax is cleared and no syntax requests will be triggered
+  // when the session is a large-file. Do this in a side-effect so we don't perform
+  // synchronous side-effects during render.
+  useEffect(() => {
+    if (largeFile && session.documentId) {
+      try {
+        console.info(`[CodeEditor] large-file mode enabled for ${session.documentId}`);
+        // Clear any persisted frontend syntax snapshot so stale highlights can't be reused.
+        clearDocumentSyntax(session.documentId);
+        console.info(`[CodeEditor] cleared persisted syntax for large-file ${session.documentId}`);
+      } catch (e) {
+        console.warn(`[CodeEditor] failed to clear persisted syntax for ${session.documentId}:`, e);
+      }
+    }
+  }, [largeFile, session.documentId]);
+
   // Compute overlay lines for visible area early so the highlight hook can
   // request a visible-range snapshot immediately on mount.
   const [containerHeight, setContainerHeight] = useState<number>(0);
@@ -726,9 +746,21 @@ export function CodeEditor(props: CodeEditorProps) {
   // problem where containerHeight was still zero.
   const measuredContainerHeight = (containerRef.current && containerRef.current.clientHeight) || containerHeight || 0;
 
-  const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
-  const visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
-  const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
+  // When in large-file plain-text mode we disable virtualization for correctness:
+  // render the entire available document (the preview content) rather than a tiny
+  // clipped window. Performance tradeoff is acceptable for correctness-first fix.
+  let visibleStartLine: number;
+  let visibleCount: number;
+  let visibleEndLine: number;
+  if (largeFile) {
+    visibleStartLine = 0;
+    visibleEndLine = totalLines;
+    visibleCount = totalLines;
+  } else {
+    visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
+    visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
+    visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
+  }
 
   // Highlights are enabled only when the session is NOT a locked large-file.
   const highlightsEnabled = !largeFile && !!session.documentId;
@@ -752,10 +784,29 @@ export function CodeEditor(props: CodeEditorProps) {
   // Build a visible slice of highlight lines from the highlightedMap.
   const uidCounterRef = useRef(0);
   const overlayHighlighted: HighlightLine[] = useMemo(() => {
+    // Diagnostics: log visible range for easier debugging.
+    console.info(`[CodeEditor] visible range ${visibleStartLine}..${visibleEndLine} of ${totalLines} lines`);
+
+    // Large-file plain-text path: avoid relying on any backend highlights and
+    // render the available text lines in full. This disables reuse of persisted
+    // uids to ensure no stale syntax is shown.
+    if (largeFile) {
+      const lines: HighlightLine[] = [];
+      for (let idx = 0; idx < totalLines; idx++) {
+        const start = displayLineStarts[idx] ?? displayText.length;
+        const end = displayLineStarts[idx + 1] ?? displayText.length;
+        let authoritative = displayText.slice(start, end);
+        if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+        const uid = `${session.documentId}:${stableHashString(authoritative)}:${uidCounterRef.current++}`;
+        lines.push({ uid, index: idx, text: authoritative, spans: [] });
+      }
+      return lines;
+    }
+
+    // Normal (non-large-file) path: reuse backend-provided highlightedMap and
+    // attempt to preserve prior uids to avoid remount storms.
     const lines: HighlightLine[] = [];
 
-    // Try to reuse uids from the global syntaxSessionStore to avoid duplicate
-    // keys and preserve DOM identity for unchanged lines across edits.
     const prevSession = session.documentId ? getDocumentSyntax(session.documentId) : undefined;
     const usedUids = new Set<string>();
 
@@ -787,14 +838,7 @@ export function CodeEditor(props: CodeEditorProps) {
         }
       }
 
-      // If no prior uid was found, create a deterministic canonical uid that
-      // includes a stable hash of the line text and the local index as a
-      // tie-breaker. This reduces accidental key collisions while keeping uids
-      // deterministic between renders for the same content.
       if (!uid) {
-        // Fallback: generate a unique uid that does NOT depend on the numeric
-        // index so that identities remain stable when lines shift. We ensure
-        // uniqueness with a per-hook counter and the usedUids set.
         uid = `${session.documentId}:${stableHashString(authoritative)}:${uidCounterRef.current++}`;
         usedUids.add(uid);
       }
@@ -806,7 +850,7 @@ export function CodeEditor(props: CodeEditorProps) {
       }
     }
     return lines;
-  }, [highlightedMap, visibleStartLine, visibleEndLine, displayLineStarts, displayText, session.documentId]);
+  }, [highlightedMap, visibleStartLine, visibleEndLine, displayLineStarts, displayText, session.documentId, largeFile, totalLines]);
 
   // Overlay DOM writes disabled for baseline: no-op effect to keep hook signature stable.
   useEffect(() => {
