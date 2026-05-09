@@ -150,6 +150,8 @@ function useHighlightSnapshot(
 
   // Monotonic request id to detect and discard stale responses.
   const reqIdRef = useRef(0);
+  // Per-hook uid counter to generate unique canonical line ids when not supplied
+  const uidCounterRef = useRef(0);
 
   // Seed cache/state immediately from an initialSnapshot when it exactly matches the
   // provided `text`. This ensures the frontend can render the server-provided compact
@@ -171,7 +173,7 @@ function useHighlightSnapshot(
     if (initialSnapshot.lines.length > 0) {
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
         seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
       const textKey = `${documentId}::${stableHashString(text)}`;
@@ -249,7 +251,7 @@ function useHighlightSnapshot(
         setMapState((prev) => {
           const updated = new Map(prev);
           for (const l of res.lines) {
-            const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+            const canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
             const existing = updated.get(l.index);
 
             // Detect identical entry to avoid remounts/flashing.
@@ -280,7 +282,7 @@ function useHighlightSnapshot(
         // Cache and document-store the incoming snapshot for future fast-paths.
         const incomingMap = new Map<number, HighlightLine>();
         for (const l of res.lines) {
-          const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+          const canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
         cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
@@ -649,6 +651,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // Use those spans as-is (no absolute-offset remapping) and always render
   // full line text (spans + plain gaps). This prevents partial coverage.
   // Build a visible slice of highlight lines from the highlightedMap.
+  const uidCounterRef = useRef(0);
   const overlayHighlighted: HighlightLine[] = useMemo(() => {
     const lines: HighlightLine[] = [];
 
@@ -691,9 +694,10 @@ export function CodeEditor(props: CodeEditorProps) {
       // deterministic between renders for the same content.
       if (!uid) {
         // Keep uid independent of the numeric index so it remains stable when lines
-        // are inserted/deleted above this line. Using only documentId + text hash
-        // preserves identity across shifts and avoids remounting unchanged lines.
-        uid = `${session.documentId}:${stableHashString(authoritative)}`;
+        // are inserted/deleted above this line. Using a fresh per-session suffix
+        // prevents key collisions for identical line text while allowing reuse
+        // via the prevSession lookup above.
+        uid = `${session.documentId}:${stableHashString(authoritative)}:${uidCounterRef.current++}`;
         usedUids.add(uid);
       }
 
