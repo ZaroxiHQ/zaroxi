@@ -754,9 +754,10 @@ export function CodeEditor(props: CodeEditorProps) {
       // tie-breaker. This reduces accidental key collisions while keeping uids
       // deterministic between renders for the same content.
       if (!uid) {
-        // Prefer reusing any prior uid; if none found, create a deterministic uid
-        // that includes the index so it's unique for this position.
-        uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
+        // Fallback: generate a unique uid that does NOT depend on the numeric
+        // index so that identities remain stable when lines shift. We ensure
+        // uniqueness with a per-hook counter and the usedUids set.
+        uid = `${session.documentId}:${stableHashString(authoritative)}:${uidCounterRef.current++}`;
         usedUids.add(uid);
       }
 
