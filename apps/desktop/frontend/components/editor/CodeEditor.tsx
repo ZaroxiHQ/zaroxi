@@ -720,35 +720,36 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Single contenteditable surface as the authoritative, single readable text image.
-            We render highlighted HTML into this element and let the browser manage caret
-            and selection. This eliminates double-text composition (only this element is readable). */}
+        {/* Baseline reset: disable contenteditable rendering so textarea is sole readable layer.
+            We keep the wrapper for layout but make it non-interactive and hidden from assistive
+            tech to avoid any race/paint between overlay and textarea. */}
         <div
-          aria-hidden={false}
-          tabIndex={0}
-          onMouseDown={() => { contentRef.current?.focus(); }}
-          className="absolute inset-0 overflow-auto pointer-events-auto select-text text-editor-foreground"
+          aria-hidden={true}
+          tabIndex={-1}
+          onMouseDown={() => { /* focus is handled by the textarea baseline; noop here */ }}
+          className="absolute inset-0 overflow-auto pointer-events-none select-text text-editor-foreground"
           style={{
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
             fontSize: '0.875rem',
             whiteSpace: 'pre',
             overflowWrap: 'normal',
-            pointerEvents: 'auto',
-            zIndex: 30,
+            pointerEvents: 'none',
+            zIndex: 10,
           }}
         >
           <div style={{ position: 'relative', height: totalHeight, width: '100%', boxSizing: 'border-box' }}>
             <div
               ref={contentRef}
-              contentEditable={!effectiveReadOnly}
+              contentEditable={false}
               suppressContentEditableWarning
               onInput={handleInput}
               onScroll={handleScroll}
               aria-label="Code editor"
-              role="textbox"
+              role="presentation"
               spellCheck={false}
               style={{
+                display: 'none',
                 position: 'absolute',
                 top: 0,
                 left: 0,
