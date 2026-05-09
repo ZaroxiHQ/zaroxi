@@ -701,11 +701,10 @@ export function CodeEditor(props: CodeEditorProps) {
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            // Hide native text only when the overlay is fully ready and synchronized.
-            // This prevents the washed/duplicated text effect during scroll while
-            // preserving native visibility when highlights are not yet available.
-            color: overlayReady ? 'transparent' : undefined,
-            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
+            // Do NOT hide native text. Restoring visible syntax requires the overlay
+            // to render on top of the textarea rather than making the textarea transparent.
+            // Keeping the textarea visible prevents accidental blank screens when the
+            // overlay is out-of-sync or empty. We still style the caret appropriately.
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
