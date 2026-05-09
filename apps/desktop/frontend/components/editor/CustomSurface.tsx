@@ -735,47 +735,75 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       }}
     >
       {/* measurement canvas kept off-DOM */}
-      {/* Visible rendered lines */}
-      <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
-        {lines.map((hl) => (
-          <LineView key={hl.uid} hl={hl} />
-        ))}
-
-        {/* Selection overlays */}
-        {selectionRanges.map((r, i) => (
-          <div
-            key={`sel-${i}`}
-            style={{
-              position: 'absolute',
-              top: r.top,
-              left: r.left,
-              height: lineHeight,
-              width: Math.max(1, r.width),
-              background: 'var(--editor-selection, rgba(90, 120, 200, 0.25))',
-              pointerEvents: 'none',
-            }}
-            aria-hidden={true}
-          />
-        ))}
-
-        {/* Custom caret (visible and theme-aware). Use CSS var --editor-foreground for coloring. */}
-        {isCollapsed && (
-          <div
-            style={{
-              position: 'absolute',
-              top: Math.round(caretCoords.top),
-              left: Math.round(caretCoords.left),
-              width: 1,
-              height: Math.max(1, lineHeight),
-              background: 'var(--editor-foreground, #000)',
-              boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset',
-              pointerEvents: 'none',
-              animation: 'caret-blink 1s steps(2, start) infinite',
-            }}
-            aria-hidden={true}
-          />
-        )}
+  // Visible rendered lines + gutter (gutter rendered inside the same scrollable content
+  // so it natively scrolls with the text).
+  <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
+    {showGutter && (
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: gutterWidth ?? 0,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+        }}
+        aria-hidden={true}
+      >
+        <LineNumberGutter
+          lineCount={gutterLineCount ?? 0}
+          cursorLine={gutterCursorLine ?? 1}
+          lineHeight={gutterLineHeight ?? lineHeight}
+          // derive scrollTop / containerHeight from the actual scrolling container
+          // (containerRef is the real scroller)
+          scrollTop={(containerRef.current as any)?.scrollTop ?? 0}
+          containerHeight={(containerRef.current as any)?.clientHeight ?? 0}
+        />
       </div>
+    )}
+
+    <div style={{ marginLeft: showGutter ? (gutterWidth ?? 0) : 0 }}>
+      {lines.map((hl) => (
+        <LineView key={hl.uid} hl={hl} />
+      ))}
+
+      {/* Selection overlays */}
+      {selectionRanges.map((r, i) => (
+        <div
+          key={`sel-${i}`}
+          style={{
+            position: 'absolute',
+            top: r.top,
+            left: r.left + (showGutter ? (gutterWidth ?? 0) : 0),
+            height: lineHeight,
+            width: Math.max(1, r.width),
+            background: 'var(--editor-selection, rgba(90, 120, 200, 0.25))',
+            pointerEvents: 'none',
+          }}
+          aria-hidden={true}
+        />
+      ))}
+
+      {/* Custom caret (visible and theme-aware). Use CSS var --editor-foreground for coloring. */}
+      {isCollapsed && (
+        <div
+          style={{
+            position: 'absolute',
+            top: Math.round(caretCoords.top),
+            left: Math.round(caretCoords.left) + (showGutter ? (gutterWidth ?? 0) : 0),
+            width: 1,
+            height: Math.max(1, lineHeight),
+            background: 'var(--editor-foreground, #000)',
+            boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset',
+            pointerEvents: 'none',
+            animation: 'caret-blink 1s steps(2, start) infinite',
+          }}
+          aria-hidden={true}
+        />
+      )}
+    </div>
+  </div>
 
       {/* Hidden textarea for IME/keyboard. Kept tiny and invisible to avoid creating a second readable layer.
           We programmatically set selectionRange on it so input occurs at the correct document offset. */}
