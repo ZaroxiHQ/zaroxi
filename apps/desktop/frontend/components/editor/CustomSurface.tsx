@@ -66,6 +66,8 @@ type HighlightLine = {
 interface CustomSurfaceProps {
   value: string;
   onChange: (value: string) => void;
+  onCursorChange?: (line: number, col: number) => void;
+  onScroll?: (scrollTop: number) => void;
   lines: HighlightLine[];
   lineHeight: number;
   totalHeight: number;
@@ -205,7 +207,7 @@ function renderSpansElements(spans: HighlightSpan[], lineText: string) {
    Main Component
    ------------------------- */
 export default function CustomSurface(props: CustomSurfaceProps) {
-  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange } = props;
+  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange, onScroll } = props;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -269,6 +271,23 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       }
     }
   }, [value, selStart, selEnd]);
+
+  // Wire up container scroll events and surface them to the parent so the
+  // virtualized visible range computed by the parent can stay in sync with the
+  // actual scroll position (the surface is the real scroller).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = () => {
+      if (typeof onScroll === 'function') {
+        try {
+          onScroll(container.scrollTop);
+        } catch {}
+      }
+    };
+    container.addEventListener('scroll', handler, { passive: true });
+    return () => container.removeEventListener('scroll', handler);
+  }, [onScroll]);
 
   // Helper: total chars before a line
   const lineStartCharIndex = useCallback((lineIndex: number) => {
@@ -697,7 +716,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       {/* Visible rendered lines */}
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
-          <LineView key={`${hl.uid}::${hl.index}`} hl={hl} />
+          <LineView key={hl.uid} hl={hl} />
         ))}
 
         {/* Selection overlays */}

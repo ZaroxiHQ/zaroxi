@@ -173,9 +173,10 @@ function useHighlightSnapshot(
     if (initialSnapshot.lines.length > 0) {
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
-        // Deterministic uid that prefers position-based identity for initial snapshots.
-        // This avoids generating transient uids that would cause remounts on first paint.
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
+        // Prefer the server-provided uid when present. Otherwise generate a
+        // unique uid that does NOT embed the current numeric index so that
+        // identities survive line insert/delete shifts.
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
         seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
       const textKey = `${documentId}::${stableHashString(text)}`;
@@ -283,9 +284,10 @@ function useHighlightSnapshot(
               }
             }
 
-            // Fallback: deterministic position-based uid (unique for this document+index+text hash).
+            // Fallback: generate a unique uid that does not bake the numeric index
+            // into the identifier so DOM identity survives line shifts.
             if (!canonicalUid) {
-              canonicalUid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
+              canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
               usedUidsLocal.add(canonicalUid);
             }
 
@@ -318,7 +320,7 @@ function useHighlightSnapshot(
         const incomingMap = new Map<number, HighlightLine>();
         const prevSessionForCache = documentId ? getDocumentSyntax(documentId) : undefined;
         for (const l of res.lines) {
-          let canonicalUid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
+          let canonicalUid: string | undefined;
           // Prefer reusing a prior uid for the same index/text when available
           if (prevSessionForCache && prevSessionForCache.map) {
             const prevEntry = prevSessionForCache.map.get(l.index);
@@ -332,6 +334,9 @@ function useHighlightSnapshot(
                 }
               }
             }
+          }
+          if (!canonicalUid) {
+            canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
           }
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
@@ -857,6 +862,7 @@ export function CodeEditor(props: CodeEditorProps) {
           value={value}
           onChange={(v: string) => { setValue(v); onChange(v); }}
           onCursorChange={(line: number, col: number) => setCursorLine(line)}
+          onScroll={handleScroll}
           lines={overlayHighlighted}
           lineHeight={lineHeight}
           totalHeight={totalHeight}
