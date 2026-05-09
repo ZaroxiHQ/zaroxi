@@ -158,7 +158,8 @@ function useHighlightSnapshot(
   // provided `text`. This ensures the frontend can render the server-provided compact
   // snapshot on first paint without any timers or staged phases.
   useEffect(() => {
-    if (!documentId || !initialSnapshot) return;
+    // Only seed an initial snapshot when highlighting is enabled for this session.
+    if (!documentId || !initialSnapshot || !enabled) return;
 
     // Sanity: ensure the snapshot belongs to the same document and language.
     if ((initialSnapshot as any).documentId !== documentId) return;
@@ -187,7 +188,7 @@ function useHighlightSnapshot(
       setDocumentSyntax(documentId, { text, map: new Map(seeded), version: initialSnapshot.version, language: (initialSnapshot as any).language ?? undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, initialSnapshot]);
+  }, [documentId, initialSnapshot, enabled]);
 
   // Core: request highlights immediately when documentId/text/enabled/language/theme changes.
   // No timers, no idle callbacks, no debouncing. Each request increments reqId and any
@@ -286,8 +287,51 @@ function useHighlightSnapshot(
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
 
-        // Atomically replace the visible map so the UI never shows a partial patched state.
-        setMapState(new Map(incomingMap));
+        // Patch existing map non-destructively: update changed lines, add new ones,
+        // and remove lines no longer present. This preserves uids for unchanged
+        // lines and avoids broad React remounts that cause visual flashing.
+        setMapState((prev) => {
+          const updated = new Map(prev);
+          const incomingIndices = new Set<number>();
+
+          for (const [idx, hl] of incomingMap.entries()) {
+            incomingIndices.add(idx);
+            const existing = updated.get(idx);
+            let changed = false;
+            if (!existing) {
+              changed = true;
+            } else if (existing.text !== hl.text) {
+              changed = true;
+            } else {
+              const sa = existing.spans || [];
+              const sb = hl.spans || [];
+              if (sa.length !== sb.length) {
+                changed = true;
+              } else {
+                for (let i = 0; i < sa.length; i++) {
+                  const a = sa[i];
+                  const b = sb[i];
+                  if (!a || !b || a.start !== b.start || a.end !== b.end || a.token_type !== b.token_type || (a.color ?? null) !== (b.color ?? null)) {
+                    changed = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (changed) {
+              updated.set(idx, hl);
+            }
+          }
+
+          // Remove indices not present in the incoming snapshot.
+          for (const k of Array.from(updated.keys())) {
+            if (!incomingIndices.has(k)) {
+              updated.delete(k);
+            }
+          }
+
+          return updated;
+        });
 
         // Cache and persist for fast reuses. Only persist document syntax when the
         // hook is enabled (caller controls enabled based on large-file policy).
@@ -590,6 +634,7 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
+  const largeFileRef = useRef<boolean | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
@@ -599,11 +644,15 @@ export function CodeEditor(props: CodeEditorProps) {
       // New session or new load result -> adopt session.text deterministically.
       lastSessionIdRef.current = sessionIdentity;
       setValue(session.text ?? '');
+      // Decide large-file for this session deterministically and persist it.
+      // This prevents flip-flopping while the user edits the same session.
+      const decidedLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
+      largeFileRef.current = decidedLarge;
+      // Debug
+      if (decidedLarge) {
+        console.error(`[CodeEditor] session ${session.documentId} marked large-file (locked for session)`);
+      }
     }
-    // If session.text changed (e.g., backend pushed an update) and it's different
-    // and belongs to the current session identity, adopt it.
-    // Avoid stomping while user is mid-typing: however the container owns text and
-    // will write authoritative updates; we keep the simple rule: adopt when loadSeq changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.documentId, session.loadSeq]);
 
