@@ -657,8 +657,9 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [session.documentId, session.loadSeq]);
 
   // Derived UI state
-  // Start with a conservative default; we'll refine `largeFile` after computing totalLines.
-  let largeFile = session.contentTruncated ?? false;
+  // Start with a conservative default; prefer a previously locked session decision when present.
+  // `largeFileRef` is set once per session load and prevents flip-flopping while the user edits.
+  let largeFile = largeFileRef.current ?? (session.contentTruncated ?? false);
 
   // Highlighting: always derive from the visible text `value`.
   const displayText = value;
@@ -666,9 +667,16 @@ export function CodeEditor(props: CodeEditorProps) {
   const displayLineStarts = useMemo(() => computeLineStarts(displayText), [displayText]);
   const totalLines = displayLineStarts.length;
 
-  // Final large-file decision: consider explicit server-side truncation,
-  // character count, or very large line counts.
-  largeFile = session.contentTruncated ?? (value.length > LARGE_FILE_CHAR_THRESHOLD || totalLines > FULL_LINES_LIMIT);
+  // Final large-file decision: if not already locked by session, decide now and lock it.
+  // This ensures the large-file mode remains stable for the session and cannot flip
+  // while the user types.
+  if (largeFileRef.current === null) {
+    const decided = session.contentTruncated ?? (value.length > LARGE_FILE_CHAR_THRESHOLD || totalLines > FULL_LINES_LIMIT);
+    largeFileRef.current = decided;
+    largeFile = decided;
+  } else {
+    largeFile = largeFileRef.current;
+  }
 
   // Compute overlay lines for visible area early so the highlight hook can
   // request a visible-range snapshot immediately on mount.
@@ -700,7 +708,8 @@ export function CodeEditor(props: CodeEditorProps) {
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  const highlightsEnabled = !largeFile && !!session.documentId;
+  // Highlights are enabled only when the session is NOT a locked large-file.
+  const highlightsEnabled = !(largeFileRef.current ?? largeFile) && !!session.documentId;
   // Use the new stable highlight snapshot hook (revision-aware).
   // We pass the full visible text so the backend can compute stable line snapshots.
   const highlightedMap = useHighlightSnapshot(
@@ -787,7 +796,9 @@ export function CodeEditor(props: CodeEditorProps) {
     // no-op
   }, [scrollTop]);
 
-  const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
+  // Always compute gutter width from the canonical totalLines so gutter stays
+  // in sync with the document model even in large-file/read-only view.
+  const gutterWidth = computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
   const totalHeight = totalLines * lineHeight;
   const MAX_OVERLAY_HEIGHT = 10_000_000;
@@ -863,19 +874,36 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Custom single-surface editor: renders visible lines (token spans) directly
-            into the DOM and captures input via a focused hidden textarea for IME/composition.
-            This preserves one readable text layer (the rendered DOM) and avoids overlay glyph painting. */}
-        <CustomSurface
-          value={value}
-          onChange={(v: string) => { setValue(v); onChange(v); }}
-          onCursorChange={(line: number, col: number) => setCursorLine(line)}
-          onScroll={handleScroll}
-          lines={overlayHighlighted}
-          lineHeight={lineHeight}
-          totalHeight={totalHeight}
-          className="flex-1"
-        />
+        {/* For large files we render a stable plain-text preview without overlay
+            absolute-positioned lines to avoid huge totalHeight, clipping, and
+            remount/flash issues. For normal files we use CustomSurface. */}
+        {largeFile ? (
+          <div className="flex-1 overflow-auto">
+            <pre
+              className="whitespace-pre font-mono p-2"
+              style={{
+                margin: 0,
+                whiteSpace: 'pre',
+                fontFamily: FONT_TOKENS.editor,
+                fontSize: '0.875rem',
+                lineHeight: `${lineHeight}px`,
+              }}
+            >
+              {value}
+            </pre>
+          </div>
+        ) : (
+          <CustomSurface
+            value={value}
+            onChange={(v: string) => { setValue(v); onChange(v); }}
+            onCursorChange={(line: number, col: number) => setCursorLine(line)}
+            onScroll={handleScroll}
+            lines={overlayHighlighted}
+            lineHeight={lineHeight}
+            totalHeight={totalHeight}
+            className="flex-1"
+          />
+        )}
       </div>
 
       <style>{`
