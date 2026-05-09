@@ -75,100 +75,123 @@ interface CustomSurfaceProps {
 /* -------------------------
    Utilities
    ------------------------- */
-function mergeSpans(spans: HighlightSpan[], lineLen: number): HighlightSpan[] {
-  if (spans.length === 0 || lineLen === 0) return [];
+/**
+ * computeSegments
+ *
+ * Build an explicit ordered list of segments for a line:
+ *  - plain segments for gaps not covered by any token span
+ *  - token segments for exact spans
+ *
+ * Rules:
+ *  - Use spans as-is (no per-character fill, no merging that fills gaps).
+ *  - Clamp spans to the line bounds and ignore degenerate spans.
+ *  - Return segments in left-to-right order.
+ */
+function computeSegments(spans: HighlightSpan[], lineText: string) {
+  const lineLen = lineText.length;
+  // If line is huge, don't attempt complex segmentation in hot path
+  if (lineLen === 0) return [];
+  if (spans.length === 0) {
+    return [{ type: 'plain' as const, start: 0, end: lineLen, text: lineText }];
+  }
 
+  // Sort spans by start (stable)
   const sorted = [...spans].sort((a, b) => {
-    const la = a.end - a.start;
-    const lb = b.end - b.start;
-    if (la !== lb) return la - lb;
-    const s = a.start - b.start;
-    return s !== 0 ? s : a.end - b.end;
+    if (a.start !== b.start) return a.start - b.start;
+    return a.end - b.end;
   });
 
-  const charTokens: Array<{ tokenType: string; color?: string } | null> =
-    new Array(lineLen).fill(null);
+  const segments: Array<{
+    type: 'plain' | 'token';
+    start: number;
+    end: number;
+    text: string;
+    token_type?: string;
+    color?: string | null;
+  }> = [];
 
+  let last = 0;
   for (const sp of sorted) {
-    const tok = sp.token_type;
-    const color = sp.color ?? undefined;
-    const from = Math.max(0, sp.start);
-    const to = Math.min(lineLen, sp.end);
-    for (let i = from; i < to; i++) {
-      if (charTokens[i] === null) {
-        charTokens[i] = { tokenType: tok, color };
-      }
+    const from = Math.max(0, Math.min(lineLen, sp.start));
+    const to = Math.max(from, Math.min(lineLen, sp.end));
+    if (to <= from) continue; // degenerate -> skip
+
+    if (from > last) {
+      segments.push({
+        type: 'plain',
+        start: last,
+        end: from,
+        text: lineText.slice(last, from),
+      });
     }
+
+    // Token segment: only the exact span range
+    segments.push({
+      type: 'token',
+      start: from,
+      end: to,
+      text: lineText.slice(from, to),
+      token_type: sp.token_type,
+      color: sp.color ?? null,
+    });
+
+    last = to;
   }
 
-  const merged: HighlightSpan[] = [];
-  let i = 0;
-  while (i < lineLen) {
-    const cur = charTokens[i];
-    if (cur) {
-      let j = i;
-      while (j < lineLen && charTokens[j] && charTokens[j]!.tokenType === cur.tokenType) {
-        j++;
-      }
-      merged.push({
-        start: i,
-        end: j,
-        token_type: cur.tokenType,
-        color: cur.color,
-      });
-      i = j;
-    } else {
-      i++;
-    }
+  if (last < lineLen) {
+    segments.push({
+      type: 'plain',
+      start: last,
+      end: lineLen,
+      text: lineText.slice(last),
+    });
   }
-  return merged;
+
+  return segments;
 }
 
 function renderSpansElements(spans: HighlightSpan[], lineText: string) {
-  // Use explicit CSS variables for foreground so plain text always has a clear
-  // fallback color and newly-inserted characters don't inherit stale token colors.
+  // Explicit editor foreground for plain text segments.
   const FG = 'var(--editor-foreground, #000)';
 
-  // If no spans, return a single text node wrapped in a span with the editor FG.
-  if (spans.length === 0) return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
+  // Avoid expensive work for very large lines; render as plain text.
+  if (lineText.length > 5000) {
+    return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
+  }
 
-  const merged = mergeSpans(spans, lineText.length);
-  if (merged.length === 0) return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
+  // Build explicit ordered segments from spans (no merging/fill).
+  const segments = computeSegments(spans, lineText);
 
-  const segments: React.ReactNode[] = [];
-  let last = 0;
-  for (let i = 0; i < merged.length; i++) {
-    const sp = merged[i];
-    if (sp.start > last) {
-      const plainText = lineText.slice(last, sp.start);
-      segments.push(
-        <span key={`plain-${last}`} style={{ color: FG }}>
-          {plainText}
+  // If no segments (shouldn't happen), render plain text.
+  if (!segments || segments.length === 0) {
+    return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
+  }
+
+  // Render segments: plain segments use explicit FG; token segments render only
+  // the exact token range and never cause plain text to change color.
+  const nodes: React.ReactNode[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg.type === 'plain') {
+      nodes.push(
+        <span key={`plain-${seg.start}-${seg.end}`} style={{ color: FG }}>
+          {seg.text}
+        </span>
+      );
+    } else {
+      // Token span: use provided color when present; otherwise rely on token CSS class
+      // but DO NOT fall back to FG as a forced color for plain text.
+      const tokenClass = `syntax-${String(seg.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`;
+      const style: React.CSSProperties | undefined = seg.color ? { color: seg.color } : undefined;
+      nodes.push(
+        <span key={`tok-${seg.start}-${seg.end}`} style={style} className={tokenClass}>
+          {seg.text}
         </span>
       );
     }
-    const key = `${sp.start}-${i}`;
-    // Token spans set an explicit color when provided; otherwise fall back to editor FG.
-    const style: React.CSSProperties = { color: sp.color ?? FG };
-    segments.push(
-      <span
-        key={key}
-        style={style}
-        className={`syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`}
-      >
-        {lineText.slice(sp.start, sp.end)}
-      </span>
-    );
-    last = sp.end;
   }
-  if (last < lineText.length) {
-    segments.push(
-      <span key={`plain-${last}`} style={{ color: FG }}>
-        {lineText.slice(last)}
-      </span>
-    );
-  }
-  return segments;
+
+  return nodes;
 }
 
 /* -------------------------
