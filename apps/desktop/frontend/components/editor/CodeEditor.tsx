@@ -534,7 +534,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Use a div ref for contentEditable surface when we migrate from textarea to
+  // a single authoritative editable DOM node. Type updated here to avoid TS mismatch.
+  const textareaRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
@@ -673,39 +675,37 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Overlay removed for hard baseline reset: only the textarea remains as the single readable layer */}
-
-        <textarea
+        {/* Step toward single authoritative editable surface:
+            replace textarea with a single contentEditable DIV that will remain
+            the only visible/readable text layer. No additional overlay glyphs
+            will be introduced — token spans will be applied inside this same
+            DOM tree in later micro-chunks (no second readable layer). */}
+        <div
           ref={textareaRef}
+          contentEditable={!effectiveReadOnly}
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
           tabIndex={0}
-          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
+          className="flex-1 outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
           style={{
+            whiteSpace: 'pre',
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
             fontSize: '0.875rem',
-            whiteSpace: 'pre',
             overflowWrap: 'normal',
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            // Hide native text only when the overlay is fully ready and synchronized.
-            // This ensures a single readable text image (no ghosting). Otherwise keep
-            // the textarea visible as the authoritative text.
-            // When overlay is fully ready and matches the visible lines exactly
-            // hide the native textarea glyphs so only the single overlay image is
-            // readable (prevents doubled/washed text). Otherwise keep textarea visible.
-            // Keep textarea glyphs visible unconditionally for baseline stability.
-            color: undefined,
-            WebkitTextFillColor: undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
+            color: 'var(--editor-fg, inherit)',
           }}
-          value={value}
-          readOnly={effectiveReadOnly}
-          onChange={handleChange}
+          onInput={handleInput}
           onScroll={handleScroll}
           spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
+          // Render raw text into the contenteditable safely. We escape HTML so user text
+          // is preserved literally; white-space: pre ensures newlines render as expected.
+          dangerouslySetInnerHTML={{ __html: escapeHtml(value) }}
         />
       </div>
 
