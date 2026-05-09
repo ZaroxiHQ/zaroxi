@@ -25,6 +25,14 @@ static BUFFER_MANAGER: once_cell::sync::Lazy<Arc<BufferManager>> =
 static PARSER_POOL: once_cell::sync::Lazy<Arc<ParserPool>> =
     once_cell::sync::Lazy::new(|| Arc::new(ParserPool::new()));
 
+/// Per-document deterministic language resolution cache.
+///
+/// We persist the resolved language for each document id (normally the file
+/// path) at open time and on first highlight_text requests. This prevents
+/// transient "PlainText" fallbacks when a request races with a metadata update.
+static LANGUAGE_MAP: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<String, LanguageId>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 // ── OpenDocument response ─────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -120,6 +128,10 @@ pub struct HighlightTextRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HighlightResponse {
+    /// Document id the highlights correspond to (echoed for safety).
+    pub document_id: String,
+    /// Resolved language id used to compute these spans (echoed for safety).
+    pub language: String,
     pub lines: Vec<HighlightedLine>,
     pub version: u64,
 }
@@ -245,6 +257,8 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
             }
 
             Ok(Some(HighlightResponse {
+                document_id: path.clone(),
+                language: lang.as_str().to_string(),
                 lines: response_lines,
                 version: document.version(),
             }))
@@ -411,8 +425,22 @@ pub async fn highlight_document(
         return Ok(HighlightResponse { lines: vec![], version });
     }
 
-    let lang =
-        LanguageId::from_path(document.path().unwrap_or(std::path::Path::new("")));
+    // Resolve language deterministically: prefer a cached per-document value
+    // (populated at open_document or on first highlight_text request). This
+    // prevents transient PlainText fallbacks when metadata is missing briefly.
+    let lang = {
+        let key = request.document_id.clone();
+        let mut map = LANGUAGE_MAP.lock().unwrap();
+        if let Some(cached) = map.get(&key) {
+            eprintln!("[highlight_document] using cached language for {}: {:?}", key, cached);
+            cached.clone()
+        } else {
+            let resolved = LanguageId::from_path(document.path().unwrap_or(std::path::Path::new("")));
+            eprintln!("[highlight_document] resolved language for {}: {:?}", key, resolved);
+            map.insert(key.clone(), resolved.clone());
+            resolved
+        }
+    };
     eprintln!("[highlight_document] detected language: {:?}", lang);
 
     if lang == LanguageId::PlainText {
@@ -529,6 +557,8 @@ pub async fn highlight_document(
 
     eprintln!("[highlight_document] returning {} lines", response_lines.len());
     Ok(HighlightResponse {
+        document_id: request.document_id.clone(),
+        language: lang.as_str().to_string(),
         lines: response_lines,
         version,
     })
@@ -566,27 +596,35 @@ pub async fn highlight_text(
         _ => SemanticColors::dark(),
     };
 
-    // Determine language: prefer explicit language provided by the frontend,
-    // otherwise derive from the document id path. If detection yields PlainText,
-    // attempt lightweight, content-based heuristics (shebangs, markers) before
-    // giving up. This helps with script files lacking an extension and with
-    // files whose grammars are present but not detectable via path alone.
-    let mut lang = if let Some(lang_hint) = request.language.as_deref() {
-        // Build a synthetic filename using the hint so `from_path` can use its logic.
-        let fake = std::path::PathBuf::from(format!("file.{}", lang_hint));
-        LanguageId::from_path(fake.as_path())
-    } else {
-        LanguageId::from_path(path.as_path())
+    // Resolve language deterministically for this document id.
+    // Prefer a previously cached per-document resolution (set at open_document
+    // time), then an explicit frontend hint, then derive from the path.
+    // Persist the final decision in LANGUAGE_MAP so future requests are stable.
+    let mut lang = {
+        let key = request.document_id.clone();
+        let mut map = LANGUAGE_MAP.lock().unwrap();
+        if let Some(cached) = map.get(&key) {
+            eprintln!("[highlight_text] using cached language for {}: {:?}", key, cached);
+            cached.clone()
+        } else {
+            // prefer explicit hint
+            let resolved = if let Some(lang_hint) = request.language.as_deref() {
+                let fake = std::path::PathBuf::from(format!("file.{}", lang_hint));
+                LanguageId::from_path(fake.as_path())
+            } else {
+                LanguageId::from_path(path.as_path())
+            };
+            eprintln!("[highlight_text] initial resolved language for {}: {:?}", key, resolved);
+            map.insert(key.clone(), resolved.clone());
+            resolved
+        }
     };
 
-    // If plain detection produced PlainText, try simple content heuristics.
-    // NOTE: avoid referencing concrete LanguageId enum variants that may not exist.
-    // Instead map heuristics to a synthetic filename and use LanguageId::from_path,
-    // which centralises language mapping (including dynamic grammars).
+    // If we still have PlainText, attempt lightweight content heuristics (shebangs, markers).
     if lang == LanguageId::PlainText {
         let txt = full_text.as_str();
 
-        // Shebang detection (#! /usr/bin/env bash, python, etc.)
+        // Shebang detection
         if txt.starts_with("#!") {
             let ext_hint = if txt.contains("bash") || txt.contains("sh") {
                 "sh"
@@ -603,7 +641,7 @@ pub async fn highlight_text(
             }
         }
 
-        // TOML detection: common markers like [package] or key = "value"
+        // TOML detection
         if lang == LanguageId::PlainText {
             if txt.contains("[package]") || (txt.contains("=") && txt.contains("version")) {
                 let fake = std::path::PathBuf::from("file.toml");
@@ -619,19 +657,28 @@ pub async fn highlight_text(
             }
         }
 
-        // Markdown heuristics: headers or fenced code blocks
+        // Markdown heuristics
         if lang == LanguageId::PlainText {
             if txt.contains("\n# ") || txt.starts_with("# ") || txt.contains("```") {
                 let fake = std::path::PathBuf::from("file.md");
                 lang = LanguageId::from_path(fake.as_path());
             }
         }
+
+        // Persist any corrected resolution so future requests don't flip to PlainText.
+        let key = request.document_id.clone();
+        LANGUAGE_MAP.lock().unwrap().insert(key, lang.clone());
     }
 
-    // If still PlainText after heuristics, return empty (no grammar available).
+    // If still PlainText after heuristics, give a clear log and return empty spans.
     if lang == LanguageId::PlainText {
-        eprintln!("[highlight_text] PlainText -> returning empty");
-        return Ok(HighlightResponse { lines: vec![], version });
+        eprintln!("[highlight_text] PlainText -> returning empty for {}", request.document_id);
+        return Ok(HighlightResponse {
+            document_id: request.document_id.clone(),
+            language: lang.as_str().to_string(),
+            lines: vec![],
+            version,
+        });
     }
 
     let engine = HighlightEngine::new();
@@ -728,6 +775,8 @@ pub async fn highlight_text(
 
     eprintln!("[highlight_text] returning {} lines", response_lines.len());
     Ok(HighlightResponse {
+        document_id: request.document_id.clone(),
+        language: lang.as_str().to_string(),
         lines: response_lines,
         version,
     })

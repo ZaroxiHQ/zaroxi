@@ -633,12 +633,14 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     },
     (prev, next) => {
       // Determine if the line content or spans truly changed.
-      // Focus comparisons on the actual rendered content (text + spans) and
-      // avoid treating UID differences as destructive. This ensures a line's
-      // DOM node can remain mounted and only update when its visible content
-      // truly changes.
+      // Re-render when the logical line index changes so positional CSS (top)
+      // is kept correct; otherwise guard on text + spans equality to avoid
+      // unnecessary DOM updates.
       const a = prev.hl;
       const b = next.hl;
+
+      // If the index changed, we must update so the line moves to its new top.
+      if (a.index !== b.index) return false;
 
       if (a.text !== b.text) return false;
 
@@ -682,7 +684,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       {/* Visible rendered lines */}
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
-          <LineView key={hl.index} hl={hl} />
+          <LineView key={hl.uid} hl={hl} />
         ))}
 
         {/* Selection overlays */}

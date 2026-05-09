@@ -61,6 +61,8 @@ interface HighlightLine {
   spans: HighlightSpan[];
 }
 interface HighlightResponse {
+  documentId: string;
+  language: string;
   lines: HighlightLine[];
   version: number;
 }
@@ -157,6 +159,10 @@ function useHighlightSnapshot(
   useEffect(() => {
     if (!documentId || !initialSnapshot) return;
 
+    // Sanity: ensure the snapshot belongs to the same document and language.
+    if ((initialSnapshot as any).documentId !== documentId) return;
+    if (language && (initialSnapshot as any).language !== language) return;
+
     const reconstructed = initialSnapshot.lines.map((l) => l.text).join('\n');
     const matchesText =
       reconstructed === text ||
@@ -220,6 +226,19 @@ function useHighlightSnapshot(
 
         // Discard stale results.
         if (reqIdRef.current !== thisReq) return;
+
+        // Ensure the response matches the document and language we requested.
+        if (res.documentId !== documentId) return;
+        const requestedLang = language ?? '';
+        if (res.language !== requestedLang) return;
+
+        // Ensure the returned snapshot was produced from the exact text we sent.
+        const reconstructed = res.lines.map((l) => l.text).join('\n');
+        const matchesText =
+          reconstructed === text ||
+          reconstructed + '\n' === text ||
+          (text.endsWith('\n') && reconstructed === text.slice(0, -1));
+        if (!matchesText) return;
 
         // Patch only the returned lines into the existing map non-destructively.
         setMapState((prev) => {
