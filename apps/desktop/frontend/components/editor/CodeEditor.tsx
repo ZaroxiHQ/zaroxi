@@ -111,12 +111,31 @@ function useHighlightSnapshot(
   enabled: boolean,
   theme?: 'dark' | 'light',
   language?: string | undefined,
+  initialSnapshot?: HighlightResponse | null,
 ) {
   const [mapState, setMapState] = useState<Map<number, HighlightLine>>(new Map());
   // cache keyed by documentId::textHash to avoid re-fetching identical inputs
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const timerRef = useRef<number | null>(null);
+
+  // Seed cache from an optional server-provided initial snapshot (first-paint path).
+  useEffect(() => {
+    if (!documentId || !initialSnapshot) return;
+    const textKey = `${documentId}::${stableHashString(text)}`;
+    // Only seed when the provided snapshot matches the current visible text exactly.
+    if (initialSnapshot && initialSnapshot.lines.length > 0) {
+      // Build a map from the provided snapshot
+      const seeded = new Map<number, HighlightLine>();
+      for (const l of initialSnapshot.lines) {
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
+        seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
+      }
+      cacheRef.current.set(textKey, { text, map: seeded, version: initialSnapshot.version });
+      setMapState(new Map(seeded));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, /* seed only when component mounts with initialSnapshot */]);
 
   useEffect(() => {
     if (!documentId || !enabled) {
@@ -284,6 +303,54 @@ function renderSpans(spans: HighlightSpan[], lineText: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  HTML rendering helper (single-node overlay path)
+ *
+ *  To avoid remount storms when lines are inserted/removed we render the
+ *  visible overlay into a single DOM node via dangerouslySetInnerHTML.
+ *  This keeps the overlay node stable while its inner HTML is updated.
+ */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return c;
+    }
+  });
+}
+
+function renderSpansToHtml(spans: HighlightSpan[], lineText: string): string {
+  if (spans.length === 0 || lineText.length > 5000) {
+    return escapeHtml(lineText);
+  }
+
+  const merged = mergeSpans(spans, lineText.length);
+  if (merged.length === 0) {
+    return escapeHtml(lineText);
+  }
+
+  let last = 0;
+  let out = '';
+  for (let i = 0; i < merged.length; i++) {
+    const sp = merged[i];
+    if (sp.start > last) {
+      out += escapeHtml(lineText.slice(last, sp.start));
+    }
+    const tokenClass = `syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`;
+    const style = sp.color ? ` style="color:${sp.color}"` : '';
+    out += `<span class="${tokenClass}"${style}>${escapeHtml(lineText.slice(sp.start, sp.end))}</span>`;
+    last = sp.end;
+  }
+  if (last < lineText.length) {
+    out += escapeHtml(lineText.slice(last));
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Line view                                                          */
 /* ------------------------------------------------------------------ */
 const HighlightedLineView: React.FC<{ hl: HighlightLine; lineHeight: number }> = React.memo(
@@ -446,21 +513,10 @@ export function CodeEditor(props: CodeEditorProps) {
   // - we have a non-empty snapshot
   // - the snapshot contains entries for every visible line (prevents partial painting)
   // - totalHeight is within safe bounds
-  const overlayEnabled = (() => {
-    if (!highlightsEnabled || highlightedMap.size === 0 || totalHeight <= 0 || totalHeight > MAX_OVERLAY_HEIGHT) return false;
-    // Verify coverage of the visible range: every visible line index must be present
-    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      const hl = highlightedMap.get(idx);
-      if (!hl) return false;
-      // Ensure the highlighted line text matches the current displayed text for that line.
-      const start = displayLineStarts[idx] ?? displayText.length;
-      const end = displayLineStarts[idx + 1] ?? displayText.length;
-      let authoritative = displayText.slice(start, end);
-      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
-      if (hl.text !== authoritative) return false;
-    }
-    return true;
-  })();
+  // Overlay availability: we no longer gate rendering of the overlay by an all-or-nothing
+  // coverage check. The overlay is purely decorative; the native textarea text is always visible.
+  // This prevents the editor from becoming blank if highlights are not yet available.
+  const overlayAvailable = highlightsEnabled && highlightedMap.size > 0 && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
 
   // Handlers
   const handleChange = useCallback(
@@ -548,8 +604,9 @@ export function CodeEditor(props: CodeEditorProps) {
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
-            color: overlayEnabled ? 'transparent' : undefined,
-            WebkitTextFillColor: overlayEnabled ? 'transparent' : undefined,
+            // Do NOT hide native text when overlay is active. The textarea is always
+            // the primary visible text layer; overlay is purely decorative. This
+            // prevents the editor from becoming blank when highlights are missing.
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
