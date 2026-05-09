@@ -557,7 +557,7 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {overlayEnabled && (
+        {overlayAvailable && (
           <div
             aria-hidden="true"
             tabIndex={-1}
@@ -574,19 +574,29 @@ export function CodeEditor(props: CodeEditorProps) {
             }}
           >
             <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                transform: `translate3d(${-0}px, ${-scrollTop}px, 0px)`,
-                whiteSpace: 'pre',
-                width: '100%',
-                height: totalHeight,
-                pointerEvents: 'none',
-                boxSizing: 'border-box',
-              }}>
-                {overlayHighlighted.map((hl) => (<HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />))}
-              </div>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  transform: `translate3d(${-0}px, ${-scrollTop}px, 0px)`,
+                  whiteSpace: 'pre',
+                  width: '100%',
+                  height: totalHeight,
+                  pointerEvents: 'none',
+                  boxSizing: 'border-box',
+                }}
+                // Render the visible overlay as a single stable DOM node to avoid per-line remount storms.
+                dangerouslySetInnerHTML={{ __html: (() => {
+                  // Build HTML for the visible slice quickly and deterministically.
+                  const parts: string[] = [];
+                  for (const hl of overlayHighlighted) {
+                    parts.push(renderSpansToHtml(hl.spans, hl.text));
+                  }
+                  // Join with newline to preserve exact line layout inside a pre-styled container.
+                  return parts.join('\n');
+                })() }}
+              />
             </div>
           </div>
         )}
