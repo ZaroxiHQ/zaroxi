@@ -734,7 +734,10 @@ export function CodeEditor(props: CodeEditorProps) {
                   willChange: 'transform',
                   whiteSpace: 'pre',
                   width: '100%',
-                  height: containerHeight,
+                  // The overlay must span the full document height so child line elements
+                  // positioned at `index * lineHeight` are always placed consistently.
+                  // We still translate the whole overlay by -scrollTop to align viewport.
+                  height: totalHeight,
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
                 }}
@@ -759,7 +762,11 @@ export function CodeEditor(props: CodeEditorProps) {
             // Hide native text only when the overlay is fully ready and synchronized.
             // This ensures a single readable text image (no ghosting). Otherwise keep
             // the textarea visible as the authoritative text.
-            // Keep textarea visible at all times; overlay is decorative and painted on top.
+            // When overlay is fully ready and matches the visible lines exactly
+            // hide the native textarea glyphs so only the single overlay image is
+            // readable (prevents doubled/washed text). Otherwise keep textarea visible.
+            color: overlayReady ? 'transparent' : undefined,
+            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
