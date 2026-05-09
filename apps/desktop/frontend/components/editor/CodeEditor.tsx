@@ -35,9 +35,7 @@ import { GUTTER_CONFIG } from './gutter/GutterConfig';
 import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
-import { EditorState, StateEffect, StateField, RangeSetBuilder } from '@codemirror/state';
-import { EditorView, Decoration } from '@codemirror/view';
-import { basicSetup } from '@codemirror/basic-setup';
+import CustomSurface from './CustomSurface';
 
 // Frontend per-document syntax session store.
 // Keyed by documentId -> { text, map, version }. This allows highlight snapshots
@@ -537,10 +535,6 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
-  // Editor engine integration: mount point and view ref for CodeMirror.
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const cmParentRef = useRef<HTMLDivElement | null>(null);
-  const cmViewRef = useRef<EditorView | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
@@ -674,59 +668,10 @@ export function CodeEditor(props: CodeEditorProps) {
     // No overlay sync: baseline uses native textarea scrolling only.
   }, []);
 
-  // Initialize CodeMirror editor and sync with React state.
-  // This mounts a single EditorView into the `cmParentRef` element and keeps
-  // the React `value` in sync with the editor document. Syntax rendering is
-  // delegated to the editor engine. Tree-sitter highlight snapshots remain
-  // available for semantic features and will be integrated separately.
+  // Editor engine removed: using CustomSurface (custom DOM-based editor).
   useEffect(() => {
-    if (!cmParentRef.current) return;
-
-    // Create view if it doesn't exist.
-    if (!cmViewRef.current) {
-      const startState = EditorState.create({
-        doc: value,
-        extensions: [
-          basicSetup,
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
-              const txt = update.state.doc.toString();
-              // Sync back to React state only when text differs.
-              if (txt !== value) {
-                setValue(txt);
-                onChange(txt);
-              }
-            }
-          }),
-          // Editor should handle its own scrolling/selection/caret; no overlays.
-        ],
-      });
-      const view = new EditorView({
-        state: startState,
-        parent: cmParentRef.current,
-      });
-      cmViewRef.current = view;
-    } else {
-      // If view exists but React `value` changed externally (e.g., file open),
-      // update the editor document without triggering unnecessary re-render.
-      const view = cmViewRef.current!;
-      const docText = view.state.doc.toString();
-      if (docText !== value) {
-        // Use a single atomic change to replace the document content.
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: value }
-        });
-      }
-    }
-
-    return () => {
-      // On unmount, destroy the view to free resources.
-      if (cmViewRef.current) {
-        cmViewRef.current.destroy();
-        cmViewRef.current = null;
-      }
-    };
-  }, [cmParentRef, value, onChange]);
+    // No-op: the CustomSurface component mounts the editor DOM and handles input.
+  }, [value]);
 
   // Render
   return (
@@ -750,19 +695,16 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* CodeMirror mount point: replace previous custom overlay + textarea rendering
-            with a single, proven editor engine instance. This preserves one readable
-            text layer (the editor view) and avoids custom overlay glyph painting. */}
-        <div
-          ref={cmParentRef}
-          className="flex-1 relative z-10"
-          style={{
-            minHeight: totalHeight,
-            fontFamily: FONT_TOKENS.editor,
-            fontSize: '0.875rem',
-            lineHeight: `${lineHeight}px`,
-            whiteSpace: 'pre',
-          }}
+        {/* Custom single-surface editor: renders visible lines (token spans) directly
+            into the DOM and captures input via a focused hidden textarea for IME/composition.
+            This preserves one readable text layer (the rendered DOM) and avoids overlay glyph painting. */}
+        <CustomSurface
+          value={value}
+          onChange={(v: string) => { setValue(v); onChange(v); }}
+          lines={overlayHighlighted}
+          lineHeight={lineHeight}
+          totalHeight={totalHeight}
+          className="flex-1"
         />
       </div>
 
