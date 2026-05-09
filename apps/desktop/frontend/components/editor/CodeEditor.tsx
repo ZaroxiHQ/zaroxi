@@ -87,7 +87,25 @@ function stableHashString(s: string): string {
  * - Uses reqIdRef gating to discard stale responses.
  * - Returns Map<lineIndex, HighlightLine>.
  */
-function useBackgroundHighlights(
+/**
+ * useHighlightSnapshot
+ *
+ * Replaces the older visible-range/debounce-heavy highlight hook with a
+ * simpler, revision-aware snapshot pipeline:
+ *
+ * - The textarea value (text) is the single source of truth.
+ * - Requests for highlights are scheduled off the typing path (idle or short timer).
+ * - Results are gated by a request id so stale responses never get applied.
+ * - A small in-memory cache avoids re-requesting identical text.
+ * - The hook never causes the editor text to be hidden; the caller decides when
+ *   it is safe to enable the overlay (we only enable when the snapshot fully
+ *   covers the visible lines).
+ *
+ * This approach fixes partial-coverage and flashing by ensuring the UI only
+ * surfaces highlights that are computed from the exact text the editor currently
+ * shows and by preserving the previous snapshot until a full replacement is ready.
+ */
+function useHighlightSnapshot(
   documentId: string | null,
   text: string,
   enabled: boolean,
@@ -95,9 +113,10 @@ function useBackgroundHighlights(
   language?: string | undefined,
 ) {
   const [mapState, setMapState] = useState<Map<number, HighlightLine>>(new Map());
+  // cache keyed by documentId::textHash to avoid re-fetching identical inputs
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
-  const debounceRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!documentId || !enabled) {
@@ -105,12 +124,15 @@ function useBackgroundHighlights(
       return;
     }
 
-    const cached = cacheRef.current.get(documentId);
+    // Fast-path: if we've computed this exact text before, reuse it.
+    const textKey = `${documentId}::${stableHashString(text)}`;
+    const cached = cacheRef.current.get(textKey);
     if (cached && cached.text === text) {
       setMapState(new Map(cached.map));
       return;
     }
 
+    // schedule background highlight work without blocking typing
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
     let cancelled = false;
@@ -119,10 +141,10 @@ function useBackgroundHighlights(
       if (cancelled || reqIdRef.current !== thisReq) return;
       const newMap = new Map<number, HighlightLine>();
       for (const l of res.lines) {
-        // keep the backend-provided index (line number) but we will assign stable UI uids later
-        newMap.set(l.index, { uid: l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`, index: l.index, text: l.text, spans: l.spans });
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
+        newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
-      cacheRef.current.set(documentId, { text, map: newMap, version: res.version });
+      cacheRef.current.set(textKey, { text, map: newMap, version: res.version });
       setMapState(newMap);
     };
 
@@ -139,26 +161,38 @@ function useBackgroundHighlights(
         if (cancelled || reqIdRef.current !== thisReq) return;
         applyResultIfCurrent(res);
       } catch {
-        // ignore errors - keep existing highlights if any
+        // non-fatal -- keep previous snapshot if any
       }
     };
 
-    if (debounceRef.current) {
-      window.clearTimeout(debounceRef.current);
-      debounceRef.current = null;
+    // Prefer idle scheduling to avoid impacting typing responsiveness.
+    // Fallback to a short timeout in environments without requestIdleCallback.
+    if ((window as any).requestIdleCallback) {
+      (window as any).requestIdleCallback(
+        () => {
+          void fetch();
+        },
+        { timeout: 250 },
+      );
+    } else {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      timerRef.current = window.setTimeout(() => {
+        void fetch();
+        timerRef.current = null;
+      }, 120);
     }
-    // Balanced debounce: don't block typing but avoid hammering background parser.
-    debounceRef.current = window.setTimeout(() => {
-      void fetch();
-    }, Math.max(40, Math.min(180, Math.floor(text.length / 500))));
 
     return () => {
       cancelled = true;
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
-        debounceRef.current = null;
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
     };
+    // Intentionally include `text` so we request a fresh snapshot whenever the visible text changes.
   }, [documentId, text, enabled, theme, language]);
 
   return mapState;
@@ -359,7 +393,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const totalLines = displayLineStarts.length;
 
   const highlightsEnabled = !largeFile && !!session.documentId;
-  const highlightedMap = useBackgroundHighlights(
+  // Use the new stable highlight snapshot hook (revision-aware).
+  // We pass the full visible text so the backend can compute stable line snapshots.
+  const highlightedMap = useHighlightSnapshot(
     session.documentId ?? null,
     displayText,
     highlightsEnabled,
@@ -405,7 +441,26 @@ export function CodeEditor(props: CodeEditorProps) {
   const effectiveReadOnly = readOnly || largeFile;
   const totalHeight = totalLines * lineHeight;
   const MAX_OVERLAY_HEIGHT = 10_000_000;
-  const overlayEnabled = highlightsEnabled && highlightedMap.size > 0 && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
+  // Only enable the overlay when:
+  // - highlights are enabled for this session
+  // - we have a non-empty snapshot
+  // - the snapshot contains entries for every visible line (prevents partial painting)
+  // - totalHeight is within safe bounds
+  const overlayEnabled = (() => {
+    if (!highlightsEnabled || highlightedMap.size === 0 || totalHeight <= 0 || totalHeight > MAX_OVERLAY_HEIGHT) return false;
+    // Verify coverage of the visible range: every visible line index must be present
+    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+      const hl = highlightedMap.get(idx);
+      if (!hl) return false;
+      // Ensure the highlighted line text matches the current displayed text for that line.
+      const start = displayLineStarts[idx] ?? displayText.length;
+      const end = displayLineStarts[idx + 1] ?? displayText.length;
+      let authoritative = displayText.slice(start, end);
+      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+      if (hl.text !== authoritative) return false;
+    }
+    return true;
+  })();
 
   // Handlers
   const handleChange = useCallback(
