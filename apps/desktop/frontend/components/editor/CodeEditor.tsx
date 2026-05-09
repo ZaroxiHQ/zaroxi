@@ -66,6 +66,7 @@ interface HighlightResponse {
 }
 
 const FULL_LINES_LIMIT = 100_000;
+const LARGE_FILE_CHAR_THRESHOLD = 50_000; // disable syntax for files larger than this (characters)
 
 /* ----------------------------- Session prop ------------------------ */
 export interface EditorSession {
@@ -250,98 +251,50 @@ function useHighlightSnapshot(
           (text.endsWith('\n') && reconstructed === text.slice(0, -1));
         if (!matchesText) return;
 
-        // Patch only the returned lines into the existing map non-destructively.
-        // Reuse existing uids when possible to avoid React remounts/flash.
-        setMapState((prev) => {
-          const updated = new Map(prev);
-          const prevSession = documentId ? getDocumentSyntax(documentId) : undefined;
-          const usedUidsLocal = new Set<string>();
-
-          for (const l of res.lines) {
-            const existing = updated.get(l.index);
-
-            // Reuse uid if unchanged at same index.
-            let canonicalUid: string | undefined = undefined;
-            if (existing && existing.text === l.text) {
-              canonicalUid = existing.uid;
-              usedUidsLocal.add(canonicalUid);
-            }
-
-            // Otherwise try to reuse any previous uid with same text from the persisted document store.
-            if (!canonicalUid && prevSession && prevSession.map) {
-              const prevEntry = prevSession.map.get(l.index);
-              if (prevEntry && prevEntry.text === l.text && !usedUidsLocal.has(prevEntry.uid)) {
-                canonicalUid = prevEntry.uid;
-                usedUidsLocal.add(canonicalUid);
-              } else {
-                for (const [_, v] of prevSession.map) {
-                  if (v.text === l.text && !usedUidsLocal.has(v.uid)) {
-                    canonicalUid = v.uid;
-                    usedUidsLocal.add(canonicalUid);
-                    break;
-                  }
-                }
-              }
-            }
-
-            // Fallback: generate a unique uid that does not bake the numeric index
-            // into the identifier so DOM identity survives line shifts.
-            if (!canonicalUid) {
-              canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
-              usedUidsLocal.add(canonicalUid);
-            }
-
-            // Detect identical entry to avoid remounts/flashing.
-            let identical = false;
-            if (existing && existing.text === l.text) {
-              const sa = existing.spans || [];
-              const sb = l.spans || [];
-              if (sa.length === sb.length) {
-                identical = true;
-                for (let i = 0; i < sa.length; i++) {
-                  const a = sa[i];
-                  const b = sb[i];
-                  if (!a || !b || a.start !== b.start || a.end !== b.end || a.token_type !== b.token_type || (a.color ?? null) !== (b.color ?? null)) {
-                    identical = false;
-                    break;
-                  }
-                }
-              }
-            }
-
-            if (!identical) {
-              updated.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
-            }
-          }
-          return updated;
-        });
-
-        // Cache and document-store the incoming snapshot for future fast-paths.
+        // Build a full incoming map and replace the visible map atomically.
+        // This prevents intermediate partial patches that can cause visual flashes.
         const incomingMap = new Map<number, HighlightLine>();
         const prevSessionForCache = documentId ? getDocumentSyntax(documentId) : undefined;
+        const usedUidsLocal = new Set<string>();
+
         for (const l of res.lines) {
+          // Prefer prior uid for same index/text from the persisted document store.
           let canonicalUid: string | undefined;
-          // Prefer reusing a prior uid for the same index/text when available
           if (prevSessionForCache && prevSessionForCache.map) {
             const prevEntry = prevSessionForCache.map.get(l.index);
-            if (prevEntry && prevEntry.text === l.text) {
+            if (prevEntry && prevEntry.text === l.text && !usedUidsLocal.has(prevEntry.uid)) {
               canonicalUid = prevEntry.uid;
+              usedUidsLocal.add(canonicalUid);
             } else {
               for (const [_, v] of prevSessionForCache.map) {
-                if (v.text === l.text) {
+                if (v.text === l.text && !usedUidsLocal.has(v.uid)) {
                   canonicalUid = v.uid;
+                  usedUidsLocal.add(canonicalUid);
                   break;
                 }
               }
             }
           }
+
+          // Fallback: generate a deterministic uid that includes a per-hook counter
+          // to guarantee uniqueness while allowing reuse across snapshots.
           if (!canonicalUid) {
             canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
+            usedUidsLocal.add(canonicalUid);
           }
+
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
+
+        // Atomically replace the visible map so the UI never shows a partial patched state.
+        setMapState(new Map(incomingMap));
+
+        // Cache and persist for fast reuses. Only persist document syntax when the
+        // hook is enabled (caller controls enabled based on large-file policy).
         cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
-        setDocumentSyntax(documentId, { text, map: new Map(incomingMap), version: res.version, language: res.language });
+        if (enabled) {
+          setDocumentSyntax(documentId, { text, map: new Map(incomingMap), version: res.version, language: res.language });
+        }
       } catch {
         // Non-fatal: keep previous snapshot visible.
       }
@@ -655,13 +608,18 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [session.documentId, session.loadSeq]);
 
   // Derived UI state
-  const largeFile = session.contentTruncated ?? (value.length >= 50_000);
+  // Start with a conservative default; we'll refine `largeFile` after computing totalLines.
+  let largeFile = session.contentTruncated ?? false;
 
   // Highlighting: always derive from the visible text `value`.
   const displayText = value;
   const lineHeight = GUTTER_CONFIG.LINE_HEIGHT;
   const displayLineStarts = useMemo(() => computeLineStarts(displayText), [displayText]);
   const totalLines = displayLineStarts.length;
+
+  // Final large-file decision: consider explicit server-side truncation,
+  // character count, or very large line counts.
+  largeFile = session.contentTruncated ?? (value.length > LARGE_FILE_CHAR_THRESHOLD || totalLines > FULL_LINES_LIMIT);
 
   // Compute overlay lines for visible area early so the highlight hook can
   // request a visible-range snapshot immediately on mount.
