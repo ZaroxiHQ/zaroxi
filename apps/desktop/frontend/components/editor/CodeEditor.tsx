@@ -140,13 +140,17 @@ function useHighlightSnapshot(
   const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
   const reqIdRef = useRef(0);
   const timerRef = useRef<number | null>(null);
+  const firstFetchRef = useRef(true);
 
   // Seed cache from an optional server-provided initial snapshot (first-paint path).
   useEffect(() => {
     if (!documentId || !initialSnapshot) return;
+    // Reconstruct the snapshot text and only seed when it exactly matches current text.
+    const reconstructed = initialSnapshot.lines.map((l) => l.text).join('\n');
+    if (reconstructed !== text) return;
+
     const textKey = `${documentId}::${stableHashString(text)}`;
-    // Only seed when the provided snapshot matches the current visible text exactly.
-    if (initialSnapshot && initialSnapshot.lines.length > 0) {
+    if (initialSnapshot.lines.length > 0) {
       // Build a map from the provided snapshot
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
@@ -259,8 +263,13 @@ function useHighlightSnapshot(
     };
 
     // Prefer idle scheduling to avoid impacting typing responsiveness.
-    // Fallback to a short timeout in environments without requestIdleCallback.
-    if ((window as any).requestIdleCallback) {
+    // However, perform an immediate first-fetch on mount when no initial snapshot
+    // is available to avoid a visible delay on open. Subsequent requests continue
+    // to use idle scheduling or short timeouts.
+    if (firstFetchRef.current && !initialSnapshot) {
+      firstFetchRef.current = false;
+      void fetch();
+    } else if ((window as any).requestIdleCallback) {
       (window as any).requestIdleCallback(
         () => {
           void fetch();
@@ -275,7 +284,7 @@ function useHighlightSnapshot(
       timerRef.current = window.setTimeout(() => {
         void fetch();
         timerRef.current = null;
-      }, 120);
+      }, 60);
     }
 
     return () => {
@@ -609,6 +618,7 @@ export function CodeEditor(props: CodeEditorProps) {
     highlightsEnabled,
     theme,
     session.language && session.language !== 'plaintext' ? session.language : undefined,
+    session.initialHighlight ?? null,
   );
 
   // Compute overlay lines for visible area
