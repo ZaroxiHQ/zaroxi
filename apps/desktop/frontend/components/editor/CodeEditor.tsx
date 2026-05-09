@@ -425,6 +425,56 @@ function computeLineCharStarts(text: string): number[] {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Selection helpers for contenteditable                              */
+/*                                                                       */
+/*  These helpers map between a caret character offset inside the       */
+/*  editable element and DOM Range positions. They are intentionally    */
+/*  simple and robust for our use case (monospace editor text).        */
+/* ------------------------------------------------------------------ */
+
+function getCaretCharacterOffsetWithin(element: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0).cloneRange();
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(element);
+  preRange.setEnd(range.endContainer, range.endOffset);
+  return preRange.toString().length;
+}
+
+function setCaretCharacterOffsetWithin(element: HTMLElement, offset: number) {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  let current = 0;
+  let node: Node | null = null;
+  while ((node = walker.nextNode())) {
+    const text = (node.nodeValue || '');
+    const next = current + text.length;
+    if (next >= offset) {
+      const within = offset - current;
+      const range = document.createRange();
+      range.setStart(node, within);
+      range.collapse(true);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      return;
+    }
+    current = next;
+  }
+  // Fallback: place caret at end
+  const sel = window.getSelection();
+  if (!sel) return;
+  element.focus();
+  sel.removeAllRanges();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  sel.addRange(range);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Simplified Editor implementation                                   */
 /* ------------------------------------------------------------------ */
 export function CodeEditor(props: CodeEditorProps) {
@@ -506,6 +556,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const [scrollTop, setScrollTop] = useState(0);
   // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  // Content editable ref - the single authoritative editable surface that renders
+  // highlighted HTML and is the only readable text image on screen.
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
@@ -543,80 +596,30 @@ export function CodeEditor(props: CodeEditorProps) {
     return lines;
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
-  // Incremental overlay patching: update only per-line DOM nodes that changed.
-  // This prevents whole-overlay replacement and avoids broad repaint / trailing-region flashes.
+  // Render highlighted HTML into the single contenteditable surface.
+  // Preserve the user's caret position across updates so typing remains smooth.
   useEffect(() => {
-    const container = overlayRef.current;
-    if (!container) return;
+    const el = contentRef.current;
+    if (!el) return;
 
-    // Build map of existing child nodes by their line index
-    const existing = new Map<number, HTMLElement>();
-    for (let i = 0; i < container.children.length; i++) {
-      const el = container.children[i] as HTMLElement;
-      const ds = el.dataset.lineIndex;
-      if (!ds) continue;
-      const idx = Number(ds);
-      if (!Number.isNaN(idx)) existing.set(idx, el);
-    }
+    // Preserve caret offset inside the editable element
+    const priorOffset = getCaretCharacterOffsetWithin(el);
 
-    // Track which indices we touched so we can remove stale nodes afterwards
-    const touched = new Set<number>();
-
-    // Update or create nodes for each visible highlighted line
+    // Build HTML for visible lines (wrap each line in a block to preserve line breaks)
+    const parts: string[] = [];
     for (const hl of overlayHighlighted) {
-      const idx = hl.index;
-      const html = renderSpansToHtml(hl.spans, hl.text);
-      const existingEl = existing.get(idx);
-      if (existingEl) {
-        // If uid and HTML identical, keep as-is (no update)
-        if (existingEl.dataset.hlUid === hl.uid && existingEl.dataset.hlHtml === html) {
-          touched.add(idx);
-          existing.delete(idx);
-          continue;
-        }
-        // Otherwise patch in place
-        existingEl.dataset.hlUid = hl.uid;
-        existingEl.dataset.hlHtml = html;
-        // Ensure position is correct (in case lines moved)
-        existingEl.style.top = `${idx * lineHeight}px`;
-        // Update content
-        existingEl.innerHTML = html;
-        touched.add(idx);
-        existing.delete(idx);
-        continue;
-      }
-
-      // Create new node
-      const newEl = document.createElement('div');
-      newEl.setAttribute('data-line-index', String(idx));
-      newEl.dataset.hlUid = hl.uid;
-      newEl.dataset.hlHtml = html;
-      newEl.style.position = 'absolute';
-      newEl.style.top = `${idx * lineHeight}px`;
-      newEl.style.left = '0';
-      newEl.style.height = `${lineHeight}px`;
-      newEl.style.lineHeight = `${lineHeight}px`;
-      newEl.style.whiteSpace = 'pre';
-      newEl.style.pointerEvents = 'none';
-      newEl.innerHTML = html;
-      container.appendChild(newEl);
-      touched.add(idx);
+      const lineHtml = renderSpansToHtml(hl.spans, hl.text);
+      parts.push(`<div data-line-index="${hl.index}" data-hl-uid="${hl.uid}">${lineHtml}</div>`);
     }
-
-    // Remove any leftover nodes that were not touched (stale from previous render)
-    for (const [idx, el] of existing.entries()) {
-      if (!touched.has(idx)) {
-        try {
-          container.removeChild(el);
-        } catch {
-          // ignore if already removed
-        }
-      }
-    }
-
-    // Sync transform immediately so overlay stays lock-stepped with textarea scroll
-    container.style.willChange = 'transform';
-    container.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    // Batch DOM write in requestAnimationFrame to avoid mid-frame layout thrash
+    requestAnimationFrame(() => {
+      el.innerHTML = parts.join('');
+      // Restore caret roughly to the previous character offset
+      setCaretCharacterOffsetWithin(el, priorOffset);
+      // Ensure overlay is positioned in sync with scroll
+      el.style.willChange = 'transform';
+      el.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlayHighlighted, lineHeight]);
 
@@ -659,23 +662,23 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [overlayAvailable, highlightedMap, displayLineStarts, displayText, visibleStartLine, visibleEndLine]);
 
   // Handlers
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      if (effectiveReadOnly) return;
-      const v = e.target.value;
-      setValue(v);
-      onChange(v);
-    },
-    [onChange, effectiveReadOnly],
-  );
+  const handleInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
+    if (effectiveReadOnly) return;
+    const el = e.currentTarget as HTMLDivElement;
+    // innerText preserves line breaks in a plain way; normalize CRLF to LF.
+    const text = el.innerText.replace(/\r\n/g, '\n');
+    setValue(text);
+    onChange(text);
+  }, [onChange, effectiveReadOnly]);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
-    const top = e.currentTarget.scrollTop;
+  const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
+    const target = e.currentTarget as HTMLElement;
+    const top = (target.scrollTop ?? 0);
     scrollTopRef.current = top;
     setScrollTop(top);
 
-    // Synchronously update overlay transform to avoid React state/paint lag.
-    const node = overlayRef.current;
+    // Synchronously update overlay transform on the content surface to avoid one-frame lag.
+    const node = contentRef.current;
     if (node) {
       node.style.willChange = 'transform';
       node.style.transform = `translate3d(0px, ${-top}px, 0px)`;
@@ -704,47 +707,59 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {overlayAvailable && (
-          <div
-            aria-hidden="true"
-            tabIndex={-1}
-            onMouseDown={() => { textareaRef.current?.focus(); }}
-            className="absolute inset-0 overflow-hidden pointer-events-none select-none text-editor-foreground"
-            style={{
-              lineHeight: `${lineHeight}px`,
-              fontFamily: FONT_TOKENS.editor,
-              fontSize: '0.875rem',
-              whiteSpace: 'pre',
-              overflowWrap: 'normal',
-              pointerEvents: 'none',
-              zIndex: 30,
-            }}
-          >
-            <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
-              {/* Single DOM overlay node that contains per-line highlighted HTML.
-                  We update innerHTML via effect/RAF to avoid per-line remount storms. */}
-              <div
-                ref={overlayRef}
-                aria-hidden="true"
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  transform: `translate3d(0px, ${-scrollTop}px, 0px)`,
-                  willChange: 'transform',
-                  whiteSpace: 'pre',
-                  width: '100%',
-                  // The overlay must span the full document height so child line elements
-                  // positioned at `index * lineHeight` are always placed consistently.
-                  // We still translate the whole overlay by -scrollTop to align viewport.
-                  height: totalHeight,
-                  pointerEvents: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
+        {/* Single contenteditable surface as the authoritative, single readable text image.
+            We render highlighted HTML into this element and let the browser manage caret
+            and selection. This eliminates double-text composition (only this element is readable). */}
+        <div
+          aria-hidden={false}
+          tabIndex={0}
+          onMouseDown={() => { contentRef.current?.focus(); }}
+          className="absolute inset-0 overflow-auto pointer-events-auto select-text text-editor-foreground"
+          style={{
+            lineHeight: `${lineHeight}px`,
+            fontFamily: FONT_TOKENS.editor,
+            fontSize: '0.875rem',
+            whiteSpace: 'pre',
+            overflowWrap: 'normal',
+            pointerEvents: 'auto',
+            zIndex: 30,
+          }}
+        >
+          <div style={{ position: 'relative', height: totalHeight, width: '100%', boxSizing: 'border-box' }}>
+            <div
+              ref={contentRef}
+              contentEditable={!effectiveReadOnly}
+              suppressContentEditableWarning
+              onInput={handleInput}
+              onScroll={handleScroll}
+              aria-label="Code editor"
+              role="textbox"
+              spellCheck={false}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                transform: `translate3d(0px, ${-scrollTop}px, 0px)`,
+                willChange: 'transform',
+                whiteSpace: 'pre',
+                width: '100%',
+                height: totalHeight,
+                outline: 'none',
+                caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
+                // Ensure the contenteditable uses the exact same font/metrics as other UI.
+                fontFamily: FONT_TOKENS.editor,
+                fontSize: '0.875rem',
+                lineHeight: `${lineHeight}px`,
+                boxSizing: 'border-box',
+                padding: 0,
+                margin: 0,
+                color: 'var(--editor-fg, inherit)',
+                background: 'transparent',
+                overflow: 'hidden',
+              }}
+            />
           </div>
-        )}
+        </div>
 
         <textarea
           ref={textareaRef}
