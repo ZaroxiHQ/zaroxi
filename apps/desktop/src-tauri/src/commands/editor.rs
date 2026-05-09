@@ -33,6 +33,69 @@ static PARSER_POOL: once_cell::sync::Lazy<Arc<ParserPool>> =
 static LANGUAGE_MAP: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashMap<String, LanguageId>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+/// Canonical language resolution for file-backed documents.
+///
+/// This function enforces a deterministic mapping from a file path to a
+/// LanguageId. Known extensions are mapped directly to a LanguageId::Dynamic
+/// variant so that we never transiently resolve e.g. `.rs` -> PlainText due
+/// to timing or missing metadata elsewhere in the system.
+///
+/// Rules:
+///  - Use extension-based mapping first for known filetypes.
+///  - Fallback to LanguageId::from_path(...) for other cases.
+///  - Never return PlainText for a known extension (.rs/.toml/.md/...).
+fn resolve_language_from_path(path: &std::path::Path) -> LanguageId {
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        match ext.to_ascii_lowercase().as_str() {
+            "rs" => {
+                // Prefer explicit dynamic id for rust
+                return LanguageId::Dynamic("rust");
+            }
+            "toml" => {
+                return LanguageId::Dynamic("toml");
+            }
+            "md" | "markdown" | "mkd" => {
+                return LanguageId::Dynamic("markdown");
+            }
+            "js" => {
+                return LanguageId::Dynamic("javascript");
+            }
+            "ts" => {
+                return LanguageId::Dynamic("typescript");
+            }
+            "jsx" => {
+                return LanguageId::Dynamic("javascript");
+            }
+            "tsx" => {
+                return LanguageId::Dynamic("typescript");
+            }
+            "py" => {
+                return LanguageId::Dynamic("python");
+            }
+            "sh" | "bash" => {
+                return LanguageId::Dynamic("bash");
+            }
+            "c" => {
+                return LanguageId::Dynamic("c");
+            }
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" => {
+                return LanguageId::Dynamic("cpp");
+            }
+            "json" => {
+                return LanguageId::Dynamic("json");
+            }
+            "yaml" | "yml" => {
+                return LanguageId::Dynamic("yaml");
+            }
+            _ => {
+                // Unknown extension, fall through to from_path
+            }
+        }
+    }
+    // Fallback to existing logic for other cases (e.g. dynamic grammars, shebangs).
+    LanguageId::from_path(path)
+}
+
 // ── OpenDocument response ─────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -268,6 +331,15 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
     })()
     .map_err(|e| format!("Failed to build initial highlight: {}", e))?;
 
+    // Resolve and persist the canonical language for this opened document so
+    // subsequent highlight requests do not have to re-resolve or fall back to
+    // PlainText transiently.
+    let resolved_lang = resolve_language_from_path(&path_buf);
+    LANGUAGE_MAP
+        .lock()
+        .unwrap()
+        .insert(path.clone(), resolved_lang.clone());
+
     Ok(OpenDocumentResponse {
         document_id: path.clone(),
         path,
@@ -278,9 +350,8 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
         content,
         content_truncated,
         version: document.version(),
-        // Detect language from the requested path so the frontend can request
-        // highlighting using an explicit language hint when available.
-        language: Some(LanguageId::from_path(path_buf.as_path()).as_str().to_string()),
+        // Provide the canonical language hint to the frontend.
+        language: Some(resolved_lang.as_str().to_string()),
         initial_highlight,
     })
 }
@@ -430,9 +501,10 @@ pub async fn highlight_document(
         });
     }
 
-    // Resolve language deterministically: prefer a cached per-document value
-    // (populated at open_document or on first highlight_text request). This
-    // prevents transient PlainText fallbacks when metadata is missing briefly.
+    // Resolve language deterministically via the canonical resolver.
+    // Prefer the per-document cached resolution (set at open_document),
+    // otherwise resolve from the document's stored path (if present) or
+    // from the document_id path.
     let lang = {
         let key = request.document_id.clone();
         let mut map = LANGUAGE_MAP.lock().unwrap();
@@ -440,9 +512,29 @@ pub async fn highlight_document(
             eprintln!("[highlight_document] using cached language for {}: {:?}", key, cached);
             cached.clone()
         } else {
-            let resolved = LanguageId::from_path(document.path().unwrap_or(std::path::Path::new("")));
+            // Prefer the canonical document path when available; otherwise fall back
+            // to the requested document_id.
+            let resolved = if let Some(p) = document.path() {
+                resolve_language_from_path(p)
+            } else {
+                let pb = std::path::PathBuf::from(&request.document_id);
+                resolve_language_from_path(pb.as_path())
+            };
+
             eprintln!("[highlight_document] resolved language for {}: {:?}", key, resolved);
-            map.insert(key.clone(), resolved.clone());
+
+            // Only persist non-PlainText resolutions. We should not cache a
+            // PlainText result for a known extension, and known extensions are
+            // handled inside resolve_language_from_path already.
+            if resolved != LanguageId::PlainText {
+                map.insert(key.clone(), resolved.clone());
+            } else {
+                eprintln!(
+                    "[highlight_document] resolved PlainText for {} - not caching; will return empty spans",
+                    key
+                );
+            }
+
             resolved
         }
     };
@@ -606,10 +698,12 @@ pub async fn highlight_text(
         _ => SemanticColors::dark(),
     };
 
-    // Resolve language deterministically for this document id.
-    // Prefer a previously cached per-document resolution (set at open_document
-    // time), then an explicit frontend hint, then derive from the path.
-    // Persist the final decision in LANGUAGE_MAP so future requests are stable.
+    // Resolve language deterministically for this document id using the canonical
+    // resolver. Preference order:
+    //  1) previously cached resolution (open_document)
+    //  2) explicit frontend hint (request.language)
+    //  3) canonical path-based mapping (resolve_language_from_path)
+    // Persist only non-PlainText resolutions.
     let mut lang = {
         let key = request.document_id.clone();
         let mut map = LANGUAGE_MAP.lock().unwrap();
@@ -617,15 +711,19 @@ pub async fn highlight_text(
             eprintln!("[highlight_text] using cached language for {}: {:?}", key, cached);
             cached.clone()
         } else {
-            // prefer explicit hint
             let resolved = if let Some(lang_hint) = request.language.as_deref() {
+                // Use hint but still normalise via from_path logic to produce a LanguageId.
                 let fake = std::path::PathBuf::from(format!("file.{}", lang_hint));
-                LanguageId::from_path(fake.as_path())
+                resolve_language_from_path(fake.as_path())
             } else {
-                LanguageId::from_path(path.as_path())
+                resolve_language_from_path(path.as_path())
             };
             eprintln!("[highlight_text] initial resolved language for {}: {:?}", key, resolved);
-            map.insert(key.clone(), resolved.clone());
+            if resolved != LanguageId::PlainText {
+                map.insert(key.clone(), resolved.clone());
+            } else {
+                eprintln!("[highlight_text] resolved PlainText for {}; not caching", key);
+            }
             resolved
         }
     };

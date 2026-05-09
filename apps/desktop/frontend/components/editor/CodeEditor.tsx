@@ -646,6 +646,12 @@ export function CodeEditor(props: CodeEditorProps) {
   // Build a visible slice of highlight lines from the highlightedMap.
   const overlayHighlighted: HighlightLine[] = useMemo(() => {
     const lines: HighlightLine[] = [];
+
+    // Try to reuse uids from the global syntaxSessionStore to avoid duplicate
+    // keys and preserve DOM identity for unchanged lines across edits.
+    const prevSession = session.documentId ? syntaxSessionStore.get(session.documentId) : undefined;
+    const usedUids = new Set<string>();
+
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
       const start = displayLineStarts[idx] ?? displayText.length;
       const end = displayLineStarts[idx + 1] ?? displayText.length;
@@ -653,19 +659,40 @@ export function CodeEditor(props: CodeEditorProps) {
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
       const backend = highlightedMap.get(idx);
-      // Use a canonical UID based purely on documentId + line text hash. This
-      // keeps the identity stable between the plain-text rendering and any
-      // subsequent highlighted snapshot so we avoid destructive remounts.
-      const canonicalUid = `${session.documentId}:${stableHashString(authoritative)}`;
+
+      // Attempt to reuse an existing uid for this index if the prior session had
+      // the same text at the same index.
+      let uid: string | undefined = undefined;
+      if (prevSession && prevSession.map) {
+        const prevEntry = prevSession.map.get(idx);
+        if (prevEntry && prevEntry.text === authoritative && !usedUids.has(prevEntry.uid)) {
+          uid = prevEntry.uid;
+          usedUids.add(uid);
+        } else {
+          // Fallback: try to find any previous entry with the same text (first unused).
+          for (const [_, v] of prevSession.map) {
+            if (v.text === authoritative && !usedUids.has(v.uid)) {
+              uid = v.uid;
+              usedUids.add(uid);
+              break;
+            }
+          }
+        }
+      }
+
+      // If no prior uid was found, create a deterministic canonical uid that
+      // includes a stable hash of the line text and the local index as a
+      // tie-breaker. This reduces accidental key collisions while keeping uids
+      // deterministic between renders for the same content.
+      if (!uid) {
+        uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
+        usedUids.add(uid);
+      }
 
       if (backend && backend.text === authoritative) {
-        // Apply backend spans only when the backend snapshot matches the exact
-        // authoritative line text. Otherwise keep the line plain until a fresh
-        // snapshot arrives for that exact text.
-        lines.push({ uid: canonicalUid, index: idx, text: authoritative, spans: backend.spans });
+        lines.push({ uid, index: idx, text: authoritative, spans: backend.spans });
       } else {
-        // Plain fallback: no spans, explicit uid is canonical (no index appended).
-        lines.push({ uid: canonicalUid, index: idx, text: authoritative, spans: [] });
+        lines.push({ uid, index: idx, text: authoritative, spans: [] });
       }
     }
     return lines;
