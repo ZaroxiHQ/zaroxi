@@ -1,12 +1,25 @@
 /**
- * CodeEditor (simplified and deterministic)
+ * CodeEditor (hard reset baseline)
  *
- * Runtime rendering fix summary:
- * 1) Reason for washed/doubled text: nested transforms and multiple overlay nodes caused transform/paint races so the overlay could desync from the textarea and produce a visible ghost image during fast scrolling.
- * 2) Both text layers could be visible when overlay innerHTML and a parent transform were updated out-of-sync.
- * 3) Removed the nested inner/outer transform model and the unstable overlayInnerRef usage that led to double-layer race conditions.
- * 4) New model: a single authoritative overlay DOM node (overlayRef) receives both innerHTML and transform updates; scroll updates set transform synchronously on that node and innerHTML updates are batched into requestAnimationFrame.
- * 5) Why this is fixed: the overlay is updated in the same frame as transform changes, uses a single composited layer (will-change: transform) and no longer applies competing nested transforms — scrolling is now crisp and free of ghosting.
+ * Hard reset summary:
+ * - Removed/disabled all custom syntax presentation layers (DOM overlay, per-line overlay,
+ *   DOM patch writes). These layers previously caused doubled/ghosted/washed text.
+ * - Sole readable layer: the native <textarea> is now the single authoritative visible text surface.
+ * - Syntax highlighting has been temporarily disabled at the presentation layer to ensure a clean baseline.
+ * - Follow-up plan: reintroduce syntax via a non-rendering presentation (e.g. overlayed CSS-only decorations or separate gutter/inline annotations)
+ *   that never draws glyphs or duplicates the textarea's visible text. Tree-sitter state can remain for future safe reintroduction.
+ *
+ * Removed/disabled presentation paths in this commit:
+ * - DOM overlay innerHTML writes into a contenteditable node (removed).
+ * - Per-line absolutely positioned HighlightedLineView rendering (no longer mounted).
+ * - Overlay transform sync writes to disabled nodes.
+ *
+ * Why this fixes ghosting:
+ * - Only one composited text layer remains (the textarea): no competing glyph rendering or transform races.
+ * - Scrolling and typing operate only against the native control; no requestAnimationFrame DOM patches can desync visuals.
+ *
+ * (Implementation: this commit removes the overlay JSX and the DOM patching effects that wrote innerHTML,
+ *  while preserving non-visual highlight hooks for future work.)
  */
 
 import React, {
@@ -555,10 +568,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const scrollTopRef = useRef<number>(0);
   const [scrollTop, setScrollTop] = useState(0);
   // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  // Content editable ref - the single authoritative editable surface that renders
-  // highlighted HTML and is the only readable text image on screen.
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  // Overlay refs disabled for hard-reset baseline: no overlay DOM writes or transform syncs.
+  // const overlayRef = useRef<HTMLDivElement | null>(null);
+  // const contentRef = useRef<HTMLDivElement | null>(null);
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
@@ -568,98 +580,26 @@ export function CodeEditor(props: CodeEditorProps) {
   // The backend returns spans that are already relative to each line's text.
   // Use those spans as-is (no absolute-offset remapping) and always render
   // full line text (spans + plain gaps). This prevents partial coverage.
-  const overlayHighlighted = useMemo(() => {
-    const lines: HighlightLine[] = [];
-    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      const start = displayLineStarts[idx] ?? displayText.length;
-      const end = displayLineStarts[idx + 1] ?? displayText.length;
-      let authoritative = displayText.slice(start, end);
-      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+  // Overlay highlighting disabled for baseline. Keep an empty list to preserve downstream shape.
+  const overlayHighlighted: HighlightLine[] = [];
 
-      const backendHl = highlightedMap.get(idx);
-      const usedSpans: HighlightSpan[] = [];
-      if (backendHl && Array.isArray(backendHl.spans) && backendHl.spans.length > 0) {
-        // Backend spans are line-relative already: [start, end) measured in characters
-        for (const sp of backendHl.spans) {
-          usedSpans.push({
-            start: sp.start,
-            end: sp.end,
-            token_type: sp.token_type,
-            color: sp.color,
-          });
-        }
-      }
-
-      const uid = backendHl && backendHl.uid ? backendHl.uid : `${session.documentId}:${stableHashString(authoritative)}`;
-      lines.push({ uid, index: idx, text: authoritative, spans: usedSpans });
-    }
-    return lines;
-  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
-
-  // Render highlighted HTML into the single contenteditable surface.
-  // Preserve the user's caret position across updates so typing remains smooth.
+  // Overlay DOM writes disabled for baseline: no-op effect to keep hook signature stable.
   useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-
-    // Preserve caret offset inside the editable element
-    const priorOffset = getCaretCharacterOffsetWithin(el);
-
-    // Build HTML for visible lines (wrap each line in a block to preserve line breaks)
-    const parts: string[] = [];
-    for (const hl of overlayHighlighted) {
-      const lineHtml = renderSpansToHtml(hl.spans, hl.text);
-      parts.push(`<div data-line-index="${hl.index}" data-hl-uid="${hl.uid}">${lineHtml}</div>`);
-    }
-    // Batch DOM write in requestAnimationFrame to avoid mid-frame layout thrash
-    requestAnimationFrame(() => {
-      el.innerHTML = parts.join('');
-      // Restore caret roughly to the previous character offset
-      setCaretCharacterOffsetWithin(el, priorOffset);
-      // Ensure overlay is positioned in sync with scroll
-      el.style.willChange = 'transform';
-      el.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally empty: overlay rendering is removed in this baseline reset.
   }, [overlayHighlighted, lineHeight]);
 
-  // Keep overlay transform synchronized immediately when scrollTop changes.
+  // Overlay transform synchronization disabled for baseline.
   useEffect(() => {
-    const node = overlayRef.current;
-    if (!node) return;
-    node.style.willChange = 'transform';
-    node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    // no-op
   }, [scrollTop]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
   const totalHeight = totalLines * lineHeight;
   const MAX_OVERLAY_HEIGHT = 10_000_000;
-  // Only enable the overlay when:
-  // - highlights are enabled for this session
-  // - we have a non-empty snapshot
-  // - the snapshot contains entries for every visible line (prevents partial painting)
-  // - totalHeight is within safe bounds
-  // Overlay availability: we no longer gate rendering of the overlay by an all-or-nothing
-  // coverage check. The overlay is purely decorative; the native textarea text is always visible.
-  // This prevents the editor from becoming blank if highlights are not yet available.
-  const overlayAvailable = highlightsEnabled && highlightedMap.size > 0 && totalHeight > 0 && totalHeight <= MAX_OVERLAY_HEIGHT;
-
-  // When true the overlay has coverage and exact text matches for every visible line.
-  // Only in this state do we hide the native textarea text to avoid double-layer artifacts.
-  const overlayReady = useMemo(() => {
-    if (!overlayAvailable) return false;
-    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
-      const hl = highlightedMap.get(idx);
-      if (!hl) return false;
-      const start = displayLineStarts[idx] ?? displayText.length;
-      const end = displayLineStarts[idx + 1] ?? displayText.length;
-      let authoritative = displayText.slice(start, end);
-      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
-      if (hl.text !== authoritative) return false;
-    }
-    return true;
-  }, [overlayAvailable, highlightedMap, displayLineStarts, displayText, visibleStartLine, visibleEndLine]);
+  // Overlay availability / readiness disabled for baseline to avoid any gating logic.
+  const overlayAvailable = false;
+  const overlayReady = false;
 
   // Handlers
   const handleInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
@@ -689,13 +629,7 @@ export function CodeEditor(props: CodeEditorProps) {
     const top = (target.scrollTop ?? 0);
     scrollTopRef.current = top;
     setScrollTop(top);
-
-    // Synchronously update overlay transform on the content surface to avoid one-frame lag.
-    const node = contentRef.current;
-    if (node) {
-      node.style.willChange = 'transform';
-      node.style.transform = `translate3d(0px, ${-top}px, 0px)`;
-    }
+    // No overlay sync: baseline uses native textarea scrolling only.
   }, []);
 
   // Render
@@ -720,62 +654,7 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* MICRO-CHUNK 2.2 — Hide overlay presentation:
-            Make the overlay wrapper non-rendering (display:none) so no decorative
-            overlay content can appear visually. This is a minimal, reversible
-            change that keeps the overlay logic present but non-displaying. */}
-        <div
-          aria-hidden={true}
-          tabIndex={-1}
-          onMouseDown={() => { /* focus is handled by the textarea baseline; noop here */ }}
-          className="absolute inset-0 overflow-auto pointer-events-none select-text text-editor-foreground"
-          style={{
-            display: 'none',
-            lineHeight: `${lineHeight}px`,
-            fontFamily: FONT_TOKENS.editor,
-            fontSize: '0.875rem',
-            whiteSpace: 'pre',
-            overflowWrap: 'normal',
-            pointerEvents: 'none',
-            zIndex: 10,
-          }}
-        >
-          <div style={{ position: 'relative', height: totalHeight, width: '100%', boxSizing: 'border-box' }}>
-            <div
-              ref={contentRef}
-              contentEditable={false}
-              suppressContentEditableWarning
-              onInput={handleInput}
-              onScroll={handleScroll}
-              aria-label="Code editor"
-              role="presentation"
-              spellCheck={false}
-              style={{
-                display: 'none',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                transform: `translate3d(0px, ${-scrollTop}px, 0px)`,
-                willChange: 'transform',
-                whiteSpace: 'pre',
-                width: '100%',
-                height: totalHeight,
-                outline: 'none',
-                caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
-                // Ensure the contenteditable uses the exact same font/metrics as other UI.
-                fontFamily: FONT_TOKENS.editor,
-                fontSize: '0.875rem',
-                lineHeight: `${lineHeight}px`,
-                boxSizing: 'border-box',
-                padding: 0,
-                margin: 0,
-                color: 'var(--editor-fg, inherit)',
-                background: 'transparent',
-                overflow: 'hidden',
-              }}
-            />
-          </div>
-        </div>
+        {/* Overlay removed for hard baseline reset: only the textarea remains as the single readable layer */}
 
         <textarea
           ref={textareaRef}
