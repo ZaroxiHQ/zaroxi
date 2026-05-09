@@ -198,3 +198,6 @@ function CustomSurface(props: CustomSurfaceProps) {
       />
     </div>
   );
+}
+
+export default CustomSurface;
