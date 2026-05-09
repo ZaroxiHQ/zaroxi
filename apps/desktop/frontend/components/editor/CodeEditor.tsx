@@ -671,6 +671,19 @@ export function CodeEditor(props: CodeEditorProps) {
     onChange(text);
   }, [onChange, effectiveReadOnly]);
 
+  // Keep a textarea-compatible onChange handler for legacy code paths that still
+  // update the hidden textarea; this prevents ReferenceError when a handler
+  // is wired to the textarea's onChange (some code paths still render it).
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      if (effectiveReadOnly) return;
+      const v = e.target.value;
+      setValue(v);
+      onChange(v);
+    },
+    [onChange, effectiveReadOnly],
+  );
+
   const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
     const target = e.currentTarget as HTMLElement;
     const top = (target.scrollTop ?? 0);
