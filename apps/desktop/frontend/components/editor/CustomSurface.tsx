@@ -89,12 +89,8 @@ interface CustomSurfaceProps {
  */
 function computeSegments(spans: HighlightSpan[], lineText: string) {
   const lineLen = lineText.length;
-  if (lineLen === 0) return [];
 
-  // Normalize and filter spans:
-  // - drop "plain" token types (they should render as plain text gaps)
-  // - clamp spans to line bounds
-  // - drop degenerate spans
+  // Normalize spans: clamp to line bounds, drop degenerate and "plain" spans.
   const normalized = (spans || [])
     .map((s) => ({
       start: Math.max(0, Math.min(lineLen, s.start)),
@@ -104,15 +100,13 @@ function computeSegments(spans: HighlightSpan[], lineText: string) {
     }))
     .filter((s) => s.end > s.start && String(s.token_type || '').toLowerCase() !== 'plain');
 
+  // Fast path: no token spans -> single plain segment (handles empty lines too).
   if (normalized.length === 0) {
-    return [{ type: 'plain' as const, start: 0, end: lineLen, text: lineText }];
+    return [{ type: 'plain', start: 0, end: lineLen, text: lineText }];
   }
 
-  // Sort by start then end
-  normalized.sort((a, b) => {
-    if (a.start !== b.start) return a.start - b.start;
-    return a.end - b.end;
-  });
+  // Sort by start then end to process left-to-right.
+  normalized.sort((a, b) => (a.start !== b.start ? a.start - b.start : a.end - b.end));
 
   const segments: Array<{
     type: 'plain' | 'token';
@@ -123,45 +117,40 @@ function computeSegments(spans: HighlightSpan[], lineText: string) {
     color?: string | null;
   }> = [];
 
-  // Iterate and produce non-overlapping segments.
-  // Any overlap is resolved by clamping the upcoming span to the current
-  // `last` offset so no token can bleed into previously emitted ranges.
-  let last = 0;
+  // Simple left-to-right emission: emit plain gaps between spans and token spans as-is.
+  // Overlaps are resolved by skipping already-covered ranges (pos moves forward).
+  let pos = 0;
   for (const sp of normalized) {
-    const from = Math.max(sp.start, last);
-    const to = Math.max(from, Math.min(lineLen, sp.end));
-    if (to <= from) {
-      // Span entirely overlapped or degenerate after clamping
-      continue;
-    }
-
-    if (from > last) {
+    const from = Math.max(pos, sp.start);
+    const to = Math.min(lineLen, sp.end);
+    if (from > pos) {
       segments.push({
         type: 'plain',
-        start: last,
+        start: pos,
         end: from,
-        text: lineText.slice(last, from),
+        text: lineText.slice(pos, from),
       });
     }
-
-    segments.push({
-      type: 'token',
-      start: from,
-      end: to,
-      text: lineText.slice(from, to),
-      token_type: sp.token_type,
-      color: sp.color,
-    });
-
-    last = to;
+    if (to > from) {
+      segments.push({
+        type: 'token',
+        start: from,
+        end: to,
+        text: lineText.slice(from, to),
+        token_type: sp.token_type,
+        color: sp.color,
+      });
+      pos = to;
+    }
+    // If span was fully covered by pos, skip it.
   }
 
-  if (last < lineLen) {
+  if (pos < lineLen) {
     segments.push({
       type: 'plain',
-      start: last,
+      start: pos,
       end: lineLen,
-      text: lineText.slice(last),
+      text: lineText.slice(pos),
     });
   }
 
