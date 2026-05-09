@@ -38,7 +38,7 @@ import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
 import CustomSurface from './CustomSurface';
 
-import { getDocumentSyntax, setDocumentSyntax } from './syntaxStore';
+import { getDocumentSyntax, setDocumentSyntax, clearDocumentSyntax } from './syntaxStore';
 
 // Frontend per-document syntax session store is now persisted in ./syntaxStore.
 // The local hook will consult and update that store instead of keeping the
@@ -68,6 +68,7 @@ interface HighlightResponse {
 
 const FULL_LINES_LIMIT = 100_000;
 const LARGE_FILE_CHAR_THRESHOLD = 50_000; // disable syntax for files larger than this (characters)
+const LARGE_FILE_BYTES = 5 * 1024 * 1024; // 5 MB - hard threshold: no syntax above this
 
 /* ----------------------------- Session prop ------------------------ */
 export interface EditorSession {
@@ -638,7 +639,8 @@ export function CodeEditor(props: CodeEditorProps) {
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
   // Locked large-file decision derived synchronously from session metadata.
-  const initialLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
+  // Use a strict byte-size check (TextEncoder) to enforce the 5 MB rule.
+  const initialLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
   const largeFileRef = useRef<boolean>(initialLarge);
   // Local container ref used for measurements only. The CustomSurface component
   // remains the single vertical scroller (its own internal container).
@@ -653,10 +655,17 @@ export function CodeEditor(props: CodeEditorProps) {
       setValue(session.text ?? '');
       // Decide large-file for this session deterministically and persist it.
       // Lock the decision synchronously so highlight/hydration logic sees it immediately.
-      const decidedLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
+      const decidedLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
       largeFileRef.current = decidedLarge;
       if (decidedLarge) {
         console.error(`[CodeEditor] session ${session.documentId} marked large-file (locked for session)`);
+        try {
+          // Remove any persisted syntax for this document so stale highlights cannot be reused.
+          clearDocumentSyntax(session.documentId);
+          console.error(`[CodeEditor] cleared persisted syntax for large-file document ${session.documentId}`);
+        } catch (e) {
+          console.error(`[CodeEditor] failed to clear persisted syntax for ${session.documentId}:`, e);
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -722,7 +731,7 @@ export function CodeEditor(props: CodeEditorProps) {
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
   // Highlights are enabled only when the session is NOT a locked large-file.
-  const highlightsEnabled = !(largeFileRef.current ?? largeFile) && !!session.documentId;
+  const highlightsEnabled = !largeFile && !!session.documentId;
   // Use the new stable highlight snapshot hook (revision-aware).
   // We pass the full visible text so the backend can compute stable line snapshots.
   const highlightedMap = useHighlightSnapshot(

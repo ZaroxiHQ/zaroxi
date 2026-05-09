@@ -248,11 +248,13 @@ pub async fn open_document(path: String) -> Result<OpenDocumentResponse, String>
     };
 
     // Attempt to seed a compact initial highlight snapshot from the server-side cache.
-    // We only use the cached spans (no expensive re-computation) to ensure the open path
-    // can present syntax immediately when available. If no cached spans exist we return None
-    // and let the frontend fall back to a cheap local rendering while an async highlight
-    // may run later.
+    // Important: do NOT return cached highlights for truncated/large content. Large files
+    // are opened in plain-text mode and must not paint syntax from stale server-side cache.
     let initial_highlight = (|| -> Result<Option<HighlightResponse>, String> {
+        if content_truncated {
+            eprintln!("[open_document] content_truncated -> skipping initial_highlight for {}", path);
+            return Ok(None);
+        }
         if let Some(cached_spans) = cache::get_cached(&path_buf, document.version(), lang) {
             use std::borrow::Cow;
 
@@ -692,6 +694,18 @@ pub async fn highlight_text(
     let mut hasher = DefaultHasher::new();
     full_text.hash(&mut hasher);
     let version = hasher.finish();
+
+    // Hard large-file check: do not attempt to highlight documents larger than 5 MB.
+    const LARGE_FILE_BYTES: usize = 5 * 1024 * 1024;
+    if full_text.len() > LARGE_FILE_BYTES {
+        eprintln!("[highlight_text] blocked highlight_text for large-file (>5MB): {}", request.document_id);
+        return Ok(HighlightResponse {
+            document_id: request.document_id.clone(),
+            language: LanguageId::PlainText.as_str().to_string(),
+            lines: vec![],
+            version,
+        });
+    }
 
     let theme_colors = match request.theme.as_deref() {
         Some("light") => SemanticColors::light(),
