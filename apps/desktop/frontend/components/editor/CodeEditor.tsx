@@ -637,8 +637,11 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
-  const largeFileRef = useRef<boolean | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Locked large-file decision derived synchronously from session metadata.
+  const initialLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
+  const largeFileRef = useRef<boolean>(initialLarge);
+  // Shared scroll container for both gutter and content so they scroll natively together.
+  const sharedScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
   useEffect(() => {
@@ -648,10 +651,9 @@ export function CodeEditor(props: CodeEditorProps) {
       lastSessionIdRef.current = sessionIdentity;
       setValue(session.text ?? '');
       // Decide large-file for this session deterministically and persist it.
-      // This prevents flip-flopping while the user edits the same session.
+      // Lock the decision synchronously so highlight/hydration logic sees it immediately.
       const decidedLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
       largeFileRef.current = decidedLarge;
-      // Debug
       if (decidedLarge) {
         console.error(`[CodeEditor] session ${session.documentId} marked large-file (locked for session)`);
       }
@@ -685,7 +687,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // request a visible-range snapshot immediately on mount.
   const [containerHeight, setContainerHeight] = useState<number>(0);
   useLayoutEffect(() => {
-    const el = containerRef.current;
+    const el = sharedScrollRef.current;
     if (!el) {
       // No container yet — leave containerHeight as-is.
       return;
@@ -712,7 +714,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // Use the real container clientHeight when available to compute visible ranges
   // synchronously during render. This prevents the initial "tiny visible window"
   // problem where containerHeight was still zero.
-  const measuredContainerHeight = (containerRef.current && containerRef.current.clientHeight) || containerHeight || 0;
+  const measuredContainerHeight = (sharedScrollRef.current && sharedScrollRef.current.clientHeight) || containerHeight || 0;
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
@@ -865,8 +867,8 @@ export function CodeEditor(props: CodeEditorProps) {
         } as React.CSSProperties
       }
     >
-      {!largeFile && (
-        <div className="shrink-0 relative overflow-hidden" style={{ width: gutterWidth }}>
+      <div className="shrink-0 relative" style={{ width: gutterWidth }}>
+        {!largeFile && (
           <LineNumberGutter
             lineCount={totalLines}
             cursorLine={cursorLine + 1}
@@ -874,21 +876,20 @@ export function CodeEditor(props: CodeEditorProps) {
             scrollTop={scrollTop}
             containerHeight={containerHeight}
           />
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex-1 relative">
         {largeFile && (
           <div className="text-muted-foreground text-xs p-1 bg-muted/80 shrink-0">
             File &gt; 5 MB – read‑only preview (first 50 000 characters shown)
           </div>
         )}
 
-        {/* For large files we render a stable plain-text preview without overlay
-            absolute-positioned lines to avoid huge totalHeight, clipping, and
-            remount/flash issues. For normal files we use CustomSurface. */}
+        {/* For large files we render a stable plain-text preview without overlay.
+            Both gutter and content live in the same scroll container (sharedScrollRef). */}
         {largeFile ? (
-          <div className="flex-1 overflow-auto" onScroll={handleScroll}>
+          <div style={{ padding: 8 }}>
             <pre
               className="whitespace-pre font-mono p-2"
               style={{
@@ -903,17 +904,21 @@ export function CodeEditor(props: CodeEditorProps) {
             </pre>
           </div>
         ) : (
-          <CustomSurface
-            value={value}
-            onChange={(v: string) => { setValue(v); onChange(v); }}
-            onCursorChange={(line: number, col: number) => setCursorLine(line)}
-            onScroll={handleScroll}
-            lines={overlayHighlighted}
-            lineHeight={lineHeight}
-            totalHeight={totalHeight}
-            className="flex-1"
-          />
+          <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
+            <CustomSurface
+              value={value}
+              onChange={(v: string) => { setValue(v); onChange(v); }}
+              onCursorChange={(line: number, col: number) => setCursorLine(line)}
+              onScroll={handleScroll}
+              lines={overlayHighlighted}
+              lineHeight={lineHeight}
+              totalHeight={totalHeight}
+              externalScrollContainerRef={sharedScrollRef}
+              className="flex-1"
+            />
+          </div>
         )}
+      </div>
       </div>
 
       <style>{`
