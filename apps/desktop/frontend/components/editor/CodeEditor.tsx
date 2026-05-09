@@ -543,21 +543,81 @@ export function CodeEditor(props: CodeEditorProps) {
     return lines;
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
-  // Update overlay innerHTML when highlights change. Use requestAnimationFrame to batch DOM writes.
+  // Incremental overlay patching: update only per-line DOM nodes that changed.
+  // This prevents whole-overlay replacement and avoids broad repaint / trailing-region flashes.
   useEffect(() => {
-    const node = overlayRef.current;
-    if (!node) return;
-    const parts: string[] = [];
-    for (const hl of overlayHighlighted) {
-      parts.push(renderSpansToHtml(hl.spans, hl.text));
+    const container = overlayRef.current;
+    if (!container) return;
+
+    // Build map of existing child nodes by their line index
+    const existing = new Map<number, HTMLElement>();
+    for (let i = 0; i < container.children.length; i++) {
+      const el = container.children[i] as HTMLElement;
+      const ds = el.dataset.lineIndex;
+      if (!ds) continue;
+      const idx = Number(ds);
+      if (!Number.isNaN(idx)) existing.set(idx, el);
     }
-    const html = parts.join('\n');
-    // Batch DOM write to next frame to avoid layout thrash.
-    requestAnimationFrame(() => {
-      node.innerHTML = html;
-      node.style.willChange = 'transform';
-      node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
-    });
+
+    // Track which indices we touched so we can remove stale nodes afterwards
+    const touched = new Set<number>();
+
+    // Update or create nodes for each visible highlighted line
+    for (const hl of overlayHighlighted) {
+      const idx = hl.index;
+      const html = renderSpansToHtml(hl.spans, hl.text);
+      const existingEl = existing.get(idx);
+      if (existingEl) {
+        // If uid and HTML identical, keep as-is (no update)
+        if (existingEl.dataset.hlUid === hl.uid && existingEl.dataset.hlHtml === html) {
+          touched.add(idx);
+          existing.delete(idx);
+          continue;
+        }
+        // Otherwise patch in place
+        existingEl.dataset.hlUid = hl.uid;
+        existingEl.dataset.hlHtml = html;
+        // Ensure position is correct (in case lines moved)
+        existingEl.style.top = `${idx * lineHeight}px`;
+        // Update content
+        existingEl.innerHTML = html;
+        touched.add(idx);
+        existing.delete(idx);
+        continue;
+      }
+
+      // Create new node
+      const newEl = document.createElement('div');
+      newEl.setAttribute('data-line-index', String(idx));
+      newEl.dataset.hlUid = hl.uid;
+      newEl.dataset.hlHtml = html;
+      newEl.style.position = 'absolute';
+      newEl.style.top = `${idx * lineHeight}px`;
+      newEl.style.left = '0';
+      newEl.style.height = `${lineHeight}px`;
+      newEl.style.lineHeight = `${lineHeight}px`;
+      newEl.style.whiteSpace = 'pre';
+      newEl.style.pointerEvents = 'none';
+      newEl.innerHTML = html;
+      container.appendChild(newEl);
+      touched.add(idx);
+    }
+
+    // Remove any leftover nodes that were not touched (stale from previous render)
+    for (const [idx, el] of existing.entries()) {
+      if (!touched.has(idx)) {
+        try {
+          container.removeChild(el);
+        } catch {
+          // ignore if already removed
+        }
+      }
+    }
+
+    // Sync transform immediately so overlay stays lock-stepped with textarea scroll
+    container.style.willChange = 'transform';
+    container.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlayHighlighted, lineHeight]);
 
   // Keep overlay transform synchronized immediately when scrollTop changes.
