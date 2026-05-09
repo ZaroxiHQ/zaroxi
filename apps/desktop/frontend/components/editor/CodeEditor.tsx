@@ -513,14 +513,12 @@ export function CodeEditor(props: CodeEditorProps) {
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
-  // Build visible lines by clipping backend spans (which are absolute char offsets)
-  // to each line and producing per-line relative spans. Use stable UIDs derived
-  // from line text only so identical lines keep identity when moved.
-  const lineCharStarts = useMemo(() => computeLineCharStarts(displayText), [displayText]);
-
+  // Build visible lines by using backend-provided per-line spans directly.
+  // The backend returns spans that are already relative to each line's text.
+  // Use those spans as-is (no absolute-offset remapping) and always render
+  // full line text (spans + plain gaps). This prevents partial coverage.
   const overlayHighlighted = useMemo(() => {
     const lines: HighlightLine[] = [];
-    const totalChars = Array.from(displayText).length;
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
       const start = displayLineStarts[idx] ?? displayText.length;
       const end = displayLineStarts[idx + 1] ?? displayText.length;
@@ -528,25 +526,16 @@ export function CodeEditor(props: CodeEditorProps) {
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
       const backendHl = highlightedMap.get(idx);
-      const lineStartChar = lineCharStarts[idx] ?? 0;
-      const lineEndChar = lineCharStarts[idx + 1] ?? totalChars;
-
       const usedSpans: HighlightSpan[] = [];
-      if (backendHl && backendHl.spans && backendHl.spans.length > 0) {
+      if (backendHl && Array.isArray(backendHl.spans) && backendHl.spans.length > 0) {
+        // Backend spans are line-relative already: [start, end) measured in characters
         for (const sp of backendHl.spans) {
-          // backend spans are expected to be absolute char offsets (start/end).
-          const spanStart = sp.start;
-          const spanEnd = sp.end;
-          const ovStart = Math.max(spanStart, lineStartChar);
-          const ovEnd = Math.min(spanEnd, lineEndChar);
-          if (ovStart < ovEnd) {
-            usedSpans.push({
-              start: ovStart - lineStartChar,
-              end: ovEnd - lineStartChar,
-              token_type: sp.token_type,
-              color: sp.color,
-            });
-          }
+          usedSpans.push({
+            start: sp.start,
+            end: sp.end,
+            token_type: sp.token_type,
+            color: sp.color,
+          });
         }
       }
 
@@ -554,7 +543,7 @@ export function CodeEditor(props: CodeEditorProps) {
       lines.push({ uid, index: idx, text: authoritative, spans: usedSpans });
     }
     return lines;
-  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId, lineCharStarts]);
+  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
   // Keep the overlay inner HTML synchronized when highlight data changes.
   // We update innerHTML directly (not via React render) and batch the DOM write
