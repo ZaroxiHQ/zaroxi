@@ -857,7 +857,6 @@ export function CodeEditor(props: CodeEditorProps) {
   // Render
   return (
     <div
-      ref={containerRef}
       className={cn('flex h-full', className)}
       style={
         {
@@ -867,6 +866,8 @@ export function CodeEditor(props: CodeEditorProps) {
         } as React.CSSProperties
       }
     >
+      {/* Shared scroll container that contains both gutter and content so they scroll together */}
+      <div ref={sharedScrollRef} className="flex-1 flex overflow-auto" onScroll={handleScroll}>
       <div className="shrink-0 relative" style={{ width: gutterWidth }}>
         {!largeFile && (
           <LineNumberGutter
