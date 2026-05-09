@@ -35,6 +35,9 @@ import { GUTTER_CONFIG } from './gutter/GutterConfig';
 import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
+import { EditorState, StateEffect, StateField, RangeSetBuilder } from '@codemirror/state';
+import { EditorView, Decoration } from '@codemirror/view';
+import { basicSetup } from '@codemirror/basic-setup';
 
 // Frontend per-document syntax session store.
 // Keyed by documentId -> { text, map, version }. This allows highlight snapshots
@@ -534,9 +537,10 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
-  // Textarea ref restored: native textarea is the single authoritative input surface.
+  // Editor engine integration: mount point and view ref for CodeMirror.
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const cmParentRef = useRef<HTMLDivElement | null>(null);
+  const cmViewRef = useRef<EditorView | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
@@ -670,6 +674,59 @@ export function CodeEditor(props: CodeEditorProps) {
     // No overlay sync: baseline uses native textarea scrolling only.
   }, []);
 
+  // Initialize CodeMirror editor and sync with React state.
+  // This mounts a single EditorView into the `cmParentRef` element and keeps
+  // the React `value` in sync with the editor document. Syntax rendering is
+  // delegated to the editor engine. Tree-sitter highlight snapshots remain
+  // available for semantic features and will be integrated separately.
+  useEffect(() => {
+    if (!cmParentRef.current) return;
+
+    // Create view if it doesn't exist.
+    if (!cmViewRef.current) {
+      const startState = EditorState.create({
+        doc: value,
+        extensions: [
+          basicSetup,
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              const txt = update.state.doc.toString();
+              // Sync back to React state only when text differs.
+              if (txt !== value) {
+                setValue(txt);
+                onChange(txt);
+              }
+            }
+          }),
+          // Editor should handle its own scrolling/selection/caret; no overlays.
+        ],
+      });
+      const view = new EditorView({
+        state: startState,
+        parent: cmParentRef.current,
+      });
+      cmViewRef.current = view;
+    } else {
+      // If view exists but React `value` changed externally (e.g., file open),
+      // update the editor document without triggering unnecessary re-render.
+      const view = cmViewRef.current!;
+      const docText = view.state.doc.toString();
+      if (docText !== value) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: value },
+        });
+      }
+    }
+
+    return () => {
+      // On unmount, destroy the view to free resources.
+      if (cmViewRef.current) {
+        cmViewRef.current.destroy();
+        cmViewRef.current = null;
+      }
+    };
+  }, [cmParentRef, value, onChange]);
+
   // Render
   return (
     <div ref={containerRef} className={cn('flex h-full', className)}>
@@ -692,108 +749,19 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Syntax overlay (non-glyph): render token background decorations beneath the textarea.
-            This overlay never renders visible glyphs (text color is transparent) and therefore
-            does not create a second readable text image. The native textarea remains the single
-            authoritative visible layer. */}
+        {/* CodeMirror mount point: replace previous custom overlay + textarea rendering
+            with a single, proven editor engine instance. This preserves one readable
+            text layer (the editor view) and avoids custom overlay glyph painting. */}
         <div
-          ref={overlayRef}
-          aria-hidden={true}
+          ref={cmParentRef}
+          className="flex-1 relative z-10"
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 5,
-            pointerEvents: 'none',
-            overflow: 'hidden',
+            minHeight: totalHeight,
             fontFamily: FONT_TOKENS.editor,
             fontSize: '0.875rem',
             lineHeight: `${lineHeight}px`,
             whiteSpace: 'pre',
           }}
-        >
-          <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
-            {overlayHighlighted.map((hl) => (
-              <div
-                key={hl.uid}
-                style={{
-                  position: 'absolute',
-                  top: hl.index * lineHeight,
-                  left: 0,
-                  height: lineHeight,
-                  lineHeight: `${lineHeight}px`,
-                  whiteSpace: 'pre',
-                  pointerEvents: 'none',
-                }}
-              >
-                {(() => {
-                  const parts: React.ReactNode[] = [];
-                  let last = 0;
-                  for (let i = 0; i < hl.spans.length; i++) {
-                    const sp = hl.spans[i];
-                    if (sp.start > last) {
-                      const gapText = hl.text.slice(last, sp.start).replace(/ /g, '\u00a0');
-                      parts.push(
-                        <span key={`g-${hl.index}-${i}`} style={{ color: 'transparent' }}>
-                          {gapText}
-                        </span>
-                      );
-                    }
-                    const len = Math.max(0, sp.end - sp.start);
-                    const content = '\u00a0'.repeat(len || 1);
-                    const bg = sp.color ?? undefined;
-                    parts.push(
-                      <span
-                        key={`t-${hl.index}-${i}`}
-                        className={`syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`}
-                        style={{ background: bg, color: 'transparent' }}
-                      >
-                        {content}
-                      </span>
-                    );
-                    last = sp.end;
-                  }
-                  if (last < hl.text.length) {
-                    const tail = hl.text.slice(last).replace(/ /g, '\u00a0');
-                    parts.push(
-                      <span key={`tail-${hl.index}`} style={{ color: 'transparent' }}>
-                        {tail}
-                      </span>
-                    );
-                  }
-                  return parts;
-                })()}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <textarea
-          ref={textareaRef}
-          tabIndex={0}
-          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
-          style={{
-            lineHeight: `${lineHeight}px`,
-            fontFamily: FONT_TOKENS.editor,
-            fontSize: '0.875rem',
-            whiteSpace: 'pre',
-            overflowWrap: 'normal',
-            overflowX: 'auto',
-            overflowY: 'auto',
-            pointerEvents: 'auto',
-            color: undefined,
-            WebkitTextFillColor: undefined,
-            caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
-          }}
-          value={value}
-          readOnly={effectiveReadOnly}
-          onChange={handleChange}
-          onScroll={handleScroll}
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
         />
       </div>
 
