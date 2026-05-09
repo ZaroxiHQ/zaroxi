@@ -504,10 +504,8 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const [scrollTop, setScrollTop] = useState(0);
-  // Canvas overlay ref - authoritative visual surface for highlighted text.
-  // We draw the visible text+tokens into this single canvas to avoid per-line
-  // remount storms and to guarantee a single composited visual image.
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
@@ -545,100 +543,30 @@ export function CodeEditor(props: CodeEditorProps) {
     return lines;
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
-  // Canvas drawing: render visible lines into a single canvas overlay.
-  // This replaces the fragile per-line DOM overlay with a single composited
-  // drawing surface. Drawing happens in the same frame as scroll updates
-  // to avoid one-frame drift/ghosting. The canvas always paints the full
-  // visible lines (tokens + plain gaps) so there's never a partially empty
-  // overlay that could reveal an invisible textarea.
-  const drawOverlay = useCallback(() => {
-    const canvas = overlayCanvasRef.current;
-    const ta = textareaRef.current;
-    if (!canvas || !ta) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Device pixel ratio handling
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const cssWidth = Math.max(1, Math.floor(rect.width));
-    const cssHeight = Math.max(1, Math.floor(rect.height));
-
-    // Backing store size for crisp rendering
-    canvas.width = Math.max(1, Math.floor(cssWidth * dpr));
-    canvas.height = Math.max(1, Math.floor(cssHeight * dpr));
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
-
-    // Reset transform and scale for DPR
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssWidth, cssHeight);
-
-    // Match textarea computed font exactly (use full `font` when available)
-    const cs = window.getComputedStyle(ta);
-    const font = (cs as any).font || `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    ctx.font = font;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left';
-
-    const defaultFill = (cs.color as string) || '#cbd5e1';
-
-    // Draw only the visible viewport region: align y by scrollTop so drawn text
-    // maps 1:1 with textarea glyph positions. Snap to device pixels to avoid
-    // subpixel blurring.
-    for (let i = 0; i < overlayHighlighted.length; i++) {
-      const hl = overlayHighlighted[i];
-      const yCss = hl.index * lineHeight - scrollTopRef.current;
-      // Skip lines outside the canvas vertical range
-      if (yCss + lineHeight < 0 || yCss > cssHeight) continue;
-      // Align to device pixels to avoid blur
-      const y = Math.round(yCss * dpr) / dpr;
-      // No horizontal offset (x = 0)
-      // Render gaps and spans, using prefix measurement for exact x positions.
-      let cursor = 0;
-      if (!hl.spans || hl.spans.length === 0) {
-        ctx.fillStyle = defaultFill;
-        ctx.fillText(hl.text, 0, y);
-        continue;
-      }
-      for (let si = 0; si < hl.spans.length; si++) {
-        const sp = hl.spans[si];
-        if (sp.start > cursor) {
-          const gap = hl.text.slice(cursor, sp.start);
-          ctx.fillStyle = defaultFill;
-          const px = ctx.measureText(hl.text.slice(0, cursor)).width;
-          ctx.fillText(gap, px, y);
-        }
-        const tokenText = hl.text.slice(sp.start, sp.end);
-        ctx.fillStyle = sp.color || defaultFill;
-        const pxToken = ctx.measureText(hl.text.slice(0, sp.start)).width;
-        ctx.fillText(tokenText, pxToken, y);
-        cursor = sp.end;
-      }
-      if (cursor < hl.text.length) {
-        const tail = hl.text.slice(cursor);
-        ctx.fillStyle = defaultFill;
-        const pxTail = ctx.measureText(hl.text.slice(0, cursor)).width;
-        ctx.fillText(tail, pxTail, y);
-      }
+  // Update overlay innerHTML when highlights change. Use requestAnimationFrame to batch DOM writes.
+  useEffect(() => {
+    const node = overlayRef.current;
+    if (!node) return;
+    const parts: string[] = [];
+    for (const hl of overlayHighlighted) {
+      parts.push(renderSpansToHtml(hl.spans, hl.text));
     }
+    const html = parts.join('\n');
+    // Batch DOM write to next frame to avoid layout thrash.
+    requestAnimationFrame(() => {
+      node.innerHTML = html;
+      node.style.willChange = 'transform';
+      node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    });
   }, [overlayHighlighted, lineHeight]);
 
-  // Keep overlay transform synchronized and repaint when highlights or scroll change.
+  // Keep overlay transform synchronized immediately when scrollTop changes.
   useEffect(() => {
-    // Immediate transform sync
-    const canvas = overlayCanvasRef.current;
-    if (canvas) {
-      canvas.style.willChange = 'transform';
-      canvas.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
-    }
-    // Draw into canvas (batched by browser but invoked now).
-    drawOverlay();
-
-    const onResize = () => drawOverlay();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [drawOverlay]);
+    const node = overlayRef.current;
+    if (!node) return;
+    node.style.willChange = 'transform';
+    node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+  }, [scrollTop]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
@@ -687,18 +615,12 @@ export function CodeEditor(props: CodeEditorProps) {
     setScrollTop(top);
 
     // Synchronously update overlay transform to avoid React state/paint lag.
-    const node = overlayCanvasRef.current;
+    const node = overlayRef.current;
     if (node) {
       node.style.willChange = 'transform';
       node.style.transform = `translate3d(0px, ${-top}px, 0px)`;
-      // Repaint immediately for perfect visual sync during fast scrolling.
-      // drawOverlay is stable via useCallback and will use the current overlayHighlighted.
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      (window.requestAnimationFrame || ((fn: FrameRequestCallback) => setTimeout(() => fn(performance.now()), 16)))(() => {
-        drawOverlay();
-      });
     }
-  }, [drawOverlay]);
+  }, []);
 
   // Render
   return (
@@ -739,12 +661,10 @@ export function CodeEditor(props: CodeEditorProps) {
             }}
           >
             <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
-              {/* Single canvas overlay that paints all visible lines. We render only the
-                  viewport-sized canvas area (containerHeight) and translate it in sync
-                  with scroll to avoid drawing the entire document and to keep DPR
-                  aligned. */}
-              <canvas
-                ref={overlayCanvasRef}
+              {/* Single DOM overlay node that contains per-line highlighted HTML.
+                  We update innerHTML via effect/RAF to avoid per-line remount storms. */}
+              <div
+                ref={overlayRef}
                 aria-hidden="true"
                 style={{
                   position: 'absolute',
@@ -757,7 +677,6 @@ export function CodeEditor(props: CodeEditorProps) {
                   height: containerHeight,
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
-                  imageRendering: '-webkit-optimize-contrast',
                 }}
               />
             </div>
@@ -780,8 +699,7 @@ export function CodeEditor(props: CodeEditorProps) {
             // Hide native text only when the overlay is fully ready and synchronized.
             // This ensures a single readable text image (no ghosting). Otherwise keep
             // the textarea visible as the authoritative text.
-            color: overlayReady ? 'transparent' : undefined,
-            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
+            // Keep textarea visible at all times; overlay is decorative and painted on top.
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
