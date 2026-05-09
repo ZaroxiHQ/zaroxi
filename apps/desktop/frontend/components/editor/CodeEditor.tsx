@@ -793,8 +793,9 @@ export function CodeEditor(props: CodeEditorProps) {
             // When overlay is fully ready and matches the visible lines exactly
             // hide the native textarea glyphs so only the single overlay image is
             // readable (prevents doubled/washed text). Otherwise keep textarea visible.
-            color: overlayReady ? 'transparent' : undefined,
-            WebkitTextFillColor: overlayReady ? 'transparent' : undefined,
+            // Keep textarea glyphs visible unconditionally for baseline stability.
+            color: undefined,
+            WebkitTextFillColor: undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
           }}
           value={value}
