@@ -200,9 +200,11 @@ function useHighlightSnapshot(
       return;
     }
 
+    // If highlighting is disabled for this session (large file or explicit off),
+    // clear any prior snapshot immediately and do not issue highlight requests.
     if (!enabled) {
-      // Temporarily disabled view (e.g., hidden tab) — do NOT clear the
-      // visible map. Keep prior snapshot visible so switching back is instant.
+      setMapState(new Map());
+      cacheRef.current.clear();
       return;
     }
 
@@ -681,12 +683,14 @@ export function CodeEditor(props: CodeEditorProps) {
   // Compute overlay lines for visible area early so the highlight hook can
   // request a visible-range snapshot immediately on mount.
   const [containerHeight, setContainerHeight] = useState<number>(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
-    // Initialize container height synchronously to avoid an initial tiny visible
-    // window that would render only a very small number of lines before the
-    // ResizeObserver fires (causing partial/partial-character visible states).
+    if (!el) {
+      // No container yet — leave containerHeight as-is.
+      return;
+    }
+    // Synchronously initialise container height before paint to avoid an
+    // initial tiny visible window that causes incorrect visibleCount.
     setContainerHeight(el.clientHeight || 0);
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) setContainerHeight(e.contentRect.height);
@@ -704,8 +708,13 @@ export function CodeEditor(props: CodeEditorProps) {
   // const overlayRef = useRef<HTMLDivElement | null>(null);
   // const contentRef = useRef<HTMLDivElement | null>(null);
 
+  // Use the real container clientHeight when available to compute visible ranges
+  // synchronously during render. This prevents the initial "tiny visible window"
+  // problem where containerHeight was still zero.
+  const measuredContainerHeight = (containerRef.current && containerRef.current.clientHeight) || containerHeight || 0;
+
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
-  const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
+  const visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
   // Highlights are enabled only when the session is NOT a locked large-file.
@@ -878,7 +887,7 @@ export function CodeEditor(props: CodeEditorProps) {
             absolute-positioned lines to avoid huge totalHeight, clipping, and
             remount/flash issues. For normal files we use CustomSurface. */}
         {largeFile ? (
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto" onScroll={handleScroll}>
             <pre
               className="whitespace-pre font-mono p-2"
               style={{
