@@ -111,7 +111,7 @@ function renderSpansElements(spans: HighlightSpan[], lineText: string) {
  * Note: This is a pragmatic single-surface approach. The visible DOM is the single readable
  * layer; the hidden textarea is not visible and solely used to accept input events.
  */
-export default function CustomSurface(props: CustomSurfaceProps) {
+function CustomSurface(props: CustomSurfaceProps) {
   const { value, onChange, lines, lineHeight, totalHeight, className } = props;
   const parentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
