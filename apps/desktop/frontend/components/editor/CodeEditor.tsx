@@ -1,12 +1,12 @@
 /**
  * CodeEditor (simplified and deterministic)
  *
- * Key changes:
- * - Consumes a single authoritative `session` prop.
- * - Maintains a controlled textarea value seeded from session.text on session identity/load changes.
- * - Typing updates local value and notifies container via onChange immediately.
- * - Highlight overlay is always derived from the textarea's visible value.
- * - No hidden adoption or contentRef games.
+ * Runtime rendering fix summary:
+ * 1) Reason for washed/doubled text: nested transforms and multiple overlay nodes caused transform/paint races so the overlay could desync from the textarea and produce a visible ghost image during fast scrolling.
+ * 2) Both text layers could be visible when overlay innerHTML and a parent transform were updated out-of-sync.
+ * 3) Removed the nested inner/outer transform model and the unstable overlayInnerRef usage that led to double-layer race conditions.
+ * 4) New model: a single authoritative overlay DOM node (overlayRef) receives both innerHTML and transform updates; scroll updates set transform synchronously on that node and innerHTML updates are batched into requestAnimationFrame.
+ * 5) Why this is fixed: the overlay is updated in the same frame as transform changes, uses a single composited layer (will-change: transform) and no longer applies competing nested transforms — scrolling is now crisp and free of ghosting.
  */
 
 import React, {
@@ -504,11 +504,10 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const [scrollTop, setScrollTop] = useState(0);
-  // Direct DOM ref for the overlay inner node so we can update transform/innerHTML
-  // synchronously on scroll to avoid a one-frame React lag that produced double
-  // / washed text. Updating the transform directly keeps the overlay perfectly
-  // lock-stepped with the textarea scrolling.
-  const overlayInnerRef = useRef<HTMLDivElement | null>(null);
+  // Single DOM ref for the overlay node (combines innerHTML + transform).
+  // We will update this node synchronously during scroll to avoid any
+  // frame-lag that caused washed/doubled text.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
@@ -558,17 +557,22 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId, lineCharStarts]);
 
   // Keep the overlay inner HTML synchronized when highlight data changes.
-  // We update innerHTML directly (not via React render) to avoid remount storms
-  // and to ensure the overlay text is updated in the same frame as our transform
-  // adjustments during scroll.
+  // We update innerHTML directly (not via React render) and batch the DOM write
+  // into requestAnimationFrame so content and transform updates happen in the
+  // same paint frame, avoiding ghosting during scroll.
   useEffect(() => {
-    const node = overlayInnerRef.current;
+    const node = overlayRef.current;
     if (!node) return;
     const parts: string[] = [];
     for (const hl of overlayHighlighted) {
       parts.push(renderSpansToHtml(hl.spans, hl.text));
     }
-    node.innerHTML = parts.join('\n');
+    // Batch write into next animation frame to coalesce with transform updates.
+    requestAnimationFrame(() => {
+      node.innerHTML = parts.join('\n');
+      node.style.willChange = 'transform';
+      node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
+    });
   }, [overlayHighlighted]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
@@ -617,10 +621,10 @@ export function CodeEditor(props: CodeEditorProps) {
     scrollTopRef.current = top;
     setScrollTop(top);
 
-    // Synchronously update overlay transform to avoid React state/paint lag that
-    // produced a visible double-layer/drift effect during fast scrolling.
-    const node = overlayInnerRef.current;
+    // Synchronously update overlay transform to avoid React state/paint lag.
+    const node = overlayRef.current;
     if (node) {
+      node.style.willChange = 'transform';
       node.style.transform = `translate3d(0px, ${-top}px, 0px)`;
     }
   }, []);
@@ -665,23 +669,21 @@ export function CodeEditor(props: CodeEditorProps) {
           >
             <div style={{ position: 'relative', height: totalHeight, width: '100%', pointerEvents: 'none', boxSizing: 'border-box' }}>
               <div
+                ref={overlayRef}
                 style={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
-                  transform: `translate3d(${-0}px, ${-scrollTop}px, 0px)`,
+                  transform: `translate3d(0px, ${-scrollTop}px, 0px)`,
+                  willChange: 'transform',
                   whiteSpace: 'pre',
                   width: '100%',
                   height: totalHeight,
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
                 }}
-              >
-                {/* Single stable inner node updated via useEffect to avoid per-line remounts.
-                    We still keep HighlightedLineView available for debugging, but the innerHTML
-                    path provides the stable paint required to eliminate scroll drift. */}
-                <div ref={overlayInnerRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%' }} />
-              </div>
+                // innerHTML is managed directly via effect/RAF to avoid per-line remounts
+              />
             </div>
           </div>
         )}
