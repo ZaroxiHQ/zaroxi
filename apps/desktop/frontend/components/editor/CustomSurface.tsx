@@ -68,10 +68,6 @@ interface CustomSurfaceProps {
   onChange: (value: string) => void;
   onCursorChange?: (line: number, col: number) => void;
   onScroll?: (scrollTop: number) => void;
-  // Optional: a parent-provided scroll container so the surface can share
-  // the same scroller with the gutter. When provided, the surface will not
-  // use its own overflow scroller for vertical scrolling/measurements.
-  externalScrollContainerRef?: React.RefObject<HTMLElement>;
   lines: HighlightLine[];
   lineHeight: number;
   totalHeight: number;
@@ -211,7 +207,7 @@ function renderSpansElements(spans: HighlightSpan[], lineText: string) {
    Main Component
    ------------------------- */
 export default function CustomSurface(props: CustomSurfaceProps) {
-  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange, onScroll, externalScrollContainerRef } = props;
+  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange, onScroll } = props;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -280,22 +276,18 @@ export default function CustomSurface(props: CustomSurfaceProps) {
   // virtualized visible range computed by the parent can stay in sync with the
   // actual scroll position (the surface is the real scroller).
   useEffect(() => {
-    // Attach scroll handler to the external scroll container when provided,
-    // otherwise fall back to the surface's own container.
-    const scrollContainer = (externalScrollContainerRef && externalScrollContainerRef.current) || containerRef.current;
+    const scrollContainer = containerRef.current;
     if (!scrollContainer) return;
     const handler = () => {
       if (typeof onScroll === 'function') {
         try {
-          // `scrollTop` may be a property on HTMLElement or on Element-like nodes.
-          // Use (scrollContainer as any).scrollTop to be defensive.
           onScroll((scrollContainer as any).scrollTop ?? 0);
         } catch {}
       }
     };
     scrollContainer.addEventListener('scroll', handler, { passive: true });
     return () => scrollContainer.removeEventListener('scroll', handler);
-  }, [onScroll, externalScrollContainerRef]);
+  }, [onScroll]);
 
   // Helper: total chars before a line
   const lineStartCharIndex = useCallback((lineIndex: number) => {
@@ -313,7 +305,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       canvasRef.current = document.createElement('canvas');
     }
     const canvas = canvasRef.current;
-    const container = (externalScrollContainerRef && externalScrollContainerRef.current) || containerRef.current;
+    const container = containerRef.current;
 
     // Determine font spec from computed styles (fall back to sensible defaults)
     let fontSize = '14px';
@@ -621,7 +613,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
 
   // Scroll caret into view when changed
   useEffect(() => {
-    const container = (externalScrollContainerRef && externalScrollContainerRef.current) || containerRef.current;
+    const container = containerRef.current;
     if (!container) return;
     const caretTop = caretCoords.top;
     const caretBottom = caretTop + lineHeight;
@@ -630,7 +622,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     } else if (caretBottom > (container as any).scrollTop + container.clientHeight) {
       (container as any).scrollTop = caretBottom - container.clientHeight;
     }
-  }, [caretCoords, lineHeight, externalScrollContainerRef]);
+  }, [caretCoords, lineHeight]);
 
   // Notify parent of caret/selection changes so gutter and other UI can derive
   // active-line from the authoritative caret. This is the single source of truth.
@@ -710,7 +702,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       className={className}
       style={{
         position: 'relative',
-        overflow: externalScrollContainerRef ? 'visible' : 'auto',
+        overflow: 'auto',
         height: '100%',
         fontFamily: FONT_TOKENS.editor,
         fontSize: '0.875rem',

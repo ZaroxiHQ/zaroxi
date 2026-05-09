@@ -640,8 +640,9 @@ export function CodeEditor(props: CodeEditorProps) {
   // Locked large-file decision derived synchronously from session metadata.
   const initialLarge = session.contentTruncated ?? (session.text ? session.text.length > LARGE_FILE_CHAR_THRESHOLD : false);
   const largeFileRef = useRef<boolean>(initialLarge);
-  // Shared scroll container for both gutter and content so they scroll natively together.
-  const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  // Local container ref used for measurements only. The CustomSurface component
+  // remains the single vertical scroller (its own internal container).
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
   useEffect(() => {
@@ -687,7 +688,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // request a visible-range snapshot immediately on mount.
   const [containerHeight, setContainerHeight] = useState<number>(0);
   useLayoutEffect(() => {
-    const el = sharedScrollRef.current;
+    const el = containerRef.current;
     if (!el) {
       // No container yet — leave containerHeight as-is.
       return;
@@ -714,7 +715,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // Use the real container clientHeight when available to compute visible ranges
   // synchronously during render. This prevents the initial "tiny visible window"
   // problem where containerHeight was still zero.
-  const measuredContainerHeight = (sharedScrollRef.current && sharedScrollRef.current.clientHeight) || containerHeight || 0;
+  const measuredContainerHeight = (containerRef.current && containerRef.current.clientHeight) || containerHeight || 0;
 
   const visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
   const visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
@@ -857,6 +858,7 @@ export function CodeEditor(props: CodeEditorProps) {
   // Render
   return (
     <div
+      ref={containerRef}
       className={cn('flex h-full', className)}
       style={
         {
@@ -866,8 +868,6 @@ export function CodeEditor(props: CodeEditorProps) {
         } as React.CSSProperties
       }
     >
-      {/* Shared scroll container that contains both gutter and content so they scroll together */}
-      <div ref={sharedScrollRef} className="flex-1 flex overflow-auto" onScroll={handleScroll}>
       <div className="shrink-0 relative" style={{ width: gutterWidth }}>
         {!largeFile && (
           <LineNumberGutter
@@ -914,12 +914,10 @@ export function CodeEditor(props: CodeEditorProps) {
               lines={overlayHighlighted}
               lineHeight={lineHeight}
               totalHeight={totalHeight}
-              externalScrollContainerRef={sharedScrollRef}
               className="flex-1"
             />
           </div>
         )}
-      </div>
       </div>
 
       <style>{`
