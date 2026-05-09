@@ -174,13 +174,13 @@ export default function CustomSurface(props: CustomSurfaceProps) {
   // Drag state for mouse selection
   const draggingRef = useRef(false);
 
-  // Canvas for text measurement
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  useLayoutEffect(() => {
-    if (!canvasRef.current) {
-      canvasRef.current = document.createElement('canvas');
-    }
-  }, []);
+  // Canvas for text measurement (created eagerly in a DOM-safe way).
+  // Historically this was created in a layout effect which allowed measureTextWidth
+  // to run before the canvas existed. Create it eagerly when possible so callers
+  // that run during render won't hit `canvasRef.current === null`.
+  const canvasRef = useRef<HTMLCanvasElement | null>(
+    typeof document !== 'undefined' ? document.createElement('canvas') : null
+  );
 
   // Ensure textarea contains up-to-date value for composition/IME
   useEffect(() => {
@@ -204,19 +204,40 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     return total;
   }, [linesArr]);
 
-  // Measure text width using canvas with the computed font
+  // Measure text width using canvas with the computed font.
+  // This function is defensive: it lazily creates a canvas if missing and
+  // falls back to an approximate width if the 2D context cannot be created.
   const measureTextWidth = useCallback((text: string) => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
+    // Ensure a canvas exists (safe for SSR where document may be undefined)
+    if (!canvasRef.current && typeof document !== 'undefined') {
+      canvasRef.current = document.createElement('canvas');
+    }
+    const canvas = canvasRef.current;
     const container = containerRef.current;
+
+    // Determine font spec from computed styles (fall back to sensible defaults)
+    let fontSize = '14px';
+    let fontFamily = FONT_TOKENS.editor;
     if (container) {
       const style = window.getComputedStyle(container);
-      const fontSize = style.fontSize || '14px';
-      const fontFamily = style.fontFamily || FONT_TOKENS.editor;
-      ctx.font = `${fontSize} ${fontFamily}`;
-    } else {
-      ctx.font = `0.875rem ${FONT_TOKENS.editor}`;
+      fontSize = style.fontSize || fontSize;
+      fontFamily = style.fontFamily || fontFamily;
     }
+
+    const fontSpec = `${fontSize} ${fontFamily}`;
+
+    // Fallback: approximate character width when canvas or context is unavailable.
+    const approxCharWidth = (parseFloat(fontSize) || 14) * 0.6;
+    if (!canvas) {
+      return text.length * approxCharWidth;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return text.length * approxCharWidth;
+    }
+
+    ctx.font = fontSpec;
     return ctx.measureText(text).width;
   }, []);
 
