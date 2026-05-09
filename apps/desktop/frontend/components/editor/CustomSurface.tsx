@@ -205,7 +205,7 @@ function renderSpansElements(spans: HighlightSpan[], lineText: string) {
    Main Component
    ------------------------- */
 export default function CustomSurface(props: CustomSurfaceProps) {
-  const { value, onChange, lines, lineHeight, totalHeight, className } = props;
+  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange } = props;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -605,6 +605,19 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     }
   }, [caretCoords, lineHeight]);
 
+  // Notify parent of caret/selection changes so gutter and other UI can derive
+  // active-line from the authoritative caret. This is the single source of truth.
+  useEffect(() => {
+    if (typeof onCursorChange === 'function') {
+      try {
+        const c = indexToCoords(selEnd);
+        onCursorChange(c.line, c.col);
+      } catch {
+        // ignore errors in best-effort reporting
+      }
+    }
+  }, [selEnd, indexToCoords, onCursorChange]);
+
   // Memoized per-line view to minimize DOM churn and avoid flashing.
   // Rely on `hl.uid` as the primary stability key: the backend produces stable
   // uids for identical line text. When `hl.uid` is unchanged, React will avoid
@@ -684,7 +697,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       {/* Visible rendered lines */}
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
-          <LineView key={hl.uid} hl={hl} />
+          <LineView key={`${hl.uid}::${hl.index}`} hl={hl} />
         ))}
 
         {/* Selection overlays */}

@@ -623,6 +623,8 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const [scrollTop, setScrollTop] = useState(0);
+  // Authoritative cursor line (0-based). Updated by CustomSurface via onCursorChange.
+  const [cursorLine, setCursorLine] = useState<number>(0);
   // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
   // Overlay refs disabled for hard-reset baseline: no overlay DOM writes or transform syncs.
   // const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -781,7 +783,7 @@ export function CodeEditor(props: CodeEditorProps) {
         <div className="shrink-0 relative overflow-hidden" style={{ width: gutterWidth }}>
           <LineNumberGutter
             lineCount={totalLines}
-            cursorLine={1}
+            cursorLine={cursorLine + 1}
             lineHeight={lineHeight}
             scrollTop={scrollTop}
             containerHeight={containerHeight}
@@ -802,6 +804,7 @@ export function CodeEditor(props: CodeEditorProps) {
         <CustomSurface
           value={value}
           onChange={(v: string) => { setValue(v); onChange(v); }}
+          onCursorChange={(line: number, col: number) => setCursorLine(line)}
           lines={overlayHighlighted}
           lineHeight={lineHeight}
           totalHeight={totalHeight}
