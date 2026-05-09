@@ -648,17 +648,19 @@ export function CodeEditor(props: CodeEditorProps) {
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
       const backend = highlightedMap.get(idx);
-      // Only use backend spans when the backend snapshot text exactly matches the
-      // authoritative line text. This prevents stale token spans from coloring newly
-      // inserted characters until a fresh highlight snapshot arrives.
+      // Use a canonical UID based purely on documentId + line text hash. This
+      // keeps the identity stable between the plain-text rendering and any
+      // subsequent highlighted snapshot so we avoid destructive remounts.
+      const canonicalUid = `${session.documentId}:${stableHashString(authoritative)}`;
+
       if (backend && backend.text === authoritative) {
-        lines.push({ uid: backend.uid, index: idx, text: authoritative, spans: backend.spans });
+        // Apply backend spans only when the backend snapshot matches the exact
+        // authoritative line text. Otherwise keep the line plain until a fresh
+        // snapshot arrives for that exact text.
+        lines.push({ uid: canonicalUid, index: idx, text: authoritative, spans: backend.spans });
       } else {
-        // Generate a position-stable uid that includes the index so React won't
-        // accidentally reuse an identical-text node from a different position,
-        // which previously caused stacking/overlap when identical lines were reused.
-        const uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
-        lines.push({ uid, index: idx, text: authoritative, spans: [] });
+        // Plain fallback: no spans, explicit uid is canonical (no index appended).
+        lines.push({ uid: canonicalUid, index: idx, text: authoritative, spans: [] });
       }
     }
     return lines;
