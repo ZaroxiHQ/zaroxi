@@ -128,7 +128,8 @@ function useHighlightSnapshot(
       // Build a map from the provided snapshot
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
+        // Make line identity stable across insert/delete by hashing the line text only.
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
         seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
       cacheRef.current.set(textKey, { text, map: seeded, version: initialSnapshot.version });
@@ -160,7 +161,8 @@ function useHighlightSnapshot(
       if (cancelled || reqIdRef.current !== thisReq) return;
       const newMap = new Map<number, HighlightLine>();
       for (const l of res.lines) {
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
+        // Stable UID should not include the line index so lines that move keep identity.
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
         newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
       cacheRef.current.set(textKey, { text, map: newMap, version: res.version });
@@ -404,6 +406,24 @@ function computeLineStarts(text: string): number[] {
   return starts;
 }
 
+/**
+ * Compute the starting character (codepoint) index for each line.
+ * This is required to map absolute character offsets (from the backend)
+ * into per-line relative offsets safely for rendering.
+ */
+function computeLineCharStarts(text: string): number[] {
+  const starts: number[] = [0];
+  let charIndex = 0;
+  for (const ch of text) {
+    // `for...of` iterates over Unicode codepoints, matching Rust's char counts.
+    charIndex++;
+    if (ch === '\n') {
+      starts.push(charIndex);
+    }
+  }
+  return starts;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Simplified Editor implementation                                   */
 /* ------------------------------------------------------------------ */
@@ -489,20 +509,48 @@ export function CodeEditor(props: CodeEditorProps) {
   const visibleCount = Math.ceil(((containerHeight || lineHeight) + lineHeight) / lineHeight) * 2;
   const visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
 
+  // Build visible lines by clipping backend spans (which are absolute char offsets)
+  // to each line and producing per-line relative spans. Use stable UIDs derived
+  // from line text only so identical lines keep identity when moved.
+  const lineCharStarts = useMemo(() => computeLineCharStarts(displayText), [displayText]);
+
   const overlayHighlighted = useMemo(() => {
     const lines: HighlightLine[] = [];
+    const totalChars = Array.from(displayText).length;
     for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
       const start = displayLineStarts[idx] ?? displayText.length;
       const end = displayLineStarts[idx + 1] ?? displayText.length;
       let authoritative = displayText.slice(start, end);
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+
       const backendHl = highlightedMap.get(idx);
-      const usedSpans = backendHl ? backendHl.spans : [];
-      const uid = backendHl && backendHl.uid ? backendHl.uid : `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
+      const lineStartChar = lineCharStarts[idx] ?? 0;
+      const lineEndChar = lineCharStarts[idx + 1] ?? totalChars;
+
+      const usedSpans: HighlightSpan[] = [];
+      if (backendHl && backendHl.spans && backendHl.spans.length > 0) {
+        for (const sp of backendHl.spans) {
+          // backend spans are expected to be absolute char offsets (start/end).
+          const spanStart = sp.start;
+          const spanEnd = sp.end;
+          const ovStart = Math.max(spanStart, lineStartChar);
+          const ovEnd = Math.min(spanEnd, lineEndChar);
+          if (ovStart < ovEnd) {
+            usedSpans.push({
+              start: ovStart - lineStartChar,
+              end: ovEnd - lineStartChar,
+              token_type: sp.token_type,
+              color: sp.color,
+            });
+          }
+        }
+      }
+
+      const uid = backendHl && backendHl.uid ? backendHl.uid : `${session.documentId}:${stableHashString(authoritative)}`;
       lines.push({ uid, index: idx, text: authoritative, spans: usedSpans });
     }
     return lines;
-  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
+  }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId, lineCharStarts]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
   const effectiveReadOnly = readOnly || largeFile;
@@ -586,17 +634,11 @@ export function CodeEditor(props: CodeEditorProps) {
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
                 }}
-                // Render the visible overlay as a single stable DOM node to avoid per-line remount storms.
-                dangerouslySetInnerHTML={{ __html: (() => {
-                  // Build HTML for the visible slice quickly and deterministically.
-                  const parts: string[] = [];
-                  for (const hl of overlayHighlighted) {
-                    parts.push(renderSpansToHtml(hl.spans, hl.text));
-                  }
-                  // Join with newline to preserve exact line layout inside a pre-styled container.
-                  return parts.join('\n');
-                })() }}
-              />
+              >
+                {overlayHighlighted.map((hl) => (
+                  <HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />
+                ))}
+              </div>
             </div>
           </div>
         )}
