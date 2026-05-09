@@ -36,6 +36,14 @@ import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
 
+// Frontend per-document syntax session store.
+// Keyed by documentId -> { text, map, version }. This allows highlight snapshots
+// to survive editor remounts and be reused across CodeEditor instances.
+const syntaxSessionStore = new Map<
+  string,
+  { text: string; map: Map<number, HighlightLine>; version?: number }
+>();
+
 /* ------------------------------------------------------------------ */
 /*  Highlight model (unchanged small types)                            */
 /* ------------------------------------------------------------------ */
@@ -157,7 +165,14 @@ function useHighlightSnapshot(
       return;
     }
 
-    // Fast-path: if we've computed this exact text before, reuse it.
+    // Check a global per-document session store first (persisted across mounts).
+    const global = documentId ? syntaxSessionStore.get(documentId) : undefined;
+    if (global && global.text === text) {
+      setMapState(new Map(global.map));
+      return;
+    }
+
+    // Fast-path: if we've computed this exact text before in this hook's cache, reuse it.
     const textKey = `${documentId}::${stableHashString(text)}`;
     const cached = cacheRef.current.get(textKey);
     if (cached && cached.text === text) {
@@ -178,7 +193,11 @@ function useHighlightSnapshot(
         const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
         newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
+      // Update both the local hook cache and the global per-document session store.
       cacheRef.current.set(textKey, { text, map: newMap, version: res.version });
+      if (documentId) {
+        syntaxSessionStore.set(documentId, { text, map: newMap, version: res.version });
+      }
       setMapState(newMap);
     };
 
