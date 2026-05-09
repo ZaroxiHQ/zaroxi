@@ -868,17 +868,6 @@ export function CodeEditor(props: CodeEditorProps) {
         } as React.CSSProperties
       }
     >
-      <div className="shrink-0 relative" style={{ width: gutterWidth }}>
-        {!largeFile && (
-          <LineNumberGutter
-            lineCount={totalLines}
-            cursorLine={cursorLine + 1}
-            lineHeight={lineHeight}
-            scrollTop={scrollTop}
-            containerHeight={containerHeight}
-          />
-        )}
-      </div>
 
       <div className="flex-1 relative">
         {largeFile && (
@@ -914,6 +903,12 @@ export function CodeEditor(props: CodeEditorProps) {
             lineHeight={lineHeight}
             totalHeight={totalHeight}
             className="flex-1 h-full"
+            /* Gutter rendering moved into the surface so it scrolls with the content */
+            showGutter={!largeFile}
+            gutterWidth={gutterWidth}
+            gutterLineCount={totalLines}
+            gutterCursorLine={cursorLine + 1}
+            gutterLineHeight={lineHeight}
           />
         )}
       </div>

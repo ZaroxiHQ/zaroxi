@@ -49,6 +49,7 @@ import React, {
   useLayoutEffect,
 } from 'react';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
+import { LineNumberGutter } from './gutter/LineNumberGutter';
 
 type HighlightSpan = {
   start: number;
@@ -68,6 +69,13 @@ interface CustomSurfaceProps {
   onChange: (value: string) => void;
   onCursorChange?: (line: number, col: number) => void;
   onScroll?: (scrollTop: number) => void;
+  // Gutter props: when `showGutter` is true the surface will render the
+  // LineNumberGutter inside the same scrollable content so it scrolls natively.
+  showGutter?: boolean;
+  gutterWidth?: number;
+  gutterLineCount?: number;
+  gutterCursorLine?: number;
+  gutterLineHeight?: number;
   lines: HighlightLine[];
   lineHeight: number;
   totalHeight: number;
@@ -207,7 +215,21 @@ function renderSpansElements(spans: HighlightSpan[], lineText: string) {
    Main Component
    ------------------------- */
 export default function CustomSurface(props: CustomSurfaceProps) {
-  const { value, onChange, lines, lineHeight, totalHeight, className, onCursorChange, onScroll } = props;
+  const {
+    value,
+    onChange,
+    lines,
+    lineHeight,
+    totalHeight,
+    className,
+    onCursorChange,
+    onScroll,
+    showGutter,
+    gutterWidth,
+    gutterLineCount,
+    gutterCursorLine,
+    gutterLineHeight,
+  } = props;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
