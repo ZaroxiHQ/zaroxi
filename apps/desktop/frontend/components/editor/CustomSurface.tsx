@@ -89,14 +89,27 @@ interface CustomSurfaceProps {
  */
 function computeSegments(spans: HighlightSpan[], lineText: string) {
   const lineLen = lineText.length;
-  // If line is huge, don't attempt complex segmentation in hot path
   if (lineLen === 0) return [];
-  if (spans.length === 0) {
+
+  // Normalize and filter spans:
+  // - drop "plain" token types (they should render as plain text gaps)
+  // - clamp spans to line bounds
+  // - drop degenerate spans
+  const normalized = (spans || [])
+    .map((s) => ({
+      start: Math.max(0, Math.min(lineLen, s.start)),
+      end: Math.max(0, Math.min(lineLen, s.end)),
+      token_type: s.token_type,
+      color: s.color ?? null,
+    }))
+    .filter((s) => s.end > s.start && String(s.token_type || '').toLowerCase() !== 'plain');
+
+  if (normalized.length === 0) {
     return [{ type: 'plain' as const, start: 0, end: lineLen, text: lineText }];
   }
 
-  // Sort spans by start (stable)
-  const sorted = [...spans].sort((a, b) => {
+  // Sort by start then end
+  normalized.sort((a, b) => {
     if (a.start !== b.start) return a.start - b.start;
     return a.end - b.end;
   });
@@ -110,11 +123,17 @@ function computeSegments(spans: HighlightSpan[], lineText: string) {
     color?: string | null;
   }> = [];
 
+  // Iterate and produce non-overlapping segments.
+  // Any overlap is resolved by clamping the upcoming span to the current
+  // `last` offset so no token can bleed into previously emitted ranges.
   let last = 0;
-  for (const sp of sorted) {
-    const from = Math.max(0, Math.min(lineLen, sp.start));
+  for (const sp of normalized) {
+    const from = Math.max(sp.start, last);
     const to = Math.max(from, Math.min(lineLen, sp.end));
-    if (to <= from) continue; // degenerate -> skip
+    if (to <= from) {
+      // Span entirely overlapped or degenerate after clamping
+      continue;
+    }
 
     if (from > last) {
       segments.push({
@@ -125,14 +144,13 @@ function computeSegments(spans: HighlightSpan[], lineText: string) {
       });
     }
 
-    // Token segment: only the exact span range
     segments.push({
       type: 'token',
       start: from,
       end: to,
       text: lineText.slice(from, to),
       token_type: sp.token_type,
-      color: sp.color ?? null,
+      color: sp.color,
     });
 
     last = to;
@@ -493,10 +511,31 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       );
     },
     (prev, next) => {
-      // Only re-render a line when its uid or text changes.
-      // uid is expected to be stable for identical line text; this prevents
-      // tear-down/recreate cycles that caused visible flashing.
-      return prev.hl.uid === next.hl.uid;
+      // Determine if the line content or spans truly changed.
+      // We allow stable uids to avoid unnecessary remounts, but we must still
+      // re-render when spans change even if uid remained stable.
+      const a = prev.hl;
+      const b = next.hl;
+
+      if (a.uid !== b.uid) return false;
+      if (a.text !== b.text) return false;
+
+      const sa = a.spans || [];
+      const sb = b.spans || [];
+      if (sa.length !== sb.length) return false;
+
+      for (let i = 0; i < sa.length; i++) {
+        const xa = sa[i];
+        const xb = sb[i];
+        if (!xa || !xb) return false;
+        if (xa.start !== xb.start || xa.end !== xb.end || xa.token_type !== xb.token_type) return false;
+        // Compare color gently (null/undefined equivalence)
+        const ca = xa.color ?? null;
+        const cb = xb.color ?? null;
+        if (ca !== cb) return false;
+      }
+
+      return true;
     }
   );
 
