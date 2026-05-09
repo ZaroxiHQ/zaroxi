@@ -231,6 +231,30 @@ export default function CustomSurface(props: CustomSurfaceProps) {
   const [selStart, setSelStart] = useState<number>(0);
   const [selEnd, setSelEnd] = useState<number>(0);
 
+  // Preferred column remembered for vertical movement (Up/Down).
+  // null => not set (use current column).
+  const preferredColumnRef = useRef<number | null>(null);
+
+  // Centralized selection setter that updates React state and the hidden textarea.
+  // anchor/focus are absolute character offsets. When `ensureTextarea` is true
+  // we also set the textarea selectionRange to keep IME/browser selection in sync.
+  const setSelection = useCallback((anchor: number, focus: number, ensureTextarea = true) => {
+    // Normalize values
+    const a = Math.max(0, Math.min(anchor, value.length));
+    const f = Math.max(0, Math.min(focus, value.length));
+    setSelStart(a);
+    setSelEnd(f);
+    if (ensureTextarea && textareaRef.current) {
+      try {
+        textareaRef.current.setSelectionRange(a, f);
+      } catch {
+        // ignore invalid ranges
+      }
+    }
+    // Horizontal moves should reset preferred column memory.
+    preferredColumnRef.current = null;
+  }, [value]);
+
   // Drag state for mouse selection
   const draggingRef = useRef(false);
 
@@ -417,11 +441,19 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     return () => container.removeEventListener('mousedown', onMouseDown);
   }, [posToIndex]);
 
-  // Keyboard handling: keep textarea tiny and intercept Tab to insert tab
+  // Keyboard handling: intercept navigation keys and Tab.
+  // We implement movement against the authorative logical model (character offsets)
+  // and project the result into the hidden textarea to avoid the browser's caret
+  // moving across token spans unpredictably.
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+
+    const collapsePos = (dirLeft: boolean, a: number, b: number) =>
+      dirLeft ? Math.min(a, b) : Math.max(a, b);
+
     const onKeyDown = (e: KeyboardEvent) => {
+      // Always handle Tab insertion here to keep behaviour consistent.
       if (e.key === 'Tab') {
         e.preventDefault();
         const start = ta.selectionStart ?? 0;
@@ -432,14 +464,114 @@ export default function CustomSurface(props: CustomSurfaceProps) {
         try {
           ta.setSelectionRange(start + 1, start + 1);
         } catch {}
-        // Fire input handler manually
         const ev = new InputEvent('input', { bubbles: true });
         ta.dispatchEvent(ev);
+        return;
+      }
+
+      // Navigation keys we intercept and implement on the logical model.
+      const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+      if (!navKeys.includes(e.key)) return;
+
+      // Prevent default browser caret movement which may depend on DOM token spans.
+      e.preventDefault();
+
+      const isShift = e.shiftKey;
+      // Read current logical selection from our state (if stale here, textarea selection is a good fallback)
+      const curA = selStart;
+      const curB = selEnd;
+      const curAnchor = curA;
+      const curFocus = curB;
+
+      // Helper to write selection and textarea
+      const apply = (anchor: number, focus: number) => {
+        setSelection(anchor, focus, true);
+      };
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const dirLeft = e.key === 'ArrowLeft';
+        // If there's a selection and shift is NOT held, collapse to the appropriate edge.
+        if (!isShift && curAnchor !== curFocus) {
+          const collapse = collapsePos(dirLeft, curAnchor, curFocus);
+          apply(collapse, collapse);
+          return;
+        }
+
+        // Determine base focus index (use focus end)
+        const base = curFocus;
+        const next = dirLeft ? Math.max(0, base - 1) : Math.min(value.length, base + 1);
+        if (isShift) {
+          // Expand/contract selection: anchor remains the opposite end (curAnchor)
+          apply(curAnchor, next);
+        } else {
+          apply(next, next);
+        }
+
+        return;
+      }
+
+      if (e.key === 'Home' || e.key === 'End') {
+        // Resolve focus position: with selection and no shift collapse to start/end per direction
+        const isHome = e.key === 'Home';
+        const base = isHome ? collapsePos(true, curAnchor, curFocus) : collapsePos(false, curAnchor, curFocus);
+
+        // Map to line/col
+        const coords = indexToCoords(base);
+        const targetLine = coords.line;
+        const targetCol = isHome ? 0 : (linesArr[targetLine] ? linesArr[targetLine].length : 0);
+        const newIndex = lineStartCharIndex(targetLine) + targetCol;
+        if (isShift) {
+          apply(curAnchor, newIndex);
+        } else {
+          apply(newIndex, newIndex);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const goingUp = e.key === 'ArrowUp';
+        // Choose collapse position for the vertical move when there is a selection and no shift:
+        // Up => start of selection, Down => end of selection (typical editor behaviour).
+        let focusBase = goingUp ? Math.min(curAnchor, curFocus) : Math.max(curAnchor, curFocus);
+        // If already collapsed, use current focus
+        if (curAnchor === curFocus) focusBase = curFocus;
+
+        const coords = indexToCoords(focusBase);
+        // Remember preferred column if not already set
+        if (preferredColumnRef.current === null) {
+          preferredColumnRef.current = coords.col;
+        }
+        const prefCol = preferredColumnRef.current ?? coords.col;
+        let targetLine = goingUp ? Math.max(0, coords.line - 1) : Math.min(linesArr.length - 1, coords.line + 1);
+
+        // If there's no movement (at document bounds), keep caret where it is
+        if (targetLine === coords.line) {
+          // Nothing to do
+          return;
+        }
+
+        const targetLineText = linesArr[targetLine] ?? '';
+        const targetCol = Math.min(prefCol, targetLineText.length);
+        const newIndex = lineStartCharIndex(targetLine) + targetCol;
+
+        if (isShift) {
+          // Expand selection from anchor towards newIndex.
+          // Decide anchor: if there was a selection, keep the original anchor; if collapsed, anchor becomes previous focusBase.
+          const anchor = (curAnchor === curFocus) ? focusBase : curAnchor;
+          apply(anchor, newIndex);
+        } else {
+          apply(newIndex, newIndex);
+        }
+
+        return;
       }
     };
+
     ta.addEventListener('keydown', onKeyDown);
     return () => ta.removeEventListener('keydown', onKeyDown);
-  }, []);
+    // Intentionally depend on selStart/selEnd so the handler sees latest logical selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selStart, selEnd, value, linesArr, indexToCoords, lineStartCharIndex, setSelection]);
 
   // Render caret position and selection overlays
   const caretCoords = indexToCoords(selEnd);
