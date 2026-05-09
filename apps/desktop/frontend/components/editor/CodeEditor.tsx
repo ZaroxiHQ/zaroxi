@@ -712,8 +712,9 @@ export function CodeEditor(props: CodeEditorProps) {
       const view = cmViewRef.current!;
       const docText = view.state.doc.toString();
       if (docText !== value) {
+        // Use a single atomic change to replace the document content.
         view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: value },
+          changes: { from: 0, to: view.state.doc.length, insert: value }
         });
       }
     }
