@@ -545,23 +545,15 @@ export function CodeEditor(props: CodeEditorProps) {
     return lines;
   }, [displayLineStarts, visibleStartLine, visibleEndLine, displayText, highlightedMap, session.documentId]);
 
-  // Keep the overlay inner HTML synchronized when highlight data changes.
-  // We update innerHTML directly (not via React render) and batch the DOM write
-  // into requestAnimationFrame so content and transform updates happen in the
-  // same paint frame, avoiding ghosting during scroll.
+  // When highlight data changes we rely on React to reconcile per-line children.
+  // Keep the overlay transform synchronized immediately so there is no one-frame
+  // drift during fast scrolling; we avoid performing bulk innerHTML replacements
+  // which caused trailing-region repaint storms.
   useEffect(() => {
     const node = overlayRef.current;
     if (!node) return;
-    const parts: string[] = [];
-    for (const hl of overlayHighlighted) {
-      parts.push(renderSpansToHtml(hl.spans, hl.text));
-    }
-    // Batch write into next animation frame to coalesce with transform updates.
-    requestAnimationFrame(() => {
-      node.innerHTML = parts.join('\n');
-      node.style.willChange = 'transform';
-      node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
-    });
+    node.style.willChange = 'transform';
+    node.style.transform = `translate3d(0px, ${-scrollTopRef.current}px, 0px)`;
   }, [overlayHighlighted]);
 
   const gutterWidth = largeFile ? 0 : computeGutterWidth(totalLines);
@@ -671,8 +663,11 @@ export function CodeEditor(props: CodeEditorProps) {
                   pointerEvents: 'none',
                   boxSizing: 'border-box',
                 }}
-                // innerHTML is managed directly via effect/RAF to avoid per-line remounts
-              />
+              >
+                {overlayHighlighted.map((hl) => (
+                  <HighlightedLineView key={hl.uid} hl={hl} lineHeight={lineHeight} />
+                ))}
+              </div>
             </div>
           </div>
         )}
