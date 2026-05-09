@@ -188,18 +188,57 @@ function useHighlightSnapshot(
 
     const applyResultIfCurrent = (res: HighlightResponse) => {
       if (cancelled || reqIdRef.current !== thisReq) return;
-      const newMap = new Map<number, HighlightLine>();
+
+      // Patch the existing map state non-destructively: update only lines present
+      // in the incoming snapshot. This prevents a full replacement that can cause
+      // remounts/visual flashing for unchanged lines.
+      setMapState((prev) => {
+        const updated = new Map(prev);
+        for (const l of res.lines) {
+          const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+          const existing = updated.get(l.index);
+
+          // Fast-path: if an identical entry already exists, skip.
+          let identical = false;
+          if (existing && existing.text === l.text) {
+            const sa = existing.spans || [];
+            const sb = l.spans || [];
+            if (sa.length === sb.length) {
+              identical = true;
+              for (let i = 0; i < sa.length; i++) {
+                const a = sa[i];
+                const b = sb[i];
+                if (!a || !b ||
+                    a.start !== b.start ||
+                    a.end !== b.end ||
+                    a.token_type !== b.token_type ||
+                    (a.color ?? null) !== (b.color ?? null)) {
+                  identical = false;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!identical) {
+            updated.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
+          }
+        }
+        return updated;
+      });
+
+      // Update both the local hook cache and the global per-document session store
+      // with a map constructed from the incoming snapshot. These caches are used
+      // to avoid re-requesting identical text and to seed future mounts.
+      const incomingMap = new Map<number, HighlightLine>();
       for (const l of res.lines) {
-        // Stable UID should not include the line index so lines that move keep identity.
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
-        newMap.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
+        const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+        incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
       }
-      // Update both the local hook cache and the global per-document session store.
-      cacheRef.current.set(textKey, { text, map: newMap, version: res.version });
+      cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
       if (documentId) {
-        syntaxSessionStore.set(documentId, { text, map: newMap, version: res.version });
+        syntaxSessionStore.set(documentId, { text, map: new Map(incomingMap), version: res.version });
       }
-      setMapState(newMap);
     };
 
     const fetch = async () => {

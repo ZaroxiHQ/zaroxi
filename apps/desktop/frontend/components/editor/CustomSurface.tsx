@@ -644,12 +644,13 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     },
     (prev, next) => {
       // Determine if the line content or spans truly changed.
-      // We allow stable uids to avoid unnecessary remounts, but we must still
-      // re-render when spans change even if uid remained stable.
+      // Focus comparisons on the actual rendered content (text + spans) and
+      // avoid treating UID differences as destructive. This ensures a line's
+      // DOM node can remain mounted and only update when its visible content
+      // truly changes.
       const a = prev.hl;
       const b = next.hl;
 
-      if (a.uid !== b.uid) return false;
       if (a.text !== b.text) return false;
 
       const sa = a.spans || [];
@@ -692,7 +693,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       {/* Visible rendered lines */}
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
-          <LineView key={`${hl.uid}:${hl.index}`} hl={hl} />
+          <LineView key={hl.index} hl={hl} />
         ))}
 
         {/* Selection overlays */}
