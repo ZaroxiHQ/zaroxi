@@ -173,7 +173,9 @@ function useHighlightSnapshot(
     if (initialSnapshot.lines.length > 0) {
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
-        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
+        // Deterministic uid that prefers position-based identity for initial snapshots.
+        // This avoids generating transient uids that would cause remounts on first paint.
+        const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}:${l.index}`;
         seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
       const textKey = `${documentId}::${stableHashString(text)}`;
@@ -248,11 +250,44 @@ function useHighlightSnapshot(
         if (!matchesText) return;
 
         // Patch only the returned lines into the existing map non-destructively.
+        // Reuse existing uids when possible to avoid React remounts/flash.
         setMapState((prev) => {
           const updated = new Map(prev);
+          const prevSession = documentId ? getDocumentSyntax(documentId) : undefined;
+          const usedUidsLocal = new Set<string>();
+
           for (const l of res.lines) {
-            const canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
             const existing = updated.get(l.index);
+
+            // Reuse uid if unchanged at same index.
+            let canonicalUid: string | undefined = undefined;
+            if (existing && existing.text === l.text) {
+              canonicalUid = existing.uid;
+              usedUidsLocal.add(canonicalUid);
+            }
+
+            // Otherwise try to reuse any previous uid with same text from the persisted document store.
+            if (!canonicalUid && prevSession && prevSession.map) {
+              const prevEntry = prevSession.map.get(l.index);
+              if (prevEntry && prevEntry.text === l.text && !usedUidsLocal.has(prevEntry.uid)) {
+                canonicalUid = prevEntry.uid;
+                usedUidsLocal.add(canonicalUid);
+              } else {
+                for (const [_, v] of prevSession.map) {
+                  if (v.text === l.text && !usedUidsLocal.has(v.uid)) {
+                    canonicalUid = v.uid;
+                    usedUidsLocal.add(canonicalUid);
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Fallback: deterministic position-based uid (unique for this document+index+text hash).
+            if (!canonicalUid) {
+              canonicalUid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
+              usedUidsLocal.add(canonicalUid);
+            }
 
             // Detect identical entry to avoid remounts/flashing.
             let identical = false;
@@ -281,8 +316,23 @@ function useHighlightSnapshot(
 
         // Cache and document-store the incoming snapshot for future fast-paths.
         const incomingMap = new Map<number, HighlightLine>();
+        const prevSessionForCache = documentId ? getDocumentSyntax(documentId) : undefined;
         for (const l of res.lines) {
-          const canonicalUid = `${documentId}:${stableHashString(l.text)}:${uidCounterRef.current++}`;
+          let canonicalUid = `${documentId}:${stableHashString(l.text)}:${l.index}`;
+          // Prefer reusing a prior uid for the same index/text when available
+          if (prevSessionForCache && prevSessionForCache.map) {
+            const prevEntry = prevSessionForCache.map.get(l.index);
+            if (prevEntry && prevEntry.text === l.text) {
+              canonicalUid = prevEntry.uid;
+            } else {
+              for (const [_, v] of prevSessionForCache.map) {
+                if (v.text === l.text) {
+                  canonicalUid = v.uid;
+                  break;
+                }
+              }
+            }
+          }
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
         cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
@@ -614,6 +664,10 @@ export function CodeEditor(props: CodeEditorProps) {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // Initialize container height synchronously to avoid an initial tiny visible
+    // window that would render only a very small number of lines before the
+    // ResizeObserver fires (causing partial/partial-character visible states).
+    setContainerHeight(el.clientHeight || 0);
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) setContainerHeight(e.contentRect.height);
     });
@@ -695,11 +749,9 @@ export function CodeEditor(props: CodeEditorProps) {
       // tie-breaker. This reduces accidental key collisions while keeping uids
       // deterministic between renders for the same content.
       if (!uid) {
-        // Keep uid independent of the numeric index so it remains stable when lines
-        // are inserted/deleted above this line. Using a fresh per-session suffix
-        // prevents key collisions for identical line text while allowing reuse
-        // via the prevSession lookup above.
-        uid = `${session.documentId}:${stableHashString(authoritative)}:${uidCounterRef.current++}`;
+        // Prefer reusing any prior uid; if none found, create a deterministic uid
+        // that includes the index so it's unique for this position.
+        uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
         usedUids.add(uid);
       }
 
