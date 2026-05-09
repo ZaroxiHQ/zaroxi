@@ -534,9 +534,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
-  // Use a div ref for contentEditable surface when we migrate from textarea to
-  // a single authoritative editable DOM node. Type updated here to avoid TS mismatch.
-  const textareaRef = useRef<HTMLDivElement | null>(null);
+  // Textarea ref restored: native textarea is the single authoritative input surface.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
@@ -601,8 +601,25 @@ export function CodeEditor(props: CodeEditorProps) {
   // The backend returns spans that are already relative to each line's text.
   // Use those spans as-is (no absolute-offset remapping) and always render
   // full line text (spans + plain gaps). This prevents partial coverage.
-  // Overlay highlighting disabled for baseline. Keep an empty list to preserve downstream shape.
-  const overlayHighlighted: HighlightLine[] = [];
+  // Build a visible slice of highlight lines from the highlightedMap.
+  const overlayHighlighted: HighlightLine[] = useMemo(() => {
+    const lines: HighlightLine[] = [];
+    for (let idx = visibleStartLine; idx < visibleEndLine; idx++) {
+      const start = displayLineStarts[idx] ?? displayText.length;
+      const end = displayLineStarts[idx + 1] ?? displayText.length;
+      let authoritative = displayText.slice(start, end);
+      if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
+
+      const backend = highlightedMap.get(idx);
+      if (backend) {
+        lines.push(backend);
+      } else {
+        const uid = `${session.documentId}:${stableHashString(authoritative)}`;
+        lines.push({ uid, index: idx, text: authoritative, spans: [] });
+      }
+    }
+    return lines;
+  }, [highlightedMap, visibleStartLine, visibleEndLine, displayLineStarts, displayText, session.documentId]);
 
   // Overlay DOM writes disabled for baseline: no-op effect to keep hook signature stable.
   useEffect(() => {
@@ -675,37 +692,108 @@ export function CodeEditor(props: CodeEditorProps) {
           </div>
         )}
 
-        {/* Step toward single authoritative editable surface:
-            replace textarea with a single contentEditable DIV that will remain
-            the only visible/readable text layer. No additional overlay glyphs
-            will be introduced — token spans will be applied inside this same
-            DOM tree in later micro-chunks (no second readable layer). */}
+        {/* Syntax overlay (non-glyph): render token background decorations beneath the textarea.
+            This overlay never renders visible glyphs (text color is transparent) and therefore
+            does not create a second readable text image. The native textarea remains the single
+            authoritative visible layer. */}
         <div
-          ref={textareaRef}
-          contentEditable={!effectiveReadOnly}
-          suppressContentEditableWarning
-          role="textbox"
-          aria-multiline="true"
-          tabIndex={0}
-          className="flex-1 outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
+          ref={overlayRef}
+          aria-hidden={true}
           style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 5,
+            pointerEvents: 'none',
+            overflow: 'hidden',
+            fontFamily: FONT_TOKENS.editor,
+            fontSize: '0.875rem',
+            lineHeight: `${lineHeight}px`,
             whiteSpace: 'pre',
+          }}
+        >
+          <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
+            {overlayHighlighted.map((hl) => (
+              <div
+                key={hl.uid}
+                style={{
+                  position: 'absolute',
+                  top: hl.index * lineHeight,
+                  left: 0,
+                  height: lineHeight,
+                  lineHeight: `${lineHeight}px`,
+                  whiteSpace: 'pre',
+                  pointerEvents: 'none',
+                }}
+              >
+                {(() => {
+                  const parts: React.ReactNode[] = [];
+                  let last = 0;
+                  for (let i = 0; i < hl.spans.length; i++) {
+                    const sp = hl.spans[i];
+                    if (sp.start > last) {
+                      const gapText = hl.text.slice(last, sp.start).replace(/ /g, '\u00a0');
+                      parts.push(
+                        <span key={`g-${hl.index}-${i}`} style={{ color: 'transparent' }}>
+                          {gapText}
+                        </span>
+                      );
+                    }
+                    const len = Math.max(0, sp.end - sp.start);
+                    const content = '\u00a0'.repeat(len || 1);
+                    const bg = sp.color ?? undefined;
+                    parts.push(
+                      <span
+                        key={`t-${hl.index}-${i}`}
+                        className={`syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`}
+                        style={{ background: bg, color: 'transparent' }}
+                      >
+                        {content}
+                      </span>
+                    );
+                    last = sp.end;
+                  }
+                  if (last < hl.text.length) {
+                    const tail = hl.text.slice(last).replace(/ /g, '\u00a0');
+                    parts.push(
+                      <span key={`tail-${hl.index}`} style={{ color: 'transparent' }}>
+                        {tail}
+                      </span>
+                    );
+                  }
+                  return parts;
+                })()}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          tabIndex={0}
+          className="flex-1 resize-none outline-none bg-transparent font-mono text-sm p-0 relative z-10 scroll-hidden"
+          style={{
             lineHeight: `${lineHeight}px`,
             fontFamily: FONT_TOKENS.editor,
             fontSize: '0.875rem',
+            whiteSpace: 'pre',
             overflowWrap: 'normal',
             overflowX: 'auto',
             overflowY: 'auto',
             pointerEvents: 'auto',
+            color: undefined,
+            WebkitTextFillColor: undefined,
             caretColor: effectiveReadOnly ? 'transparent' : 'var(--editor-cursor-color, #E2E8F0)',
-            color: 'var(--editor-fg, inherit)',
           }}
-          onInput={handleInput}
+          value={value}
+          readOnly={effectiveReadOnly}
+          onChange={handleChange}
           onScroll={handleScroll}
           spellCheck={false}
-          // Render raw text into the contenteditable safely. We escape HTML so user text
-          // is preserved literally; white-space: pre ensures newlines render as expected.
-          dangerouslySetInnerHTML={{ __html: escapeHtml(value) }}
+          autoComplete="off"
+          autoCorrect="off"
         />
       </div>
 
