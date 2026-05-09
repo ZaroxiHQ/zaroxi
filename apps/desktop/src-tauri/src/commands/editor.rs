@@ -815,6 +815,12 @@ fn highlight_tag_to_string(tag: Highlight) -> String {
 
 /// Convert a semantic `Highlight` into the corresponding theme colour.
 fn tag_to_color(tag: Highlight, colors: &SemanticColors) -> Option<Color> {
+    // Plain text should not be assigned a semantic color. Returning `None`
+    // indicates the frontend should use the editor's default foreground color.
+    if tag == Highlight::Plain {
+        return None;
+    }
+
     use zaroxi_lang_syntax::theme_map::SemanticTokenType;
     let token_type = SemanticTokenType::from_highlight(tag);
     Some(token_type.theme_color(colors))

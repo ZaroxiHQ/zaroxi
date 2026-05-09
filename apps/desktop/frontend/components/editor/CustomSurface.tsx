@@ -443,6 +443,40 @@ export default function CustomSurface(props: CustomSurfaceProps) {
     }
   }, [caretCoords, lineHeight]);
 
+  // Memoized per-line view to minimize DOM churn and avoid flashing.
+  // Rely on `hl.uid` as the primary stability key: the backend produces stable
+  // uids for identical line text. When `hl.uid` is unchanged, React will avoid
+  // re-rendering the line content.
+  const LineView = React.memo(
+    function LineView({ hl }: { hl: HighlightLine }) {
+      return (
+        <div
+          style={{
+            position: 'absolute',
+            // Use a rounded integer top offset to avoid subpixel stacking issues
+            top: Math.round(hl.index * lineHeight),
+            left: 0,
+            height: lineHeight,
+            lineHeight: `${lineHeight}px`,
+            whiteSpace: 'pre',
+            pointerEvents: 'none',
+            width: '100%',
+            color: 'var(--editor-foreground, #000)', // explicit default on the line container
+          }}
+          aria-hidden={true}
+        >
+          {renderSpansElements(hl.spans, hl.text)}
+        </div>
+      );
+    },
+    (prev, next) => {
+      // Only re-render a line when its uid or text changes.
+      // uid is expected to be stable for identical line text; this prevents
+      // tear-down/recreate cycles that caused visible flashing.
+      return prev.hl.uid === next.hl.uid;
+    }
+  );
+
   // Render
   return (
     <div
@@ -464,24 +498,7 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       {/* Visible rendered lines */}
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
-          <div
-            key={`${hl.uid}:${hl.index}`}
-            style={{
-              position: 'absolute',
-              // Use a rounded integer top offset to avoid subpixel stacking issues
-              top: Math.round(hl.index * lineHeight),
-              left: 0,
-              height: lineHeight,
-              lineHeight: `${lineHeight}px`,
-              whiteSpace: 'pre',
-              pointerEvents: 'none',
-              width: '100%',
-              color: 'var(--editor-foreground, #000)', // explicit default on the line container
-            }}
-            aria-hidden={true}
-          >
-            {renderSpansElements(hl.spans, hl.text)}
-          </div>
+          <LineView key={`${hl.uid}:${hl.index}`} hl={hl} />
         ))}
 
         {/* Selection overlays */}
