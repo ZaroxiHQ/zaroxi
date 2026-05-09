@@ -125,29 +125,48 @@ function mergeSpans(spans: HighlightSpan[], lineLen: number): HighlightSpan[] {
 }
 
 function renderSpansElements(spans: HighlightSpan[], lineText: string) {
-  if (spans.length === 0) return [lineText];
+  // Use explicit CSS variables for foreground so plain text always has a clear
+  // fallback color and newly-inserted characters don't inherit stale token colors.
+  const FG = 'var(--editor-foreground, #000)';
+
+  // If no spans, return a single text node wrapped in a span with the editor FG.
+  if (spans.length === 0) return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
 
   const merged = mergeSpans(spans, lineText.length);
-  if (merged.length === 0) return [lineText];
+  if (merged.length === 0) return [<span key="plain-0" style={{ color: FG }}>{lineText}</span>];
 
   const segments: React.ReactNode[] = [];
   let last = 0;
   for (let i = 0; i < merged.length; i++) {
     const sp = merged[i];
     if (sp.start > last) {
-      segments.push(lineText.slice(last, sp.start));
+      const plainText = lineText.slice(last, sp.start);
+      segments.push(
+        <span key={`plain-${last}`} style={{ color: FG }}>
+          {plainText}
+        </span>
+      );
     }
     const key = `${sp.start}-${i}`;
-    const style: React.CSSProperties | undefined = sp.color ? { color: sp.color } : undefined;
+    // Token spans set an explicit color when provided; otherwise fall back to editor FG.
+    const style: React.CSSProperties = { color: sp.color ?? FG };
     segments.push(
-      <span key={key} style={style} className={`syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`}>
+      <span
+        key={key}
+        style={style}
+        className={`syntax-${String(sp.token_type || 'plain').toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`}
+      >
         {lineText.slice(sp.start, sp.end)}
       </span>
     );
     last = sp.end;
   }
   if (last < lineText.length) {
-    segments.push(lineText.slice(last));
+    segments.push(
+      <span key={`plain-${last}`} style={{ color: FG }}>
+        {lineText.slice(last)}
+      </span>
+    );
   }
   return segments;
 }
@@ -446,16 +465,18 @@ export default function CustomSurface(props: CustomSurfaceProps) {
       <div style={{ position: 'relative', height: totalHeight, width: '100%' }}>
         {lines.map((hl) => (
           <div
-            key={hl.uid}
+            key={`${hl.uid}:${hl.index}`}
             style={{
               position: 'absolute',
-              top: hl.index * lineHeight,
+              // Use a rounded integer top offset to avoid subpixel stacking issues
+              top: Math.round(hl.index * lineHeight),
               left: 0,
               height: lineHeight,
               lineHeight: `${lineHeight}px`,
               whiteSpace: 'pre',
               pointerEvents: 'none',
               width: '100%',
+              color: 'var(--editor-foreground, #000)', // explicit default on the line container
             }}
             aria-hidden={true}
           >
@@ -473,24 +494,24 @@ export default function CustomSurface(props: CustomSurfaceProps) {
               left: r.left,
               height: lineHeight,
               width: Math.max(1, r.width),
-              background: 'rgba(90, 120, 200, 0.25)',
+              background: 'var(--editor-selection, rgba(90, 120, 200, 0.25))',
               pointerEvents: 'none',
             }}
             aria-hidden={true}
           />
         ))}
 
-        {/* Caret */}
+        {/* Custom caret (visible and theme-aware). Use CSS var --editor-foreground for coloring. */}
         {isCollapsed && (
           <div
             style={{
               position: 'absolute',
-              top: caretCoords.top,
-              left: caretCoords.left,
+              top: Math.round(caretCoords.top),
+              left: Math.round(caretCoords.left),
               width: 1,
               height: Math.max(1, lineHeight),
-              background: '#000',
-              boxShadow: '0 0 0 1px rgba(0,0,0,0.1) inset',
+              background: 'var(--editor-foreground, #000)',
+              boxShadow: '0 0 0 1px rgba(255,255,255,0.06) inset',
               pointerEvents: 'none',
               animation: 'caret-blink 1s steps(2, start) infinite',
             }}

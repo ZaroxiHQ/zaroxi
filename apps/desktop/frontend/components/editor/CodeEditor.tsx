@@ -609,10 +609,16 @@ export function CodeEditor(props: CodeEditorProps) {
       if (authoritative.endsWith('\n')) authoritative = authoritative.slice(0, -1);
 
       const backend = highlightedMap.get(idx);
-      if (backend) {
-        lines.push(backend);
+      // Only use backend spans when the backend snapshot text exactly matches the
+      // authoritative line text. This prevents stale token spans from coloring newly
+      // inserted characters until a fresh highlight snapshot arrives.
+      if (backend && backend.text === authoritative) {
+        lines.push({ uid: backend.uid, index: idx, text: authoritative, spans: backend.spans });
       } else {
-        const uid = `${session.documentId}:${stableHashString(authoritative)}`;
+        // Generate a position-stable uid that includes the index so React won't
+        // accidentally reuse an identical-text node from a different position,
+        // which previously caused stacking/overlap when identical lines were reused.
+        const uid = `${session.documentId}:${stableHashString(authoritative)}:${idx}`;
         lines.push({ uid, index: idx, text: authoritative, spans: [] });
       }
     }
@@ -675,7 +681,17 @@ export function CodeEditor(props: CodeEditorProps) {
 
   // Render
   return (
-    <div ref={containerRef} className={cn('flex h-full', className)}>
+    <div
+      ref={containerRef}
+      className={cn('flex h-full', className)}
+      style={
+        {
+          ['--editor-foreground' as any]: theme === 'dark' ? '#ffffff' : '#0f172a',
+          ['--editor-selection' as any]: theme === 'dark' ? 'rgba(90,120,200,0.25)' : 'rgba(90,120,200,0.18)',
+          ['--editor-background' as any]: theme === 'dark' ? '#0b1220' : '#ffffff',
+        } as React.CSSProperties
+      }
+    >
       {!largeFile && (
         <div className="shrink-0 relative overflow-hidden" style={{ width: gutterWidth }}>
           <LineNumberGutter
