@@ -134,21 +134,29 @@ function useHighlightSnapshot(
   theme?: 'dark' | 'light',
   language?: string | undefined,
   initialSnapshot?: HighlightResponse | null,
-  visibleStart?: number,
-  visibleCount?: number,
+  /* visibleStart and visibleCount are accepted for compatibility but ignored
+     by this simplified, immediate pipeline. */
+  _visibleStart?: number,
+  _visibleCount?: number,
 ) {
+  // Authoritative map of lineIndex -> HighlightLine for the current document text.
   const [mapState, setMapState] = useState<Map<number, HighlightLine>>(new Map());
-  // cache keyed by documentId::textHash to avoid re-fetching identical inputs
-  const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(new Map());
-  const reqIdRef = useRef(0);
-  const timerRef = useRef<number | null>(null);
-  const firstFetchRef = useRef(true);
 
-  // Seed cache from an optional server-provided initial snapshot (first-paint path).
+  // Simple per-hook cache to avoid re-requesting identical text within the same session.
+  // Still keep the global syntaxSessionStore to allow cross-mount reuse.
+  const cacheRef = useRef<Map<string, { text: string; map: Map<number, HighlightLine>; version?: number }>>(
+    new Map(),
+  );
+
+  // Monotonic request id to detect and discard stale responses.
+  const reqIdRef = useRef(0);
+
+  // Seed cache/state immediately from an initialSnapshot when it exactly matches the
+  // provided `text`. This ensures the frontend can render the server-provided compact
+  // snapshot on first paint without any timers or staged phases.
   useEffect(() => {
     if (!documentId || !initialSnapshot) return;
-    // Reconstruct the snapshot text and be tolerant to trailing newline differences
-    // between the server-provided compact snapshot and the editor's full text.
+
     const reconstructed = initialSnapshot.lines.map((l) => l.text).join('\n');
     const matchesText =
       reconstructed === text ||
@@ -156,35 +164,38 @@ function useHighlightSnapshot(
       (text.endsWith('\n') && reconstructed === text.slice(0, -1));
     if (!matchesText) return;
 
-    const textKey = `${documentId}::${stableHashString(text)}`;
     if (initialSnapshot.lines.length > 0) {
-      // Build a map from the provided snapshot
       const seeded = new Map<number, HighlightLine>();
       for (const l of initialSnapshot.lines) {
-        // Make line identity stable across insert/delete by hashing the line text only.
         const uid = l.uid ?? `${documentId}:${stableHashString(l.text)}`;
         seeded.set(l.index, { uid, index: l.index, text: l.text, spans: l.spans });
       }
+      const textKey = `${documentId}::${stableHashString(text)}`;
       cacheRef.current.set(textKey, { text, map: seeded, version: initialSnapshot.version });
       setMapState(new Map(seeded));
+      // Also populate global store for other mounts.
+      syntaxSessionStore.set(documentId, { text, map: new Map(seeded), version: initialSnapshot.version });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, /* seed only when component mounts with initialSnapshot */]);
+  }, [documentId, initialSnapshot]);
 
+  // Core: request highlights immediately when documentId/text/enabled/language/theme changes.
+  // No timers, no idle callbacks, no debouncing. Each request increments reqId and any
+  // later-arriving responses that don't match the latest reqId are discarded.
   useEffect(() => {
     if (!documentId || !enabled) {
       setMapState(new Map());
       return;
     }
 
-    // Check a global per-document session store first (persisted across mounts).
+    // Fast-path: if a global per-document session store has highlights for this exact text, reuse.
     const global = documentId ? syntaxSessionStore.get(documentId) : undefined;
     if (global && global.text === text) {
       setMapState(new Map(global.map));
       return;
     }
 
-    // Fast-path: if we've computed this exact text before in this hook's cache, reuse it.
+    // Fast-path: local cache for exact text
     const textKey = `${documentId}::${stableHashString(text)}`;
     const cached = cacheRef.current.get(textKey);
     if (cached && cached.text === text) {
@@ -192,67 +203,11 @@ function useHighlightSnapshot(
       return;
     }
 
-    // schedule background highlight work without blocking typing
+    // Issue a single immediate request for the full document text.
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
-    let cancelled = false;
 
-    const applyResultIfCurrent = (res: HighlightResponse) => {
-      if (cancelled || reqIdRef.current !== thisReq) return;
-
-      // Patch the existing map state non-destructively: update only lines present
-      // in the incoming snapshot. This prevents a full replacement that can cause
-      // remounts/visual flashing for unchanged lines.
-      setMapState((prev) => {
-        const updated = new Map(prev);
-        for (const l of res.lines) {
-          const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
-          const existing = updated.get(l.index);
-
-          // Fast-path: if an identical entry already exists, skip.
-          let identical = false;
-          if (existing && existing.text === l.text) {
-            const sa = existing.spans || [];
-            const sb = l.spans || [];
-            if (sa.length === sb.length) {
-              identical = true;
-              for (let i = 0; i < sa.length; i++) {
-                const a = sa[i];
-                const b = sb[i];
-                if (!a || !b ||
-                    a.start !== b.start ||
-                    a.end !== b.end ||
-                    a.token_type !== b.token_type ||
-                    (a.color ?? null) !== (b.color ?? null)) {
-                  identical = false;
-                  break;
-                }
-              }
-            }
-          }
-
-          if (!identical) {
-            updated.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
-          }
-        }
-        return updated;
-      });
-
-      // Update both the local hook cache and the global per-document session store
-      // with a map constructed from the incoming snapshot. These caches are used
-      // to avoid re-requesting identical text and to seed future mounts.
-      const incomingMap = new Map<number, HighlightLine>();
-      for (const l of res.lines) {
-        const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
-        incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
-      }
-      cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
-      if (documentId) {
-        syntaxSessionStore.set(documentId, { text, map: new Map(incomingMap), version: res.version });
-      }
-    };
-
-    const fetch = async () => {
+    (async () => {
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
@@ -262,90 +217,58 @@ function useHighlightSnapshot(
             language: language ?? undefined,
           },
         });
-        if (cancelled || reqIdRef.current !== thisReq) return;
-        applyResultIfCurrent(res);
-      } catch {
-        // non-fatal -- keep previous snapshot if any
-      }
-    };
 
-    // Prefer idle scheduling to avoid impacting typing responsiveness.
-    // Do a quick visible-range fetch *immediately* for the visible lines so the
-    // user sees syntax on screen without waiting for a full-document highlight.
-    // The full `highlight_text` run is scheduled via idle/timeouts as before.
-    const doVisibleFetch = async () => {
-      if (!documentId || typeof visibleStart !== 'number' || typeof visibleCount !== 'number') return;
-      try {
-        const res: HighlightResponse = await bridge.invoke('highlight_document', {
-          request: {
-            documentId,
-            startLine: visibleStart,
-            count: visibleCount,
-            theme: theme ?? 'dark',
-          },
+        // Discard stale results.
+        if (reqIdRef.current !== thisReq) return;
+
+        // Patch only the returned lines into the existing map non-destructively.
+        setMapState((prev) => {
+          const updated = new Map(prev);
+          for (const l of res.lines) {
+            const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+            const existing = updated.get(l.index);
+
+            // Detect identical entry to avoid remounts/flashing.
+            let identical = false;
+            if (existing && existing.text === l.text) {
+              const sa = existing.spans || [];
+              const sb = l.spans || [];
+              if (sa.length === sb.length) {
+                identical = true;
+                for (let i = 0; i < sa.length; i++) {
+                  const a = sa[i];
+                  const b = sb[i];
+                  if (!a || !b || a.start !== b.start || a.end !== b.end || a.token_type !== b.token_type || (a.color ?? null) !== (b.color ?? null)) {
+                    identical = false;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (!identical) {
+              updated.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
+            }
+          }
+          return updated;
         });
-        if (cancelled || reqIdRef.current !== thisReq) return;
-        // Apply only the returned visible lines (applyResultIfCurrent handles per-line patching).
-        applyResultIfCurrent(res);
+
+        // Cache and global-store the incoming snapshot for future fast-paths.
+        const incomingMap = new Map<number, HighlightLine>();
+        for (const l of res.lines) {
+          const canonicalUid = `${documentId}:${stableHashString(l.text)}`;
+          incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
+        }
+        cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
+        syntaxSessionStore.set(documentId, { text, map: new Map(incomingMap), version: res.version });
       } catch {
-        // non-fatal
+        // Non-fatal: keep previous snapshot visible.
       }
-    };
+    })();
 
-    if (firstFetchRef.current && !initialSnapshot) {
-      firstFetchRef.current = false;
-      // Immediate visible-range fetch to populate on-screen syntax quickly.
-      void doVisibleFetch();
-      // Schedule full-document highlighting later
-      if ((window as any).requestIdleCallback) {
-        (window as any).requestIdleCallback(
-          () => {
-            void fetch();
-          },
-          { timeout: 250 },
-        );
-      } else {
-        if (timerRef.current) {
-          window.clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
-        timerRef.current = window.setTimeout(() => {
-          void fetch();
-          timerRef.current = null;
-        }, 60);
-      }
-    } else {
-      // For subsequent requests, still attempt a visible-range update ASAP, then
-      // schedule the heavier full-text highlight off the typing path.
-      void doVisibleFetch();
-      if ((window as any).requestIdleCallback) {
-        (window as any).requestIdleCallback(
-          () => {
-            void fetch();
-          },
-          { timeout: 250 },
-        );
-      } else {
-        if (timerRef.current) {
-          window.clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
-        timerRef.current = window.setTimeout(() => {
-          void fetch();
-          timerRef.current = null;
-        }, 60);
-      }
-    }
-
-    return () => {
-      cancelled = true;
-      if (timerRef.current) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-    // Intentionally include `text` so we request a fresh snapshot whenever the visible text changes.
-  }, [documentId, text, enabled, theme, language, visibleStart, visibleCount]);
+    // No timers to clean up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, text, enabled, theme, language]);
 
   return mapState;
 }
