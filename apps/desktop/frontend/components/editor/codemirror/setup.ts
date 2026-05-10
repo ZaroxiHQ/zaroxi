@@ -93,19 +93,11 @@ export async function createBaseExtensions(
     const historyKeymap = (commandsMod as any).historyKeymap ?? [];
     const { StateEffect, StateField } = stateMod as any;
 
-    // lineNumbers helper: prefer an export from view package (0.20+ merges gutter into view),
-    // otherwise try to dynamically load the older @codemirror/gutter package as a fallback.
-    let lineNumbers: any = (viewMod as any).lineNumbers ?? null;
-    if (!lineNumbers) {
-      try {
-        // Use a literal dynamic import so Vite can analyze the dependency if present.
-        // If the package is not installed, the import will throw and we fall back to no line numbers.
-        const gutterMod = await import('@codemirror/gutter');
-        lineNumbers = (gutterMod as any).lineNumbers ?? null;
-      } catch {
-        lineNumbers = null;
-      }
-    }
+    // lineNumbers helper: prefer an export from view package (0.20+ merges gutter into view).
+    // If it's not present for some reason, we will leave `lineNumbers` null and skip adding
+    // the gutter extension. Avoid trying to import `@codemirror/gutter` dynamically because
+    // in many installs that package is not present and Vite will surface resolution errors.
+    const lineNumbers: any = (viewMod as any).lineNumbers ?? null;
 
     // Store references for applyDecorationsToView
     _Decoration = Decoration;
@@ -142,7 +134,6 @@ export async function createBaseExtensions(
     });
 
     const extensions: any[] = [
-      lineNumbers(),
       drawSelection ? drawSelection() : [],
       highlightActiveLine ? highlightActiveLine() : [],
       highlightActiveLineGutter ? highlightActiveLineGutter() : [],
@@ -151,6 +142,11 @@ export async function createBaseExtensions(
       highlightField,
       updateListener,
     ];
+
+    // Add lineNumbers gutter if available on the installed CodeMirror view package.
+    if (lineNumbers) {
+      extensions.unshift(lineNumbers());
+    }
 
     // Fold gutter omitted here to avoid importing @codemirror/fold which may not be present
     // in all installations. Folding is provided via the Tree-sitter fold service adapter
