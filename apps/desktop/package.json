@@ -26,6 +26,9 @@
     "web-tree-sitter": "*",
     "@codemirror/state": "*",
     "@codemirror/view": "*",
+    "@codemirror/gutter": "*",
+    "@codemirror/fold": "*",
+    "@codemirror/history": "*",
     "@codemirror/commands": "*",
     "@codemirror/language": "*",
     "@codemirror/lang-javascript": "*",
@@ -34,7 +37,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
-    "@types/node": "^22.10.6",
+    "@types_node": "^22.10.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
