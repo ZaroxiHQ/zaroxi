@@ -12,9 +12,8 @@
  * parser results.
  */
 
-import { EditorView, Decoration, drawSelection, highlightActiveLine, keymap } from '@codemirror/view';
+import { EditorView, Decoration, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState, StateEffect, StateField } from '@codemirror/state';
-import { lineNumbers, highlightActiveLineGutter } from '@codemirror/gutter';
 import { foldGutter } from '@codemirror/fold';
 import { history } from '@codemirror/history';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
