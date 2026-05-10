@@ -278,3 +278,251 @@ fi
 echo
 echo "[fetch-grammars] done. Current runtime dir contents:"
 ls -la "${RUNTIME_ROOT}"
+#!/usr/bin/env bash
+set -euo pipefail
+
+# fetch-grammars.sh
+#
+# Purpose:
+# - Ensure engine runtime `tree-sitter.wasm` is present under this runtime directory.
+# - Optionally attempt a best-effort build of per-language WASM parsers from local grammar sources.
+# - Allow downloading specific prebuilt language wasm artifacts.
+#
+# Important policy:
+# - This script will NOT clone remote repositories. It only works with sources already present
+#   under the `languages/` or `grammars/` directories inside this runtime directory.
+# - If a grammar's `grammar.js` requires npm packages, the script will attempt `npm install`
+#   inside that grammar directory (best-effort) before running `tree-sitter-cli build-wasm`.
+#
+# Usage:
+#   ./fetch-grammars.sh                # check engine + list existing wasm files
+#   ./fetch-grammars.sh --build        # attempt to build per-language wasm from local grammar sources
+#   ./fetch-grammars.sh --fetch rust=https://.../tree-sitter-rust.wasm toml=...  # download given wasm files
+#
+# Location: crates/zaroxi-lang-syntax/runtime/treesitter
+# Example expected per-language filenames: tree-sitter-rust.wasm, tree-sitter-toml.wasm
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="$SCRIPT_DIR"
+LANGUAGES_DIR="$RUNTIME_DIR/languages"
+GRAMMARS_DIR="$RUNTIME_DIR/grammars"
+
+print_help() {
+  cat <<EOF
+fetch-grammars.sh - prepare web-tree-sitter runtime
+
+Usage:
+  $0 [--build] [--fetch lang=url ...] [--help]
+
+Options:
+  --build         Attempt best-effort build of per-language .wasm files from local grammar sources.
+  --fetch k=URL   Download a prebuilt wasm for language key (repeatable).
+  --help          Show this help and exit.
+
+Notes:
+  - Building wasm requires a C toolchain (gcc/clang, make), python3 and tree-sitter CLI (node tree-sitter-cli).
+  - The script will NOT clone remote repos. Put grammar sources under 'languages/' or 'grammars/'.
+EOF
+}
+
+# Helpers
+run_tree_sitter_cli() {
+  # Prefer npx tree-sitter-cli if available, otherwise use tree-sitter if present.
+  if command -v npx >/dev/null 2>&1; then
+    npx --yes tree-sitter-cli "$@"
+    return $?
+  elif command -v tree-sitter >/dev/null 2>&1; then
+    tree-sitter "$@"
+    return $?
+  else
+    return 127
+  fi
+}
+
+download_url_to() {
+  local url="$1"
+  local out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$out" "$url"
+    return $?
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$out" "$url"
+    return $?
+  else
+    echo "[fetch-grammars] no curl or wget available to download $url"
+    return 2
+  fi
+}
+
+# Parse args
+DO_BUILD=false
+declare -a FETCH_PAIRS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --build) DO_BUILD=true; shift ;;
+    --fetch) shift; while [[ $# -gt 0 && "$1" != --* ]]; do FETCH_PAIRS+=("$1"); shift; done ;;
+    --help) print_help; exit 0 ;;
+    *) echo "[fetch-grammars] unknown arg: $1"; print_help; exit 1 ;;
+  esac
+done
+
+echo "[fetch-grammars] runtime dir: $RUNTIME_DIR"
+
+# 1) Ensure engine runtime wasm exists
+if [ -f "$RUNTIME_DIR/tree-sitter.wasm" ]; then
+  echo "[fetch-grammars] engine runtime present: $RUNTIME_DIR/tree-sitter.wasm"
+else
+  # Try copying from likely node_modules locations relative to repo
+  NODE_CANDIDATES=(
+    "$PWD/node_modules/web-tree-sitter/tree-sitter.wasm"
+    "$PWD/../node_modules/web-tree-sitter/tree-sitter.wasm"
+    "$PWD/../../node_modules/web-tree-sitter/tree-sitter.wasm"
+  )
+  copied=false
+  for c in "${NODE_CANDIDATES[@]}"; do
+    if [ -f "$c" ]; then
+      echo "[fetch-grammars] copying engine wasm from $c"
+      cp -v "$c" "$RUNTIME_DIR/tree-sitter.wasm"
+      copied=true
+      break
+    fi
+  done
+  if ! $copied; then
+    # fallback: try download from unpkg CDN
+    if command -v curl >/dev/null 2>&1; then
+      echo "[fetch-grammars] attempting to download engine wasm from unpkg"
+      if curl -fsSL -o "$RUNTIME_DIR/tree-sitter.wasm" "https://unpkg.com/web-tree-sitter/tree-sitter.wasm"; then
+        echo "[fetch-grammars] downloaded engine wasm to $RUNTIME_DIR/tree-sitter.wasm"
+      else
+        echo "[fetch-grammars] failed to obtain engine wasm. Place web-tree-sitter's tree-sitter.wasm in $RUNTIME_DIR"
+      fi
+    else
+      echo "[fetch-grammars] engine wasm missing and curl not available. Place tree-sitter.wasm into $RUNTIME_DIR"
+    fi
+  fi
+fi
+
+# Brief header check if present
+if [ -f "$RUNTIME_DIR/tree-sitter.wasm" ] && command -v hexdump >/dev/null 2>&1; then
+  hdr=$(hexdump -n 4 -v -e '1/1 "%02x "' "$RUNTIME_DIR/tree-sitter.wasm" || true)
+  echo "[fetch-grammars] engine header bytes: $hdr"
+fi
+
+# 2) Process explicit fetch pairs (lang=url)
+if [ "${#FETCH_PAIRS[@]}" -gt 0 ]; then
+  echo "[fetch-grammars] downloading requested wasm files..."
+  for pair in "${FETCH_PAIRS[@]}"; do
+    # support "lang=url" form
+    if [[ "$pair" =~ ^([^=]+)=(.+)$ ]]; then
+      lang="${BASH_REMATCH[1]}"
+      url="${BASH_REMATCH[2]}"
+      fname="tree-sitter-${lang}.wasm"
+      out="$RUNTIME_DIR/$fname"
+      echo "[fetch-grammars] fetching $lang -> $fname from $url"
+      if download_url_to "$url" "$out"; then
+        echo "[fetch-grammars] saved $out"
+      else
+        echo "[fetch-grammars] failed to download $url"
+      fi
+    else
+      echo "[fetch-grammars] invalid fetch pair: $pair (expected lang=url)"
+    fi
+  done
+fi
+
+# 3) Optionally attempt to build per-language wasm files from local grammar sources
+WASM_BUILT=()
+
+if $DO_BUILD; then
+  echo "[fetch-grammars] build mode enabled: attempting best-effort builds from local grammar sources"
+
+  try_build() {
+    local dir="$1"
+    echo "[fetch-grammars] attempting build in: $dir"
+
+    # Run npm install if package.json exists (best-effort)
+    if command -v npm >/dev/null 2>&1 && [ -f "$dir/package.json" ]; then
+      echo "[fetch-grammars] running npm install in $dir (may be required by grammar.js)"
+      (cd "$dir" && npm install --no-audit --no-fund --silent) || echo "[fetch-grammars] npm install failed in $dir (continuing)"
+    fi
+
+    # Run tree-sitter CLI generate/build-wasm
+    if run_tree_sitter_cli generate >/dev/null 2>&1 || true; then
+      if run_tree_sitter_cli build-wasm >/dev/null 2>&1; then
+        # move produced wasm files to runtime root
+        shopt -s nullglob
+        for w in "$dir"/*.wasm; do
+          mv -v "$w" "$RUNTIME_DIR"/ || true
+          WASM_BUILT+=("$(basename "$w")")
+        done
+        shopt -u nullglob
+        echo "[fetch-grammars] build-wasm succeeded (if artifacts produced, they were moved)"
+      else
+        echo "[fetch-grammars] build-wasm failed in $dir (toolchain or sources missing)"
+      fi
+    else
+      echo "[fetch-grammars] generate step failed (grammar.js may be broken or require JS deps)"
+    fi
+  }
+
+  # Search canonical local grammar dirs and attempt builds only where sensible
+  if [ -d "$LANGUAGES_DIR" ]; then
+    for d in "$LANGUAGES_DIR"/*; do
+      if [ -d "$d" ]; then
+        # only attempt where there's a grammar source
+        if [ -f "$d/grammar.js" ] || [ -f "$d/src/parser.c" ] || [ -f "$d/binding.gyp" ]; then
+          try_build "$d"
+        else
+          echo "[fetch-grammars] skipping $d (no buildable sources found)"
+        fi
+      fi
+    done
+  fi
+
+  if [ -d "$GRAMMARS_DIR" ]; then
+    # look for nested grammar.js up to depth 3
+    find "$GRAMMARS_DIR" -maxdepth 3 -type f -name 'grammar.js' -printf '%h\n' | sort -u | while read -r gm; do
+      try_build "$gm"
+    done
+  fi
+fi
+
+# 4) Report results & actionable next steps
+echo
+if [ "${#WASM_BUILT[@]}" -gt 0 ]; then
+  echo "[fetch-grammars] Built/installed the following .wasm files into $RUNTIME_DIR:"
+  for f in "${WASM_BUILT[@]}"; do
+    echo "  - $f"
+  done
+fi
+
+echo "[fetch-grammars] current runtime dir contents:"
+ls -la "$RUNTIME_DIR" || true
+echo
+
+# Detect missing common language wasm for quick guidance
+MISSING=()
+for l in rust toml javascript typescript markdown; do
+  if [ ! -f "$RUNTIME_DIR/tree-sitter-${l}.wasm" ]; then
+    MISSING+=("$l")
+  fi
+done
+
+if [ "${#MISSING[@]}" -gt 0 ]; then
+  echo "[fetch-grammars] common missing per-language wasm: ${MISSING[*]}"
+  echo "If you need web parsing, provide the per-language wasm files (examples):"
+  echo "  $RUNTIME_DIR/tree-sitter-rust.wasm"
+  echo "  $RUNTIME_DIR/tree-sitter-toml.wasm"
+  echo
+  echo "To build locally (best-effort):"
+  echo "  - Install native toolchain: sudo apt install build-essential clang pkg-config python3"
+  echo "  - Ensure tree-sitter CLI is available (npm install --save-dev tree-sitter-cli) or have 'tree-sitter' installed"
+  echo "  - Run: (from repo) cd crates/zaroxi-lang-syntax/runtime/treesitter && ./fetch-grammars.sh --build"
+  echo
+  echo "If builds fail with 'MODULE_NOT_FOUND' from grammar.js, enter the grammar directory and run:"
+  echo "  npm install"
+  echo "then re-run the build for that grammar directory."
+fi
+
+echo "[fetch-grammars] done."
