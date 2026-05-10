@@ -12,7 +12,7 @@ export type EditorEngine = 'custom' | 'codemirror';
 
 const LS_KEY = 'editorEngine:v1';
 
-let engine: EditorEngine = (typeof window !== 'undefined' && (window.localStorage.getItem(LS_KEY) as EditorEngine)) || 'custom';
+let engine: EditorEngine = (typeof window !== 'undefined' && (window.localStorage.getItem(LS_KEY) as EditorEngine)) || 'codemirror';
 
 export function getEditorEngine(): EditorEngine {
   return engine;
