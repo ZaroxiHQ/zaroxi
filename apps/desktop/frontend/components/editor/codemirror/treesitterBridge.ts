@@ -57,11 +57,54 @@ function getWasmFileNameFor(languageId: string) {
  * preferring OS-specific grammar/language subdirs. getWasmUrl() returns the
  * highest-priority candidate (the caller still probes many candidates further).
  */
+/**
+ * Return an ordered list of candidate URLs for a given language wasm.
+ *
+ * This function produces many permutations (os-specific grammar dirs, languages/,
+ * grammars/, root runtime, and filename variants). The loader will probe these
+ * candidates in order and select the first that actually contains a wasm binary.
+ */
+function getWasmUrlCandidates(languageId: string): string[] {
+  const key = (languageId || '').toLowerCase();
+  const rawName = getWasmFileNameFor(key);
+  const altNames = [
+    rawName,
+    `${key}.wasm`,
+    `language-${key}.wasm`,
+    `tree-sitter-${key}.wasm`,
+  ];
+
+  const basePaths = getRuntimeBaseCandidates();
+
+  const candidates: string[] = [];
+  for (const bp of basePaths) {
+    for (const n of altNames) {
+      const url = bp === '' || bp.endsWith('/') ? `${bp}${n}` : `${bp}/${n}`;
+      candidates.push(url);
+      // Also include a relative form (no leading slash) for some packaging setups
+      if (url.startsWith('/')) candidates.push(url.slice(1));
+    }
+  }
+
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const c of candidates) {
+    if (!seen.has(c)) {
+      seen.add(c);
+      uniq.push(c);
+    }
+  }
+  return uniq;
+}
+
+/**
+ * Backwards-compatible helper returning the first likely URL.
+ * The caller still probes many candidates; this returns the highest-priority one.
+ */
 function getWasmUrl(languageId: string) {
-  const fname = getWasmFileNameFor(languageId);
-  const candidates = getRuntimeBaseCandidates();
-  // Return the most likely candidate (the caller will probe other candidates as well).
-  return `${candidates[0]}${fname}`;
+  const candidates = getWasmUrlCandidates(languageId);
+  return candidates.length > 0 ? candidates[0] : getWasmFileNameFor(languageId);
 }
 
 /**
@@ -71,9 +114,6 @@ function getWasmUrl(languageId: string) {
 function getRuntimeBaseCandidates(): string[] {
   const base = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
   const candidates: string[] = [];
-
-  // Always start with the canonical runtime root
-  candidates.push(base);
 
   // Attempt to detect platform/arch from navigator; keep it conservative and produce
   // several plausible folder names so we match common packaging layouts.
@@ -100,15 +140,20 @@ function getRuntimeBaseCandidates(): string[] {
     }
   }
 
+  // Prefer OS-specific grammar/language directories first so language wasm located
+  // in per-platform folders are found quickly.
   for (const v of osVariants) {
     candidates.push(`${base}grammars/${v}/`);
     candidates.push(`${base}languages/${v}/`);
     candidates.push(`${base}${v}/`);
   }
 
-  // Common non-OS-specific subdirs (preserve previous behavior)
+  // Then canonical runtime root and common runtime subdirectories
+  candidates.push(base);
   candidates.push(`${base}languages/`);
   candidates.push(`${base}grammars/`);
+
+  // Some packaging may expose paths without a leading slash (relative to app root)
   candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/');
   candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/languages/');
   candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/grammars/');
@@ -265,31 +310,17 @@ async function ensureParserFor(languageId: string) {
     }
   }
 
-  // Candidate URLs to try (cover several common layouts under your runtime directory).
-  // We try multiple filename permutations and both absolute and relative paths so the dev server
-  // or packaged app can serve the wasm regardless of exact layout.
-  const rawName = getWasmFileNameFor(key);
-  const altNames = [
-    rawName,
-    `${key}.wasm`,
-    `language-${key}.wasm`,
-    `tree-sitter-${key}.wasm`,
-  ];
-  // Use runtime base candidates builder so we include OS-specific grammar directories
-  // (e.g. grammars/linux-x86_64/) before falling back to more generic locations.
-  const basePaths = getRuntimeBaseCandidates();
+  // Build a prioritized list of candidate URLs (OS-specific grammar dirs first).
+  const candidates = getWasmUrlCandidates(key);
 
-  const candidates: string[] = [];
-  for (const bp of basePaths) {
-    for (const n of altNames) {
-      // Avoid duplicate slashes in concatenation
-      const url = bp.endsWith('/') || bp === '' ? `${bp}${n}` : `${bp}/${n}`;
-      candidates.push(url);
-    }
+  // Also include the convenience single-getWasmUrl at the very front for backward-compatibility
+  const primary = getWasmUrl(key);
+  if (primary && !candidates.includes(primary)) {
+    candidates.unshift(primary);
   }
 
-  // Also include the convenience getWasmUrl result first (preserves prior behavior)
-  candidates.unshift(getWasmUrl(key)); // highest priority
+  // eslint-disable-next-line no-console
+  console.debug('[treesitter] ensureParserFor: constructed candidate list for', key, '=', candidates.slice(0, 12));
 
   for (const url of candidates) {
     try {
