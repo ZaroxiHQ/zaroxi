@@ -3,6 +3,7 @@
 
 use crate::colors::Color;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// Theme variants for Zaroxi
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -424,5 +425,108 @@ impl SemanticColors {
             syntax_markup_italic: Color::from_hex("#22262B"), // Markdown italic - primary text
             syntax_markup_strikethrough: Color::from_hex("#8A919D"), // Markdown strikethrough - faint
         }
+    }
+
+    /// Serialize semantic colors into CSS variable map that the frontend consumes.
+    ///
+    /// Returns a JSON object mapping CSS custom property name -> string color value.
+    /// Example key: "--color-editor-background" -> "rgba(30,31,36,1)"
+    pub fn to_css_vars(&self) -> Value {
+        let mut m: Map<String, Value> = Map::new();
+
+        // Background surfaces
+        m.insert("--color-app-background".to_string(), Value::String(self.app_background.to_css_rgba()));
+        m.insert("--color-shell-background".to_string(), Value::String(self.shell_background.to_css_rgba()));
+        m.insert("--color-panel-background".to_string(), Value::String(self.panel_background.to_css_rgba()));
+        m.insert("--color-elevated-panel-background".to_string(), Value::String(self.elevated_panel_background.to_css_rgba()));
+        m.insert("--color-editor-background".to_string(), Value::String(self.editor_background.to_css_rgba()));
+        m.insert("--color-input-background".to_string(), Value::String(self.input_background.to_css_rgba()));
+        m.insert("--color-status-bar-background".to_string(), Value::String(self.status_bar_background.to_css_rgba()));
+        m.insert("--color-title-bar-background".to_string(), Value::String(self.title_bar_background.to_css_rgba()));
+        m.insert("--color-activity-rail-background".to_string(), Value::String(self.activity_rail_background.to_css_rgba()));
+        m.insert("--color-sidebar-background".to_string(), Value::String(self.sidebar_background.to_css_rgba()));
+        m.insert("--color-tab-background".to_string(), Value::String(self.tab_background.to_css_rgba()));
+        m.insert("--color-tab-active-background".to_string(), Value::String(self.tab_active_background.to_css_rgba()));
+        m.insert("--color-assistant-panel-background".to_string(), Value::String(self.assistant_panel_background.to_css_rgba()));
+
+        // Text colors
+        m.insert("--color-text-primary".to_string(), Value::String(self.text_primary.to_css_rgba()));
+        m.insert("--color-text-secondary".to_string(), Value::String(self.text_secondary.to_css_rgba()));
+        m.insert("--color-text-muted".to_string(), Value::String(self.text_muted.to_css_rgba()));
+        m.insert("--color-text-faint".to_string(), Value::String(self.text_faint.to_css_rgba()));
+        m.insert("--color-text-on-accent".to_string(), Value::String(self.text_on_accent.to_css_rgba()));
+        m.insert("--color-text-on-surface".to_string(), Value::String(self.text_on_surface.to_css_rgba()));
+        m.insert("--color-text-disabled".to_string(), Value::String(self.text_disabled.to_css_rgba()));
+        m.insert("--color-text-link".to_string(), Value::String(self.text_link.to_css_rgba()));
+
+        // UI elements
+        m.insert("--color-border".to_string(), Value::String(self.border.to_css_rgba()));
+        m.insert("--color-border-subtle".to_string(), Value::String(self.border_subtle.to_css_rgba()));
+        m.insert("--color-divider".to_string(), Value::String(self.divider.to_css_rgba()));
+        m.insert("--color-divider-subtle".to_string(), Value::String(self.divider_subtle.to_css_rgba()));
+        m.insert("--color-panel-header-background".to_string(), Value::String(self.panel_header_background.to_css_rgba()));
+        m.insert("--color-nested-surface-background".to_string(), Value::String(self.nested_surface_background.to_css_rgba()));
+        m.insert("--color-app-chrome-background".to_string(), Value::String(self.app_chrome_background.to_css_rgba()));
+        m.insert("--color-tab-strip-background".to_string(), Value::String(self.tab_strip_background.to_css_rgba()));
+        m.insert("--color-accent".to_string(), Value::String(self.accent.to_css_rgba()));
+        m.insert("--color-accent-hover".to_string(), Value::String(self.accent_hover.to_css_rgba()));
+        m.insert("--color-accent-soft".to_string(), Value::String(self.accent_soft.to_css_rgba()));
+        m.insert("--color-accent-soft-background".to_string(), Value::String(self.accent_soft_background.to_css_rgba()));
+
+        // States
+        m.insert("--color-hover-background".to_string(), Value::String(self.hover_background.to_css_rgba()));
+        m.insert("--color-active-background".to_string(), Value::String(self.active_background.to_css_rgba()));
+        m.insert("--color-selected-background".to_string(), Value::String(self.selected_background.to_css_rgba()));
+        m.insert("--color-selected-text-background".to_string(), Value::String(self.selected_text_background.to_css_rgba()));
+        m.insert("--color-selected-editor-background".to_string(), Value::String(self.selected_editor_background.to_css_rgba()));
+
+        // Status colors
+        m.insert("--color-success".to_string(), Value::String(self.success.to_css_rgba()));
+        m.insert("--color-warning".to_string(), Value::String(self.warning.to_css_rgba()));
+        m.insert("--color-error".to_string(), Value::String(self.error.to_css_rgba()));
+        m.insert("--color-info".to_string(), Value::String(self.info.to_css_rgba()));
+
+        // Focus
+        m.insert("--color-focus-ring".to_string(), Value::String(self.focus_ring.to_css_rgba()));
+
+        // Editor specific
+        m.insert("--color-editor-gutter-background".to_string(), Value::String(self.editor_gutter_background.to_css_rgba()));
+        m.insert("--color-editor-line-highlight".to_string(), Value::String(self.editor_line_highlight.to_css_rgba()));
+        m.insert("--color-editor-cursor".to_string(), Value::String(self.editor_cursor.to_css_rgba()));
+        m.insert("--color-editor-selection".to_string(), Value::String(self.editor_selection.to_css_rgba()));
+        m.insert("--color-editor-find-highlight".to_string(), Value::String(self.editor_find_highlight.to_css_rgba()));
+
+        // Syntax colors
+        m.insert("--color-syntax-keyword".to_string(), Value::String(self.syntax_keyword.to_css_rgba()));
+        m.insert("--color-syntax-function".to_string(), Value::String(self.syntax_function.to_css_rgba()));
+        m.insert("--color-syntax-method".to_string(), Value::String(self.syntax_method.to_css_rgba()));
+        m.insert("--color-syntax-string".to_string(), Value::String(self.syntax_string.to_css_rgba()));
+        m.insert("--color-syntax-comment".to_string(), Value::String(self.syntax_comment.to_css_rgba()));
+        m.insert("--color-syntax-type".to_string(), Value::String(self.syntax_type.to_css_rgba()));
+        m.insert("--color-syntax-variable".to_string(), Value::String(self.syntax_variable.to_css_rgba()));
+        m.insert("--color-syntax-constant".to_string(), Value::String(self.syntax_constant.to_css_rgba()));
+        m.insert("--color-syntax-number".to_string(), Value::String(self.syntax_number.to_css_rgba()));
+        m.insert("--color-syntax-operator".to_string(), Value::String(self.syntax_operator.to_css_rgba()));
+        m.insert("--color-syntax-punctuation".to_string(), Value::String(self.syntax_punctuation.to_css_rgba()));
+        m.insert("--color-syntax-attribute".to_string(), Value::String(self.syntax_attribute.to_css_rgba()));
+        m.insert("--color-syntax-tag".to_string(), Value::String(self.syntax_tag.to_css_rgba()));
+        m.insert("--color-syntax-namespace".to_string(), Value::String(self.syntax_namespace.to_css_rgba()));
+        m.insert("--color-syntax-macro".to_string(), Value::String(self.syntax_macro.to_css_rgba()));
+        m.insert("--color-syntax-property".to_string(), Value::String(self.syntax_property.to_css_rgba()));
+        m.insert("--color-syntax-parameter".to_string(), Value::String(self.syntax_parameter.to_css_rgba()));
+        m.insert("--color-syntax-builtin".to_string(), Value::String(self.syntax_builtin.to_css_rgba()));
+        m.insert("--color-syntax-escape".to_string(), Value::String(self.syntax_escape.to_css_rgba()));
+        m.insert("--color-syntax-embedded".to_string(), Value::String(self.syntax_embedded.to_css_rgba()));
+        m.insert("--color-syntax-regex".to_string(), Value::String(self.syntax_regex.to_css_rgba()));
+        m.insert("--color-syntax-markup-heading".to_string(), Value::String(self.syntax_markup_heading.to_css_rgba()));
+        m.insert("--color-syntax-markup-list".to_string(), Value::String(self.syntax_markup_list.to_css_rgba()));
+        m.insert("--color-syntax-markup-quote".to_string(), Value::String(self.syntax_markup_quote.to_css_rgba()));
+        m.insert("--color-syntax-markup-link".to_string(), Value::String(self.syntax_markup_link.to_css_rgba()));
+        m.insert("--color-syntax-markup-code".to_string(), Value::String(self.syntax_markup_code.to_css_rgba()));
+        m.insert("--color-syntax-markup-bold".to_string(), Value::String(self.syntax_markup_bold.to_css_rgba()));
+        m.insert("--color-syntax-markup-italic".to_string(), Value::String(self.syntax_markup_italic.to_css_rgba()));
+        m.insert("--color-syntax-markup-strikethrough".to_string(), Value::String(self.syntax_markup_strikethrough.to_css_rgba()));
+
+        Value::Object(m)
     }
 }

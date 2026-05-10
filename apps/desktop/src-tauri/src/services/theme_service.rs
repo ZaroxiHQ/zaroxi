@@ -58,14 +58,17 @@ impl ThemeService {
             ZaroxiTheme::System => self.system_prefers_dark(),
         };
 
-        // Emit event to frontend with theme data
-        // The frontend already applies theme immediately from localStorage
-        // So this is just to ensure consistency
+        // Build serialized colors map from the crates theme system and emit it.
+        let colors = theme_mode.colors(is_dark);
+        let css_vars = colors.to_css_vars();
+
+        // Emit event to frontend with theme data including resolved CSS variables.
         let _ = self.app_handle.emit(
             "theme:changed",
             serde_json::json!({
                 "mode": theme_mode,
                 "isDark": is_dark,
+                "colors": css_vars,
             }),
         );
     }
@@ -88,11 +91,16 @@ impl ThemeService {
             ZaroxiTheme::System => self.system_prefers_dark(),
         };
 
+        // Build serialized colors map and include in the emitted event so the frontend can apply CSS vars.
+        let colors = theme_mode.colors(is_dark);
+        let css_vars = colors.to_css_vars();
+
         let _ = self.app_handle.emit(
             "theme:changed",
             serde_json::json!({
                 "mode": theme_mode,
                 "isDark": is_dark,
+                "colors": css_vars,
             }),
         );
 
