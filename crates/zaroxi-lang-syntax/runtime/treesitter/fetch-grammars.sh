@@ -153,30 +153,77 @@ else
               fi
           fi
 
+          # If there's a grammar.js, attempt generate. Capture output so we can detect
+          # "Cannot find module" errors and attempt to install the missing npm package.
           if [[ -f "grammar.js" ]]; then
-              maybe_run_npx tree-sitter generate || true
+              gen_out=""
+              gen_status=0
+              gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || gen_status=$?
+              if [[ $gen_status -ne 0 ]] && echo "$gen_out" | grep -q "Cannot find module"; then
+                  missing_pkg=$(echo "$gen_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
+                  if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
+                      echo "[fetch-grammars] Detected missing JS module in grammar.js: $missing_pkg"
+                      echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
+                      npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
+                      # Retry generate once
+                      gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || true
+                  fi
+              fi
           fi
-          if maybe_run_npx tree-sitter build >/dev/null 2>&1; then
+
+          # Try to build native artifacts. Capture output to detect MODULE_NOT_FOUND and retry npm install where appropriate.
+          build_status=0
+          build_out=""
+          build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
+
+          if [[ $build_status -ne 0 ]] && echo "$build_out" | grep -q "Cannot find module"; then
+              # Extract the first missing module name and attempt to npm install it, then retry build once.
+              missing_pkg=$(echo "$build_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
+              if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
+                  echo "[fetch-grammars] Detected missing JS module during build: $missing_pkg"
+                  echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
+                  npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
+                  # Retry build
+                  build_status=0
+                  build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
+              fi
+          fi
+
+          if [[ $build_status -eq 0 ]]; then
               built_lib=""
+              # Search common native artifact locations AND Node addon (.node) artifacts so we capture whatever the repo produced.
               for pattern in "${PREFIX}tree-sitter-${lang}${EXT}" \
                             "target/release/${PREFIX}tree-sitter-${lang}${EXT}" \
                             "target/debug/${PREFIX}tree-sitter-${lang}${EXT}" \
-                            "*.${EXT}"; do
+                            "*${EXT}" \
+                            "*.node" \
+                            "Release/*.node" \
+                            "build/Release/*.node" \
+                            "target/release/*.so" \
+                            "target/debug/*.so"; do
                   matches=($pattern)
                   if [[ ${#matches[@]} -gt 0 && -f "${matches[0]}" ]]; then
                       built_lib="${matches[0]}"
                       break
                   fi
               done
+
               if [[ -n "$built_lib" ]]; then
                   cp "$built_lib" "${GRAMMAR_DIR}/"
-                  echo "  → ${lang} native library copied to ${GRAMMAR_DIR}"
+                  echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib})"
               else
-                  echo "  → ${lang}: built but could not locate native library"
+                  # If the build succeeded but we couldn't locate a canonical native lib, print helpful diagnostics.
+                  echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
+                  echo "     Search output (first 200 chars):"
+                  echo "     ${build_out:0:200}"
               fi
           else
+              # Build failed; print a concise hint including captured stderr to help diagnosis.
               echo "  → ${lang}: native build failed (continuing)"
+              echo "     Build stderr preview:"
+              echo "     ${build_out:0:400}"
           fi
+
           popd > /dev/null
       else
           echo "  → ${lang}: failed to clone repository (continuing)"
