@@ -302,11 +302,68 @@ else
               fi
 
               # Additionally, attempt to produce per-language WASM parser files (tree-sitter CLI supports `build-wasm`).
-              # First try to invoke the wasm build step (best-effort). Some grammars will produce .wasm only when asked.
+              # Try multiple strategies (best‑effort) because different grammars expose different build flows:
+              # 1) maybe_run_npx tree-sitter build-wasm (preferred mapping to tree-sitter-cli)
+              # 2) explicit npx --yes tree-sitter-cli build-wasm
+              # 3) npm run build-wasm (if a package.json script is present)
+              # 4) best-effort emcc compile of parser.c (only if emscripten is installed)
+              wasm_built=false
+
+              # Strategy 1: preferred wrapper (maps "tree-sitter" -> "tree-sitter-cli" via maybe_run_npx)
               if maybe_run_npx tree-sitter build-wasm >/dev/null 2>&1; then
-                echo "  → ${lang}: tree-sitter build-wasm invoked (if supported by this grammar)"
+                echo "  → ${lang}: tree-sitter build-wasm invoked (strategy: maybe_run_npx)"
+                wasm_built=true
               else
-                # Not all grammars support build-wasm; continue to search for any wasm artifacts produced anyway.
+                # Strategy 2: try explicit npx invocation of tree-sitter-cli
+                if command -v npx >/dev/null 2>&1; then
+                  if npx --yes tree-sitter-cli build-wasm >/dev/null 2>&1; then
+                    echo "  → ${lang}: tree-sitter-cli build-wasm invoked via npx"
+                    wasm_built=true
+                  fi
+                fi
+              fi
+
+              # Strategy 3: npm script provided by grammar repository (common in some repos)
+              if ! $wasm_built && [ -f "package.json" ]; then
+                if command -v npm >/dev/null 2>&1; then
+                  # Detect a build-wasm script in package.json using a simple grep (avoid jq dependency).
+                  if grep -q "\"build-wasm\"" package.json 2>/dev/null || grep -q "\"buildWasm\"" package.json 2>/dev/null || grep -q "\"build:wasm\"" package.json 2>/dev/null; then
+                    echo "  → ${lang}: running npm run build-wasm (detected script)"
+                    if npm run --silent build-wasm >/dev/null 2>&1 || npm run --silent build:wasm >/dev/null 2>&1; then
+                      echo "  → ${lang}: npm build-wasm script succeeded"
+                      wasm_built=true
+                    else
+                      echo "  → ${lang}: npm build-wasm script failed (continuing)"
+                    fi
+                  fi
+                fi
+              fi
+
+              # Strategy 4: emscripten fallback (best-effort)
+              if ! $wasm_built && command -v emcc >/dev/null 2>&1; then
+                # Look for common parser sources
+                local_src=""
+                if [[ -f "src/parser.c" ]]; then
+                  local_src="src/parser.c"
+                elif [[ -f "parser.c" ]]; then
+                  local_src="parser.c"
+                fi
+
+                if [[ -n "$local_src" ]]; then
+                  outname="tree-sitter-${lang}.wasm"
+                  echo "  → ${lang}: attempting emcc compile of ${local_src} -> ${outname} (best-effort)"
+                  # Minimal flags -- may not produce a fully usable runtime for all grammars but can succeed on some.
+                  if emcc "$local_src" -O3 -s WASM=1 -s SIDE_MODULE=1 -o "$outname" >/dev/null 2>&1; then
+                    mv -v "$outname" "${RUNTIME_ROOT}/" || true
+                    echo "  → ${lang}: emcc produced wasm -> moved to ${RUNTIME_ROOT}/${outname}"
+                    wasm_built=true
+                  else
+                    echo "  → ${lang}: emcc compile failed (continuing)"
+                  fi
+                fi
+              fi
+
+              if ! $wasm_built; then
                 echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (continuing)"
               fi
 
