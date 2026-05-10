@@ -79,7 +79,7 @@ export async function createBaseExtensions(
 
   try {
     // Import view & other modules in parallel.
-    const [{ EditorView, Decoration }, commandsMod, historyMod, gutterMod, stateMod] = await Promise.all([
+    const [viewMod, commandsMod, historyMod, gutterMod, stateMod] = await Promise.all([
       import(viewPkg),
       import(commandsPkg),
       import(historyPkg),
@@ -87,6 +87,8 @@ export async function createBaseExtensions(
       import(statePkg),
     ]);
 
+    const { EditorView, Decoration, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap } =
+      viewMod as any;
     const { default: defaultKeymap } = commandsMod as any;
     const { history, historyKeymap } = historyMod as any;
     const { lineNumbers } = gutterMod as any;
@@ -128,11 +130,11 @@ export async function createBaseExtensions(
 
     const extensions: any[] = [
       lineNumbers(),
-      (EditorView as any).drawSelection ? (EditorView as any).drawSelection() : [],
-      (EditorView as any).highlightActiveLine ? (EditorView as any).highlightActiveLine() : [],
-      (EditorView as any).highlightActiveLineGutter ? (EditorView as any).highlightActiveLineGutter() : [],
+      drawSelection ? drawSelection() : [],
+      highlightActiveLine ? highlightActiveLine() : [],
+      highlightActiveLineGutter ? highlightActiveLineGutter() : [],
       history(),
-      (EditorView as any).keymap ? (EditorView as any).keymap.of([...defaultKeymap, ...historyKeymap]) : [],
+      keymap ? keymap.of([...defaultKeymap, ...historyKeymap]) : [],
       highlightField,
       updateListener,
     ];
