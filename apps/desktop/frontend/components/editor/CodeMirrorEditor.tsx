@@ -49,11 +49,15 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         if (!state) {
           // createState is async and will dynamically import codemirror modules.
-          state = await createState(text ?? '', {
-            onChange: (t: string) => {
-              onChange(t);
+          state = await createState(
+            text ?? '',
+            {
+              onChange: (t: string) => {
+                onChange(t);
+              },
             },
-          });
+            languageId,
+          );
         }
 
         if (destroyed) return;
