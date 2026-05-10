@@ -372,7 +372,28 @@ else
 
               # We'll look for wasm in several likely locations: current tree, node_modules, build/target dirs.
               if command -v find >/dev/null 2>&1; then
-                while IFS= read -r wasmfile; do
+                # Discover both files and (rare) directories that may contain wasm artifacts,
+                # but ensure we ultimately move/copy only a real .wasm file (not a directory).
+                while IFS= read -r candidate; do
+                  wasmfile="$candidate"
+
+                  # If candidate is a directory (some builds produce a dir named *.wasm), try to
+                  # locate the first .wasm file inside it and use that.
+                  if [[ -d "$wasmfile" ]]; then
+                    inner="$(find "$wasmfile" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
+                    if [[ -n "$inner" && -f "$inner" ]]; then
+                      wasmfile="$inner"
+                    else
+                      echo "  → ${lang}: discovered directory ${candidate} but no .wasm inside; skipping"
+                      continue
+                    fi
+                  fi
+
+                  # Skip non-files (safety)
+                  if [[ ! -f "$wasmfile" ]]; then
+                    continue
+                  fi
+
                   # canonical destination filename
                   destname="tree-sitter-${lang}.wasm"
                   destpath="${GRAMMAR_DIR}/${destname}"
@@ -407,25 +428,37 @@ else
 
                   moved_any=true
                   wasm_built=true
-                done < <(find . -type f -name '*.wasm' -o -path './node_modules/*' -prune 2>/dev/null | sort -u)
+                done < <(find . \( -type f -name '*.wasm' -o -type d -name '*.wasm' \) -o -path './node_modules/*' -prune 2>/dev/null | sort -u)
               else
-                # Fallback: simple glob checks in a few known dirs
+                # Fallback: simple glob checks in a few known dirs. Handle directories as well.
                 candidates=(./*.wasm ./node_modules/*/*.wasm ./build/*.wasm ./target/*/*.wasm)
                 for w in "${candidates[@]}"; do
                   for f in $w; do
-                    if [[ -f "$f" ]]; then
+                    # If candidate is a directory, attempt to find a .wasm file inside it.
+                    actual=""
+                    if [[ -d "$f" ]]; then
+                      actual="$(find "$f" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
+                      if [[ -z "$actual" ]]; then
+                        echo "  → ${lang}: candidate directory $f contains no .wasm; skipping"
+                        continue
+                      fi
+                    else
+                      actual="$f"
+                    fi
+
+                    if [[ -f "$actual" ]]; then
                       destname="tree-sitter-${lang}.wasm"
                       destpath="${GRAMMAR_DIR}/${destname}"
                       if [[ -f "${destpath}" ]]; then
-                        if cmp -s "$f" "${destpath}"; then
+                        if cmp -s "$actual" "${destpath}"; then
                           echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
                           moved_any=true
                           wasm_built=true
                           continue
                         fi
                       fi
-                      cp -v "$f" "${destpath}" || true
-                      echo "  → ${lang}: copied wasm $(basename "$f") -> ${destpath}"
+                      cp -v "$actual" "${destpath}" || true
+                      echo "  → ${lang}: copied wasm $(basename "$actual") -> ${destpath}"
                       moved_any=true
                       wasm_built=true
                     fi
