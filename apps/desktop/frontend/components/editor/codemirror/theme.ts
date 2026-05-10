@@ -94,25 +94,29 @@ export const zaroxiCodeMirrorTheme = [
   // Token styles scoped under .cm-content to ensure editor-local specificity.
   // Also provide fallback selectors to increase specificity in case theme layering differs.
   EditorView.baseTheme({
-    '.cm-content .ts-keyword': { color: 'var(--syntax-keyword, #ff7b72)', fontWeight: 600 },
-    '.cm-content .ts-string': { color: 'var(--syntax-string, #9ae6b4)' },
-    '.cm-content .ts-comment': { color: 'var(--syntax-comment, #94a3b8)', fontStyle: 'italic' },
-    '.cm-content .ts-number': { color: 'var(--syntax-number, #fbbf24)' },
-    '.cm-content .ts-function': { color: 'var(--syntax-function, #60a5fa)' },
-    '.cm-content .ts-type': { color: 'var(--syntax-type, #7dd3fc)' },
-    '.cm-content .ts-variable': { color: 'var(--syntax-variable, #dbe7ff)' },
-    '.cm-content .ts-constant': { color: 'var(--syntax-constant, #f78c6c)' },
+    '.cm-content .ts-keyword': { color: 'var(--syntax-keyword)', fontWeight: 600 },
+    '.cm-content .ts-string': { color: 'var(--syntax-string)' },
+    '.cm-content .ts-comment': { color: 'var(--syntax-comment)', fontStyle: 'italic' },
+    '.cm-content .ts-number': { color: 'var(--syntax-number)' },
+    '.cm-content .ts-function': { color: 'var(--syntax-function)' },
+    '.cm-content .ts-type': { color: 'var(--syntax-type)' },
+    '.cm-content .ts-variable': { color: 'var(--syntax-variable)' },
+    '.cm-content .ts-constant': { color: 'var(--syntax-constant)' },
+    '.cm-content .ts-operator': { color: 'var(--syntax-operator)' },
+    '.cm-content .ts-property': { color: 'var(--syntax-property)' },
+    '.cm-content .ts-macro': { color: 'var(--syntax-macro)' },
+    '.cm-content .ts-attribute': { color: 'var(--syntax-attribute)' },
 
     // Fallback broader selectors (in case some DOM shapes differ)
-    '.cm-editor .ts-keyword': { color: 'var(--syntax-keyword, #ff7b72)', fontWeight: 600 },
-    '.cm-editor .ts-string': { color: 'var(--syntax-string, #9ae6b4)' },
-    '.cm-editor .ts-comment': { color: 'var(--syntax-comment, #94a3b8)', fontStyle: 'italic' },
-    '.cm-editor .ts-number': { color: 'var(--syntax-number, #fbbf24)' },
+    '.cm-editor .ts-keyword': { color: 'var(--syntax-keyword)', fontWeight: 600 },
+    '.cm-editor .ts-string': { color: 'var(--syntax-string)' },
+    '.cm-editor .ts-comment': { color: 'var(--syntax-comment)', fontStyle: 'italic' },
+    '.cm-editor .ts-number': { color: 'var(--syntax-number)' },
 
     // Small accessibility boosts for folded placeholder
     '.cm-content .cm-foldPlaceholder': {
       background: 'transparent',
-      color: 'var(--editor-foreground, #dbe7ff)',
+      color: 'var(--editor-foreground)',
       border: 'none',
       padding: '0 4px',
     },
