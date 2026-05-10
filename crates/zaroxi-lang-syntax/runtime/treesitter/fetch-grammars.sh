@@ -367,54 +367,62 @@ else
                 echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (continuing)"
               fi
 
-              # Search for produced .wasm artifacts and move them to the runtime root.
+              # Search for produced .wasm artifacts and keep them inside the grammar's directory.
+              # Many grammars produce .wasm next to their build outputs; it's more robust to leave
+              # the per-language wasm in the grammar directory (so it's co-located with that grammar).
               # Normalize filenames to the canonical tree-sitter-<lang>.wasm when appropriate.
               if command -v find >/dev/null 2>&1; then
                 while IFS= read -r wasmfile; do
-                  mkdir -p "${RUNTIME_ROOT}"
                   base="$(basename "$wasmfile")"
                   destname="$base"
 
-                  # If file doesn't follow the "tree-sitter-<lang>.wasm" convention, rename it to that.
+                  # Prefer canonical name "tree-sitter-<lang>.wasm" when the produced name is generic.
                   if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
                     destname="tree-sitter-${lang}.wasm"
                   fi
 
-                  # Avoid clobbering an existing file unless source is different
-                  if [[ -f "${RUNTIME_ROOT}/${destname}" ]]; then
-                    # If identical, skip; otherwise prefer the new one but keep a backup.
-                    if cmp -s "$wasmfile" "${RUNTIME_ROOT}/${destname}"; then
-                      echo "  → ${lang}: wasm ${destname} already present and identical; skipping"
+                  destpath="$(pwd)/${destname}"
+
+                  # If the destination already exists, compare and skip or backup.
+                  if [[ -f "${destpath}" ]]; then
+                    if cmp -s "$wasmfile" "${destpath}"; then
+                      echo "  → ${lang}: wasm ${destname} already present in grammar dir and identical; skipping"
                       continue
                     else
-                      echo "  → ${lang}: existing ${destname} differs; backing up and replacing"
-                      mv -v "${RUNTIME_ROOT}/${destname}" "${RUNTIME_ROOT}/${destname}.bak" || true
+                      echo "  → ${lang}: existing ${destname} differs in grammar dir; backing up and replacing"
+                      mv -v "${destpath}" "${destpath}.bak" || true
                     fi
                   fi
 
-                  cp -v "$wasmfile" "${RUNTIME_ROOT}/${destname}" || true
-                  echo "  → ${lang}: moved wasm $(basename "$wasmfile") -> ${destname} in ${RUNTIME_ROOT}/"
+                  # If the produced file is not already at the canonical path, move it; otherwise keep it in place.
+                  if [[ "$wasmfile" != "${destpath}" ]]; then
+                    mv -v "$wasmfile" "${destpath}" || cp -v "$wasmfile" "${destpath}" || true
+                  fi
+
+                  echo "  → ${lang}: left wasm $(basename "${destpath}") in grammar directory: $(pwd)"
                 done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
               else
-                # Fallback simple glob (best effort)
+                # Fallback simple glob (best effort) — operate in the current grammar directory.
                 shopt -s nullglob 2>/dev/null || true
                 for w in *.wasm; do
-                  mkdir -p "${RUNTIME_ROOT}"
                   base="$(basename "$w")"
                   destname="$base"
                   if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
                     destname="tree-sitter-${lang}.wasm"
                   fi
-                  if [[ -f "${RUNTIME_ROOT}/${destname}" ]]; then
-                    if cmp -s "$w" "${RUNTIME_ROOT}/${destname}"; then
-                      echo "  → ${lang}: wasm ${destname} already present and identical; skipping"
+                  destpath="$(pwd)/${destname}"
+                  if [[ -f "${destpath}" ]]; then
+                    if cmp -s "$w" "${destpath}"; then
+                      echo "  → ${lang}: wasm ${destname} already present in grammar dir and identical; skipping"
                       continue
                     else
-                      mv -v "${RUNTIME_ROOT}/${destname}" "${RUNTIME_ROOT}/${destname}.bak" || true
+                      mv -v "${destpath}" "${destpath}.bak" || true
                     fi
                   fi
-                  cp -v "$w" "${RUNTIME_ROOT}/${destname}" || true
-                  echo "  → ${lang}: moved wasm $(basename "$w") -> ${destname} in ${RUNTIME_ROOT}/"
+                  if [[ "$w" != "${destpath}" ]]; then
+                    mv -v "$w" "${destpath}" || cp -v "$w" "${destpath}" || true
+                  fi
+                  echo "  → ${lang}: left wasm $(basename "${destpath}") in grammar directory: $(pwd)"
                 done
                 shopt -u nullglob 2>/dev/null || true
               fi
@@ -471,12 +479,31 @@ if command -v npx >/dev/null 2>&1; then
         # generate + build-wasm using npx tree-sitter-cli where possible
         if npx --yes tree-sitter-cli generate >/dev/null 2>&1 || true; then
           if npx --yes tree-sitter-cli build-wasm >/dev/null 2>&1; then
+            # Keep produced .wasm inside the grammar directory and normalize filename to tree-sitter-<lang>.wasm.
+            shopt -s nullglob
+            langname="$(basename "$lang_dir")"
             for w in *.wasm; do
               if [[ -f "$w" ]]; then
-                mv -v "$w" "${RUNTIME_ROOT}/"
-                WASM_BUILT+=("$w")
+                base="$(basename "$w")"
+                destname="$base"
+                if [[ "$base" != tree-sitter-* && "$base" != "${langname}.wasm" ]]; then
+                  destname="tree-sitter-${langname}.wasm"
+                fi
+                destpath="${lang_dir}/${destname}"
+                if [[ -f "${destpath}" ]]; then
+                  if cmp -s "$w" "${destpath}"; then
+                    echo "[wasm] ${destname} already present in ${lang_dir}; skipping"
+                    WASM_BUILT+=("$(basename "${destpath}")")
+                    continue
+                  else
+                    mv -v "${destpath}" "${destpath}.bak" || true
+                  fi
+                fi
+                mv -v "$w" "${destpath}" || cp -v "$w" "${destpath}" || true
+                WASM_BUILT+=("$(basename "${destpath}")")
               fi
             done
+            shopt -u nullglob
           else
             echo "[wasm] build-wasm failed in ${lang_dir} (toolchain may be missing)"
           fi
@@ -502,12 +529,30 @@ if command -v npx >/dev/null 2>&1; then
           pushd "${gm}" > /dev/null
           if npx --yes tree-sitter-cli generate >/dev/null 2>&1 || true; then
             if npx --yes tree-sitter-cli build-wasm >/dev/null 2>&1; then
+              shopt -s nullglob
+              langname="$(basename "$gm")"
               for w in *.wasm; do
                 if [[ -f "$w" ]]; then
-                  mv -v "$w" "${RUNTIME_ROOT}/"
-                  WASM_BUILT+=("$w")
+                  base="$(basename "$w")"
+                  destname="$base"
+                  if [[ "$base" != tree-sitter-* && "$base" != "${langname}.wasm" ]]; then
+                    destname="tree-sitter-${langname}.wasm"
+                  fi
+                  destpath="${gm}/${destname}"
+                  if [[ -f "${destpath}" ]]; then
+                    if cmp -s "$w" "${destpath}"; then
+                      echo "[wasm] ${destname} already present in ${gm}; skipping"
+                      WASM_BUILT+=("$(basename "${destpath}")")
+                      continue
+                    else
+                      mv -v "${destpath}" "${destpath}.bak" || true
+                    fi
+                  fi
+                  mv -v "$w" "${destpath}" || cp -v "$w" "${destpath}" || true
+                  WASM_BUILT+=("$(basename "${destpath}")")
                 fi
               done
+              shopt -u nullglob
             else
               echo "[wasm] build-wasm failed in ${gm} (toolchain may be missing)"
             fi
