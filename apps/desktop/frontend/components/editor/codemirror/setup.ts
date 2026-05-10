@@ -1,26 +1,25 @@
 /**
  * Dynamic CodeMirror setup for the experimental editor path.
  *
- * Goals:
- * - Avoid static top-level imports of `@codemirror/*` so Vite won't fail the entire build when
- *   the optional Codemirror deps are not installed yet.
- * - Perform runtime dynamic imports of packages (using a non-literal import key so build-time
- *   import analysis can't eagerly resolve them).
- * - Gracefully fall back to no-op extensions when imports fail.
+ * This module:
+ * - dynamically imports CodeMirror packages at runtime,
+ * - injects a small theme via injectCmTheme (so gutters and active-line are visible),
+ * - exposes a decoration effect/field that allows external code to apply Tree-sitter
+ *   decorations asynchronously by calling `applyDecorationsToView(view, specs)`.
  *
- * Note: `createState` is async now and consumers must await it. The CodeMirror wrapper already
- * handles this by falling back to a textarea when the dynamic imports aren't present.
- *
- * This file now:
- * - Accepts an optional languageId so we can wire in the appropriate language package
- *   (CodeMirror language support) at runtime as a pragmatic fallback until Tree-sitter
- *   decorations are integrated in Phase 2.
- * - Adds fold gutter support via dynamic import of @codemirror/fold when available.
+ * The implementation intentionally avoids static @codemirror/* imports to keep the
+ * integration optional and to avoid Vite failing when deps are not installed.
  */
 
-import { themeExtension } from './theme';
+import { injectCmTheme } from './theme';
+import { createFoldServiceExtension } from './folding';
 
 type Selection = { from: number; to: number };
+
+// Module-scoped handles populated when createBaseExtensions first runs.
+let _setDecorationsEffect: any = null;
+let _Decoration: any = null;
+let _DecorationSet: any = null;
 
 /**
  * Map a lightweight set of language identifiers to CodeMirror language packages.
@@ -33,9 +32,7 @@ async function tryLanguageExtension(languageId?: string) {
     if (id === 'javascript' || id === 'js' || id === 'typescript' || id === 'ts') {
       const pkg = '@codemirror' + '/lang-javascript';
       const mod = await import(pkg);
-      // modern package exports `javascript` and `typescript` helpers
       if (mod.javascript) {
-        // For TS vs JS, CodeMirror's javascript() supports typescript option
         const isTs = id === 'typescript' || id === 'ts';
         return mod.javascript({ typescript: isTs });
       }
@@ -60,24 +57,66 @@ async function tryLanguageExtension(languageId?: string) {
   }
 }
 
+/**
+ * Build the base extensions for an editor instance.
+ * This sets up a StateField/StateEffect pair to receive decorations applied later.
+ */
 export async function createBaseExtensions(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageId?: string,
+  docKey?: string,
 ) {
-  // Build import keys in a way that prevents static resolvers from trying to resolve them.
+  // Inject theme styles into the document (keeps styling consistent with app variables).
+  injectCmTheme();
+
+  // Build import keys to avoid static analyzers resolving them eagerly.
   const viewPkg = '@codemirror' + '/view';
   const commandsPkg = '@codemirror' + '/commands';
   const historyPkg = '@codemirror' + '/history';
   const gutterPkg = '@codemirror' + '/gutter';
   const foldPkg = '@codemirror' + '/fold';
+  const statePkg = '@codemirror' + '/state';
 
   try {
-    const [{ EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap }, commandsMod, historyMod, gutterMod] =
-      await Promise.all([import(viewPkg), import(commandsPkg), import(historyPkg), import(gutterPkg)]);
+    // Import view & other modules in parallel.
+    const [{ EditorView, Decoration }, commandsMod, historyMod, gutterMod, stateMod] = await Promise.all([
+      import(viewPkg),
+      import(commandsPkg),
+      import(historyPkg),
+      import(gutterPkg),
+      import(statePkg),
+    ]);
 
     const { default: defaultKeymap } = commandsMod as any;
     const { history, historyKeymap } = historyMod as any;
     const { lineNumbers } = gutterMod as any;
+    const { StateEffect, StateField } = stateMod as any;
+
+    // Store references for applyDecorationsToView
+    _Decoration = Decoration;
+    _DecorationSet = Decoration;
+
+    // Define an effect that external code can dispatch to replace the decoration set.
+    _setDecorationsEffect = StateEffect.define<any>();
+
+    const highlightField = StateField.define({
+      create() {
+        return (Decoration as any).set([], true);
+      },
+      update(deco: any, tr: any) {
+        // Map decorations through document changes
+        if (deco && typeof deco.map === 'function') {
+          deco = deco.map(tr.changes);
+        }
+        for (const e of tr.effects) {
+          if (e.is(_setDecorationsEffect)) {
+            deco = e.value;
+          }
+        }
+        return deco;
+      },
+      provide: (f: any) => EditorView.decorations.from(f),
+    });
 
     const updateListener = (EditorView as any).updateListener.of((update: any) => {
       if (update.docChanged) {
@@ -89,24 +128,24 @@ export async function createBaseExtensions(
 
     const extensions: any[] = [
       lineNumbers(),
-      drawSelection(),
-      highlightActiveLine(),
-      highlightActiveLineGutter(),
+      (EditorView as any).drawSelection ? (EditorView as any).drawSelection() : [],
+      (EditorView as any).highlightActiveLine ? (EditorView as any).highlightActiveLine() : [],
+      (EditorView as any).highlightActiveLineGutter ? (EditorView as any).highlightActiveLineGutter() : [],
       history(),
-      (keymap as any).of([...defaultKeymap, ...historyKeymap]),
-      themeExtension(),
+      (EditorView as any).keymap ? (EditorView as any).keymap.of([...defaultKeymap, ...historyKeymap]) : [],
+      highlightField,
       updateListener,
     ];
 
-    // Try to add fold gutter if available
+    // Try adding fold gutter (if fold module is available)
     try {
       const foldMod = await import(foldPkg);
       const { foldGutter } = foldMod as any;
       if (foldGutter) {
-        extensions.unshift(foldGutter()); // gutter near the left
+        extensions.unshift(foldGutter());
       }
     } catch {
-      // ignore fold gutter absence
+      // ignore missing fold package
     }
 
     // Try to add a language extension as a pragmatic fallback while Tree-sitter is added.
@@ -115,10 +154,18 @@ export async function createBaseExtensions(
       extensions.push(langExt);
     }
 
+    // Try to attach a Tree-sitter based fold service (factory returns an extension or null)
+    try {
+      const foldExt = await createFoldServiceExtension(docKey, languageId);
+      if (foldExt) {
+        extensions.push(foldExt);
+      }
+    } catch {
+      // ignore fold service errors
+    }
+
     return extensions;
   } catch (err) {
-    // If dynamic imports fail (packages not installed), return a safe empty extension list.
-    // The caller should handle the absence of a real EditorView (fallback to textarea).
     // eslint-disable-next-line no-console
     console.debug('[codemirror] dynamic imports failed; CodeMirror disabled for this session.', err);
     return [];
@@ -126,18 +173,41 @@ export async function createBaseExtensions(
 }
 
 /**
+ * Apply decoration specs (from Tree-sitter) to a mounted EditorView instance.
+ * The function expects `createBaseExtensions` to have been called previously (so the
+ * StateEffect has been defined). If not, the call is a no-op.
+ */
+export async function applyDecorationsToView(view: any, specs: { from: number; to: number; className: string }[]) {
+  if (!_setDecorationsEffect || !_Decoration) return;
+
+  try {
+    const decos = specs.map((s) => _Decoration.mark({ class: s.className }).range(s.from, s.to));
+    const set = (_Decoration as any).set(decos, true);
+    view.dispatch({
+      effects: _setDecorationsEffect.of(set),
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror] applyDecorationsToView failed', err);
+  }
+}
+
+/**
  * Create a fresh EditorState for initial mounting. This is async because it may dynamically
  * import @codemirror/state and build extension objects.
+ *
+ * Returns an EditorState instance.
  */
 export async function createState(
   initialText: string,
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageId?: string,
+  docKey?: string,
 ) {
   const statePkg = '@codemirror' + '/state';
   try {
     const stateMod = await import(statePkg);
-    const extensions = await createBaseExtensions(opts, languageId);
+    const extensions = await createBaseExtensions(opts, languageId, docKey);
     return (stateMod as any).EditorState.create({
       doc: initialText ?? '',
       extensions,
