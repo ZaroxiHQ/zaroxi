@@ -62,13 +62,23 @@ function getWasmUrl(languageId: string) {
  * Initialize web-tree-sitter once.
  */
 export async function initTreesitterOnce(): Promise<void> {
-  if (inited) return;
+  if (inited) {
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] initTreesitterOnce: already initialized');
+    return;
+  }
   try {
-    // Import web-tree-sitter using a literal import so Vite can analyze the dependency.
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] initTreesitterOnce: importing web-tree-sitter');
     const mod = await import('web-tree-sitter');
     WTS = (mod as any).default ? (mod as any).default : mod;
+
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] initTreesitterOnce: calling WTS.init()');
     await WTS.init();
     inited = true;
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] initTreesitterOnce: initialized successfully');
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[treesitter] failed to initialize web-tree-sitter', err);
@@ -85,15 +95,21 @@ async function ensureParserFor(languageId: string) {
   if (parsers.has(key)) return parsers.get(key)!;
 
   if (!inited) {
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] ensureParserFor: initializing WTS before loading parser for', key);
     await initTreesitterOnce();
   }
   const wasmUrl = getWasmUrl(key);
   try {
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] ensureParserFor: loading language wasm from', wasmUrl);
     const Lang = await (WTS as any).Language.load(wasmUrl);
     const parser = new (WTS as any).Parser();
     parser.setLanguage(Lang);
     const entry: ParserEntry = { parser, language: Lang };
     parsers.set(key, entry);
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] ensureParserFor: loaded parser for', key);
     return entry;
   } catch (err) {
     // eslint-disable-next-line no-console

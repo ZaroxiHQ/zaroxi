@@ -88,9 +88,18 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         // Trigger an initial parse & decoration application (async).
         try {
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] initial parse: requesting decorations for documentId=', documentId, 'languageId=', languageId);
           const specs = await parseAndComputeDecorations(text ?? '', languageId ?? '', documentId ?? text ?? '');
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] initial parse: received specs.length=', specs ? specs.length : 0);
           if (!destroyed && viewRef.current) {
             await applyDecorationsToView(viewRef.current, specs);
+            // eslint-disable-next-line no-console
+            console.debug('[codemirror] initial parse: applied decorations to view');
+          } else {
+            // eslint-disable-next-line no-console
+            console.debug('[codemirror] initial parse: view destroyed or missing; skipping apply');
           }
         } catch (err) {
           // parse errors are non-fatal for the editor
@@ -134,9 +143,15 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     let active = true;
     const timer = window.setTimeout(async () => {
       try {
+        // eslint-disable-next-line no-console
+        console.debug('[codemirror] debounced parse: documentId=', documentId, 'languageId=', languageId);
         const specs = await parseAndComputeDecorations(text ?? '', languageId ?? '', documentId ?? text ?? '');
+        // eslint-disable-next-line no-console
+        console.debug('[codemirror] debounced parse: specs.length=', specs ? specs.length : 0);
         if (!active) return;
         await applyDecorationsToView(viewRef.current, specs);
+        // eslint-disable-next-line no-console
+        console.debug('[codemirror] debounced parse: applied decorations');
       } catch (err) {
         // eslint-disable-next-line no-console
         console.debug('[codemirror] parse-and-decorate failed', err);
