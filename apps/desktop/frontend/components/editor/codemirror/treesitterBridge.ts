@@ -143,19 +143,57 @@ export async function initTreesitterOnce(): Promise<void> {
     const mod = await import('web-tree-sitter');
     WTS = (mod as any).default ? (mod as any).default : mod;
 
-    // Provide locateFile so web-tree-sitter can find its runtime wasm relative to our treesitter runtime.
-    // This prevents web-tree-sitter from attempting to fetch the engine wasm from an incorrect path
-    // which commonly leads to the MIME/type and "module doesn't start with '\0asm'" errors you saw.
+    // Base runtime path we expect in the repo. This is used to form candidate URLs.
     const runtimeBase = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
 
+    // Try to proactively fetch the engine wasm and validate it. If successful we will
+    // expose it to web-tree-sitter via a stable object URL so the engine is loaded
+    // from the correct bytes (avoids inadvertently loading HTML/index fallback).
+    let engineObjectUrl: string | null = null;
+    try {
+      // Probe the canonical location first
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] initTreesitterOnce: probing engine wasm at', runtimeBase + 'tree-sitter.wasm');
+      const probeResp = await fetch(runtimeBase + 'tree-sitter.wasm', { method: 'GET' });
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] initTreesitterOnce: engine probe status=', probeResp.status, 'content-type=', probeResp.headers.get('content-type'));
+      if (probeResp.ok) {
+        const buf = await probeResp.arrayBuffer();
+        const header = new Uint8Array(buf.slice(0, 4));
+        const isWasm = header.length === 4 && header[0] === 0x00 && header[1] === 0x61 && header[2] === 0x73 && header[3] === 0x6d;
+        if (isWasm) {
+          engineObjectUrl = URL.createObjectURL(new Blob([buf], { type: 'application/wasm' }));
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] initTreesitterOnce: engine wasm fetched and object URL created');
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] initTreesitterOnce: engine probe present but did not contain wasm magic bytes; will not use object URL');
+        }
+      } else {
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] initTreesitterOnce: engine probe non-ok status, skipping object URL creation');
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] initTreesitterOnce: engine probe failed', e);
+    }
+
+    // Provide locateFile so web-tree-sitter can find its runtime wasm.
+    // If we created an object URL for a validated engine wasm, return that for 'tree-sitter.wasm'.
+    // Otherwise, fall back to returning the runtimeBase + file path so the server middleware can serve it.
     // eslint-disable-next-line no-console
     console.debug('[treesitter] initTreesitterOnce: calling WTS.init with locateFile ->', runtimeBase);
     await WTS.init({
       locateFile: (file: string) => {
-        // Log which file web-tree-sitter asks for so we can diagnose path problems.
+        const candidate = runtimeBase + file;
         // eslint-disable-next-line no-console
-        console.debug('[treesitter] locateFile requested:', file, '->', runtimeBase + file);
-        return runtimeBase + file;
+        console.debug('[treesitter] locateFile requested:', file, '->', candidate);
+        if (file === 'tree-sitter.wasm' && engineObjectUrl) {
+          // Use object URL to guarantee correct bytes / MIME type for the engine
+          // (keeps the object URL alive so web-tree-sitter can fetch it).
+          return engineObjectUrl;
+        }
+        return candidate;
       },
     });
 
@@ -226,41 +264,64 @@ async function ensureParserFor(languageId: string) {
         continue;
       }
 
-      // If content-type looks like wasm or generic octet-stream, prefer loading from ArrayBuffer.
-      const ct = (resp.headers.get('content-type') || '').toLowerCase();
-      if (ct.includes('application/wasm') || ct.includes('application/octet-stream') || ct === '') {
-        try {
-          const ab = await resp.arrayBuffer();
-          // Attempt to load language from ArrayBuffer (web-tree-sitter supports loading from buffer).
-          const Lang = await (WTS as any).Language.load(ab);
-          const parser = new (WTS as any).Parser();
-          parser.setLanguage(Lang);
-          const entry: ParserEntry = { parser, language: Lang };
-          parsers.set(key, entry);
-          // eslint-disable-next-line no-console
-          console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from arrayBuffer', url);
-          return entry;
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.debug('[treesitter] ensureParserFor: Language.load(arrayBuffer) failed for', url, err);
-          // Fallthrough to try Language.load(url) as a last resort.
-        }
+      // Read the response body as ArrayBuffer so we can safely sniff the first bytes.
+      // Some dev servers may return HTML (index fallback) while still responding 200,
+      // which would otherwise cause Language.load(url) to attempt to parse non-wasm.
+      let ab: ArrayBuffer | null = null;
+      try {
+        ab = await resp.arrayBuffer();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] ensureParserFor: failed to read arrayBuffer for', url, err);
+        continue;
       }
 
-      // Last resort: try letting web-tree-sitter fetch/load the URL itself.
+      // Quick magic-number check for WebAssembly ("\0asm")
+      const header = new Uint8Array(ab.slice(0, 4));
+      const isWasmMagic = header.length === 4 && header[0] === 0x00 && header[1] === 0x61 && header[2] === 0x73 && header[3] === 0x6d;
+
+      if (!isWasmMagic) {
+        // If the probe returned something that isn't wasm, skip it to avoid trying to parse HTML.
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] ensureParserFor: probe content at', url, 'did not contain wasm magic bytes; skipping candidate');
+        continue;
+      }
+
+      // At this point we have wasm-like bytes; attempt to load from the ArrayBuffer first.
       try {
-        const Lang = await (WTS as any).Language.load(url);
+        const Lang = await (WTS as any).Language.load(ab);
         const parser = new (WTS as any).Parser();
         parser.setLanguage(Lang);
         const entry: ParserEntry = { parser, language: Lang };
         parsers.set(key, entry);
         // eslint-disable-next-line no-console
-        console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from url', url);
+        console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from arrayBuffer', url);
         return entry;
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn('[treesitter] ensureParserFor: Language.load(url) failed for', url, err);
-        // try next candidate
+        console.debug('[treesitter] ensureParserFor: Language.load(arrayBuffer) failed for', url, err);
+
+        // As a last resort, only try Language.load(url) if the server advertises a wasm-like content-type.
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('application/wasm') || ct.includes('application/octet-stream') || ct === '') {
+          try {
+            const Lang = await (WTS as any).Language.load(url);
+            const parser = new (WTS as any).Parser();
+            parser.setLanguage(Lang);
+            const entry: ParserEntry = { parser, language: Lang };
+            parsers.set(key, entry);
+            // eslint-disable-next-line no-console
+            console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from url', url);
+            return entry;
+          } catch (err2) {
+            // eslint-disable-next-line no-console
+            console.warn('[treesitter] ensureParserFor: Language.load(url) failed for', url, err2);
+            // try next candidate
+          }
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] ensureParserFor: skipping Language.load(url) because content-type is not wasm:', ct);
+        }
       }
     } catch (err) {
       // Network/probe failure, try next candidate
