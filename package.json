@@ -3,7 +3,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "web-tree-sitter": "^0.20.6",
+    "web-tree-sitter": "^0.20.7",
     "@codemirror/state": "^6.2.0",
     "@codemirror/view": "^6.6.1",
     "@codemirror/commands": "^6.2.0",
