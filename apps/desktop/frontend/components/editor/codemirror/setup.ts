@@ -79,10 +79,9 @@ export async function createBaseExtensions(
     // Note: @codemirror/history may not be separately available on some installs (merged into commands in newer CM versions).
     // We import the commonly-present packages and then attempt to source `history` from the commands package; if absent,
     // we provide safe no-op fallbacks so the editor still mounts.
-    const [viewMod, commandsMod, gutterMod, stateMod] = await Promise.all([
+    const [viewMod, commandsMod, stateMod] = await Promise.all([
       import('@codemirror/view'),
       import('@codemirror/commands'),
-      import('@codemirror/gutter'),
       import('@codemirror/state'),
     ]);
 
@@ -92,8 +91,19 @@ export async function createBaseExtensions(
     // history() and historyKeymap may be exported from a dedicated package or from commands in newer releases.
     const history = (commandsMod as any).history ?? (() => []);
     const historyKeymap = (commandsMod as any).historyKeymap ?? [];
-    const { lineNumbers } = gutterMod as any;
     const { StateEffect, StateField } = stateMod as any;
+
+    // lineNumbers helper: prefer an export from view package (0.20+ merges gutter into view),
+    // otherwise try to dynamically load the older @codemirror/gutter package as a fallback.
+    let lineNumbers: any = (viewMod as any).lineNumbers ?? null;
+    if (!lineNumbers) {
+      try {
+        const gutterMod = await import('@codemirror/gutter');
+        lineNumbers = (gutterMod as any).lineNumbers ?? null;
+      } catch {
+        lineNumbers = null;
+      }
+    }
 
     // Store references for applyDecorationsToView
     _Decoration = Decoration;
