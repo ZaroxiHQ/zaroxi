@@ -76,10 +76,12 @@ export async function createBaseExtensions(
 
   try {
     // Import view & other modules in parallel using literal imports so Vite can analyze them.
-    const [viewMod, commandsMod, historyMod, gutterMod, stateMod] = await Promise.all([
+    // Note: @codemirror/history may not be separately available on some installs (merged into commands in newer CM versions).
+    // We import the commonly-present packages and then attempt to source `history` from the commands package; if absent,
+    // we provide safe no-op fallbacks so the editor still mounts.
+    const [viewMod, commandsMod, gutterMod, stateMod] = await Promise.all([
       import('@codemirror/view'),
       import('@codemirror/commands'),
-      import('@codemirror/history'),
       import('@codemirror/gutter'),
       import('@codemirror/state'),
     ]);
@@ -87,7 +89,9 @@ export async function createBaseExtensions(
     const { EditorView, Decoration, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap } =
       viewMod as any;
     const { default: defaultKeymap } = commandsMod as any;
-    const { history, historyKeymap } = historyMod as any;
+    // history() and historyKeymap may be exported from a dedicated package or from commands in newer releases.
+    const history = (commandsMod as any).history ?? (() => []);
+    const historyKeymap = (commandsMod as any).historyKeymap ?? [];
     const { lineNumbers } = gutterMod as any;
     const { StateEffect, StateField } = stateMod as any;
 
