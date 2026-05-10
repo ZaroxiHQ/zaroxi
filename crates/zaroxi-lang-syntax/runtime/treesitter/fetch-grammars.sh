@@ -438,7 +438,6 @@ else
               else
                 echo "  → ${lang}: wasm artifact ensured at ${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
               fi
-          fi
           else
               # Build failed; print a concise hint including captured stderr to help diagnosis.
               echo "  → ${lang}: native build failed (continuing)"
