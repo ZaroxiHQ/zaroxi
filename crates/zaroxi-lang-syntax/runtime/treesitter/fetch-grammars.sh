@@ -836,27 +836,7 @@ WASM_BUILT=()
 
 if $DO_BUILD; then
   echo "[fetch-grammars] build mode enabled: attempting best-effort builds from local grammar sources"
-
-  # Early short-circuit: if runtime already contains per-language wasm files or
-  # the platform grammar dir already contains native artifacts, skip the heavy build.
-  # This saves time during cargo build when artifacts are already present.
-  existing_wasm_count=0
-  existing_native_count=0
-
-  if [ -d "$RUNTIME_DIR" ]; then
-    # Count canonical per-language wasm files like tree-sitter-<lang>.wasm
-    existing_wasm_count=$(find "$RUNTIME_DIR" -maxdepth 1 -type f -name 'tree-sitter-*.wasm' 2>/dev/null | wc -l || true)
-  fi
-
-  if [ -d "${GRAMMAR_DIR}" ]; then
-    # Count native artifacts under the platform grammar dir
-    existing_native_count=$(find "${GRAMMAR_DIR}" -maxdepth 1 -type f \( -name "libtree-sitter-*${EXT}" -o -name "tree-sitter-*${EXT}" -o -name '*.node' -o -name '*.dll' \) 2>/dev/null | wc -l || true)
-  fi
-
-  if [ "${existing_wasm_count}" -gt 0 ] || [ "${existing_native_count}" -gt 0 ]; then
-    echo "[fetch-grammars] detected existing artifacts: wasm_count=${existing_wasm_count}, native_count=${existing_native_count}; skipping build phase to save time"
-    DO_BUILD=false
-  fi
+  echo "[fetch-grammars] Note: will perform per-language checks and skip only the specific languages that already have exact artifacts. No global short-circuit will be applied."
 
   try_build() {
     local dir="$1"
