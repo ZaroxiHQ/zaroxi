@@ -62,13 +62,16 @@ export default defineConfig({
     ],
     // Pre-bundle CodeMirror and web-tree-sitter so Vite can resolve them properly
     // from the desktop root node_modules when the frontend is served from apps/desktop/frontend.
+    //
+    // Note: we deliberately avoid pre-bundling the legacy `@codemirror/gutter` / `@codemirror/fold`
+    // packages because they are merged into other packages in newer CM6 releases and can
+    // cause version-mismatch import errors. We ensure we import the required symbols
+    // deterministically from `@codemirror/view` / `@codemirror/language` in our code.
     include: [
       '@codemirror/view',
       '@codemirror/state',
       '@codemirror/commands',
       '@codemirror/history',
-      '@codemirror/gutter',
-      '@codemirror/fold',
       '@codemirror/language',
       '@codemirror/highlight',
       '@codemirror/lang-javascript',
