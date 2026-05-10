@@ -43,6 +43,8 @@ export default defineConfig({
     configureServer(server) {
       const runtimePath = path.resolve(__dirname, '..', '..', 'crates/zaroxi-lang-syntax/runtime/treesitter');
 
+      // Diagnostic middleware for serving runtime wasm files.
+      // Adds verbose logging to help determine why requests might fall through to Vite's HTML handler.
       server.middlewares.use((req, res, next) => {
         const url = req.url || '';
         const prefix = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
@@ -53,16 +55,31 @@ export default defineConfig({
         const rel = decodeURIComponent(url.slice(prefix.length));
         const file = path.join(runtimePath, rel);
 
+        // Log the incoming wasm request and the resolved filesystem path
+        // so you can confirm the middleware runs and which file it attempts to serve.
+        // This log appears in the terminal where `vite` runs.
+        // eslint-disable-next-line no-console
+        console.debug('[vite-middleware] wasm request:', url, '=>', file);
+
         fs.stat(file, (err, stat) => {
           if (err || !stat.isFile()) {
+            // Diagnostics when the file is missing; log reasons before falling through.
+            // eslint-disable-next-line no-console
+            console.debug('[vite-middleware] file not found or not a file:', file, 'err=', err ? err.message : null);
             return next();
           }
 
           const ext = path.extname(file).toLowerCase();
           const contentType = ext === '.wasm' ? 'application/wasm' : 'application/octet-stream';
           res.setHeader('Content-Type', contentType);
+          // eslint-disable-next-line no-console
+          console.debug('[vite-middleware] serving file:', file, 'content-type=', contentType);
           const stream = fs.createReadStream(file);
-          stream.on('error', () => next());
+          stream.on('error', (streamErr) => {
+            // eslint-disable-next-line no-console
+            console.debug('[vite-middleware] stream error for file:', file, streamErr);
+            return next();
+          });
           stream.pipe(res);
         });
       });

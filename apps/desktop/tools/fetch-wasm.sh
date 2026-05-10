@@ -71,3 +71,11 @@ for d in "$GRAMMAR_ROOT"/grammars/* "$GRAMMAR_ROOT"/languages/*; do
 done
 
 echo "[prepare-wasm] finished. Check $RUNTIME_DIR for tree-sitter.wasm and language .wasm files."
+
+# Print runtime dir contents for diagnostics so you can see exactly which files exist
+echo "[prepare-wasm] runtime directory contents:"
+if [ -d "$RUNTIME_DIR" ]; then
+  ls -la "$RUNTIME_DIR" || true
+else
+  echo "[prepare-wasm] runtime dir does not exist: $RUNTIME_DIR"
+fi
