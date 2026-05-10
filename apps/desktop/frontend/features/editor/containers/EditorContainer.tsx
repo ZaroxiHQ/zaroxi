@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
+import { CodeMirrorEditor } from '@/components/editor/CodeMirrorEditor';
+import { getEditorEngine } from '@/components/editor/editorEngine';
 import { WorkspaceService } from '@/features/workspace/services/workspaceService';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
 import { Icon } from '@/components/ui/Icon';
@@ -383,6 +385,25 @@ export function EditorContainer() {
       <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
         <div className="h-full flex items-center justify-center text-muted-foreground text-sm p-4 bg-editor">
           No file selected
+        </div>
+      </div>
+    );
+  }
+
+  const engine = getEditorEngine();
+
+  if (engine === 'codemirror') {
+    return (
+      <div className="h-full flex flex-col bg-editor min-h-0 w-full min-w-0">
+        <div className="flex-1 overflow-hidden code-editor-font min-h-0 bg-editor w-full min-w-0">
+          <CodeMirrorEditor
+            documentId={activeSession.documentId ?? activeSession.tabId}
+            text={activeSession.text}
+            languageId={activeSession.language}
+            onChange={(value: string) => handleEditorChange(value)}
+            onSave={handleEditorSave}
+            readOnly={false}
+          />
         </div>
       </div>
     );
