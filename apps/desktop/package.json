@@ -23,14 +23,14 @@
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.5.4",
     "zustand": "^5.0.0",
-    "web-tree-sitter": "^0.20.7",
-    "@codemirror/state": "^0.20.12",
-    "@codemirror/view": "^0.20.12",
-    "@codemirror/commands": "^0.20.12",
-    "@codemirror/language": "^0.20.12",
-    "@codemirror/lang-javascript": "^0.20.12",
-    "@codemirror/lang-rust": "^0.20.12",
-    "@codemirror/lang-json": "^0.20.12"
+    "web-tree-sitter": "*",
+    "@codemirror/state": "*",
+    "@codemirror/view": "*",
+    "@codemirror/commands": "*",
+    "@codemirror/language": "*",
+    "@codemirror/lang-javascript": "*",
+    "@codemirror/lang-rust": "*",
+    "@codemirror/lang-json": "*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
