@@ -14,7 +14,7 @@
 
 import { EditorView, Decoration, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState, StateEffect, StateField } from '@codemirror/state';
-import { foldGutter } from '@codemirror/fold';
+import { foldGutter } from '@codemirror/language';
 import { history } from '@codemirror/history';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 
