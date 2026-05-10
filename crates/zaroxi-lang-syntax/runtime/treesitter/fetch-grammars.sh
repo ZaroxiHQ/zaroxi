@@ -827,14 +827,31 @@ if $DO_BUILD; then
     fi
   }
 
-  # Search canonical local grammar dirs and attempt builds only where sensible
+  # Search canonical local grammar dirs and attempt builds only where sensible.
+  # Many grammar repositories place buildable sources in nested subdirectories
+  # (e.g. typescript/src, tsx/src, tree-sitter-markdown/src, split_parser/, etc).
+  # To handle those layouts we inspect the top-level dir first and then scan
+  # nested subdirs up to depth 3 for indicators of buildable grammar sources.
   if [ -d "$LANGUAGES_DIR" ]; then
     for d in "$LANGUAGES_DIR"/*; do
       if [ -d "$d" ]; then
-        # only attempt where there's a grammar source
+        # Prefer immediate/top-level grammar sources
         if [ -f "$d/grammar.js" ] || [ -f "$d/src/parser.c" ] || [ -f "$d/binding.gyp" ]; then
           try_build "$d"
-        else
+          continue
+        fi
+
+        # Otherwise search nested directories (depth 3) for grammar.js, parser.c or binding.gyp.
+        # This will discover repos that group language subfolders (typescript/tsx) or use split parsers.
+        found_any=false
+        while IFS= read -r subdir; do
+          if [ -n "$subdir" ]; then
+            found_any=true
+            try_build "$subdir"
+          fi
+        done < <(find "$d" -maxdepth 3 -type f \( -name 'grammar.js' -o -name 'parser.c' -o -name 'binding.gyp' \) -printf '%h\n' 2>/dev/null | sort -u)
+
+        if ! $found_any; then
           echo "[fetch-grammars] skipping $d (no buildable sources found)"
         fi
       fi
