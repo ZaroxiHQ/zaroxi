@@ -128,23 +128,23 @@ function walkTreeAndCollect(node: any, text: string, decos: DecorationSpec[], fo
   const from = posToIndex(text, start.row, start.column);
   const to = posToIndex(text, end.row, end.column);
 
-  // Decoration heuristics
-  if (type.includes('string')) {
-    decos.push({ from, to, className: 'ts-string' });
-  } else if (type.includes('comment')) {
-    decos.push({ from, to, className: 'ts-comment' });
-  } else if (type === 'number' || type === 'float' || type === 'integer') {
-    decos.push({ from, to, className: 'ts-number' });
-  } else if (type === 'identifier') {
-    decos.push({ from, to, className: 'ts-variable' });
-  } else if (type.includes('function') || type === 'function_definition' || type === 'function_item') {
-    decos.push({ from, to, className: 'ts-function' });
-  } else if (type.includes('type') || type === 'type_identifier') {
-    decos.push({ from, to, className: 'ts-type' });
-  } else if (type === 'true' || type === 'false' || type === 'null') {
-    decos.push({ from, to, className: 'ts-constant' });
-  } else {
-    // fallback: do nothing
+  // Decoration heuristics - only push valid non-empty ranges.
+  if (to > from) {
+    if (type.includes('string')) {
+      decos.push({ from, to, className: 'ts-string' });
+    } else if (type.includes('comment')) {
+      decos.push({ from, to, className: 'ts-comment' });
+    } else if (type === 'number' || type === 'float' || type === 'integer') {
+      decos.push({ from, to, className: 'ts-number' });
+    } else if (type === 'identifier') {
+      decos.push({ from, to, className: 'ts-variable' });
+    } else if (type.includes('function') || type === 'function_definition' || type === 'function_item') {
+      decos.push({ from, to, className: 'ts-function' });
+    } else if (type.includes('type') || type === 'type_identifier') {
+      decos.push({ from, to, className: 'ts-type' });
+    } else if (type === 'true' || type === 'false' || type === 'null') {
+      decos.push({ from, to, className: 'ts-constant' });
+    }
   }
 
   // Folding heuristics — common block node types

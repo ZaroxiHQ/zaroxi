@@ -39,16 +39,23 @@ export const zaroxiCodeMirrorTheme = [
         // Reasonable default font sizing & family; crate can override via CSS variables.
         fontFamily:
           'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
-        fontSize: 'var(--editor-font-size, 13px)',
+        fontSize: 'var(--editor-font-size, 14px)',
         lineHeight: '1.55',
+      },
+      '.cm-scroller': {
+        height: '100%',
+        overflow: 'auto',
+        // Smooth scrolling on supported platforms
+        WebkitOverflowScrolling: 'touch',
       },
       '.cm-content': {
         caretColor: 'var(--editor-caret, #ffffff)',
         // Ensure the visible font-size applies to content
         fontFamily:
           'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
-        fontSize: 'var(--editor-font-size, 13px)',
+        fontSize: 'var(--editor-font-size, 14px)',
         lineHeight: '1.55',
+        whiteSpace: 'pre',
       },
       '.cm-selectionBackground': {
         backgroundColor: 'var(--editor-selection, rgba(255,255,255,0.06))',

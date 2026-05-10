@@ -79,6 +79,12 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         });
 
         viewRef.current = mountedView;
+        // Focus the editor so caret and wheel interactions behave consistently.
+        try {
+          mountedView.focus();
+        } catch {
+          // ignore focus errors in environments that don't support it
+        }
 
         // Trigger an initial parse & decoration application (async).
         try {
