@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -34,13 +35,46 @@ export default defineConfig({
     strictPort: true,
     host: true,
     open: true, // Automatically open the browser
+
+    // Serve runtime wasm files directly from the repository `crates/zaroxi-lang-syntax/runtime/treesitter`
+    // when requested under the /crates/zaroxi-lang-syntax/runtime/treesitter/ URL path.
+    // This middleware ensures the correct Content-Type (application/wasm) and avoids Vite's
+    // HTML fallback for missing files when the runtime directory lives outside the Vite root.
+    configureServer(server) {
+      const runtimePath = path.resolve(__dirname, '..', '..', 'crates/zaroxi-lang-syntax/runtime/treesitter');
+
+      server.middlewares.use((req, res, next) => {
+        const url = req.url || '';
+        const prefix = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
+        if (!url.startsWith(prefix)) {
+          return next();
+        }
+
+        const rel = decodeURIComponent(url.slice(prefix.length));
+        const file = path.join(runtimePath, rel);
+
+        fs.stat(file, (err, stat) => {
+          if (err || !stat.isFile()) {
+            return next();
+          }
+
+          const ext = path.extname(file).toLowerCase();
+          const contentType = ext === '.wasm' ? 'application/wasm' : 'application/octet-stream';
+          res.setHeader('Content-Type', contentType);
+          const stream = fs.createReadStream(file);
+          stream.on('error', () => next());
+          stream.pipe(res);
+        });
+      });
+    },
+
     // Allow serving files from the frontend and the treesitter runtime directory
     // so the browser can fetch WASM grammars located under crates/zaroxi-lang-syntax/runtime/treesitter.
     fs: {
       allow: [
         path.resolve(__dirname, 'frontend'),
         path.resolve(__dirname, 'frontend/public'),
-        path.resolve(__dirname, 'crates/zaroxi-lang-syntax/runtime/treesitter'),
+        path.resolve(__dirname, '..', '..', 'crates/zaroxi-lang-syntax/runtime/treesitter'),
       ],
     },
   },
