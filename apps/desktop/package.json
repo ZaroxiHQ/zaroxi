@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx vite --port 1420",
+    "prepare-wasm": "bash tools/fetch-wasm.sh",
     "build": "npx tsc && npx vite build",
     "preview": "npx vite preview",
     "tauri": "npx @tauri-apps/cli",
