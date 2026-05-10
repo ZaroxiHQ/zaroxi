@@ -5,7 +5,21 @@
  * (EditorView.theme + EditorView.baseTheme) ensuring gutters, fold markers, caret,
  * selection and token classes are visible regardless of global app CSS.
  *
- * Colors are intentionally high-contrast for Step 1 verification.
+ * This variant uses CSS variables provided by the surrounding app/theme (the crate)
+ * to avoid hard-coded colors. It also ensures token styles are scoped with
+ * `.cm-content .ts-*` selectors so they reliably apply inside the editor DOM.
+ *
+ * Recommended variables your crate/theme should provide (with fallbacks used below):
+ *   --editor-background
+ *   --editor-foreground
+ *   --editor-caret
+ *   --editor-selection
+ *   --editor-active-line
+ *   --editor-gutter-background  (falls back to --editor-background)
+ *   --editor-gutter-foreground  (falls back to --editor-foreground)
+ *   --editor-active-gutter-foreground
+ *   --editor-fold-foreground
+ *   --syntax-keyword, --syntax-string, --syntax-comment, etc (optional)
  */
 
 import { EditorView } from '@codemirror/view';
@@ -25,14 +39,16 @@ export const zaroxiCodeMirrorTheme = [
         caretColor: 'var(--editor-caret, #ffffff)',
       },
       '.cm-selectionBackground': {
-        backgroundColor: 'rgba(255,255,255,0.06)',
+        backgroundColor: 'var(--editor-selection, rgba(255,255,255,0.06))',
       },
       '.cm-activeLine': {
-        backgroundColor: 'rgba(255,255,255,0.02)',
+        backgroundColor: 'var(--editor-active-line, rgba(255,255,255,0.02))',
       },
+      // Make the gutter background match the editor background by default.
+      // Prefer an explicit gutter background variable if provided by the crate/theme.
       '.cm-gutters': {
-        background: '#1f2937', // high contrast gutter background
-        color: '#f8fafc', // bright line numbers
+        background: 'var(--editor-gutter-background, var(--editor-background, #0b1220))',
+        color: 'var(--editor-gutter-foreground, var(--editor-foreground, #dbe7ff))',
         borderRight: '0',
         padding: '0 6px',
         boxSizing: 'border-box',
@@ -41,26 +57,37 @@ export const zaroxiCodeMirrorTheme = [
         paddingRight: '6px',
       },
       '.cm-activeLineGutter': {
-        color: '#ffcc00', // obvious active gutter highlight for verification
+        color: 'var(--editor-active-gutter-foreground, #ffcc00)',
       },
       '.cm-foldGutterElement': {
-        color: '#ff6b6b', // visible fold marker color
+        color: 'var(--editor-fold-foreground, #ff6b6b)',
       },
       '.cm-cursor': {
         borderLeft: '2px solid var(--editor-caret, #ffffff)',
       },
+      // Ensure fold gutter column is visible
+      '.cm-foldGutter': {
+        display: 'block',
+      },
     },
     { dark: true },
   ),
+  // Token styles scoped under .cm-content to ensure editor-local specificity.
   EditorView.baseTheme({
-    // Token classes used by Tree-sitter decoration mapping (strong readable colors)
-    '.ts-keyword': { color: '#ff7b72', fontWeight: 600 },
-    '.ts-string': { color: '#9ae6b4' },
-    '.ts-comment': { color: '#94a3b8', fontStyle: 'italic' },
-    '.ts-number': { color: '#fbbf24' },
-    '.ts-function': { color: '#60a5fa' },
-    '.ts-type': { color: '#7dd3fc' },
-    '.ts-variable': { color: '#dbe7ff' },
-    '.ts-constant': { color: '#f78c6c' },
+    '.cm-content .ts-keyword': { color: 'var(--syntax-keyword, #ff7b72)', fontWeight: 600 },
+    '.cm-content .ts-string': { color: 'var(--syntax-string, #9ae6b4)' },
+    '.cm-content .ts-comment': { color: 'var(--syntax-comment, #94a3b8)', fontStyle: 'italic' },
+    '.cm-content .ts-number': { color: 'var(--syntax-number, #fbbf24)' },
+    '.cm-content .ts-function': { color: 'var(--syntax-function, #60a5fa)' },
+    '.cm-content .ts-type': { color: 'var(--syntax-type, #7dd3fc)' },
+    '.cm-content .ts-variable': { color: 'var(--syntax-variable, #dbe7ff)' },
+    '.cm-content .ts-constant': { color: 'var(--syntax-constant, #f78c6c)' },
+    // Small accessibility boosts for folded placeholder
+    '.cm-content .cm-foldPlaceholder': {
+      background: 'transparent',
+      color: 'var(--editor-foreground, #dbe7ff)',
+      border: 'none',
+      padding: '0 4px',
+    },
   }),
 ];
