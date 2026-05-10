@@ -22,6 +22,15 @@ export default defineConfig({
     strictPort: true,
     host: true,
     open: true, // Automatically open the browser
+    // Allow serving files from the frontend and the treesitter runtime directory
+    // so the browser can fetch WASM grammars located under crates/zaroxi-lang-syntax/runtime/treesitter.
+    fs: {
+      allow: [
+        path.resolve(__dirname, 'frontend'),
+        path.resolve(__dirname, 'frontend/public'),
+        path.resolve(__dirname, 'crates/zaroxi-lang-syntax/runtime/treesitter'),
+      ],
+    },
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
@@ -31,6 +40,29 @@ export default defineConfig({
     outDir: path.resolve(__dirname, 'dist'),
   },
   optimizeDeps: {
-    exclude: ['@tauri-apps/api', '@tauri-apps/plugin-clipboard-manager', '@tauri-apps/plugin-global-shortcut', '@tauri-apps/plugin-notification', '@tauri-apps/plugin-shell'],
+    // Keep Tauri plugins excluded from Vite dependency pre-bundling.
+    exclude: [
+      '@tauri-apps/api',
+      '@tauri-apps/plugin-clipboard-manager',
+      '@tauri-apps/plugin-global-shortcut',
+      '@tauri-apps/plugin-notification',
+      '@tauri-apps/plugin-shell',
+    ],
+    // Pre-bundle CodeMirror and web-tree-sitter so Vite can resolve them properly
+    // from the desktop root node_modules when the frontend is served from apps/desktop/frontend.
+    include: [
+      '@codemirror/view',
+      '@codemirror/state',
+      '@codemirror/commands',
+      '@codemirror/history',
+      '@codemirror/gutter',
+      '@codemirror/fold',
+      '@codemirror/language',
+      '@codemirror/highlight',
+      '@codemirror/lang-javascript',
+      '@codemirror/lang-rust',
+      '@codemirror/lang-json',
+      'web-tree-sitter',
+    ],
   },
 });
