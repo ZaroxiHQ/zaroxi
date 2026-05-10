@@ -30,8 +30,7 @@ async function tryLanguageExtension(languageId?: string) {
   try {
     const id = (languageId || '').toLowerCase();
     if (id === 'javascript' || id === 'js' || id === 'typescript' || id === 'ts') {
-      const pkg = '@codemirror' + '/lang-javascript';
-      const mod = await /* @vite-ignore */ import(pkg);
+      const mod = await import('@codemirror/lang-javascript');
       if (mod.javascript) {
         const isTs = id === 'typescript' || id === 'ts';
         return mod.javascript({ typescript: isTs });
@@ -39,13 +38,11 @@ async function tryLanguageExtension(languageId?: string) {
       return null;
     }
     if (id === 'rust') {
-      const pkg = '@codemirror' + '/lang-rust';
-      const mod = await /* @vite-ignore */ import(pkg);
+      const mod = await import('@codemirror/lang-rust');
       return mod.rust ? mod.rust() : null;
     }
     if (id === 'json') {
-      const pkg = '@codemirror' + '/lang-json';
-      const mod = await /* @vite-ignore */ import(pkg);
+      const mod = await import('@codemirror/lang-json');
       return mod.json ? mod.json() : null;
     }
     // Add more mappings as needed.
@@ -78,13 +75,13 @@ export async function createBaseExtensions(
   const statePkg = '@codemirror' + '/state';
 
   try {
-    // Import view & other modules in parallel.
+    // Import view & other modules in parallel using literal imports so Vite can analyze them.
     const [viewMod, commandsMod, historyMod, gutterMod, stateMod] = await Promise.all([
-      /* @vite-ignore */ import(viewPkg),
-      /* @vite-ignore */ import(commandsPkg),
-      /* @vite-ignore */ import(historyPkg),
-      /* @vite-ignore */ import(gutterPkg),
-      /* @vite-ignore */ import(statePkg),
+      import('@codemirror/view'),
+      import('@codemirror/commands'),
+      import('@codemirror/history'),
+      import('@codemirror/gutter'),
+      import('@codemirror/state'),
     ]);
 
     const { EditorView, Decoration, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap } =
@@ -141,7 +138,7 @@ export async function createBaseExtensions(
 
     // Try adding fold gutter (if fold module is available)
     try {
-      const foldMod = await /* @vite-ignore */ import(foldPkg);
+      const foldMod = await import('@codemirror/fold');
       const { foldGutter } = foldMod as any;
       if (foldGutter) {
         extensions.unshift(foldGutter());
@@ -208,7 +205,7 @@ export async function createState(
 ) {
   const statePkg = '@codemirror' + '/state';
   try {
-    const stateMod = await /* @vite-ignore */ import(statePkg);
+    const stateMod = await import('@codemirror/state');
     const extensions = await createBaseExtensions(opts, languageId, docKey);
     return (stateMod as any).EditorState.create({
       doc: initialText ?? '',

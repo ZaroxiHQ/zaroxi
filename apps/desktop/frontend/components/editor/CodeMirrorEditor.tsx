@@ -67,9 +67,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         if (destroyed) return;
 
-        // Import EditorView at runtime without a static literal to avoid build-time resolution.
-        const viewPkg = '@codemirror' + '/view';
-        const viewModule = await /* @vite-ignore */ import(viewPkg);
+        // Import EditorView at runtime using a literal import so Vite can resolve it.
+        const viewModule = await import('@codemirror/view');
         if (!viewModule || !containerRef.current) {
           throw new Error('EditorView not available');
         }

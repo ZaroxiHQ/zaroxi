@@ -64,11 +64,8 @@ function getWasmUrl(languageId: string) {
 export async function initTreesitterOnce(): Promise<void> {
   if (inited) return;
   try {
-    // Use a non-literal import string so Vite's static analysis won't attempt to
-    // resolve `web-tree-sitter` at build time. At runtime, when the package is
-    // installed, this will dynamically import it.
-    const pkg = 'web' + '-tree' + '-sitter';
-    const mod = await /* @vite-ignore */ import(pkg);
+    // Import web-tree-sitter using a literal import so Vite can analyze the dependency.
+    const mod = await import('web-tree-sitter');
     WTS = (mod as any).default ? (mod as any).default : mod;
     await WTS.init();
     inited = true;
