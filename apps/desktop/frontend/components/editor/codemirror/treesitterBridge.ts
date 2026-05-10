@@ -130,19 +130,19 @@ function walkTreeAndCollect(node: any, text: string, decos: DecorationSpec[], fo
 
   // Decoration heuristics
   if (type.includes('string')) {
-    decos.push({ from, to, className: 'cm-ts-string' });
+    decos.push({ from, to, className: 'ts-string' });
   } else if (type.includes('comment')) {
-    decos.push({ from, to, className: 'cm-ts-comment' });
+    decos.push({ from, to, className: 'ts-comment' });
   } else if (type === 'number' || type === 'float' || type === 'integer') {
-    decos.push({ from, to, className: 'cm-ts-number' });
+    decos.push({ from, to, className: 'ts-number' });
   } else if (type === 'identifier') {
-    decos.push({ from, to, className: 'cm-ts-variable' });
+    decos.push({ from, to, className: 'ts-variable' });
   } else if (type.includes('function') || type === 'function_definition' || type === 'function_item') {
-    decos.push({ from, to, className: 'cm-ts-function' });
+    decos.push({ from, to, className: 'ts-function' });
   } else if (type.includes('type') || type === 'type_identifier') {
-    decos.push({ from, to, className: 'cm-ts-type' });
+    decos.push({ from, to, className: 'ts-type' });
   } else if (type === 'true' || type === 'false' || type === 'null') {
-    decos.push({ from, to, className: 'cm-ts-constant' });
+    decos.push({ from, to, className: 'ts-constant' });
   } else {
     // fallback: do nothing
   }
