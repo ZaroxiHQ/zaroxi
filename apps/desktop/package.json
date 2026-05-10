@@ -26,6 +26,7 @@
     "web-tree-sitter": "*",
     "@codemirror/state": "*",
     "@codemirror/view": "*",
+    "@codemirror/fold": "*",
     "@codemirror/commands": "*",
     "@codemirror/language": "*",
     "@codemirror/lang-javascript": "*",
