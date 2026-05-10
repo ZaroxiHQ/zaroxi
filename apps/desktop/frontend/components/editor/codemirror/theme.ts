@@ -20,6 +20,8 @@
  *   --editor-active-gutter-foreground
  *   --editor-fold-foreground
  *   --syntax-keyword, --syntax-string, --syntax-comment, etc (optional)
+ *   --editor-font-family
+ *   --editor-font-size
  */
 
 import { EditorView } from '@codemirror/view';
@@ -34,9 +36,19 @@ export const zaroxiCodeMirrorTheme = [
         background: 'var(--editor-background, #0b1220)',
         color: 'var(--editor-foreground, #dbe7ff)',
         height: '100%',
+        // Reasonable default font sizing & family; crate can override via CSS variables.
+        fontFamily:
+          'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+        fontSize: 'var(--editor-font-size, 13px)',
+        lineHeight: '1.55',
       },
       '.cm-content': {
         caretColor: 'var(--editor-caret, #ffffff)',
+        // Ensure the visible font-size applies to content
+        fontFamily:
+          'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+        fontSize: 'var(--editor-font-size, 13px)',
+        lineHeight: '1.55',
       },
       '.cm-selectionBackground': {
         backgroundColor: 'var(--editor-selection, rgba(255,255,255,0.06))',
@@ -73,6 +85,7 @@ export const zaroxiCodeMirrorTheme = [
     { dark: true },
   ),
   // Token styles scoped under .cm-content to ensure editor-local specificity.
+  // Also provide fallback selectors to increase specificity in case theme layering differs.
   EditorView.baseTheme({
     '.cm-content .ts-keyword': { color: 'var(--syntax-keyword, #ff7b72)', fontWeight: 600 },
     '.cm-content .ts-string': { color: 'var(--syntax-string, #9ae6b4)' },
@@ -82,6 +95,13 @@ export const zaroxiCodeMirrorTheme = [
     '.cm-content .ts-type': { color: 'var(--syntax-type, #7dd3fc)' },
     '.cm-content .ts-variable': { color: 'var(--syntax-variable, #dbe7ff)' },
     '.cm-content .ts-constant': { color: 'var(--syntax-constant, #f78c6c)' },
+
+    // Fallback broader selectors (in case some DOM shapes differ)
+    '.cm-editor .ts-keyword': { color: 'var(--syntax-keyword, #ff7b72)', fontWeight: 600 },
+    '.cm-editor .ts-string': { color: 'var(--syntax-string, #9ae6b4)' },
+    '.cm-editor .ts-comment': { color: 'var(--syntax-comment, #94a3b8)', fontStyle: 'italic' },
+    '.cm-editor .ts-number': { color: 'var(--syntax-number, #fbbf24)' },
+
     // Small accessibility boosts for folded placeholder
     '.cm-content .cm-foldPlaceholder': {
       background: 'transparent',
