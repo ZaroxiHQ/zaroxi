@@ -20,8 +20,6 @@ export default defineConfig({
       '@codemirror/state': path.resolve(__dirname, 'node_modules', '@codemirror', 'state'),
       '@codemirror/commands': path.resolve(__dirname, 'node_modules', '@codemirror', 'commands'),
       '@codemirror/history': path.resolve(__dirname, 'node_modules', '@codemirror', 'history'),
-      '@codemirror/gutter': path.resolve(__dirname, 'node_modules', '@codemirror', 'gutter'),
-      '@codemirror/fold': path.resolve(__dirname, 'node_modules', '@codemirror', 'fold'),
       '@codemirror/language': path.resolve(__dirname, 'node_modules', '@codemirror', 'language'),
       '@codemirror/highlight': path.resolve(__dirname, 'node_modules', '@codemirror', 'highlight'),
       '@codemirror/lang-javascript': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-javascript'),
