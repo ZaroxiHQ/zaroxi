@@ -29,7 +29,7 @@
     "@codemirror/commands": "^6.2.0",
     "@codemirror/history": "^6.2.0",
     "@codemirror/gutter": "^6.2.0",
-    "@codemirror/fold": "^6.1.1",
+    "@codemirror/fold": "^6.0.0",
     "@codemirror/language": "^6.4.0",
     "@codemirror/highlight": "^6.0.3",
     "@codemirror/lang-javascript": "^6.1.4",
