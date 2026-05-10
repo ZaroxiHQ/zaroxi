@@ -38,11 +38,9 @@ const lastParseCache: Map<string, { foldRanges: FoldRange[]; decorations: Decora
  */
 function getWasmFileNameFor(languageId: string) {
   const id = (languageId || '').toLowerCase();
-  if (id === 'rust') return 'tree-sitter-rust.wasm';
-  if (id === 'toml') return 'tree-sitter-toml.wasm';
-  if (id === 'markdown' || id === 'md') return 'tree-sitter-markdown.wasm';
-  if (id === 'typescript' || id === 'ts' || id === 'javascript' || id === 'js') return 'tree-sitter-typescript.wasm';
-  // default fallback
+  // Use the normalized runtime naming convention: tree-sitter-<language>.wasm
+  // The runtime/build scripts in this repo expect per-language artifacts named
+  // exactly like this (see crates/zaroxi-lang-syntax/runtime/treesitter).
   return `tree-sitter-${id}.wasm`;
 }
 
@@ -196,15 +194,14 @@ export async function initTreesitterOnce(): Promise<void> {
     // from the correct bytes (avoids inadvertently loading HTML/index fallback).
     let engineObjectUrl: string | null = null;
 
-    // Candidate locations to try for the engine wasm (ordered). Added a CDN candidate
-    // (jsDelivr) before unpkg to improve chances of a CORS-friendly response.
+    // Candidate locations to try for the engine wasm (ordered).
+    // Only local/runtime locations are probed here — remove external CDN fallbacks.
+    // The preferred location is the repository runtime directory:
+    //   crates/zaroxi-lang-syntax/runtime/treesitter/tree-sitter.wasm
     const engineCandidates = [
       runtimeBase + 'tree-sitter.wasm',
       '/node_modules/web-tree-sitter/tree-sitter.wasm',
-      '/web-tree-sitter/tree-sitter.wasm',
       '/node_modules/web-tree-sitter/dist/tree-sitter.wasm',
-      'https://cdn.jsdelivr.net/npm/web-tree-sitter/tree-sitter.wasm',
-      'https://unpkg.com/web-tree-sitter/tree-sitter.wasm',
     ];
 
     // Probe candidates until we find a valid wasm blob (magic bytes "\0asm")
@@ -244,12 +241,13 @@ export async function initTreesitterOnce(): Promise<void> {
     }
 
     if (!engineObjectUrl) {
-      // If we couldn't validate any engine wasm, fail early with a clear message.
-      // This prevents web-tree-sitter from attempting to fetch a non-wasm (HTML) file
-      // which results in the cryptic "module doesn't start with '\0asm'" runtime abort.
+      // No validated engine wasm found in local candidates. Do not fall back to external CDNs —
+      // instead warn and allow web-tree-sitter to request the engine via locateFile from the
+      // repo runtime path. Ensure your dev server serves:
+      //   /crates/zaroxi-lang-syntax/runtime/treesitter/tree-sitter.wasm
+      // with Content-Type: application/wasm.
       // eslint-disable-next-line no-console
-      console.error('[treesitter] initTreesitterOnce: no validated engine wasm found in candidates; please run `cd apps/desktop && npm run prepare-wasm` to populate crates/zaroxi-lang-syntax/runtime/treesitter/tree-sitter.wasm (or provide a CORS-friendly CDN URL).');
-      throw new Error('web-tree-sitter engine wasm not found; run `npm run prepare-wasm` in apps/desktop');
+      console.warn('[treesitter] initTreesitterOnce: no validated engine wasm found in candidates; web-tree-sitter will use locateFile at runtime. Ensure crates/zaroxi-lang-syntax/runtime/treesitter/tree-sitter.wasm exists and is served as application/wasm');
     }
 
     // Provide locateFile so web-tree-sitter can find its runtime wasm. We will return the
