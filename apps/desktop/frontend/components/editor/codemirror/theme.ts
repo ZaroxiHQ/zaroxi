@@ -33,8 +33,8 @@ export const zaroxiCodeMirrorTheme = [
         height: '100%',
       },
       '.cm-editor': {
-        background: 'var(--editor-background, #0b1220)',
-        color: 'var(--editor-foreground, #dbe7ff)',
+        background: 'var(--editor-background)',
+        color: 'var(--editor-foreground)',
         height: '100%',
         // Reasonable default font sizing & family; crate can override via CSS variables.
         fontFamily:
@@ -49,7 +49,7 @@ export const zaroxiCodeMirrorTheme = [
         WebkitOverflowScrolling: 'touch',
       },
       '.cm-content': {
-        caretColor: 'var(--editor-caret, #ffffff)',
+        caretColor: 'var(--editor-caret)',
         // Ensure the visible font-size applies to content
         fontFamily:
           'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
@@ -58,16 +58,16 @@ export const zaroxiCodeMirrorTheme = [
         whiteSpace: 'pre',
       },
       '.cm-selectionBackground': {
-        backgroundColor: 'var(--editor-selection, rgba(255,255,255,0.06))',
+        backgroundColor: 'var(--editor-selection)',
       },
       '.cm-activeLine': {
-        backgroundColor: 'var(--editor-active-line, rgba(255,255,255,0.02))',
+        backgroundColor: 'var(--editor-active-line)',
       },
       // Make the gutter background match the editor background by default.
       // Prefer an explicit gutter background variable if provided by the crate/theme.
       '.cm-gutters': {
-        background: 'var(--editor-gutter-background, var(--editor-background, #0b1220))',
-        color: 'var(--editor-gutter-foreground, var(--editor-foreground, #dbe7ff))',
+        background: 'var(--editor-gutter-background)',
+        color: 'var(--editor-gutter-foreground)',
         borderRight: '0',
         padding: '0 6px',
         boxSizing: 'border-box',
@@ -76,13 +76,13 @@ export const zaroxiCodeMirrorTheme = [
         paddingRight: '6px',
       },
       '.cm-activeLineGutter': {
-        color: 'var(--editor-active-gutter-foreground, #ffcc00)',
+        color: 'var(--editor-active-gutter-foreground)',
       },
       '.cm-foldGutterElement': {
-        color: 'var(--editor-fold-foreground, #ff6b6b)',
+        color: 'var(--editor-fold-foreground)',
       },
       '.cm-cursor': {
-        borderLeft: '2px solid var(--editor-caret, #ffffff)',
+        borderLeft: '2px solid var(--editor-caret)',
       },
       // Ensure fold gutter column is visible
       '.cm-foldGutter': {

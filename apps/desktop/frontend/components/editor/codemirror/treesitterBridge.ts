@@ -130,20 +130,41 @@ function walkTreeAndCollect(node: any, text: string, decos: DecorationSpec[], fo
 
   // Decoration heuristics - only push valid non-empty ranges.
   if (to > from) {
+    // Strings & comments
     if (type.includes('string')) {
       decos.push({ from, to, className: 'ts-string' });
     } else if (type.includes('comment')) {
       decos.push({ from, to, className: 'ts-comment' });
-    } else if (type === 'number' || type === 'float' || type === 'integer') {
+    }
+    // Numbers / constants
+    else if (type === 'number' || type === 'float' || type === 'integer') {
       decos.push({ from, to, className: 'ts-number' });
-    } else if (type === 'identifier') {
-      decos.push({ from, to, className: 'ts-variable' });
-    } else if (type.includes('function') || type === 'function_definition' || type === 'function_item') {
-      decos.push({ from, to, className: 'ts-function' });
-    } else if (type.includes('type') || type === 'type_identifier') {
-      decos.push({ from, to, className: 'ts-type' });
     } else if (type === 'true' || type === 'false' || type === 'null') {
       decos.push({ from, to, className: 'ts-constant' });
+    }
+    // Functions / methods
+    else if (type.includes('function') || type === 'function_definition' || type === 'function_item' || type === 'method_declaration') {
+      decos.push({ from, to, className: 'ts-function' });
+    }
+    // Types
+    else if (type.includes('type') || type === 'type_identifier') {
+      decos.push({ from, to, className: 'ts-type' });
+    }
+    // Operators
+    else if (type.includes('operator') || type === 'binary_operator' || type === 'unary_operator') {
+      decos.push({ from, to, className: 'ts-operator' });
+    }
+    // Attributes / macros / properties
+    else if (type.includes('attribute') || type === 'attribute_item' || type === 'attribute_declaration') {
+      decos.push({ from, to, className: 'ts-attribute' });
+    } else if (type.includes('macro')) {
+      decos.push({ from, to, className: 'ts-macro' });
+    } else if (type === 'property' || type === 'property_identifier' || type.endsWith('_property')) {
+      decos.push({ from, to, className: 'ts-property' });
+    }
+    // Identifiers as variables by default
+    else if (type === 'identifier' || type.endsWith('_identifier')) {
+      decos.push({ from, to, className: 'ts-variable' });
     }
   }
 
