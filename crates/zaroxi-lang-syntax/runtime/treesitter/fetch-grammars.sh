@@ -367,10 +367,10 @@ else
                 echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (continuing)"
               fi
 
-              # Search for produced .wasm artifacts and keep them inside the grammar's directory.
-              # Many grammars produce .wasm next to their build outputs; it's more robust to leave
-              # the per-language wasm in the grammar directory (so it's co-located with that grammar).
+              # Search for produced .wasm artifacts and move them into the OS-specific grammar output directory
+              # (GRAMMAR_DIR) so the native (.so/.dylib/.dll) and wasm parser live together.
               # Normalize filenames to the canonical tree-sitter-<lang>.wasm when appropriate.
+              mkdir -p "${GRAMMAR_DIR}"
               if command -v find >/dev/null 2>&1; then
                 while IFS= read -r wasmfile; do
                   base="$(basename "$wasmfile")"
@@ -381,28 +381,28 @@ else
                     destname="tree-sitter-${lang}.wasm"
                   fi
 
-                  destpath="$(pwd)/${destname}"
+                  destpath="${GRAMMAR_DIR}/${destname}"
 
                   # If the destination already exists, compare and skip or backup.
                   if [[ -f "${destpath}" ]]; then
                     if cmp -s "$wasmfile" "${destpath}"; then
-                      echo "  → ${lang}: wasm ${destname} already present in grammar dir and identical; skipping"
+                      echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
                       continue
                     else
-                      echo "  → ${lang}: existing ${destname} differs in grammar dir; backing up and replacing"
+                      echo "  → ${lang}: existing ${destname} differs in ${GRAMMAR_DIR}; backing up and replacing"
                       mv -v "${destpath}" "${destpath}.bak" || true
                     fi
                   fi
 
-                  # If the produced file is not already at the canonical path, move it; otherwise keep it in place.
+                  # Move or copy the produced wasm into the OS-specific grammar output directory.
                   if [[ "$wasmfile" != "${destpath}" ]]; then
                     mv -v "$wasmfile" "${destpath}" || cp -v "$wasmfile" "${destpath}" || true
                   fi
 
-                  echo "  → ${lang}: left wasm $(basename "${destpath}") in grammar directory: $(pwd)"
+                  echo "  → ${lang}: moved wasm $(basename "${destpath}") to ${GRAMMAR_DIR}"
                 done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
               else
-                # Fallback simple glob (best effort) — operate in the current grammar directory.
+                # Fallback simple glob (best effort) — operate in the current grammar directory but move to GRAMMAR_DIR.
                 shopt -s nullglob 2>/dev/null || true
                 for w in *.wasm; do
                   base="$(basename "$w")"
@@ -410,10 +410,10 @@ else
                   if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
                     destname="tree-sitter-${lang}.wasm"
                   fi
-                  destpath="$(pwd)/${destname}"
+                  destpath="${GRAMMAR_DIR}/${destname}"
                   if [[ -f "${destpath}" ]]; then
                     if cmp -s "$w" "${destpath}"; then
-                      echo "  → ${lang}: wasm ${destname} already present in grammar dir and identical; skipping"
+                      echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
                       continue
                     else
                       mv -v "${destpath}" "${destpath}.bak" || true
@@ -422,7 +422,7 @@ else
                   if [[ "$w" != "${destpath}" ]]; then
                     mv -v "$w" "${destpath}" || cp -v "$w" "${destpath}" || true
                   fi
-                  echo "  → ${lang}: left wasm $(basename "${destpath}") in grammar directory: $(pwd)"
+                  echo "  → ${lang}: moved wasm $(basename "${destpath}") to ${GRAMMAR_DIR}"
                 done
                 shopt -u nullglob 2>/dev/null || true
               fi
