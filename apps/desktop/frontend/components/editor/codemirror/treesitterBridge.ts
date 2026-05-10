@@ -151,12 +151,14 @@ export async function initTreesitterOnce(): Promise<void> {
     // from the correct bytes (avoids inadvertently loading HTML/index fallback).
     let engineObjectUrl: string | null = null;
 
-    // Candidate locations to try for the engine wasm (ordered).
+    // Candidate locations to try for the engine wasm (ordered). Added a CDN candidate
+    // (jsDelivr) before unpkg to improve chances of a CORS-friendly response.
     const engineCandidates = [
       runtimeBase + 'tree-sitter.wasm',
       '/node_modules/web-tree-sitter/tree-sitter.wasm',
       '/web-tree-sitter/tree-sitter.wasm',
       '/node_modules/web-tree-sitter/dist/tree-sitter.wasm',
+      'https://cdn.jsdelivr.net/npm/web-tree-sitter/tree-sitter.wasm',
       'https://unpkg.com/web-tree-sitter/tree-sitter.wasm',
     ];
 
@@ -197,29 +199,40 @@ export async function initTreesitterOnce(): Promise<void> {
     }
 
     if (!engineObjectUrl) {
+      // If we couldn't validate any engine wasm, fail early with a clear message.
+      // This prevents web-tree-sitter from attempting to fetch a non-wasm (HTML) file
+      // which results in the cryptic "module doesn't start with '\0asm'" runtime abort.
       // eslint-disable-next-line no-console
-      console.warn('[treesitter] initTreesitterOnce: no validated engine wasm found in candidates; web-tree-sitter may still try to load from locateFile. Ensure tree-sitter.wasm exists under crates/zaroxi-lang-syntax/runtime/treesitter or run `npm run prepare-wasm` in apps/desktop.');
+      console.error('[treesitter] initTreesitterOnce: no validated engine wasm found in candidates; please run `cd apps/desktop && npm run prepare-wasm` to populate crates/zaroxi-lang-syntax/runtime/treesitter/tree-sitter.wasm (or provide a CORS-friendly CDN URL).');
+      throw new Error('web-tree-sitter engine wasm not found; run `npm run prepare-wasm` in apps/desktop');
     }
 
-    // Provide locateFile so web-tree-sitter can find its runtime wasm.
-    // If we created an object URL for a validated engine wasm, return that for 'tree-sitter.wasm'.
-    // Otherwise, fall back to returning the runtimeBase + file path so the server middleware can serve it.
+    // Provide locateFile so web-tree-sitter can find its runtime wasm. We will return the
+    // validated object URL for the engine so web-tree-sitter loads from the correct bytes.
     // eslint-disable-next-line no-console
     console.debug('[treesitter] initTreesitterOnce: calling WTS.init with locateFile ->', runtimeBase);
-    await WTS.init({
-      locateFile: (file: string) => {
-        const candidate = runtimeBase + file;
-        // eslint-disable-next-line no-console
-        console.debug('[treesitter] locateFile requested:', file, '->', candidate);
-        if (file === 'tree-sitter.wasm' && engineObjectUrl) {
-          // Use object URL to guarantee correct bytes / MIME type for the engine
-          // (keeps the object URL alive so web-tree-sitter can fetch it).
-          return engineObjectUrl;
-        }
-        // Last-resort: return the canonical runtime path so server middleware can serve it.
-        return candidate;
-      },
-    });
+    try {
+      await WTS.init({
+        locateFile: (file: string) => {
+          const candidate = runtimeBase + file;
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] locateFile requested:', file, '->', candidate);
+          if (file === 'tree-sitter.wasm' && engineObjectUrl) {
+            // Use object URL to guarantee correct bytes / MIME type for the engine
+            // (keeps the object URL alive so web-tree-sitter can fetch it).
+            return engineObjectUrl;
+          }
+          // Fallback shouldn't be used because we validated the engine above, but return
+          // the canonical runtime path as a last-resort string.
+          return candidate;
+        },
+      });
+    } catch (initErr) {
+      // Propagate a clear error so callers can handle it gracefully.
+      // eslint-disable-next-line no-console
+      console.error('[treesitter] WTS.init failed (engine fetch/compile error)', initErr);
+      throw initErr;
+    }
 
     inited = true;
     // eslint-disable-next-line no-console
@@ -242,7 +255,14 @@ async function ensureParserFor(languageId: string) {
   if (!inited) {
     // eslint-disable-next-line no-console
     console.debug('[treesitter] ensureParserFor: initializing WTS before loading parser for', key);
-    await initTreesitterOnce();
+    try {
+      await initTreesitterOnce();
+    } catch (e) {
+      // Initialization failed (missing engine wasm or network/CORS issues). Treat as no parser available.
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] ensureParserFor: initTreesitterOnce failed, cannot load parser for', key, e);
+      return null;
+    }
   }
 
   // Candidate URLs to try (cover several common layouts under your runtime directory).
