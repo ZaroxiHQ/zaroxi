@@ -98,10 +98,9 @@ export async function createBaseExtensions(
     let lineNumbers: any = (viewMod as any).lineNumbers ?? null;
     if (!lineNumbers) {
       try {
-        // Use a non-literal import to avoid Vite failing the build when the optional
-        // `@codemirror/gutter` package is not present (newer CodeMirror merges gutter into view).
-        const gutterPkg = '@codemirror' + '/gutter';
-        const gutterMod = await import(gutterPkg);
+        // Use a literal dynamic import so Vite can analyze the dependency if present.
+        // If the package is not installed, the import will throw and we fall back to no line numbers.
+        const gutterMod = await import('@codemirror/gutter');
         lineNumbers = (gutterMod as any).lineNumbers ?? null;
       } catch {
         lineNumbers = null;
@@ -153,16 +152,9 @@ export async function createBaseExtensions(
       updateListener,
     ];
 
-    // Try adding fold gutter (if fold module is available)
-    try {
-      const foldMod = await import('@codemirror/fold');
-      const { foldGutter } = foldMod as any;
-      if (foldGutter) {
-        extensions.unshift(foldGutter());
-      }
-    } catch {
-      // ignore missing fold package
-    }
+    // Fold gutter omitted here to avoid importing @codemirror/fold which may not be present
+    // in all installations. Folding is provided via the Tree-sitter fold service adapter
+    // (createFoldServiceExtension) which is added below if available.
 
     // Try to add a language extension as a pragmatic fallback while Tree-sitter is added.
     const langExt = await tryLanguageExtension(languageId);
