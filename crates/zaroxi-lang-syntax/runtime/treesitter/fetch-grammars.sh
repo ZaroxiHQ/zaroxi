@@ -363,69 +363,80 @@ else
                 fi
               fi
 
-              if ! $wasm_built; then
-                echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (continuing)"
-              fi
-
-              # Search for produced .wasm artifacts and move them into the OS-specific grammar output directory
-              # (GRAMMAR_DIR) so the native (.so/.dylib/.dll) and wasm parser live together.
-              # Normalize filenames to the canonical tree-sitter-<lang>.wasm when appropriate.
+              # Regardless of whether build-wasm reported success, some tools (npm installs, tree-sitter-cli, or bindings)
+              # may have produced .wasm artifacts under node_modules/ or nested build dirs. Do a robust scan and move any
+              # discovered .wasm into the OS-specific GRAMMAR_DIR alongside the native library and normalize the name to
+              # tree-sitter-<lang>.wasm so the frontend loader can find it predictably.
               mkdir -p "${GRAMMAR_DIR}"
+              moved_any=false
+
+              # We'll look for wasm in several likely locations: current tree, node_modules, build/target dirs.
               if command -v find >/dev/null 2>&1; then
                 while IFS= read -r wasmfile; do
-                  base="$(basename "$wasmfile")"
-                  destname="$base"
-
-                  # Prefer canonical name "tree-sitter-<lang>.wasm" when the produced name is generic.
-                  if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
-                    destname="tree-sitter-${lang}.wasm"
-                  fi
-
+                  # canonical destination filename
+                  destname="tree-sitter-${lang}.wasm"
                   destpath="${GRAMMAR_DIR}/${destname}"
 
-                  # If the destination already exists, compare and skip or backup.
+                  # If the file already is the canonical path under GRAMMAR_DIR, just mark moved and continue.
+                  if [[ "$(realpath -m "$wasmfile")" == "$(realpath -m "$destpath")" ]]; then
+                    moved_any=true
+                    continue
+                  fi
+
+                  # If destination exists and identical, skip; otherwise back it up and copy/move.
                   if [[ -f "${destpath}" ]]; then
                     if cmp -s "$wasmfile" "${destpath}"; then
                       echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
+                      moved_any=true
                       continue
                     else
-                      echo "  → ${lang}: existing ${destname} differs in ${GRAMMAR_DIR}; backing up and replacing"
+                      echo "  → ${lang}: existing ${destname} differs in ${GRAMMAR_DIR}; backing up"
                       mv -v "${destpath}" "${destpath}.bak" || true
                     fi
                   fi
 
-                  # Move or copy the produced wasm into the OS-specific grammar output directory.
-                  if [[ "$wasmfile" != "${destpath}" ]]; then
-                    mv -v "$wasmfile" "${destpath}" || cp -v "$wasmfile" "${destpath}" || true
+                  # Prefer moving when wasmfile is within the temporary clone dir; otherwise copy.
+                  if mv -v "$wasmfile" "${destpath}" 2>/dev/null; then
+                    echo "  → ${lang}: moved wasm $(basename "${destpath}") -> ${destpath}"
+                  elif cp -v "$wasmfile" "${destpath}" 2>/dev/null; then
+                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") -> ${destpath}"
+                  else
+                    echo "  → ${lang}: failed to relocate wasm $wasmfile (continuing)"
+                    continue
                   fi
 
-                  echo "  → ${lang}: moved wasm $(basename "${destpath}") to ${GRAMMAR_DIR}"
-                done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
+                  moved_any=true
+                  wasm_built=true
+                done < <(find . -type f -name '*.wasm' -o -path './node_modules/*' -prune 2>/dev/null | sort -u)
               else
-                # Fallback simple glob (best effort) — operate in the current grammar directory but move to GRAMMAR_DIR.
-                shopt -s nullglob 2>/dev/null || true
-                for w in *.wasm; do
-                  base="$(basename "$w")"
-                  destname="$base"
-                  if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
-                    destname="tree-sitter-${lang}.wasm"
-                  fi
-                  destpath="${GRAMMAR_DIR}/${destname}"
-                  if [[ -f "${destpath}" ]]; then
-                    if cmp -s "$w" "${destpath}"; then
-                      echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
-                      continue
-                    else
-                      mv -v "${destpath}" "${destpath}.bak" || true
+                # Fallback: simple glob checks in a few known dirs
+                candidates=(./*.wasm ./node_modules/*/*.wasm ./build/*.wasm ./target/*/*.wasm)
+                for w in "${candidates[@]}"; do
+                  for f in $w; do
+                    if [[ -f "$f" ]]; then
+                      destname="tree-sitter-${lang}.wasm"
+                      destpath="${GRAMMAR_DIR}/${destname}"
+                      if [[ -f "${destpath}" && cmp -s "$f" "${destpath}" ]]; then
+                        echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
+                        moved_any=true
+                        wasm_built=true
+                        continue
+                      fi
+                      cp -v "$f" "${destpath}" || true
+                      echo "  → ${lang}: copied wasm $(basename "$f") -> ${destpath}"
+                      moved_any=true
+                      wasm_built=true
                     fi
-                  fi
-                  if [[ "$w" != "${destpath}" ]]; then
-                    mv -v "$w" "${destpath}" || cp -v "$w" "${destpath}" || true
-                  fi
-                  echo "  → ${lang}: moved wasm $(basename "${destpath}") to ${GRAMMAR_DIR}"
+                  done
                 done
-                shopt -u nullglob 2>/dev/null || true
               fi
+
+              if ! $wasm_built; then
+                echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (no wasm discovered)"
+              else
+                echo "  → ${lang}: wasm artifact ensured at ${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
+              fi
+          fi
           else
               # Build failed; print a concise hint including captured stderr to help diagnosis.
               echo "  → ${lang}: native build failed (continuing)"
