@@ -802,16 +802,54 @@ if $DO_BUILD; then
     local dir="$1"
     echo "[fetch-grammars] attempting build in: $dir"
 
-    # Run npm install if package.json exists (best-effort)
+    # Determine language name (directory basename)
+    langname="$(basename "$dir")"
+
+    # 0) If canonical wasm already exists in the runtime dir, skip entirely.
+    if [ -f "${RUNTIME_DIR}/tree-sitter-${langname}.wasm" ]; then
+      echo "[fetch-grammars] skipping ${langname}: ${RUNTIME_DIR}/tree-sitter-${langname}.wasm already present"
+      return 0
+    fi
+
+    # 1) If this grammar directory already contains .wasm artifacts, move them and skip build.
+    shopt -s nullglob
+    found_wasm=false
+    for w in "$dir"/*.wasm; do
+      if [ -f "$w" ]; then
+        echo "[fetch-grammars] found existing wasm in ${dir}: ${w}; relocating to runtime"
+        if mv -v "$w" "$RUNTIME_DIR"/ 2>/dev/null; then
+          WASM_BUILT+=("$(basename "$w")")
+        else
+          cp -v "$w" "$RUNTIME_DIR"/ || true
+          WASM_BUILT+=("$(basename "$w")")
+        fi
+        found_wasm=true
+      fi
+    done
+    shopt -u nullglob
+
+    if $found_wasm; then
+      echo "[fetch-grammars] existing wasm moved for ${langname}; skipping build"
+      return 0
+    fi
+
+    # 2) If a native artifact already exists in the platform grammar dir, skip native build.
+    if [ -d "${GRAMMAR_DIR}" ]; then
+      if ls "${GRAMMAR_DIR}"/libtree-sitter-"${langname}"* 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/tree-sitter-"${langname}"* 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/*.node 1> /dev/null 2>&1; then
+        echo "[fetch-grammars] native artifact for ${langname} already present in ${GRAMMAR_DIR}; skipping native build"
+        return 0
+      fi
+    fi
+
+    # 3) Proceed with npm install (best-effort) only if needed by grammar.js
     if command -v npm >/dev/null 2>&1 && [ -f "$dir/package.json" ]; then
       echo "[fetch-grammars] running npm install in $dir (may be required by grammar.js)"
       (cd "$dir" && npm install --no-audit --no-fund --silent) || echo "[fetch-grammars] npm install failed in $dir (continuing)"
     fi
 
-    # Run tree-sitter CLI generate/build-wasm
+    # 4) Attempt generate + build-wasm (best-effort). If build produces wasm they will be moved above.
     if run_tree_sitter_cli generate >/dev/null 2>&1 || true; then
       if run_tree_sitter_cli build-wasm >/dev/null 2>&1; then
-        # move produced wasm files to runtime root
         shopt -s nullglob
         for w in "$dir"/*.wasm; do
           mv -v "$w" "$RUNTIME_DIR"/ || true
