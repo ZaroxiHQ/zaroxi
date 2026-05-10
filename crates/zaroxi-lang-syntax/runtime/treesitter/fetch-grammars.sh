@@ -106,17 +106,36 @@ LANGUAGES=(
     "markdown|https://github.com/tree-sitter-grammars/tree-sitter-markdown|split_parser|tree-sitter-markdown/src"
 )
 
-# Helper: try to run a command via npx if local binary is missing
+# Helper: try to run a command via npx if local binary is missing.
+# This wrapper prefers a direct binary if present, otherwise will invoke npx.
+# Special-case mapping: when callers request the `tree-sitter` binary via npx,
+# use the `tree-sitter-cli` npm package name (npx expects package name).
+#
+# Usage: maybe_run_npx <cmd> [args...]
 maybe_run_npx() {
-  if command -v "$1" >/dev/null 2>&1; then
-    "$@"
+  cmd="$1"; shift || true
+
+  # If the requested binary is available on PATH, run it directly.
+  if command -v "$cmd" >/dev/null 2>&1; then
+    "$cmd" "$@"
     return $?
-  elif command -v npx >/dev/null 2>&1; then
-    npx --yes "$@"
-    return $?
-  else
-    return 127
   fi
+
+  # If npx is available, use it. Map common package names if necessary.
+  if command -v npx >/dev/null 2>&1; then
+    # When callers ask for "tree-sitter", prefer npx package "tree-sitter-cli".
+    if [[ "$cmd" == "tree-sitter" ]]; then
+      npx --yes tree-sitter-cli "$@"
+      return $?
+    fi
+
+    # Otherwise try to npx the requested command as-is.
+    npx --yes "$cmd" "$@"
+    return $?
+  fi
+
+  # No candidate available
+  return 127
 }
 
 # Step A — Build native libraries (existing behavior) ------------------------------------------------
