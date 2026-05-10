@@ -282,23 +282,63 @@ else
                   fi
               fi
 
-              # Additionally, some grammars produce per-language WASM parser files when told to.
-              # Locate any .wasm files produced by the build and move/copy them into the runtime root
-              # so the web runtime can load them (e.g. tree-sitter-rust.wasm).
+              # Additionally, attempt to produce per-language WASM parser files (tree-sitter CLI supports `build-wasm`).
+              # First try to invoke the wasm build step (best-effort). Some grammars will produce .wasm only when asked.
+              if maybe_run_npx tree-sitter build-wasm >/dev/null 2>&1; then
+                echo "  → ${lang}: tree-sitter build-wasm invoked (if supported by this grammar)"
+              else
+                # Not all grammars support build-wasm; continue to search for any wasm artifacts produced anyway.
+                echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (continuing)"
+              fi
+
+              # Search for produced .wasm artifacts and move them to the runtime root.
+              # Normalize filenames to the canonical tree-sitter-<lang>.wasm when appropriate.
               if command -v find >/dev/null 2>&1; then
                 while IFS= read -r wasmfile; do
-                  # copy to runtime root (not platform-specific native dir)
                   mkdir -p "${RUNTIME_ROOT}"
-                  cp -v "$wasmfile" "${RUNTIME_ROOT}/" || true
-                  echo "  → ${lang}: moved wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/"
+                  base="$(basename "$wasmfile")"
+                  destname="$base"
+
+                  # If file doesn't follow the "tree-sitter-<lang>.wasm" convention, rename it to that.
+                  if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
+                    destname="tree-sitter-${lang}.wasm"
+                  fi
+
+                  # Avoid clobbering an existing file unless source is different
+                  if [[ -f "${RUNTIME_ROOT}/${destname}" ]]; then
+                    # If identical, skip; otherwise prefer the new one but keep a backup.
+                    if cmp -s "$wasmfile" "${RUNTIME_ROOT}/${destname}"; then
+                      echo "  → ${lang}: wasm ${destname} already present and identical; skipping"
+                      continue
+                    else
+                      echo "  → ${lang}: existing ${destname} differs; backing up and replacing"
+                      mv -v "${RUNTIME_ROOT}/${destname}" "${RUNTIME_ROOT}/${destname}.bak" || true
+                    fi
+                  fi
+
+                  cp -v "$wasmfile" "${RUNTIME_ROOT}/${destname}" || true
+                  echo "  → ${lang}: moved wasm $(basename "$wasmfile") -> ${destname} in ${RUNTIME_ROOT}/"
                 done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
               else
                 # Fallback simple glob (best effort)
                 shopt -s nullglob 2>/dev/null || true
                 for w in *.wasm; do
                   mkdir -p "${RUNTIME_ROOT}"
-                  cp -v "$w" "${RUNTIME_ROOT}/" || true
-                  echo "  → ${lang}: moved wasm $(basename "$w") to ${RUNTIME_ROOT}/"
+                  base="$(basename "$w")"
+                  destname="$base"
+                  if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
+                    destname="tree-sitter-${lang}.wasm"
+                  fi
+                  if [[ -f "${RUNTIME_ROOT}/${destname}" ]]; then
+                    if cmp -s "$w" "${RUNTIME_ROOT}/${destname}"; then
+                      echo "  → ${lang}: wasm ${destname} already present and identical; skipping"
+                      continue
+                    else
+                      mv -v "${RUNTIME_ROOT}/${destname}" "${RUNTIME_ROOT}/${destname}.bak" || true
+                    fi
+                  fi
+                  cp -v "$w" "${RUNTIME_ROOT}/${destname}" || true
+                  echo "  → ${lang}: moved wasm $(basename "$w") -> ${destname} in ${RUNTIME_ROOT}/"
                 done
                 shopt -u nullglob 2>/dev/null || true
               fi
@@ -312,8 +352,13 @@ else
                 if command -v find >/dev/null 2>&1; then
                   while IFS= read -r wasmfile; do
                     mkdir -p "${RUNTIME_ROOT}"
-                    cp -v "$wasmfile" "${RUNTIME_ROOT}/" || true
-                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/ (partial build)"
+                    base="$(basename "$wasmfile")"
+                    destname="$base"
+                    if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
+                      destname="tree-sitter-${lang}.wasm"
+                    fi
+                    cp -v "$wasmfile" "${RUNTIME_ROOT}/${destname}" || true
+                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/ (partial build -> ${destname})"
                   done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
                 fi
               fi
