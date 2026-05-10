@@ -215,8 +215,35 @@ else
 
               if [[ -n "$built_lib" ]]; then
                   mkdir -p "${GRAMMAR_DIR}"
-                  cp -v "$built_lib" "${GRAMMAR_DIR}/"
-                  echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib})"
+                  # Normalize destination filename for native libraries: prefer libtree-sitter-<lang><EXT>
+                  base="$(basename "$built_lib")"
+                  dest="${GRAMMAR_DIR}/$base"
+
+                  # If the artifact is a generic "parser" binary (common in some repos),
+                  # rename it to the canonical libtree-sitter-<lang><EXT> so downstream
+                  # runtime discovery works consistently.
+                  if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
+                    dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                  fi
+
+                  # Some bindings produce names like tree_sitter_<lang>_binding.so or tree_sitter_<lang>.so
+                  # map those to libtree-sitter-<lang><EXT> as well.
+                  if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
+                    dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                  fi
+
+                  # If file already uses canonical libtree-sitter name, keep it.
+                  if [[ "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" || "${base}" == "libtree-sitter-${lang}${EXT}" || "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" ]]; then
+                    dest="${GRAMMAR_DIR}/${base}"
+                  fi
+
+                  # Avoid overwriting a .node addon when the artifact is a Node addon; copy as-is.
+                  if [[ "${base}" == *.node ]]; then
+                    dest="${GRAMMAR_DIR}/${base}"
+                  fi
+
+                  cp -v "$built_lib" "$dest"
+                  echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib} -> dest: ${dest})"
               else
                   # If the build succeeded but we couldn't locate a canonical native lib, attempt a more thorough search
                   # for libtree-sitter-* (or tree-sitter-*) anywhere under the repo clone and copy first match.
@@ -232,8 +259,21 @@ else
 
                   if [[ -n "$found" ]]; then
                       mkdir -p "${GRAMMAR_DIR}"
-                      cp -v "$found" "${GRAMMAR_DIR}/"
-                      echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (discovered: ${found})"
+                      base="$(basename "$found")"
+                      dest="${GRAMMAR_DIR}/$base"
+
+                      if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
+                        dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                      fi
+                      if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
+                        dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                      fi
+                      if [[ "${base}" == *.node ]]; then
+                        dest="${GRAMMAR_DIR}/${base}"
+                      fi
+
+                      cp -v "$found" "$dest"
+                      echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (discovered: ${found} -> dest: ${dest})"
                   else
                       # If still nothing, print helpful diagnostics.
                       echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
