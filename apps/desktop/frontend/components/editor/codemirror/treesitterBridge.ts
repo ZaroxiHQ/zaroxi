@@ -223,14 +223,21 @@ function walkTreeAndCollect(node: any, text: string, decos: DecorationSpec[], fo
  */
 export async function parseAndComputeDecorations(text: string, languageId: string, docKey?: string): Promise<DecorationSpec[]> {
   const key = docKey ?? text;
+  // eslint-disable-next-line no-console
+  console.debug('[treesitter] parseAndComputeDecorations: key=', !!docKey, 'docKey=', docKey, 'languageId=', languageId);
+
   const parserEntry = await ensureParserFor(languageId);
   if (!parserEntry) {
-    // no parser available -> empty results
+    // No parser available -> empty results (cache for stability)
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] parseAndComputeDecorations: no parser available for', languageId);
     lastParseCache.set(key, { foldRanges: [], decorations: [] });
     return [];
   }
 
   try {
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] parseAndComputeDecorations: parsing text (len=', text ? text.length : 0, ')');
     const tree = parserEntry.parser.parse(text);
     const decos: DecorationSpec[] = [];
     const folds: FoldRange[] = [];
@@ -242,6 +249,9 @@ export async function parseAndComputeDecorations(text: string, languageId: strin
         walkTreeAndCollect(child, text, decos, folds);
       }
     }
+
+    // eslint-disable-next-line no-console
+    console.debug('[treesitter] parseAndComputeDecorations: parsed; decorations=', decos.length, 'folds=', folds.length);
 
     // Cache results
     lastParseCache.set(key, { foldRanges: folds, decorations: decos });

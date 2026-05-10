@@ -162,14 +162,29 @@ export function createState(
 export const applyDecorationsToView = async (view: any, specs: { from: number; to: number; className: string }[]) => {
   if (!_Decoration) return;
   try {
+    // Basic telemetry: how many specs are we asked to apply?
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror] applyDecorationsToView called; specs.length=', specs ? specs.length : 0);
+
     const decos = specs.map((s) => _Decoration!.mark({ class: s.className }).range(s.from, s.to));
     const decoSet = (_Decoration as any).set(decos, true);
+
+    // Log the number of decoration nodes created
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror] created decoration nodes=', decos.length, 'decoSet=', !!decoSet);
+
     if (!decoSet) return;
+
     // Dispatch into our state field
     if (_setTreeSitterStateEffect) {
       view.dispatch({
         effects: _setTreeSitterStateEffect.of({ decorations: decoSet, foldRanges: [], parseVersion: Date.now(), docKey: undefined }),
       });
+      // eslint-disable-next-line no-console
+      console.debug('[codemirror] dispatched tree-sitter decoration effect');
+    } else {
+      // eslint-disable-next-line no-console
+      console.debug('[codemirror] _setTreeSitterStateEffect is not defined; cannot dispatch decorations');
     }
   } catch (err) {
     // eslint-disable-next-line no-console
