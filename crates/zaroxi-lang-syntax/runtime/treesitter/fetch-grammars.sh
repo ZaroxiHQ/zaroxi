@@ -191,16 +191,21 @@ else
 
           if [[ $build_status -eq 0 ]]; then
               built_lib=""
-              # Search common native artifact locations AND Node addon (.node) artifacts so we capture whatever the repo produced.
-              for pattern in "${PREFIX}tree-sitter-${lang}${EXT}" \
+              # Broaden the search to prefer platform-native library names like libtree-sitter-<lang>.<ext>,
+              # but also accept other common locations and Node addons (.node).
+              for pattern in "libtree-sitter-${lang}${EXT}" \
+                            "${PREFIX}tree-sitter-${lang}${EXT}" \
+                            "parser${EXT}" \
                             "target/release/${PREFIX}tree-sitter-${lang}${EXT}" \
                             "target/debug/${PREFIX}tree-sitter-${lang}${EXT}" \
+                            "target/release/*.so" \
+                            "target/debug/*.so" \
                             "*${EXT}" \
                             "*.node" \
                             "Release/*.node" \
                             "build/Release/*.node" \
-                            "target/release/*.so" \
-                            "target/debug/*.so"; do
+                            "target/*/${PREFIX}tree-sitter-${lang}${EXT}" \
+                            "target/*/*/${PREFIX}tree-sitter-${lang}${EXT}"; do
                   matches=($pattern)
                   if [[ ${#matches[@]} -gt 0 && -f "${matches[0]}" ]]; then
                       built_lib="${matches[0]}"
@@ -209,19 +214,69 @@ else
               done
 
               if [[ -n "$built_lib" ]]; then
-                  cp "$built_lib" "${GRAMMAR_DIR}/"
+                  mkdir -p "${GRAMMAR_DIR}"
+                  cp -v "$built_lib" "${GRAMMAR_DIR}/"
                   echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib})"
               else
-                  # If the build succeeded but we couldn't locate a canonical native lib, print helpful diagnostics.
-                  echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
-                  echo "     Search output (first 200 chars):"
-                  echo "     ${build_out:0:200}"
+                  # If the build succeeded but we couldn't locate a canonical native lib, attempt a more thorough search
+                  # for libtree-sitter-* (or tree-sitter-*) anywhere under the repo clone and copy first match.
+                  found=""
+                  if command -v find >/dev/null 2>&1; then
+                    while IFS= read -r f; do
+                      if [[ -z "$found" ]]; then
+                        found="$f"
+                        break
+                      fi
+                    done < <(find . -type f -regextype posix-extended -regex '.*(libtree-sitter-|tree-sitter-).*('"${EXT#"."}"'|node)$' 2>/dev/null || true)
+                  fi
+
+                  if [[ -n "$found" ]]; then
+                      mkdir -p "${GRAMMAR_DIR}"
+                      cp -v "$found" "${GRAMMAR_DIR}/"
+                      echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (discovered: ${found})"
+                  else
+                      # If still nothing, print helpful diagnostics.
+                      echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
+                      echo "     Search output (first 200 chars):"
+                      echo "     ${build_out:0:200}"
+                  fi
+              fi
+
+              # Additionally, some grammars produce per-language WASM parser files when told to.
+              # Locate any .wasm files produced by the build and move/copy them into the runtime root
+              # so the web runtime can load them (e.g. tree-sitter-rust.wasm).
+              if command -v find >/dev/null 2>&1; then
+                while IFS= read -r wasmfile; do
+                  # copy to runtime root (not platform-specific native dir)
+                  mkdir -p "${RUNTIME_ROOT}"
+                  cp -v "$wasmfile" "${RUNTIME_ROOT}/" || true
+                  echo "  → ${lang}: moved wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/"
+                done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
+              else
+                # Fallback simple glob (best effort)
+                shopt -s nullglob 2>/dev/null || true
+                for w in *.wasm; do
+                  mkdir -p "${RUNTIME_ROOT}"
+                  cp -v "$w" "${RUNTIME_ROOT}/" || true
+                  echo "  → ${lang}: moved wasm $(basename "$w") to ${RUNTIME_ROOT}/"
+                done
+                shopt -u nullglob 2>/dev/null || true
               fi
           else
               # Build failed; print a concise hint including captured stderr to help diagnosis.
               echo "  → ${lang}: native build failed (continuing)"
               echo "     Build stderr preview:"
               echo "     ${build_out:0:400}"
+              # If build failed with MODULE_NOT_FOUND, try scanning for wasm outputs anyway (some repos emit wasm even on partial failures)
+              if echo "${build_out}" | grep -q "Cannot find module" || echo "${build_out}" | grep -q "MODULE_NOT_FOUND"; then
+                if command -v find >/dev/null 2>&1; then
+                  while IFS= read -r wasmfile; do
+                    mkdir -p "${RUNTIME_ROOT}"
+                    cp -v "$wasmfile" "${RUNTIME_ROOT}/" || true
+                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/ (partial build)"
+                  done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
+                fi
+              fi
           fi
 
           popd > /dev/null
