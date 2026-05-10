@@ -15,7 +15,7 @@ import { getLastFoldRanges } from './treesitterBridge';
 export async function createFoldServiceExtension(docKey?: string, languageId?: string) {
   try {
     const langPkg = '@codemirror' + '/language';
-    const langMod = await import(langPkg);
+    const langMod = await /* @vite-ignore */ import(langPkg);
     const { foldService } = langMod as any;
 
     // Provider: given a state and position, return a fold range or null.

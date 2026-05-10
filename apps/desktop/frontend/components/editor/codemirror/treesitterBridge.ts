@@ -68,7 +68,7 @@ export async function initTreesitterOnce(): Promise<void> {
     // resolve `web-tree-sitter` at build time. At runtime, when the package is
     // installed, this will dynamically import it.
     const pkg = 'web' + '-tree' + '-sitter';
-    const mod = await import(pkg);
+    const mod = await /* @vite-ignore */ import(pkg);
     WTS = (mod as any).default ? (mod as any).default : mod;
     await WTS.init();
     inited = true;
