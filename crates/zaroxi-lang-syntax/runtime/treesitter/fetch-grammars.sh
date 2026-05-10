@@ -416,11 +416,13 @@ else
                     if [[ -f "$f" ]]; then
                       destname="tree-sitter-${lang}.wasm"
                       destpath="${GRAMMAR_DIR}/${destname}"
-                      if [[ -f "${destpath}" && cmp -s "$f" "${destpath}" ]]; then
-                        echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
-                        moved_any=true
-                        wasm_built=true
-                        continue
+                      if [[ -f "${destpath}" ]]; then
+                        if cmp -s "$f" "${destpath}"; then
+                          echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
+                          moved_any=true
+                          wasm_built=true
+                          continue
+                        fi
                       fi
                       cp -v "$f" "${destpath}" || true
                       echo "  → ${lang}: copied wasm $(basename "$f") -> ${destpath}"
