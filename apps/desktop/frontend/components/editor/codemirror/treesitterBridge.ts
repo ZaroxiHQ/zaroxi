@@ -150,32 +150,55 @@ export async function initTreesitterOnce(): Promise<void> {
     // expose it to web-tree-sitter via a stable object URL so the engine is loaded
     // from the correct bytes (avoids inadvertently loading HTML/index fallback).
     let engineObjectUrl: string | null = null;
-    try {
-      // Probe the canonical location first
-      // eslint-disable-next-line no-console
-      console.debug('[treesitter] initTreesitterOnce: probing engine wasm at', runtimeBase + 'tree-sitter.wasm');
-      const probeResp = await fetch(runtimeBase + 'tree-sitter.wasm', { method: 'GET' });
-      // eslint-disable-next-line no-console
-      console.debug('[treesitter] initTreesitterOnce: engine probe status=', probeResp.status, 'content-type=', probeResp.headers.get('content-type'));
-      if (probeResp.ok) {
-        const buf = await probeResp.arrayBuffer();
+
+    // Candidate locations to try for the engine wasm (ordered).
+    const engineCandidates = [
+      runtimeBase + 'tree-sitter.wasm',
+      '/node_modules/web-tree-sitter/tree-sitter.wasm',
+      '/web-tree-sitter/tree-sitter.wasm',
+      '/node_modules/web-tree-sitter/dist/tree-sitter.wasm',
+      'https://unpkg.com/web-tree-sitter/tree-sitter.wasm',
+    ];
+
+    // Probe candidates until we find a valid wasm blob (magic bytes "\0asm")
+    for (const cand of engineCandidates) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] initTreesitterOnce: probing engine wasm candidate ->', cand);
+        const resp = await fetch(cand, { method: 'GET' });
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] initTreesitterOnce: probe status=', resp.status, 'content-type=', resp.headers.get('content-type'), 'url=', cand);
+
+        if (!resp.ok) {
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] initTreesitterOnce: probe non-ok ->', cand);
+          continue;
+        }
+
+        // Read as ArrayBuffer and check magic bytes
+        const buf = await resp.arrayBuffer();
         const header = new Uint8Array(buf.slice(0, 4));
         const isWasm = header.length === 4 && header[0] === 0x00 && header[1] === 0x61 && header[2] === 0x73 && header[3] === 0x6d;
         if (isWasm) {
           engineObjectUrl = URL.createObjectURL(new Blob([buf], { type: 'application/wasm' }));
           // eslint-disable-next-line no-console
-          console.debug('[treesitter] initTreesitterOnce: engine wasm fetched and object URL created');
+          console.debug('[treesitter] initTreesitterOnce: found valid engine wasm at', cand, 'created object URL');
+          break;
         } else {
           // eslint-disable-next-line no-console
-          console.debug('[treesitter] initTreesitterOnce: engine probe present but did not contain wasm magic bytes; will not use object URL');
+          console.debug('[treesitter] initTreesitterOnce: candidate did not contain wasm magic bytes ->', cand);
+          continue;
         }
-      } else {
+      } catch (e) {
         // eslint-disable-next-line no-console
-        console.debug('[treesitter] initTreesitterOnce: engine probe non-ok status, skipping object URL creation');
+        console.debug('[treesitter] initTreesitterOnce: probe failed for candidate', cand, e);
+        continue;
       }
-    } catch (e) {
+    }
+
+    if (!engineObjectUrl) {
       // eslint-disable-next-line no-console
-      console.debug('[treesitter] initTreesitterOnce: engine probe failed', e);
+      console.warn('[treesitter] initTreesitterOnce: no validated engine wasm found in candidates; web-tree-sitter may still try to load from locateFile. Ensure tree-sitter.wasm exists under crates/zaroxi-lang-syntax/runtime/treesitter or run `npm run prepare-wasm` in apps/desktop.');
     }
 
     // Provide locateFile so web-tree-sitter can find its runtime wasm.
@@ -193,6 +216,7 @@ export async function initTreesitterOnce(): Promise<void> {
           // (keeps the object URL alive so web-tree-sitter can fetch it).
           return engineObjectUrl;
         }
+        // Last-resort: return the canonical runtime path so server middleware can serve it.
         return candidate;
       },
     });
