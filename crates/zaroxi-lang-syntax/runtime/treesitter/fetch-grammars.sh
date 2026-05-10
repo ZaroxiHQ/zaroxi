@@ -145,362 +145,401 @@ echo "Attempting to build native grammar libraries (if toolchain available)..."
 if ! maybe_run_npx tree-sitter --version >/dev/null 2>&1; then
   echo "tree-sitter CLI not available via PATH or npx. Native builds will be skipped."
 else
-  # Temporary directory for all builds (will be cleaned up on exit)
-  BUILD_ROOT="$(mktemp -d)"
-  trap 'rm -rf "$BUILD_ROOT"' EXIT
+  # Pre-scan languages and skip ones that already have native or wasm artifacts.
+  TO_BUILD=()
+  SKIPPED=()
 
   for lang_spec in "${LANGUAGES[@]}"; do
       IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
+      # Normalize branch default
       branch="${branch:-master}"
-      echo "Building native ${lang}…"
 
-      lang_tmp="$(mktemp -d -p "$BUILD_ROOT")"
-      if git clone --depth 1 --branch "$branch" "$repo" "$lang_tmp" 2>/dev/null; then
-          pushd "$lang_tmp" > /dev/null
-          if [[ -n "$subdir" && -d "$subdir" ]]; then
-              cd "$subdir"
-          fi
+      # Check for canonical per-language wasm in the runtime root
+      if [ -f "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm" ]; then
+        SKIPPED+=("${lang}")
+        continue
+      fi
 
-          # If the grammar exposes JS dependencies (package.json) try installing them so
-          # grammar.js can require modules like `tree-sitter-c/grammar`.
-          if [[ -f "package.json" ]]; then
-              echo "[fetch-grammars] npm install in $(pwd) to satisfy grammar.js dependencies"
-              if command -v npm >/dev/null 2>&1; then
-                  npm install --no-audit --no-fund --silent || echo "[fetch-grammars] npm install failed (continuing)"
-              else
-                  echo "[fetch-grammars] npm not available; skipping npm install"
-              fi
-          fi
+      # Check for native artifacts in the platform grammar dir (if it exists)
+      if [ -d "${GRAMMAR_DIR}" ]; then
+        if ls "${GRAMMAR_DIR}"/libtree-sitter-"${lang}"* 1> /dev/null 2>&1 || \
+           ls "${GRAMMAR_DIR}"/tree-sitter-"${lang}"* 1> /dev/null 2>&1 || \
+           ls "${GRAMMAR_DIR}"/*.node 1> /dev/null 2>&1; then
+          SKIPPED+=("${lang}")
+          continue
+        fi
+      fi
 
-          # If there's a grammar.js, attempt generate. Capture output so we can detect
-          # "Cannot find module" errors and attempt to install the missing npm package.
-          if [[ -f "grammar.js" ]]; then
-              gen_out=""
-              gen_status=0
-              gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || gen_status=$?
-              if [[ $gen_status -ne 0 ]] && echo "$gen_out" | grep -q "Cannot find module"; then
-                  missing_pkg=$(echo "$gen_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
-                  if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
-                      echo "[fetch-grammars] Detected missing JS module in grammar.js: $missing_pkg"
-                      echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
-                      npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
-                      # Retry generate once
-                      gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || true
-                  fi
-              fi
-          fi
+      # If we reached here, neither wasm nor native artifact is present -> schedule build
+      TO_BUILD+=("${lang_spec}")
+  done
 
-          # Try to build native artifacts. Capture output to detect MODULE_NOT_FOUND and retry npm install where appropriate.
-          build_status=0
-          build_out=""
-          build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
+  if [ "${#TO_BUILD[@]}" -eq 0 ]; then
+    echo "All requested languages already have artifacts under ${RUNTIME_ROOT} or ${GRAMMAR_DIR}; skipping native build pass."
+  else
+    echo "Languages to build (missing artifacts):"
+    for s in "${TO_BUILD[@]}"; do
+      IFS='|' read -r _lang _repo _branch _subdir <<< "$s"
+      echo "  - ${_lang}"
+    done
 
-          if [[ $build_status -ne 0 ]] && echo "$build_out" | grep -q "Cannot find module"; then
-              # Extract the first missing module name and attempt to npm install it, then retry build once.
-              missing_pkg=$(echo "$build_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
-              if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
-                  echo "[fetch-grammars] Detected missing JS module during build: $missing_pkg"
-                  echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
-                  npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
-                  # Retry build
-                  build_status=0
-                  build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
-              fi
-          fi
+    # Temporary directory for all builds (will be cleaned up on exit)
+    BUILD_ROOT="$(mktemp -d)"
+    trap 'rm -rf "$BUILD_ROOT"' EXIT
 
-          if [[ $build_status -eq 0 ]]; then
-              built_lib=""
-              # Broaden the search to prefer platform-native library names like libtree-sitter-<lang>.<ext>,
-              # but also accept other common locations and Node addons (.node).
-              for pattern in "libtree-sitter-${lang}${EXT}" \
-                            "${PREFIX}tree-sitter-${lang}${EXT}" \
-                            "parser${EXT}" \
-                            "target/release/${PREFIX}tree-sitter-${lang}${EXT}" \
-                            "target/debug/${PREFIX}tree-sitter-${lang}${EXT}" \
-                            "target/release/*.so" \
-                            "target/debug/*.so" \
-                            "*${EXT}" \
-                            "*.node" \
-                            "Release/*.node" \
-                            "build/Release/*.node" \
-                            "target/*/${PREFIX}tree-sitter-${lang}${EXT}" \
-                            "target/*/*/${PREFIX}tree-sitter-${lang}${EXT}"; do
+    for lang_spec in "${TO_BUILD[@]}"; do
+        IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
+        branch="${branch:-master}"
+        echo "Building native ${lang}…"
+
+        lang_tmp="$(mktemp -d -p "$BUILD_ROOT")"
+        if git clone --depth 1 --branch "$branch" "$repo" "$lang_tmp" 2>/dev/null; then
+            pushd "$lang_tmp" > /dev/null
+            if [[ -n "$subdir" && -d "$subdir" ]]; then
+                cd "$subdir"
+            fi
+
+            # If the grammar exposes JS dependencies (package.json) try installing them so
+            # grammar.js can require modules like `tree-sitter-c/grammar`.
+            if [[ -f "package.json" ]]; then
+                echo "[fetch-grammars] npm install in $(pwd) to satisfy grammar.js dependencies"
+                if command -v npm >/dev/null 2>&1; then
+                    npm install --no-audit --no-fund --silent || echo "[fetch-grammars] npm install failed (continuing)"
+                else
+                    echo "[fetch-grammars] npm not available; skipping npm install"
+                fi
+            fi
+
+            # If there's a grammar.js, attempt generate. Capture output so we can detect
+            # "Cannot find module" errors and attempt to install the missing npm package.
+            if [[ -f "grammar.js" ]]; then
+                gen_out=""
+                gen_status=0
+                gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || gen_status=$?
+                if [[ $gen_status -ne 0 ]] && echo "$gen_out" | grep -q "Cannot find module"; then
+                    missing_pkg=$(echo "$gen_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
+                    if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
+                        echo "[fetch-grammars] Detected missing JS module in grammar.js: $missing_pkg"
+                        echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
+                        npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
+                        # Retry generate once
+                        gen_out=$(maybe_run_npx tree-sitter generate 2>&1) || true
+                    fi
+                fi
+            fi
+
+            # Try to build native artifacts. Capture output to detect MODULE_NOT_FOUND and retry npm install where appropriate.
+            build_status=0
+            build_out=""
+            build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
+
+            if [[ $build_status -ne 0 ]] && echo "$build_out" | grep -q "Cannot find module"; then
+                # Extract the first missing module name and attempt to npm install it, then retry build once.
+                missing_pkg=$(echo "$build_out" | sed -n "s/.*Cannot find module '\([^']*\)'.*/\1/p" | head -n1)
+                if [[ -n "$missing_pkg" && "$(command -v npm >/dev/null && echo yes || true)" == "yes" ]]; then
+                    echo "[fetch-grammars] Detected missing JS module during build: $missing_pkg"
+                    echo "[fetch-grammars] Attempting npm install $missing_pkg in $(pwd)"
+                    npm install --no-audit --no-fund --silent "$missing_pkg" || echo "[fetch-grammars] npm install $missing_pkg failed (continuing)"
+                    # Retry build
+                    build_status=0
+                    build_out=$(maybe_run_npx tree-sitter build 2>&1) || build_status=$?
+                fi
+            fi
+
+            if [[ $build_status -eq 0 ]]; then
+                built_lib=""
+                # Broaden the search to prefer platform-native library names like libtree-sitter-<lang>.<ext>,
+                # but also accept other common locations and Node addons (.node).
+                for pattern in "libtree-sitter-${lang}${EXT}" \
+                              "${PREFIX}tree-sitter-${lang}${EXT}" \
+                              "parser${EXT}" \
+                              "target/release/${PREFIX}tree-sitter-${lang}${EXT}" \
+                              "target/debug/${PREFIX}tree-sitter-${lang}${EXT}" \
+                              "target/release/*.so" \
+                              "target/debug/*.so" \
+                              "*${EXT}" \
+                              "*.node" \
+                              "Release/*.node" \
+                              "build/Release/*.node" \
+                              "target/*/${PREFIX}tree-sitter-${lang}${EXT}" \
+                              "target/*/*/${PREFIX}tree-sitter-${lang}${EXT}"; do
                   matches=($pattern)
                   if [[ ${#matches[@]} -gt 0 && -f "${matches[0]}" ]]; then
                       built_lib="${matches[0]}"
                       break
                   fi
-              done
+                done
 
-              if [[ -n "$built_lib" ]]; then
-                  mkdir -p "${GRAMMAR_DIR}"
-                  # Normalize destination filename for native libraries: prefer libtree-sitter-<lang><EXT>
-                  base="$(basename "$built_lib")"
-                  dest="${GRAMMAR_DIR}/$base"
+                if [[ -n "$built_lib" ]]; then
+                    mkdir -p "${GRAMMAR_DIR}"
+                    # Normalize destination filename for native libraries: prefer libtree-sitter-<lang><EXT>
+                    base="$(basename "$built_lib")"
+                    dest="${GRAMMAR_DIR}/$base"
 
-                  # If the artifact is a generic "parser" binary (common in some repos),
-                  # rename it to the canonical libtree-sitter-<lang><EXT> so downstream
-                  # runtime discovery works consistently.
-                  if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
-                    dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
-                  fi
+                    # If the artifact is a generic "parser" binary (common in some repos),
+                    # rename it to the canonical libtree-sitter-<lang><EXT> so downstream
+                    # runtime discovery works consistently.
+                    if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
+                      dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                    fi
 
-                  # Some bindings produce names like tree_sitter_<lang>_binding.so or tree_sitter_<lang>.so
-                  # map those to libtree-sitter-<lang><EXT> as well.
-                  if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
-                    dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
-                  fi
+                    # Some bindings produce names like tree_sitter_<lang>_binding.so or tree_sitter_<lang>.so
+                    # map those to libtree-sitter-<lang><EXT> as well.
+                    if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
+                      dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                    fi
 
-                  # If file already uses canonical libtree-sitter name, keep it.
-                  if [[ "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" || "${base}" == "libtree-sitter-${lang}${EXT}" || "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" ]]; then
-                    dest="${GRAMMAR_DIR}/${base}"
-                  fi
+                    # If file already uses canonical libtree-sitter name, keep it.
+                    if [[ "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" || "${base}" == "libtree-sitter-${lang}${EXT}" || "${base}" == "${PREFIX}tree-sitter-${lang}${EXT}" ]]; then
+                      dest="${GRAMMAR_DIR}/${base}"
+                    fi
 
-                  # Avoid overwriting a .node addon when the artifact is a Node addon; copy as-is.
-                  if [[ "${base}" == *.node ]]; then
-                    dest="${GRAMMAR_DIR}/${base}"
-                  fi
+                    # Avoid overwriting a .node addon when the artifact is a Node addon; copy as-is.
+                    if [[ "${base}" == *.node ]]; then
+                      dest="${GRAMMAR_DIR}/${base}"
+                    fi
 
-                  cp -v "$built_lib" "$dest"
-                  echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib} -> dest: ${dest})"
-              else
-                  # If the build succeeded but we couldn't locate a canonical native lib, attempt a more thorough search
-                  # for libtree-sitter-* (or tree-sitter-*) anywhere under the repo clone and copy first match.
-                  found=""
-                  if command -v find >/dev/null 2>&1; then
-                    while IFS= read -r f; do
-                      if [[ -z "$found" ]]; then
-                        found="$f"
-                        break
-                      fi
-                    done < <(find . -type f -regextype posix-extended -regex '.*(libtree-sitter-|tree-sitter-).*('"${EXT#"."}"'|node)$' 2>/dev/null || true)
-                  fi
+                    cp -v "$built_lib" "$dest"
+                    echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (source: ${built_lib} -> dest: ${dest})"
+                else
+                    # If the build succeeded but we couldn't locate a canonical native lib, attempt a more thorough search
+                    # for libtree-sitter-* (or tree-sitter-*) anywhere under the repo clone and copy first match.
+                    found=""
+                    if command -v find >/dev/null 2>&1; then
+                      while IFS= read -r f; do
+                        if [[ -z "$found" ]]; then
+                          found="$f"
+                          break
+                        fi
+                      done < <(find . -type f -regextype posix-extended -regex '.*(libtree-sitter-|tree-sitter-).*('"${EXT#"."}"'|node)$' 2>/dev/null || true)
+                    fi
 
-                  if [[ -n "$found" ]]; then
-                      mkdir -p "${GRAMMAR_DIR}"
-                      base="$(basename "$found")"
-                      dest="${GRAMMAR_DIR}/$base"
+                    if [[ -n "$found" ]]; then
+                        mkdir -p "${GRAMMAR_DIR}"
+                        base="$(basename "$found")"
+                        dest="${GRAMMAR_DIR}/$base"
 
-                      if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
-                        dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
-                      fi
-                      if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
-                        dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
-                      fi
-                      if [[ "${base}" == *.node ]]; then
-                        dest="${GRAMMAR_DIR}/${base}"
-                      fi
+                        if [[ "${base}" == "parser${EXT}" || "${base}" == "parser" || "${base}" == "parser.so" || "${base}" == "parser.dylib" ]]; then
+                          dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                        fi
+                        if [[ "${base}" == tree_sitter* || "${base}" == *"tree_sitter"* ]]; then
+                          dest="${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}"
+                        fi
+                        if [[ "${base}" == *.node ]]; then
+                          dest="${GRAMMAR_DIR}/${base}"
+                        fi
 
-                      cp -v "$found" "$dest"
-                      echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (discovered: ${found} -> dest: ${dest})"
-                  else
-                      # If still nothing, print helpful diagnostics.
-                      echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
-                      echo "     Search output (first 200 chars):"
-                      echo "     ${build_out:0:200}"
-                  fi
-              fi
+                        cp -v "$found" "$dest"
+                        echo "  → ${lang} native artifact copied to ${GRAMMAR_DIR} (discovered: ${found} -> dest: ${dest})"
+                    else
+                        # If still nothing, print helpful diagnostics.
+                        echo "  → ${lang}: build succeeded (exit code 0) but no native artifact (.${EXT} or .node) was found"
+                        echo "     Search output (first 200 chars):"
+                        echo "     ${build_out:0:200}"
+                    fi
+                fi
 
-              # Additionally, attempt to produce per-language WASM parser files (tree-sitter CLI supports `build-wasm`).
-              # Try multiple strategies (best‑effort) because different grammars expose different build flows:
-              # 1) maybe_run_npx tree-sitter build-wasm (preferred mapping to tree-sitter-cli)
-              # 2) explicit npx --yes tree-sitter-cli build-wasm
-              # 3) npm run build-wasm (if a package.json script is present)
-              # 4) best-effort emcc compile of parser.c (only if emscripten is installed)
-              wasm_built=false
+                # Additionally, attempt to produce per-language WASM parser files (tree-sitter CLI supports `build-wasm`).
+                # Try multiple strategies (best‑effort) because different grammars expose different build flows:
+                # 1) maybe_run_npx tree-sitter build-wasm (preferred mapping to tree-sitter-cli)
+                # 2) explicit npx --yes tree-sitter-cli build-wasm
+                # 3) npm run build-wasm (if a package.json script is present)
+                # 4) best-effort emcc compile of parser.c (only if emscripten is installed)
+                wasm_built=false
 
-              # Strategy 1: preferred wrapper (maps "tree-sitter" -> "tree-sitter-cli" via maybe_run_npx)
-              if maybe_run_npx tree-sitter build-wasm >/dev/null 2>&1; then
-                echo "  → ${lang}: tree-sitter build-wasm invoked (strategy: maybe_run_npx)"
-                wasm_built=true
-              else
-                # Strategy 2: try explicit npx invocation of tree-sitter-cli
-                if command -v npx >/dev/null 2>&1; then
-                  if npx --yes tree-sitter-cli build-wasm >/dev/null 2>&1; then
-                    echo "  → ${lang}: tree-sitter-cli build-wasm invoked via npx"
-                    wasm_built=true
+                # Strategy 1: preferred wrapper (maps "tree-sitter" -> "tree-sitter-cli" via maybe_run_npx)
+                if maybe_run_npx tree-sitter build-wasm >/dev/null 2>&1; then
+                  echo "  → ${lang}: tree-sitter build-wasm invoked (strategy: maybe_run_npx)"
+                  wasm_built=true
+                else
+                  # Strategy 2: try explicit npx invocation of tree-sitter-cli
+                  if command -v npx >/dev/null 2>&1; then
+                    if npx --yes tree-sitter-cli build-wasm >/dev/null 2>&1; then
+                      echo "  → ${lang}: tree-sitter-cli build-wasm invoked via npx"
+                      wasm_built=true
+                    fi
                   fi
                 fi
-              fi
 
-              # Strategy 3: npm script provided by grammar repository (common in some repos)
-              if ! $wasm_built && [ -f "package.json" ]; then
-                if command -v npm >/dev/null 2>&1; then
-                  # Detect a build-wasm script in package.json using a simple grep (avoid jq dependency).
-                  if grep -q "\"build-wasm\"" package.json 2>/dev/null || grep -q "\"buildWasm\"" package.json 2>/dev/null || grep -q "\"build:wasm\"" package.json 2>/dev/null; then
-                    echo "  → ${lang}: running npm run build-wasm (detected script)"
-                    if npm run --silent build-wasm >/dev/null 2>&1 || npm run --silent build:wasm >/dev/null 2>&1; then
-                      echo "  → ${lang}: npm build-wasm script succeeded"
+                # Strategy 3: npm script provided by grammar repository (common in some repos)
+                if ! $wasm_built && [ -f "package.json" ]; then
+                  if command -v npm >/dev/null 2>&1; then
+                    # Detect a build-wasm script in package.json using a simple grep (avoid jq dependency).
+                    if grep -q "\"build-wasm\"" package.json 2>/dev/null || grep -q "\"buildWasm\"" package.json 2>/dev/null || grep -q "\"build:wasm\"" package.json 2>/dev/null; then
+                      echo "  → ${lang}: running npm run build-wasm (detected script)"
+                      if npm run --silent build-wasm >/dev/null 2>&1 || npm run --silent build:wasm >/dev/null 2>&1; then
+                        echo "  → ${lang}: npm build-wasm script succeeded"
+                        wasm_built=true
+                      else
+                        echo "  → ${lang}: npm build-wasm script failed (continuing)"
+                      fi
+                    fi
+                  fi
+                fi
+
+                # Strategy 4: emscripten fallback (best-effort)
+                if ! $wasm_built && command -v emcc >/dev/null 2>&1; then
+                  # Look for common parser sources
+                  local_src=""
+                  if [[ -f "src/parser.c" ]]; then
+                    local_src="src/parser.c"
+                  elif [[ -f "parser.c" ]]; then
+                    local_src="parser.c"
+                  fi
+
+                  if [[ -n "$local_src" ]]; then
+                    outname="tree-sitter-${lang}.wasm"
+                    echo "  → ${lang}: attempting emcc compile of ${local_src} -> ${outname} (best-effort)"
+                    # Minimal flags -- may not produce a fully usable runtime for all grammars but can succeed on some.
+                    if emcc "$local_src" -O3 -s WASM=1 -s SIDE_MODULE=1 -o "$outname" >/dev/null 2>&1; then
+                      mv -v "$outname" "${RUNTIME_ROOT}/" || true
+                      echo "  → ${lang}: emcc produced wasm -> moved to ${RUNTIME_ROOT}/${outname}"
                       wasm_built=true
                     else
-                      echo "  → ${lang}: npm build-wasm script failed (continuing)"
+                      echo "  → ${lang}: emcc compile failed (continuing)"
                     fi
                   fi
                 fi
-              fi
 
-              # Strategy 4: emscripten fallback (best-effort)
-              if ! $wasm_built && command -v emcc >/dev/null 2>&1; then
-                # Look for common parser sources
-                local_src=""
-                if [[ -f "src/parser.c" ]]; then
-                  local_src="src/parser.c"
-                elif [[ -f "parser.c" ]]; then
-                  local_src="parser.c"
-                fi
+                # Regardless of whether build-wasm reported success, some tools (npm installs, tree-sitter-cli, or bindings)
+                # may have produced .wasm artifacts under node_modules/ or nested build dirs. Do a robust scan and move any
+                # discovered .wasm into the OS-specific GRAMMAR_DIR alongside the native library and normalize the name to
+                # tree-sitter-<lang>.wasm so the frontend loader can find it predictably.
+                mkdir -p "${GRAMMAR_DIR}"
+                moved_any=false
 
-                if [[ -n "$local_src" ]]; then
-                  outname="tree-sitter-${lang}.wasm"
-                  echo "  → ${lang}: attempting emcc compile of ${local_src} -> ${outname} (best-effort)"
-                  # Minimal flags -- may not produce a fully usable runtime for all grammars but can succeed on some.
-                  if emcc "$local_src" -O3 -s WASM=1 -s SIDE_MODULE=1 -o "$outname" >/dev/null 2>&1; then
-                    mv -v "$outname" "${RUNTIME_ROOT}/" || true
-                    echo "  → ${lang}: emcc produced wasm -> moved to ${RUNTIME_ROOT}/${outname}"
-                    wasm_built=true
-                  else
-                    echo "  → ${lang}: emcc compile failed (continuing)"
-                  fi
-                fi
-              fi
+                # We'll look for wasm in several likely locations: current tree, node_modules, build/target dirs.
+                if command -v find >/dev/null 2>&1; then
+                  # Discover both files and (rare) directories that may contain wasm artifacts,
+                  # but ensure we ultimately move/copy only a real .wasm file (not a directory).
+                  while IFS= read -r candidate; do
+                    wasmfile="$candidate"
 
-              # Regardless of whether build-wasm reported success, some tools (npm installs, tree-sitter-cli, or bindings)
-              # may have produced .wasm artifacts under node_modules/ or nested build dirs. Do a robust scan and move any
-              # discovered .wasm into the OS-specific GRAMMAR_DIR alongside the native library and normalize the name to
-              # tree-sitter-<lang>.wasm so the frontend loader can find it predictably.
-              mkdir -p "${GRAMMAR_DIR}"
-              moved_any=false
-
-              # We'll look for wasm in several likely locations: current tree, node_modules, build/target dirs.
-              if command -v find >/dev/null 2>&1; then
-                # Discover both files and (rare) directories that may contain wasm artifacts,
-                # but ensure we ultimately move/copy only a real .wasm file (not a directory).
-                while IFS= read -r candidate; do
-                  wasmfile="$candidate"
-
-                  # If candidate is a directory (some builds produce a dir named *.wasm), try to
-                  # locate the first .wasm file inside it and use that.
-                  if [[ -d "$wasmfile" ]]; then
-                    inner="$(find "$wasmfile" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
-                    if [[ -n "$inner" && -f "$inner" ]]; then
-                      wasmfile="$inner"
-                    else
-                      echo "  → ${lang}: discovered directory ${candidate} but no .wasm inside; skipping"
-                      continue
-                    fi
-                  fi
-
-                  # Skip non-files (safety)
-                  if [[ ! -f "$wasmfile" ]]; then
-                    continue
-                  fi
-
-                  # canonical destination filename
-                  destname="tree-sitter-${lang}.wasm"
-                  destpath="${GRAMMAR_DIR}/${destname}"
-
-                  # If the file already is the canonical path under GRAMMAR_DIR, just mark moved and continue.
-                  if [[ "$(realpath -m "$wasmfile")" == "$(realpath -m "$destpath")" ]]; then
-                    moved_any=true
-                    continue
-                  fi
-
-                  # If destination exists and identical, skip; otherwise back it up and copy/move.
-                  if [[ -f "${destpath}" ]]; then
-                    if cmp -s "$wasmfile" "${destpath}"; then
-                      echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
-                      moved_any=true
-                      continue
-                    else
-                      echo "  → ${lang}: existing ${destname} differs in ${GRAMMAR_DIR}; backing up"
-                      mv -v "${destpath}" "${destpath}.bak" || true
-                    fi
-                  fi
-
-                  # Prefer moving when wasmfile is within the temporary clone dir; otherwise copy.
-                  if mv -v "$wasmfile" "${destpath}" 2>/dev/null; then
-                    echo "  → ${lang}: moved wasm $(basename "${destpath}") -> ${destpath}"
-                  elif cp -v "$wasmfile" "${destpath}" 2>/dev/null; then
-                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") -> ${destpath}"
-                  else
-                    echo "  → ${lang}: failed to relocate wasm $wasmfile (continuing)"
-                    continue
-                  fi
-
-                  moved_any=true
-                  wasm_built=true
-                done < <(find . \( -type f -name '*.wasm' -o -type d -name '*.wasm' \) -o -path './node_modules/*' -prune 2>/dev/null | sort -u)
-              else
-                # Fallback: simple glob checks in a few known dirs. Handle directories as well.
-                candidates=(./*.wasm ./node_modules/*/*.wasm ./build/*.wasm ./target/*/*.wasm)
-                for w in "${candidates[@]}"; do
-                  for f in $w; do
-                    # If candidate is a directory, attempt to find a .wasm file inside it.
-                    actual=""
-                    if [[ -d "$f" ]]; then
-                      actual="$(find "$f" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
-                      if [[ -z "$actual" ]]; then
-                        echo "  → ${lang}: candidate directory $f contains no .wasm; skipping"
+                    # If candidate is a directory (some builds produce a dir named *.wasm), try to
+                    # locate the first .wasm file inside it and use that.
+                    if [[ -d "$wasmfile" ]]; then
+                      inner="$(find "$wasmfile" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
+                      if [[ -n "$inner" && -f "$inner" ]]; then
+                        wasmfile="$inner"
+                      else
+                        echo "  → ${lang}: discovered directory ${candidate} but no .wasm inside; skipping"
                         continue
                       fi
-                    else
-                      actual="$f"
                     fi
 
-                    if [[ -f "$actual" ]]; then
-                      destname="tree-sitter-${lang}.wasm"
-                      destpath="${GRAMMAR_DIR}/${destname}"
-                      if [[ -f "${destpath}" ]]; then
-                        if cmp -s "$actual" "${destpath}"; then
-                          echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
-                          moved_any=true
-                          wasm_built=true
+                    # Skip non-files (safety)
+                    if [[ ! -f "$wasmfile" ]]; then
+                      continue
+                    fi
+
+                    # canonical destination filename
+                    destname="tree-sitter-${lang}.wasm"
+                    destpath="${GRAMMAR_DIR}/${destname}"
+
+                    # If the file already is the canonical path under GRAMMAR_DIR, just mark moved and continue.
+                    if [[ "$(realpath -m "$wasmfile")" == "$(realpath -m "$destpath")" ]]; then
+                      moved_any=true
+                      continue
+                    fi
+
+                    # If destination exists and identical, skip; otherwise back it up and copy/move.
+                    if [[ -f "${destpath}" ]]; then
+                      if cmp -s "$wasmfile" "${destpath}"; then
+                        echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR} and identical; skipping"
+                        moved_any=true
+                        continue
+                      else
+                        echo "  → ${lang}: existing ${destname} differs in ${GRAMMAR_DIR}; backing up"
+                        mv -v "${destpath}" "${destpath}.bak" || true
+                      fi
+                    fi
+
+                    # Prefer moving when wasmfile is within the temporary clone dir; otherwise copy.
+                    if mv -v "$wasmfile" "${destpath}" 2>/dev/null; then
+                      echo "  → ${lang}: moved wasm $(basename "${destpath}") -> ${destpath}"
+                    elif cp -v "$wasmfile" "${destpath}" 2>/dev/null; then
+                      echo "  → ${lang}: copied wasm $(basename "$wasmfile") -> ${destpath}"
+                    else
+                      echo "  → ${lang}: failed to relocate wasm $wasmfile (continuing)"
+                      continue
+                    fi
+
+                    moved_any=true
+                    wasm_built=true
+                  done < <(find . \( -type f -name '*.wasm' -o -type d -name '*.wasm' \) -o -path './node_modules/*' -prune 2>/dev/null | sort -u)
+                else
+                  # Fallback: simple glob checks in a few known dirs. Handle directories as well.
+                  candidates=(./*.wasm ./node_modules/*/*.wasm ./build/*.wasm ./target/*/*.wasm)
+                  for w in "${candidates[@]}"; do
+                    for f in $w; do
+                      # If candidate is a directory, attempt to find a .wasm file inside it.
+                      actual=""
+                      if [[ -d "$f" ]]; then
+                        actual="$(find "$f" -maxdepth 2 -type f -name '*.wasm' -print -quit 2>/dev/null || true)"
+                        if [[ -z "$actual" ]]; then
+                          echo "  → ${lang}: candidate directory $f contains no .wasm; skipping"
                           continue
                         fi
+                      else
+                        actual="$f"
                       fi
-                      cp -v "$actual" "${destpath}" || true
-                      echo "  → ${lang}: copied wasm $(basename "$actual") -> ${destpath}"
-                      moved_any=true
-                      wasm_built=true
-                    fi
+
+                      if [[ -f "$actual" ]]; then
+                        destname="tree-sitter-${lang}.wasm"
+                        destpath="${GRAMMAR_DIR}/${destname}"
+                        if [[ -f "${destpath}" ]]; then
+                          if cmp -s "$actual" "${destpath}"; then
+                            echo "  → ${lang}: wasm ${destname} already present in ${GRAMMAR_DIR}; skipping"
+                            moved_any=true
+                            wasm_built=true
+                            continue
+                          fi
+                        fi
+                        cp -v "$actual" "${destpath}" || true
+                        echo "  → ${lang}: copied wasm $(basename "$actual") -> ${destpath}"
+                        moved_any=true
+                        wasm_built=true
+                      fi
+                    done
                   done
-                done
-              fi
-
-              if ! $wasm_built; then
-                echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (no wasm discovered)"
-              else
-                echo "  → ${lang}: wasm artifact ensured at ${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
-              fi
-          else
-              # Build failed; print a concise hint including captured stderr to help diagnosis.
-              echo "  → ${lang}: native build failed (continuing)"
-              echo "     Build stderr preview:"
-              echo "     ${build_out:0:400}"
-              # If build failed with MODULE_NOT_FOUND, try scanning for wasm outputs anyway (some repos emit wasm even on partial failures)
-              if echo "${build_out}" | grep -q "Cannot find module" || echo "${build_out}" | grep -q "MODULE_NOT_FOUND"; then
-                if command -v find >/dev/null 2>&1; then
-                  while IFS= read -r wasmfile; do
-                    mkdir -p "${RUNTIME_ROOT}"
-                    base="$(basename "$wasmfile")"
-                    destname="$base"
-                    if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
-                      destname="tree-sitter-${lang}.wasm"
-                    fi
-                    cp -v "$wasmfile" "${RUNTIME_ROOT}/${destname}" || true
-                    echo "  → ${lang}: copied wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/ (partial build -> ${destname})"
-                  done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
                 fi
-              fi
-          fi
 
-          popd > /dev/null
-      else
-          echo "  → ${lang}: failed to clone repository (continuing)"
-      fi
-  done
+                if ! $wasm_built; then
+                  echo "  → ${lang}: tree-sitter build-wasm unavailable or failed for this grammar (no wasm discovered)"
+                else
+                  echo "  → ${lang}: wasm artifact ensured at ${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
+                fi
+            else
+                # Build failed; print a concise hint including captured stderr to help diagnosis.
+                echo "  → ${lang}: native build failed (continuing)"
+                echo "     Build stderr preview:"
+                echo "     ${build_out:0:400}"
+                # If build failed with MODULE_NOT_FOUND, try scanning for wasm outputs anyway (some repos emit wasm even on partial failures)
+                if echo "${build_out}" | grep -q "Cannot find module" || echo "${build_out}" | grep -q "MODULE_NOT_FOUND"; then
+                  if command -v find >/dev/null 2>&1; then
+                    while IFS= read -r wasmfile; do
+                      mkdir -p "${RUNTIME_ROOT}"
+                      base="$(basename "$wasmfile")"
+                      destname="$base"
+                      if [[ "$base" != tree-sitter-* && "$base" != "${lang}.wasm" ]]; then
+                        destname="tree-sitter-${lang}.wasm"
+                      fi
+                      cp -v "$wasmfile" "${RUNTIME_ROOT}/${destname}" || true
+                      echo "  → ${lang}: copied wasm $(basename "$wasmfile") to ${RUNTIME_ROOT}/ (partial build -> ${destname})"
+                    done < <(find . -maxdepth 4 -type f -name '*.wasm' 2>/dev/null || true)
+                  fi
+                fi
+            fi
 
-  echo "Native grammar pass complete. Built libs (if any) are in ${GRAMMAR_DIR}"
-  ls -la "${GRAMMAR_DIR}" || true
+            popd > /dev/null
+        else
+            echo "  → ${lang}: failed to clone repository (continuing)"
+        fi
+    done
+
+    echo "Native grammar pass complete. Built libs (if any) are in ${GRAMMAR_DIR}"
+    ls -la "${GRAMMAR_DIR}" || true
+  fi
 fi
 
 # Step B — Attempt to produce per-language WASM parsers ------------------------------------------------
