@@ -13,48 +13,44 @@ RUNTIME_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Determine platform from TARGET (if not set, guess)
 TARGET=${TARGET:-}
 if [[ -z "$TARGET" ]]; then
-    # Guess current system
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    ARCH=$(uname -m)
-    if [[ "$OS" == "darwin" ]]; then
-        OS="macos"
-    fi
-    if [[ "$ARCH" == "x86_64" ]]; then
-        ARCH="x86_64"
-    elif [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-        ARCH="aarch64"
-    else
-        ARCH="x86_64"
-    fi
+    # Auto-detect host OS/ARCH and normalize to our directory names.
+    UNAME_S=$(uname -s)
+    UNAME_M=$(uname -m)
+
+    case "$UNAME_S" in
+        Linux*|linux*) OS="linux" ;;
+        Darwin*|darwin*) OS="macos" ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT) OS="windows" ;;
+        *) OS=$(echo "$UNAME_S" | tr '[:upper:]' '[:lower:]') ;;
+    esac
+
+    case "$UNAME_M" in
+        x86_64|amd64) ARCH="x86_64" ;;
+        aarch64|arm64) ARCH="aarch64" ;;
+        i386|i686) ARCH="x86_32" ;;
+        *) ARCH="x86_64" ;;
+    esac
+
     TARGET="${OS}-${ARCH}"
+    echo "[fetch-grammars] detected host target: ${TARGET}"
 else
-    # Convert cargo target triple to our directory naming
+    # Normalize provided TARGET into our expected form
     case "$TARGET" in
-        *linux*)
-            OS="linux"
-            ;;
-        *darwin*)
-            OS="macos"
-            ;;
-        *windows*)
-            OS="windows"
-            ;;
-        *)
-            OS="linux"
-            ;;
+        *linux*) OS="linux" ;;
+        *darwin*|*macos*) OS="macos" ;;
+        *windows*) OS="windows" ;;
+        *) OS="linux" ;;
     esac
+
     case "$TARGET" in
-        *x86_64*)
-            ARCH="x86_64"
-            ;;
-        *aarch64*|*arm64*)
-            ARCH="aarch64"
-            ;;
-        *)
-            ARCH="x86_64"
-            ;;
+        *x86_64*|*amd64*) ARCH="x86_64" ;;
+        *aarch64*|*arm64*) ARCH="aarch64" ;;
+        *i386*|*i686*) ARCH="x86_32" ;;
+        *) ARCH="x86_64" ;;
     esac
+
     TARGET="${OS}-${ARCH}"
+    echo "[fetch-grammars] normalized target: ${TARGET}"
 fi
 
 GRAMMAR_DIR="${RUNTIME_ROOT}/grammars/${TARGET}"
@@ -145,6 +141,18 @@ else
           if [[ -n "$subdir" && -d "$subdir" ]]; then
               cd "$subdir"
           fi
+
+          # If the grammar exposes JS dependencies (package.json) try installing them so
+          # grammar.js can require modules like `tree-sitter-c/grammar`.
+          if [[ -f "package.json" ]]; then
+              echo "[fetch-grammars] npm install in $(pwd) to satisfy grammar.js dependencies"
+              if command -v npm >/dev/null 2>&1; then
+                  npm install --no-audit --no-fund --silent || echo "[fetch-grammars] npm install failed (continuing)"
+              else
+                  echo "[fetch-grammars] npm not available; skipping npm install"
+              fi
+          fi
+
           if [[ -f "grammar.js" ]]; then
               maybe_run_npx tree-sitter generate || true
           fi
