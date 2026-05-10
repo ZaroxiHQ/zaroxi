@@ -47,15 +47,85 @@ function getWasmFileNameFor(languageId: string) {
 }
 
 /**
- * Construct a URL to the wasm file. You said your runtime is at:
- *   crates/zaroxi-lang-syntax/runtime/treesitter
- * This will attempt to load: /crates/zaroxi-lang-syntax/runtime/treesitter/<wasm>
+ * Construct a URL to the wasm file.
  *
- * If you host wasm elsewhere, update this function.
+ * We attempt to be more resilient about where per-language wasm files are placed.
+ * Packaging can place grammars under OS-specific subdirectories (e.g.
+ * crates/zaroxi-lang-syntax/runtime/treesitter/grammars/linux-x86_64/tree-sitter-<lang>.wasm).
+ *
+ * getRuntimeBaseCandidates() returns an ordered list of base paths to try,
+ * preferring OS-specific grammar/language subdirs. getWasmUrl() returns the
+ * highest-priority candidate (the caller still probes many candidates further).
  */
 function getWasmUrl(languageId: string) {
   const fname = getWasmFileNameFor(languageId);
-  return `/crates/zaroxi-lang-syntax/runtime/treesitter/${fname}`;
+  const candidates = getRuntimeBaseCandidates();
+  // Return the most likely candidate (the caller will probe other candidates as well).
+  return `${candidates[0]}${fname}`;
+}
+
+/**
+ * Build an ordered list of runtime base path candidates where language wasm files
+ * might live. Prefers OS-specific subdirectories (e.g. grammars/linux-x86_64/).
+ */
+function getRuntimeBaseCandidates(): string[] {
+  const base = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
+  const candidates: string[] = [];
+
+  // Always start with the canonical runtime root
+  candidates.push(base);
+
+  // Attempt to detect platform/arch from navigator; keep it conservative and produce
+  // several plausible folder names so we match common packaging layouts.
+  const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
+  const plat = typeof navigator !== 'undefined' ? (navigator.platform || '') : '';
+  const lower = (ua + ' ' + plat).toLowerCase();
+
+  const osVariants: string[] = [];
+  if (/windows/i.test(lower) || /win/i.test(lower)) {
+    osVariants.push('windows-x86_64', 'windows');
+  } else if (/macintosh|mac os x|darwin|mac/i.test(lower)) {
+    // try to detect arm vs intel; be forgiving
+    if (/arm|aarch64|arm64/i.test(lower) || /applewebkit.*macintosh.*arm64/i.test(lower)) {
+      osVariants.push('macos-aarch64', 'macos-arm64', 'macos');
+    } else {
+      osVariants.push('macos-x86_64', 'macos');
+    }
+  } else {
+    // assume linux-like
+    if (/aarch64|arm64|arm/i.test(lower)) {
+      osVariants.push('linux-aarch64', 'linux-arm64', 'linux');
+    } else {
+      osVariants.push('linux-x86_64', 'linux');
+    }
+  }
+
+  for (const v of osVariants) {
+    candidates.push(`${base}grammars/${v}/`);
+    candidates.push(`${base}languages/${v}/`);
+    candidates.push(`${base}${v}/`);
+  }
+
+  // Common non-OS-specific subdirs (preserve previous behavior)
+  candidates.push(`${base}languages/`);
+  candidates.push(`${base}grammars/`);
+  candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/');
+  candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/languages/');
+  candidates.push('crates/zaroxi-lang-syntax/runtime/treesitter/grammars/');
+  candidates.push('languages/');
+  candidates.push('grammars/');
+  candidates.push('');
+
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  const uniq: string[] = [];
+  for (const c of candidates) {
+    if (!seen.has(c)) {
+      seen.add(c);
+      uniq.push(c);
+    }
+  }
+  return uniq;
 }
 
 /**
@@ -123,17 +193,9 @@ async function ensureParserFor(languageId: string) {
     `language-${key}.wasm`,
     `tree-sitter-${key}.wasm`,
   ];
-  const basePaths = [
-    '/crates/zaroxi-lang-syntax/runtime/treesitter/',
-    '/crates/zaroxi-lang-syntax/runtime/treesitter/languages/',
-    '/crates/zaroxi-lang-syntax/runtime/treesitter/grammars/',
-    'crates/zaroxi-lang-syntax/runtime/treesitter/',
-    'crates/zaroxi-lang-syntax/runtime/treesitter/languages/',
-    'crates/zaroxi-lang-syntax/runtime/treesitter/grammars/',
-    'languages/',
-    'grammars/',
-    '',
-  ];
+  // Use runtime base candidates builder so we include OS-specific grammar directories
+  // (e.g. grammars/linux-x86_64/) before falling back to more generic locations.
+  const basePaths = getRuntimeBaseCandidates();
 
   const candidates: string[] = [];
   for (const bp of basePaths) {
