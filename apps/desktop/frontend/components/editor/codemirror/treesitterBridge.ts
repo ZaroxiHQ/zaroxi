@@ -99,23 +99,79 @@ async function ensureParserFor(languageId: string) {
     console.debug('[treesitter] ensureParserFor: initializing WTS before loading parser for', key);
     await initTreesitterOnce();
   }
-  const wasmUrl = getWasmUrl(key);
-  try {
-    // eslint-disable-next-line no-console
-    console.debug('[treesitter] ensureParserFor: loading language wasm from', wasmUrl);
-    const Lang = await (WTS as any).Language.load(wasmUrl);
-    const parser = new (WTS as any).Parser();
-    parser.setLanguage(Lang);
-    const entry: ParserEntry = { parser, language: Lang };
-    parsers.set(key, entry);
-    // eslint-disable-next-line no-console
-    console.debug('[treesitter] ensureParserFor: loaded parser for', key);
-    return entry;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[treesitter] failed to load language wasm for', key, wasmUrl, err);
-    return null;
+
+  // Candidate URLs to try (common layouts under your runtime directory).
+  const candidates = [
+    getWasmUrl(key), // /crates/zaroxi-lang-syntax/runtime/treesitter/<file>.wasm
+    `/crates/zaroxi-lang-syntax/runtime/treesitter/languages/${getWasmFileNameFor(key)}`,
+    `/crates/zaroxi-lang-syntax/runtime/treesitter/grammars/${getWasmFileNameFor(key)}`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] ensureParserFor: trying wasm url', url);
+
+      // Probe the URL first so we can log status and content-type (helps diagnose MIME/404 issues).
+      const resp = await fetch(url, { method: 'GET' });
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] ensureParserFor: probe response', url, 'status=', resp.status, 'content-type=', resp.headers.get('content-type'));
+
+      if (!resp.ok) {
+        // Try next candidate
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] ensureParserFor: probe returned non-ok, trying next candidate', url);
+        continue;
+      }
+
+      // If content-type looks like wasm or generic octet-stream, prefer loading from ArrayBuffer.
+      const ct = (resp.headers.get('content-type') || '').toLowerCase();
+      if (ct.includes('application/wasm') || ct.includes('application/octet-stream') || ct === '') {
+        try {
+          const ab = await resp.arrayBuffer();
+          // Attempt to load language from ArrayBuffer (web-tree-sitter supports loading from buffer).
+          const Lang = await (WTS as any).Language.load(ab);
+          const parser = new (WTS as any).Parser();
+          parser.setLanguage(Lang);
+          const entry: ParserEntry = { parser, language: Lang };
+          parsers.set(key, entry);
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from arrayBuffer', url);
+          return entry;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.debug('[treesitter] ensureParserFor: Language.load(arrayBuffer) failed for', url, err);
+          // Fallthrough to try Language.load(url) as a last resort.
+        }
+      }
+
+      // Last resort: try letting web-tree-sitter fetch/load the URL itself.
+      try {
+        const Lang = await (WTS as any).Language.load(url);
+        const parser = new (WTS as any).Parser();
+        parser.setLanguage(Lang);
+        const entry: ParserEntry = { parser, language: Lang };
+        parsers.set(key, entry);
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] ensureParserFor: loaded parser for', key, 'from url', url);
+        return entry;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[treesitter] ensureParserFor: Language.load(url) failed for', url, err);
+        // try next candidate
+      }
+    } catch (err) {
+      // Network/probe failure, try next candidate
+      // eslint-disable-next-line no-console
+      console.debug('[treesitter] ensureParserFor: fetch/probe failed for', url, err);
+      continue;
+    }
   }
+
+  // If we reach here, none of the candidates worked.
+  // eslint-disable-next-line no-console
+  console.warn('[treesitter] ensureParserFor: failed to locate/load wasm for', key, 'candidates=', candidates);
+  return null;
 }
 
 /**
