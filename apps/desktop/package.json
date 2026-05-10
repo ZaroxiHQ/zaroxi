@@ -12,6 +12,16 @@
     "download-fonts": "bash ../download-fonts.sh"
   },
   "dependencies": {
+    "@codemirror/commands": "*",
+    "@codemirror/fold": "*",
+    "@codemirror/gutter": "*",
+    "@codemirror/history": "*",
+    "@codemirror/lang-javascript": "*",
+    "@codemirror/lang-json": "*",
+    "@codemirror/lang-rust": "*",
+    "@codemirror/language": "*",
+    "@codemirror/state": "*",
+    "@codemirror/view": "*",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
@@ -22,18 +32,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.5.4",
-    "zustand": "^5.0.0",
     "web-tree-sitter": "*",
-    "@codemirror/state": "*",
-    "@codemirror/view": "*",
-    "@codemirror/gutter": "*",
-    "@codemirror/fold": "*",
-    "@codemirror/history": "*",
-    "@codemirror/commands": "*",
-    "@codemirror/language": "*",
-    "@codemirror/lang-javascript": "*",
-    "@codemirror/lang-rust": "*",
-    "@codemirror/lang-json": "*"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
@@ -44,6 +44,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.17",
+    "tree-sitter-cli": "^0.26.8",
     "typescript": "^5.6.2",
     "vite": "^6.0.0"
   }
