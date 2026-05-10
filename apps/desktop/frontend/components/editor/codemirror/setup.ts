@@ -98,7 +98,10 @@ export async function createBaseExtensions(
     let lineNumbers: any = (viewMod as any).lineNumbers ?? null;
     if (!lineNumbers) {
       try {
-        const gutterMod = await import('@codemirror/gutter');
+        // Use a non-literal import to avoid Vite failing the build when the optional
+        // `@codemirror/gutter` package is not present (newer CodeMirror merges gutter into view).
+        const gutterPkg = '@codemirror' + '/gutter';
+        const gutterMod = await import(gutterPkg);
         lineNumbers = (gutterMod as any).lineNumbers ?? null;
       } catch {
         lineNumbers = null;
