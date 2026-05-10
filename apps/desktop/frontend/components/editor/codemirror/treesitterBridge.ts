@@ -73,9 +73,22 @@ export async function initTreesitterOnce(): Promise<void> {
     const mod = await import('web-tree-sitter');
     WTS = (mod as any).default ? (mod as any).default : mod;
 
+    // Provide locateFile so web-tree-sitter can find its runtime wasm relative to our treesitter runtime.
+    // This prevents web-tree-sitter from attempting to fetch the engine wasm from an incorrect path
+    // which commonly leads to the MIME/type and "module doesn't start with '\0asm'" errors you saw.
+    const runtimeBase = '/crates/zaroxi-lang-syntax/runtime/treesitter/';
+
     // eslint-disable-next-line no-console
-    console.debug('[treesitter] initTreesitterOnce: calling WTS.init()');
-    await WTS.init();
+    console.debug('[treesitter] initTreesitterOnce: calling WTS.init with locateFile ->', runtimeBase);
+    await WTS.init({
+      locateFile: (file: string) => {
+        // Log which file web-tree-sitter asks for so we can diagnose path problems.
+        // eslint-disable-next-line no-console
+        console.debug('[treesitter] locateFile requested:', file, '->', runtimeBase + file);
+        return runtimeBase + file;
+      },
+    });
+
     inited = true;
     // eslint-disable-next-line no-console
     console.debug('[treesitter] initTreesitterOnce: initialized successfully');
@@ -100,12 +113,39 @@ async function ensureParserFor(languageId: string) {
     await initTreesitterOnce();
   }
 
-  // Candidate URLs to try (common layouts under your runtime directory).
-  const candidates = [
-    getWasmUrl(key), // /crates/zaroxi-lang-syntax/runtime/treesitter/<file>.wasm
-    `/crates/zaroxi-lang-syntax/runtime/treesitter/languages/${getWasmFileNameFor(key)}`,
-    `/crates/zaroxi-lang-syntax/runtime/treesitter/grammars/${getWasmFileNameFor(key)}`,
+  // Candidate URLs to try (cover several common layouts under your runtime directory).
+  // We try multiple filename permutations and both absolute and relative paths so the dev server
+  // or packaged app can serve the wasm regardless of exact layout.
+  const rawName = getWasmFileNameFor(key);
+  const altNames = [
+    rawName,
+    `${key}.wasm`,
+    `language-${key}.wasm`,
+    `tree-sitter-${key}.wasm`,
   ];
+  const basePaths = [
+    '/crates/zaroxi-lang-syntax/runtime/treesitter/',
+    '/crates/zaroxi-lang-syntax/runtime/treesitter/languages/',
+    '/crates/zaroxi-lang-syntax/runtime/treesitter/grammars/',
+    'crates/zaroxi-lang-syntax/runtime/treesitter/',
+    'crates/zaroxi-lang-syntax/runtime/treesitter/languages/',
+    'crates/zaroxi-lang-syntax/runtime/treesitter/grammars/',
+    'languages/',
+    'grammars/',
+    '',
+  ];
+
+  const candidates: string[] = [];
+  for (const bp of basePaths) {
+    for (const n of altNames) {
+      // Avoid duplicate slashes in concatenation
+      const url = bp.endsWith('/') || bp === '' ? `${bp}${n}` : `${bp}/${n}`;
+      candidates.push(url);
+    }
+  }
+
+  // Also include the convenience getWasmUrl result first (preserves prior behavior)
+  candidates.unshift(getWasmUrl(key)); // highest priority
 
   for (const url of candidates) {
     try {
