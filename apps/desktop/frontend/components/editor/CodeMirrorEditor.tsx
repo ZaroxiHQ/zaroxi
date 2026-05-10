@@ -1,6 +1,4 @@
-import React, { useEffect, useRef } from 'react';
-import { EditorView } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import React, { useEffect, useRef, useState } from 'react';
 import { createState } from './codemirror/setup';
 import { getCachedState, setCachedState } from './editorEngine';
 import { initTreesitterOnce } from './codemirror/treesitterBridge';
@@ -15,80 +13,125 @@ interface CodeMirrorEditorProps {
 }
 
 /**
- * Minimal CodeMirror 6 React wrapper for the trial.
+ * CodeMirror 6 React wrapper with a safe runtime fallback:
+ * - Attempts to dynamically construct an EditorState and EditorView at runtime.
+ * - If CodeMirror packages are not available, falls back to a simple <textarea>.
  *
- * Responsibilities:
- * - mount a single EditorView into a container
- * - create/load EditorState (from cache if available)
- * - wire update listener to call onChange(text)
- * - persist EditorState to cache on unmount or document switch
- *
- * This intentionally keeps the logic small so we can iterate on Tree-sitter integration.
+ * Using a runtime/dynamic import approach avoids Vite failing the whole build when
+ * the optional codemirror packages are not installed.
  */
 export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const { documentId, text, languageId, onChange, onSave, readOnly } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const viewRef = useRef<EditorView | null>(null);
+  const viewRef = useRef<any | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   // Initialize treesitter runtime in background (no-op for Phase 1).
   useEffect(() => {
     void initTreesitterOnce();
   }, []);
 
-  // Mount EditorView once.
+  // Mount CodeMirror EditorView (async). If dynamic imports fail, flip to textarea fallback.
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Try to reuse cached EditorState for this document
-    let state: EditorState | undefined = undefined;
-    if (documentId) {
-      state = getCachedState(documentId) as EditorState | undefined;
-    }
+    let destroyed = false;
+    let mountedView: any = null;
 
-    if (!state) {
-      state = createState(text ?? '', {
-        onChange: (t) => {
-          onChange(t);
-        },
-      });
-    }
+    (async () => {
+      try {
+        // Try to reuse cached state (opaque) if available.
+        let state = undefined;
+        if (documentId) {
+          state = getCachedState(documentId);
+        }
 
-    const view = new EditorView({
-      state,
-      parent: containerRef.current,
-    });
+        if (!state) {
+          // createState is async and will dynamically import codemirror modules.
+          state = await createState(text ?? '', {
+            onChange: (t: string) => {
+              onChange(t);
+            },
+          });
+        }
 
-    viewRef.current = view;
+        if (destroyed) return;
+
+        // Import EditorView at runtime without a static literal to avoid build-time resolution.
+        const viewPkg = '@codemirror' + '/view';
+        const viewModule = await import(viewPkg);
+        if (!viewModule || !containerRef.current) {
+          throw new Error('EditorView not available');
+        }
+
+        mountedView = new viewModule.EditorView({
+          state,
+          parent: containerRef.current,
+        });
+
+        viewRef.current = mountedView;
+      } catch (err) {
+        // Fallback path: show a native textarea bound to the document text.
+        // This keeps the app usable when codemirror packages are missing.
+        // eslint-disable-next-line no-console
+        console.debug('[codemirror] falling back to textarea (dynamic import failed)', err);
+        setUsingFallback(true);
+      }
+    })();
 
     return () => {
-      // Save state to cache for the document
-      if (documentId && viewRef.current) {
+      destroyed = true;
+      if (viewRef.current) {
         try {
-          setCachedState(documentId, viewRef.current.state);
+          if (documentId) {
+            setCachedState(documentId, viewRef.current.state);
+          }
         } catch {
-          // ignore cache errors
+          // ignore caching errors
         }
+        try {
+          viewRef.current.destroy();
+        } catch {
+          // ignore destroy errors
+        }
+        viewRef.current = null;
       }
-      view.destroy();
-      viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId]); // remount when documentId changes (we persist state to cache above)
+  }, [documentId]);
 
   // Update document text if changed externally (e.g., reload from workspace).
   useEffect(() => {
+    if (usingFallback) {
+      if (textareaRef.current && textareaRef.current.value !== text) {
+        textareaRef.current.value = text ?? '';
+      }
+      return;
+    }
     const view = viewRef.current;
     if (!view) return;
     const current = view.state.doc.toString();
     if (text !== current) {
-      // Replace entire document in a single transaction to avoid selection surprises.
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
       });
     }
-  }, [text]);
+  }, [text, usingFallback]);
 
-  // Expose a minimal DOM container.
+  // Render fallback textarea if CodeMirror isn't available.
+  if (usingFallback) {
+    return (
+      <textarea
+        ref={textareaRef}
+        className="h-full w-full min-h-0 min-w-0 p-2 bg-editor text-editor-foreground"
+        defaultValue={text}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
+  // Otherwise provide the container for CodeMirror to mount into.
   return <div ref={containerRef} className="h-full w-full min-h-0 min-w-0" />;
 }
 
