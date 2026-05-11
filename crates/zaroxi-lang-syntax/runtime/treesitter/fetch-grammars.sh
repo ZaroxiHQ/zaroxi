@@ -765,9 +765,12 @@ set -euo pipefail
 # Example expected per-language filenames: tree-sitter-rust.wasm, tree-sitter-toml.wasm
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUNTIME_DIR="$SCRIPT_DIR"
-LANGUAGES_DIR="$RUNTIME_DIR/languages"
-GRAMMARS_DIR="$RUNTIME_DIR/grammars"
+# Allow overriding RUNTIME_DIR from the environment; default to the script directory.
+RUNTIME_DIR="${RUNTIME_DIR:-$SCRIPT_DIR}"
+# Backwards compatibility: some older parts of the script still reference RUNTIME_ROOT.
+RUNTIME_ROOT="${RUNTIME_DIR}"
+LANGUAGES_DIR="${LANGUAGES_DIR:-$RUNTIME_DIR/languages}"
+GRAMMARS_DIR="${GRAMMARS_DIR:-$RUNTIME_DIR/grammars}"
 
 print_help() {
   cat <<EOF
