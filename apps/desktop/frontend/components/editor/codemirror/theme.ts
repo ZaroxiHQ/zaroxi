@@ -66,6 +66,8 @@ export const zaroxiCodeMirrorTheme = [
       // Make the gutter background match the editor background by default.
       // Prefer explicit gutter variables if provided by the crate/theme.
       '.cm-gutters': {
+        display: 'block',
+        minWidth: '40px',
         background: 'var(--color-editor-gutter-background)',
         // Use a faint text color for gutter numbers
         color: 'var(--color-text-faint)',

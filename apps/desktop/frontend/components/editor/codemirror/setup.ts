@@ -68,9 +68,10 @@ export function createBaseExtensions(
   const extensions: any[] = [
     // Theme must be present to guarantee gutter visibility
     zaroxiCodeMirrorTheme,
-    // Gutter + folding UI (language-provided folding will integrate)
+    // Line numbers gutter (always show)
     lineNumbers(),
-    foldGutter(),
+    // Fold gutter: include only when languageExtension is provided (language support typically enables folding)
+    ...(languageExtension ? [foldGutter()] : []),
     highlightActiveLineGutter(),
     // Selection and caret
     drawSelection(),
