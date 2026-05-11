@@ -131,6 +131,8 @@ export default defineConfig({
       '@codemirror/lang-javascript',
       '@codemirror/lang-rust',
       '@codemirror/lang-json',
+      '@codemirror/lang-html',
+      '@codemirror/lang-css',
       '@codemirror/lang-markdown',
       'web-tree-sitter',
     ],
