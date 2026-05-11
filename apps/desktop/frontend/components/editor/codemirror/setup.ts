@@ -192,8 +192,8 @@ function buildHighlightStyle() {
       // Vite provides import.meta.env.MODE; fallback to process.env.NODE_ENV if available.
       // Use a robust check that won't throw in environments where `import.meta` is not inspectable.
       // eslint-disable-next-line no-undef
-      if (typeof (import as any).meta !== 'undefined' && (import as any).meta.env && (import as any).meta.env.MODE) {
-        return (import as any).meta.env.MODE === 'development';
+      if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.MODE) {
+        return (import.meta as any).env.MODE === 'development';
       }
     } catch (e) {
       // ignore
