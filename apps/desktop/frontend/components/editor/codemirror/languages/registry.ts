@@ -12,7 +12,7 @@
  */
 
 import type { LanguageMeta } from './types';
-import { officialLoader, lezerLoader } from './loaders';
+import { officialLoader, lezerLoader, legacyLoader } from './loaders';
 
 /**
  * Registry map: id -> LanguageMeta
@@ -35,16 +35,16 @@ export const registry: Record<string, LanguageMeta> = {
     loader: officialLoader('@codemirror/lang-rust', (m) => (m as any).rust()),
   },
 
-  // TOML (use lezer/toml as modern choice)
+  // TOML (legacy fallback - replace with a modern Lezer package if/when available)
   toml: {
     id: 'toml',
     name: 'TOML',
     extensions: ['toml'],
     filenames: ['cargo.toml'],
     aliases: ['toml'],
-    packageType: 'modern',
-    loader: lezerLoader('@lezer/toml', 'toml'),
-    note: 'Lezer TOML grammar via @lezer/toml',
+    packageType: 'legacy',
+    loader: legacyLoader('@codemirror/legacy-modes', 'mode/toml', 'toml'),
+    note: 'TOML via legacy-modes fallback (install @codemirror/legacy-modes); replace with a Lezer-based loader when available',
   },
 
   // YAML - official package

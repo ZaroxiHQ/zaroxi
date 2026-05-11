@@ -30,7 +30,7 @@ export default defineConfig({
       '@codemirror/lang-css': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-css'),
       '@codemirror/lang-markdown': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-markdown'),
       '@codemirror/lang-yaml': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-yaml'),
-      '@lezer/toml': path.resolve(__dirname, 'node_modules', '@lezer', 'toml'),
+      '@codemirror/legacy-modes': path.resolve(__dirname, 'node_modules', '@codemirror', 'legacy-modes'),
       'web-tree-sitter': path.resolve(__dirname, 'node_modules', 'web-tree-sitter'),
     },
   },

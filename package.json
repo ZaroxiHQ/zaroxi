@@ -20,7 +20,7 @@
     "@codemirror/lang-css": "*",
     "@codemirror/lang-markdown": "*",
     "@codemirror/lang-yaml": "*",
-    "@lezer/toml": "*"
+    "@codemirror/legacy-modes": "*"
   },
   "scripts": {
     "dev": "vite",
