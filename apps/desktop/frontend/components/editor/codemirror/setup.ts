@@ -12,8 +12,6 @@ import { foldGutter } from '@codemirror/language';
 import { history } from '@codemirror/commands';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 
-import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/highlight';
-
 import { zaroxiCodeMirrorTheme } from './theme';
 
 type Selection = { from: number; to: number };
@@ -23,8 +21,14 @@ type Selection = { from: number; to: number };
  * - opts.onChange will be called when document changes occur.
  * - languageExtension is an optional CM6 extension (LanguageSupport) to provide
  *   syntax highlighting and language-specific behavior (folding, indentation).
+ *
+ * Note: We dynamically import the optional @codemirror/highlight package at runtime
+ * to avoid Vite import-analysis errors when the package is not present in certain
+ * environments. If the package is available, we attach a working syntaxHighlighting
+ * using defaultHighlightStyle as a proof-of-life highlight. If not available, we
+ * silently skip it (editor falls back to CSS token classes in theme).
  */
-export function createBaseExtensions(
+export async function createBaseExtensions(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
@@ -37,6 +41,22 @@ export function createBaseExtensions(
       opts.onChange(text, { from: sel.from, to: sel.to });
     }
   });
+
+  // Attempt to dynamically import the highlight helper. Use @vite-ignore so Vite's
+  // static analysis does not fail the dev server when the package is absent.
+  let highlightExtension: any = null;
+  try {
+    // eslint-disable-next-line no-eval
+    const mod = await import(/* @vite-ignore */ '@codemirror/highlight');
+    const { syntaxHighlighting, defaultHighlightStyle } = mod as any;
+    if (typeof syntaxHighlighting === 'function' && defaultHighlightStyle) {
+      highlightExtension = syntaxHighlighting(defaultHighlightStyle, { fallback: true });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror] optional @codemirror/highlight import failed; skipping syntaxHighlighting', err);
+    highlightExtension = null;
+  }
 
   // Compose extensions (deterministic)
   const extensions: any[] = [
@@ -54,9 +74,8 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Ensure a working syntax highlight style is present so language tokens are visibly styled.
-    // Use the defaultHighlightStyle as a proof that the highlighting pipeline is active.
-    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+    // Attach highlight extension only if we successfully imported it.
+    ...(highlightExtension ? [highlightExtension] : []),
     // Update listener
     updateListener,
   ];
@@ -67,13 +86,13 @@ export function createBaseExtensions(
 /**
  * Create a fresh EditorState for initial mounting.
  */
-export function createState(
+export async function createState(
   initialText: string,
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
 ) {
-  const extensions = createBaseExtensions(opts, languageExtension, docKey);
+  const extensions = await createBaseExtensions(opts, languageExtension, docKey);
   return EditorState.create({
     doc: initialText ?? '',
     extensions,
