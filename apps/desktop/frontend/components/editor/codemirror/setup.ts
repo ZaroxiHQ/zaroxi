@@ -159,6 +159,17 @@ function buildHighlightStyle() {
     // Properties and attributes
     { tag: [t.propertyName], color: p.property },
     { tag: [t.attributeName], color: p.attribute },
+    // Labels/keys (e.g., TOML table keys and headers)
+    { tag: [t.labelName], color: p.property },
+    // Macros (Rust macros and macro invocations)
+    { tag: [t.macroName], color: p.macro },
+    // Namespace and builtin tokens
+    { tag: [t.namespace], color: p.namespace },
+    { tag: [t.builtin], color: p.builtin },
+    // Parameters (function parameters, placeholders)
+    { tag: [t.parameter], color: p.parameter },
+    // Lifetimes and special variable-like tokens (Rust lifetimes often treated as special identifiers)
+    { tag: [t.special(t.variableName)], color: p.lifetime },
 
     // Tags (HTML, XML)
     { tag: [t.tagName], color: p.tag },
