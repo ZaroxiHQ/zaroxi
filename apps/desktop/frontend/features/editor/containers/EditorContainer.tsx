@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { CodeEditor } from '@/components/editor/CodeEditor';
 import { CodeMirrorEditor } from '@/components/editor/CodeMirrorEditor';
-import { getEditorEngine } from '@/components/editor/editorEngine';
+import { getEditorEngine, stateCache } from '@/components/editor/editorEngine';
 import { WorkspaceService } from '@/features/workspace/services/workspaceService';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
 import { Icon } from '@/components/ui/Icon';
@@ -35,6 +35,8 @@ type LocalSession = {
   lineCount?: number;
   charCount?: number;
   isDirty?: boolean;
+  // lastAccess is used for LRU eviction (ms since epoch). Updated on access/upsert.
+  lastAccess?: number;
 };
 
 /* ----------------------------- Component ----------------------------- */
@@ -60,6 +62,7 @@ export function EditorContainer() {
         loadSeq: 0,
         contentTruncated: false,
         isDirty: false,
+        lastAccess: Date.now(),
       });
     }
     return m;
@@ -76,6 +79,9 @@ export function EditorContainer() {
     },
     [sessions],
   );
+
+  // LRU session upsert with eviction of heavy payloads for inactive tabs.
+  const MAX_CACHED_SESSIONS = 60;
 
   const upsertSession = useCallback((tabId: string, patch: Partial<LocalSession>) => {
     setSessions((prev) => {
@@ -94,12 +100,50 @@ export function EditorContainer() {
         lineCount: undefined,
         charCount: undefined,
         isDirty: false,
+        lastAccess: Date.now(),
       } as LocalSession;
-      const merged = { ...existing, ...patch };
+
+      const merged: LocalSession = { ...existing, ...patch, lastAccess: patch.lastAccess ?? Date.now() };
       next.set(tabId, merged);
+
+      // Evict/shrink least-recently-used non-dirty sessions when exceeding cache size.
+      try {
+        if (next.size > MAX_CACHED_SESSIONS) {
+          const entries = Array.from(next.entries());
+          entries.sort((a, b) => (a[1].lastAccess || 0) - (b[1].lastAccess || 0));
+          let toEvict = next.size - MAX_CACHED_SESSIONS;
+          for (const [k, s] of entries) {
+            if (toEvict <= 0) break;
+            if (k === activeTabId) continue; // don't evict active tab
+            if (s.isDirty) continue; // preserve dirty sessions
+            // Shrink heavy payload while preserving minimal metadata
+            const shrunk: LocalSession = {
+              ...s,
+              text: '',
+              initialHighlight: null,
+              lineCount: undefined,
+              charCount: undefined,
+              lastAccess: s.lastAccess,
+            };
+            next.set(k, shrunk);
+            // Also drop any engine-level cached EditorState to free memory
+            try {
+              if ((stateCache as Map<string, any>).has(k)) {
+                (stateCache as Map<string, any>).delete(k);
+              }
+            } catch {}
+            toEvict--;
+          }
+        }
+      } catch (e) {
+        // Non-fatal: eviction best-effort
+        // eslint-disable-next-line no-console
+        console.debug('[editor-container] eviction error', e);
+      }
+
       return next;
     });
-  }, []);
+  }, [activeTabId]);
 
   // Ensure welcome tab exists when tabs change and sessions missing
   useEffect(() => {
@@ -342,6 +386,18 @@ export function EditorContainer() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [handleEditorSave]);
+
+  // Ensure any pending debounce timer is cleared when the container unmounts.
+  useEffect(() => {
+    return () => {
+      try {
+        if (debounceRef.current) {
+          window.clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
+      } catch {}
+    };
+  }, []);
 
   // Determine visible session (authoritative)
   const activeSession = useMemo(() => {

@@ -37,6 +37,37 @@ export function getCachedState(docId: string) {
   return stateCache.get(docId);
 }
 
+const MAX_CACHED_STATES = 20;
+
+/**
+ * Store opaque per-document editor state with an LRU eviction policy.
+ * - If `state` is `null` or `undefined`, the entry is removed.
+ * - Otherwise the state is inserted/updated and we evict oldest entries if the cache exceeds MAX_CACHED_STATES.
+ */
 export function setCachedState(docId: string, state: any) {
-  stateCache.set(docId, state);
+  if (state == null) {
+    stateCache.delete(docId);
+  } else {
+    // If updating existing key, delete first to move it to the back (most-recently-used)
+    if (stateCache.has(docId)) {
+      stateCache.delete(docId);
+    }
+    stateCache.set(docId, state);
+    // Evict oldest entries until under limit
+    while (stateCache.size > MAX_CACHED_STATES) {
+      const firstKey = stateCache.keys().next().value;
+      try {
+        stateCache.delete(firstKey);
+      } catch {
+        break;
+      }
+    }
+  }
+
+  // Update runtime instrumentation if present
+  try {
+    const w: any = window as any;
+    w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+    w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+  } catch {}
 }

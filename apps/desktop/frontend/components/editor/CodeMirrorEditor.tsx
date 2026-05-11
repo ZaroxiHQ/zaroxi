@@ -3,6 +3,59 @@ import { createState, createBaseExtensions } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 
+/**
+ * Small runtime instrumentation helpers exposed on window.__zaroxi_cm_stats:
+ *  - created: total EditorView constructed
+ *  - destroyed: total EditorView destroyed
+ *  - live: currently live EditorView instances
+ *  - createdByDoc / destroyedByDoc: per-document counters
+ *  - cachedStates: number of cached engine states (updated by editorEngine.setCachedState)
+ *
+ * These counters are intended for debugging and verification only and are written
+ * in a best-effort, non-throwing manner.
+ */
+function ensureCmStats() {
+  try {
+    const w: any = window as any;
+    if (!w.__zaroxi_cm_stats) {
+      w.__zaroxi_cm_stats = {
+        created: 0,
+        destroyed: 0,
+        live: 0,
+        createdByDoc: {},
+        destroyedByDoc: {},
+        tabSwitches: 0,
+        cachedStates: 0,
+      };
+    }
+    return w.__zaroxi_cm_stats;
+  } catch {
+    return { created: 0, destroyed: 0, live: 0, createdByDoc: {}, destroyedByDoc: {}, tabSwitches: 0, cachedStates: 0 };
+  }
+}
+
+function cmStatCreated(key: string) {
+  try {
+    const s: any = ensureCmStats();
+    s.created += 1;
+    s.live += 1;
+    s.createdByDoc[key] = (s.createdByDoc[key] || 0) + 1;
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror-stats] created', { key, created: s.created, live: s.live });
+  } catch {}
+}
+
+function cmStatDestroyed(key: string) {
+  try {
+    const s: any = ensureCmStats();
+    s.destroyed += 1;
+    s.live = Math.max(0, (s.live || 1) - 1);
+    s.destroyedByDoc[key] = (s.destroyedByDoc[key] || 0) + 1;
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror-stats] destroyed', { key, destroyed: s.destroyed, live: s.live });
+  } catch {}
+}
+
 interface CodeMirrorEditorProps {
   documentId: string | null;
   text: string;
@@ -33,6 +86,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     if (!containerRef.current) return;
 
     let destroyed = false;
+    let gutterTimer: number | null = null;
 
     (async () => {
       try {
@@ -133,6 +187,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             parent: containerRef.current,
           });
           viewRef.current = mountedView;
+
+          // Instrument creation with document id for diagnostics
+          try {
+            cmStatCreated(String(documentId ?? 'unknown'));
+          } catch {}
         } catch (e) {
           // Capture and report detailed diagnostics if EditorView construction fails.
           try {
@@ -320,7 +379,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }
 
         // Post-mount gutter sanity: log presence but do not auto-reconfigure or mutate DOM.
-        setTimeout(() => {
+        gutterTimer = window.setTimeout(() => {
           try {
             const hasGutters = !!mountedView.dom.querySelector('.cm-gutters');
             // eslint-disable-next-line no-console
@@ -351,7 +410,18 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         } catch {
           // ignore destroy errors
         }
+        // instrumentation: record destruction
+        try {
+          cmStatDestroyed(String(documentId ?? 'unknown'));
+        } catch {}
         viewRef.current = null;
+      }
+      // Clear any scheduled gutter sanity timer
+      if (gutterTimer) {
+        try {
+          window.clearTimeout(gutterTimer);
+        } catch {}
+        gutterTimer = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
