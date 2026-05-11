@@ -170,6 +170,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           const containerClass = containerRef.current?.className ?? null;
           const containerStyle = containerRef.current ? window.getComputedStyle(containerRef.current) : null;
           const guttersStyle = guttersEl ? window.getComputedStyle(guttersEl as Element) : null;
+
           // eslint-disable-next-line no-console
           console.debug('[codemirror] mounted EditorView', {
             documentId,
@@ -181,6 +182,42 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             guttersDisplay: guttersStyle?.display ?? null,
             guttersWidth: guttersStyle?.width ?? null,
           });
+
+          // Ensure the gutter column is visible even if global CSS attempts to collapse it.
+          // Apply a minimal set of inline styles derived from theme CSS variables with safe fallbacks.
+          const applyGutterStyles = (el: Element | null) => {
+            if (!el || !(el as HTMLElement).style) return;
+            try {
+              const htmlRoot = document.documentElement;
+              const rootStyle = window.getComputedStyle(htmlRoot);
+              const gutterBg = (rootStyle.getPropertyValue('--color-editor-gutter-background') || rootStyle.getPropertyValue('--color-editor-background') || '#1E1F24').trim();
+              const gutterColor = (rootStyle.getPropertyValue('--color-text-faint') || rootStyle.getPropertyValue('--color-text-on-surface') || '#7E8794').trim();
+
+              const style = (el as HTMLElement).style;
+              style.minWidth = '40px';
+              style.width = 'auto';
+              style.overflow = 'visible';
+              style.display = 'block';
+              style.background = gutterBg;
+              style.color = gutterColor;
+              // Ensure gutter elements that are children also have visible color/padding
+              const gutterElems = el.querySelectorAll('.cm-gutterElement');
+              gutterElems.forEach((ge) => {
+                try {
+                  const s = (ge as HTMLElement).style;
+                  if (!s.paddingRight) s.paddingRight = '6px';
+                  if (!s.color) s.color = gutterColor;
+                } catch {
+                  // ignore per-element errors
+                }
+              });
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] applyGutterStyles failed', e);
+            }
+          };
+
+          applyGutterStyles(guttersEl);
         } catch (e) {
           // eslint-disable-next-line no-console
           console.debug('[codemirror] post-mount DOM inspection failed', e);
@@ -193,7 +230,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         setTimeout(() => {
           try {
             const dom = mountedView.dom;
-            if (!dom.querySelector('.cm-gutters')) {
+            const guttersBefore = dom.querySelector('.cm-gutters');
+            if (!guttersBefore) {
               // eslint-disable-next-line no-console
               console.debug('[codemirror] gutter missing on initial mount; reconfiguring state to include lineNumbers extension');
               try {
@@ -213,6 +251,39 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                 const nowHas = !!mountedView.dom.querySelector('.cm-gutters');
                 // eslint-disable-next-line no-console
                 console.debug('[codemirror] after reconfigure hasGutters=', nowHas);
+
+                // If gutters are now present, enforce visible styles.
+                if (nowHas) {
+                  try {
+                    const guttersEl = mountedView.dom.querySelector('.cm-gutters') as Element | null;
+                    const htmlRoot = document.documentElement;
+                    const rootStyle = window.getComputedStyle(htmlRoot);
+                    const gutterBg = (rootStyle.getPropertyValue('--color-editor-gutter-background') || rootStyle.getPropertyValue('--color-editor-background') || '#1E1F24').trim();
+                    const gutterColor = (rootStyle.getPropertyValue('--color-text-faint') || rootStyle.getPropertyValue('--color-text-on-surface') || '#7E8794').trim();
+                    if (guttersEl && (guttersEl as HTMLElement).style) {
+                      const s = (guttersEl as HTMLElement).style;
+                      s.minWidth = '40px';
+                      s.width = 'auto';
+                      s.overflow = 'visible';
+                      s.display = 'block';
+                      s.background = gutterBg;
+                      s.color = gutterColor;
+                      const gutterElems = guttersEl.querySelectorAll('.cm-gutterElement');
+                      gutterElems.forEach((ge) => {
+                        try {
+                          const se = (ge as HTMLElement).style;
+                          if (!se.paddingRight) se.paddingRight = '6px';
+                          if (!se.color) se.color = gutterColor;
+                        } catch {
+                          // ignore per-element errors
+                        }
+                      });
+                    }
+                  } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.debug('[codemirror] apply gutter styles after reconfigure failed', e);
+                  }
+                }
               } catch (e) {
                 // eslint-disable-next-line no-console
                 console.debug('[codemirror] failed to reconfigure state for gutter', e);
@@ -220,6 +291,36 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             } else {
               // eslint-disable-next-line no-console
               console.debug('[codemirror] gutter present on initial mount; no reconfigure needed');
+              // Ensure styles are applied even when present.
+              try {
+                const guttersEl = mountedView.dom.querySelector('.cm-gutters') as Element | null;
+                if (guttersEl && (guttersEl as HTMLElement).style) {
+                  const htmlRoot = document.documentElement;
+                  const rootStyle = window.getComputedStyle(htmlRoot);
+                  const gutterBg = (rootStyle.getPropertyValue('--color-editor-gutter-background') || rootStyle.getPropertyValue('--color-editor-background') || '#1E1F24').trim();
+                  const gutterColor = (rootStyle.getPropertyValue('--color-text-faint') || rootStyle.getPropertyValue('--color-text-on-surface') || '#7E8794').trim();
+                  const s = (guttersEl as HTMLElement).style;
+                  s.minWidth = '40px';
+                  s.width = 'auto';
+                  s.overflow = 'visible';
+                  s.display = 'block';
+                  s.background = gutterBg;
+                  s.color = gutterColor;
+                  const gutterElems = guttersEl.querySelectorAll('.cm-gutterElement');
+                  gutterElems.forEach((ge) => {
+                    try {
+                      const se = (ge as HTMLElement).style;
+                      if (!se.paddingRight) se.paddingRight = '6px';
+                      if (!se.color) se.color = gutterColor;
+                    } catch {
+                      // ignore per-element errors
+                    }
+                  });
+                }
+              } catch (e) {
+                // eslint-disable-next-line no-console
+                console.debug('[codemirror] ensure gutter styles present failed', e);
+              }
             }
           } catch (e) {
             // eslint-disable-next-line no-console
