@@ -55,7 +55,7 @@ export const registry: Record<string, LanguageMeta> = {
     aliases: ['toml'],
     packageType: 'official',
     // lezerLoader(lezerPackageName, parserExportName?)
-    loader: lezerLoader('@lezer/toml', 'parser'),
+    loader: lezerLoader('lezer-toml', 'parser'),
   },
 
   // YAML - official package

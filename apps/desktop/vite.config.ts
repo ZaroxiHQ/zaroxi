@@ -31,7 +31,7 @@ export default defineConfig({
       '@codemirror/lang-yaml': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-yaml'),
       '@codemirror/legacy-modes': path.resolve(__dirname, 'node_modules', '@codemirror', 'legacy-modes'),
       // Newly added explicit aliases so Vite can resolve these packages from apps/desktop/node_modules
-      '@lezer/toml': path.resolve(__dirname, 'node_modules', '@lezer', 'toml'),
+      'lezer-toml': path.resolve(__dirname, 'node_modules', 'lezer-toml'),
       '@codemirror/lang-python': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-python'),
       '@codemirror/lang-xml': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-xml'),
       'web-tree-sitter': path.resolve(__dirname, 'node_modules', 'web-tree-sitter'),
@@ -140,7 +140,7 @@ export default defineConfig({
       '@codemirror/lang-markdown',
       // Ensure these newly added language packages are pre-bundled by Vite so they resolve
       // in production builds as well as dev.
-      '@lezer/toml',
+      'lezer-toml',
       '@codemirror/lang-python',
       '@codemirror/lang-xml',
       'web-tree-sitter',
