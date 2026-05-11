@@ -84,6 +84,36 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         } catch {
           // ignore focus errors in environments that don't support it
         }
+
+        // Sanity check: if the gutter DOM is missing (styles/extensions not applied),
+        // attempt to append the lineNumbers() extension at runtime as a minimal fallback.
+        // This helps when extension ordering or race conditions prevent the gutter from appearing.
+        setTimeout(async () => {
+          try {
+            const dom = mountedView.dom;
+            if (!dom.querySelector('.cm-gutters')) {
+              // Dynamically import to avoid changing the static bundle.
+              const viewMod = await import('@codemirror/view');
+              const stateMod = await import('@codemirror/state');
+              const lineNumFactory = (viewMod as any).lineNumbers ?? (viewMod as any).default?.lineNumbers;
+              const StateEffect = (stateMod as any).StateEffect;
+              if (typeof lineNumFactory === 'function' && StateEffect && mountedView) {
+                // Append the lineNumbers extension to the existing state.
+                try {
+                  mountedView.dispatch({
+                    effects: StateEffect.appendConfig.of([lineNumFactory()]),
+                  });
+                } catch (e) {
+                  // eslint-disable-next-line no-console
+                  console.debug('[codemirror] failed to append lineNumbers extension', e);
+                }
+              }
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.debug('[codemirror] gutter fallback append failed', e);
+          }
+        }, 50);
       } catch (err) {
         // Fallback path: show a native textarea bound to the document text.
         // This keeps the app usable when codemirror packages are missing.
