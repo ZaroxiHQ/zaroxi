@@ -2,26 +2,26 @@
  * Declarative language registry.
  *
  * This file contains metadata for an initial broad set of languages and uses
- * loader primitives from loaders.ts to construct safe dynamic loaders.
+ * explicit dynamic imports for core language loaders so Vite can statically
+ * include the packages during pre-bundling. We avoid computed import paths
+ * here to eliminate runtime resolution failures.
  *
  * Policy:
  * - official `@codemirror/lang-*` packages are preferred
  * - lezer packages are used next (e.g., @lezer/toml)
- * - legacy fallback is available only if explicitly supplied and installed
+ * - legacy fallback is NOT used in the main runtime path
  * - plaintext fallback (null) is always valid
  */
 
 import type { LanguageMeta } from './types';
-import { officialLoader, lezerLoader, legacyLoader } from './loaders';
 
 /**
  * Registry map: id -> LanguageMeta
  *
- * Each entry is intentionally small and declarative. Adding a language means
- * adding one entry here. Loader functions are safe (catch errors and return null).
+ * Each entry is intentionally small and declarative. Loader functions return
+ * a CodeMirror Extension (LanguageSupport) or null on failure.
  *
- * NOTE: only packages that are present in package.json should be referenced here.
- * We include loaders for the core set required by the acceptance tests.
+ * NOTE: only packages that are present in apps/desktop/package.json should be referenced here.
  */
 export const registry: Record<string, LanguageMeta> = {
   // Rust
@@ -32,19 +32,42 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['rust'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-rust', (m) => (m as any).rust()),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-rust');
+        return (m as any).rust();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-rust', err);
+        return null;
+      }
+    },
   },
 
-  // TOML (legacy fallback - replace with a modern Lezer package if/when available)
+  // TOML - prefer a Lezer-based parser if available, otherwise fallback to plaintext
   toml: {
     id: 'toml',
     name: 'TOML',
     extensions: ['toml'],
     filenames: ['cargo.toml'],
     aliases: ['toml'],
-    packageType: 'legacy',
-    loader: legacyLoader('@codemirror/legacy-modes', 'mode/toml', 'toml'),
-    note: 'TOML via legacy-modes fallback (install @codemirror/legacy-modes); replace with a Lezer-based loader when available',
+    packageType: 'modern',
+    loader: async () => {
+      try {
+        // Use a Lezer toml parser if installed (@lezer/toml)
+        const lezer = await import('@lezer/toml');
+        const parser = (lezer as any).parser ?? (lezer as any).toml ?? null;
+        if (!parser) return null;
+        const languageMod = await import('@codemirror/language');
+        const { LRLanguage, LanguageSupport } = languageMod as any;
+        const lang = LRLanguage.define(parser);
+        return new LanguageSupport(lang);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] TOML lezer loader failed or @lezer/toml not installed', err);
+        return null;
+      }
+    },
   },
 
   // YAML - official package
@@ -55,7 +78,18 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['yaml', 'yml'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-yaml', (m) => (m as any).yaml()),
+    loader: async () => {
+      try {
+        const mod = await import('@codemirror/lang-yaml');
+        if ((mod as any).yaml) return (mod as any).yaml();
+        if ((mod as any).default) return (mod as any).default;
+        return null;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-yaml', err);
+        return null;
+      }
+    },
   },
 
   // JSON
@@ -66,7 +100,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: ['package.json', 'tsconfig.json'],
     aliases: ['json'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-json', (m) => (m as any).json()),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-json');
+        return (m as any).json();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-json', err);
+        return null;
+      }
+    },
   },
 
   // JavaScript / TypeScript (use lang-javascript with options)
@@ -77,7 +120,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['javascript', 'js'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-javascript', (m) => (m as any).javascript({ typescript: false, jsx: true })),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-javascript');
+        return (m as any).javascript({ typescript: false, jsx: true });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-javascript', err);
+        return null;
+      }
+    },
   },
 
   typescript: {
@@ -87,7 +139,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['ts', 'typescript'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-javascript', (m) => (m as any).javascript({ typescript: true, jsx: true })),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-javascript');
+        return (m as any).javascript({ typescript: true, jsx: true });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-javascript (ts)', err);
+        return null;
+      }
+    },
   },
 
   // Markdown
@@ -98,7 +159,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: ['readme.md', 'readme'],
     aliases: ['markdown', 'md'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-markdown', (m) => (m as any).markdown()),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-markdown');
+        return (m as any).markdown();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-markdown', err);
+        return null;
+      }
+    },
   },
 
   // HTML
@@ -109,7 +179,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['html'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-html', (m) => (m as any).html()),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-html');
+        return (m as any).html();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-html', err);
+        return null;
+      }
+    },
   },
 
   // CSS
@@ -120,7 +199,16 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['css'],
     packageType: 'official',
-    loader: officialLoader('@codemirror/lang-css', (m) => (m as any).css()),
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-css');
+        return (m as any).css();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-css', err);
+        return null;
+      }
+    },
   },
 
   // Plaintext fallback (no loader)

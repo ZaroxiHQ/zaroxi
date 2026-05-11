@@ -23,6 +23,7 @@
     "@codemirror/lang-css": "*",
     "@codemirror/lang-markdown": "*",
     "@codemirror/lang-rust": "*",
+    "@lezer/toml": "*",
     "@codemirror/lang-yaml": "*",
     "@codemirror/legacy-modes": "*",
     "@codemirror/language": "*",
