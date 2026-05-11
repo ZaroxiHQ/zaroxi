@@ -50,13 +50,11 @@ export function createBaseExtensions(
   // Create specific ext instances so we can log their presence for debugging.
   const lineNumbersExt = lineNumbers();
   const foldGutterExt = languageExtension ? foldGutter() : null;
-  // Runtime debug: report whether language support was provided and which gutter extensions are included.
+  // Runtime debug: report whether language support was provided.
   // eslint-disable-next-line no-console
   console.debug('[codemirror] createBaseExtensions', {
     docKey,
     languageProvided: !!languageExtension,
-    lineNumbersIncluded: !!lineNumbersExt,
-    foldGutterIncluded: !!foldGutterExt,
   });
 
   const extensions: any[] = [

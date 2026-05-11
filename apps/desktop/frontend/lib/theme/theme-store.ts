@@ -387,8 +387,8 @@ function applyThemeColors(colors: SemanticColors) {
   root.style.setProperty('--color-editor-find-highlight', colors.editor_find_highlight);
 
   // Editor font family and size — prefer JetBrains Mono Nerd Font if available.
-  root.style.setProperty('--editor-font-family', '"JetBrains Mono", "JetBrains Mono Nerd Font", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace');
-  root.style.setProperty('--editor-font-size', '13px');
+  root.style.setProperty('--editor-font-family', '"JetBrains Mono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace');
+  root.style.setProperty('--editor-font-size', '15px');
   
   // Syntax colors
   root.style.setProperty('--color-syntax-keyword', colors.syntax_keyword);

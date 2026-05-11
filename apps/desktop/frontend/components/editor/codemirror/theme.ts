@@ -38,8 +38,8 @@ export const zaroxiCodeMirrorTheme = [
         height: '100%',
         // Reasonable default font sizing & family; crate can override via CSS variables.
         fontFamily:
-          'var(--editor-font-family, "JetBrains Mono", "JetBrains Mono Nerd Font", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
-        fontSize: 'var(--editor-font-size, 14px)',
+          'var(--editor-font-family, "JetBrains Mono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+        fontSize: 'var(--editor-font-size, 15px)',
         lineHeight: '1.55',
       },
       '.cm-scroller': {
@@ -52,8 +52,8 @@ export const zaroxiCodeMirrorTheme = [
         caretColor: 'var(--color-editor-cursor)',
         // Ensure the visible font-size applies to content
         fontFamily:
-          'var(--editor-font-family, "JetBrains Mono", "JetBrains Mono Nerd Font", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
-        fontSize: 'var(--editor-font-size, 14px)',
+          'var(--editor-font-family, "JetBrains Mono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+        fontSize: 'var(--editor-font-size, 15px)',
         lineHeight: '1.55',
         whiteSpace: 'pre',
       },
@@ -78,6 +78,9 @@ export const zaroxiCodeMirrorTheme = [
         borderRight: '0',
         padding: '0 6px',
         boxSizing: 'border-box',
+        // Ensure gutter uses same monospaced editor font and sizing
+        fontFamily: 'var(--editor-font-family, "JetBrains Mono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+        fontSize: 'var(--editor-font-size, 15px)',
       },
       '.cm-lineNumbers .cm-gutterElement': {
         paddingRight: '6px',
