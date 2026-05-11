@@ -419,13 +419,49 @@ if $DO_BUILD; then
     IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
     branch="${branch:-master}"
 
-    # Skip languages that are already complete (both wasm and native present)
-    if language_has_artifact "${lang}"; then
+    # Determine exact presence of per-language artifacts:
+    # - wasm_present: checks for canonical wasm filenames in RUNTIME_DIR and GRAMMAR_DIR
+    # - native_present: checks for canonical native library names under GRAMMAR_DIR
+    wasm_present=false
+    native_present=false
+
+    # Check common wasm locations (runtime root and platform grammars dir)
+    wasm_candidates=(
+      "${RUNTIME_DIR}/tree-sitter-${lang}.wasm"
+      "${RUNTIME_DIR}/${lang}.wasm"
+      "${RUNTIME_DIR}/language-${lang}.wasm"
+      "${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
+      "${GRAMMAR_DIR}/${lang}.wasm"
+    )
+    for p in "${wasm_candidates[@]}"; do
+      if [ -f "$p" ]; then
+        wasm_present=true
+        break
+      fi
+    done
+
+    # Check native artifacts strictly under GRAMMAR_DIR
+    if [ -d "${GRAMMAR_DIR}" ]; then
+      if [ -f "${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/libtree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/tree-sitter-${lang}${EXT}" ]; then
+        native_present=true
+      fi
+      if ! $native_present; then
+        # Check for language-specific .node addons (exact or containing language token)
+        if ls "${GRAMMAR_DIR}/${lang}.node" 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/*"${lang}"*.node 1> /dev/null 2>&1; then
+          native_present=true
+        fi
+      fi
+    fi
+
+    # If both artifacts exist, treat the language as complete and skip build.
+    if $wasm_present && $native_present; then
       SKIPPED+=("${lang}")
+      echo "[fetch-grammars] skipping ${lang}: both wasm and native artifacts present (wasm=${wasm_present}, native=${native_present})"
       continue
     fi
 
-    echo "[fetch-grammars] scheduling build for missing language: ${lang} (repo=${repo}, branch=${branch}, subdir=${subdir})"
+    # Otherwise schedule/build -- report what's missing to aid diagnostics.
+    echo "[fetch-grammars] scheduling build for missing language: ${lang} (wasm_present=${wasm_present}, native_present=${native_present}, repo=${repo}, branch=${branch}, subdir=${subdir})"
 
     built=false
 
