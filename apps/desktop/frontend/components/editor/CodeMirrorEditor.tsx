@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createState, createBaseExtensions } from './codemirror/setup';
-import { getCachedState, setCachedState } from './editorEngine';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 
@@ -339,13 +338,6 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     return () => {
       destroyed = true;
       if (viewRef.current) {
-        try {
-          if (documentId) {
-            setCachedState(documentId, viewRef.current.state);
-          }
-        } catch {
-          // ignore caching errors
-        }
         try {
           viewRef.current.destroy();
         } catch {
