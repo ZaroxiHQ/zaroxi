@@ -78,12 +78,16 @@ download_url_to() {
 }
 
 # Parse args
-DO_BUILD=false
+# Default to attempting builds so the script will ensure missing artifacts are produced
+# (this mirrors build-time behavior: check existing artifacts and build missing ones).
+# Consumers can opt-out with --no-build.
+DO_BUILD=true
 declare -a FETCH_PAIRS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) DO_BUILD=true; shift ;;
+    --no-build) DO_BUILD=false; shift ;;
     --fetch) shift; while [[ $# -gt 0 && "$1" != --* ]]; do FETCH_PAIRS+=("$1"); shift; done ;;
     --help) print_help; exit 0 ;;
     *) echo "[fetch-grammars] unknown arg: $1"; print_help; exit 1 ;;
