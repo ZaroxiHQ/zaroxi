@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createState } from './codemirror/setup';
 import { getCachedState, setCachedState } from './editorEngine';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
+import { EditorView } from '@codemirror/view';
 
 interface CodeMirrorEditorProps {
   documentId: string | null;
@@ -66,13 +67,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         if (destroyed) return;
 
-        // Import EditorView at runtime using a literal import so Vite can resolve it.
-        const viewModule = await import('@codemirror/view');
-        if (!viewModule || !containerRef.current) {
-          throw new Error('EditorView not available');
-        }
-
-        const mountedView = new viewModule.EditorView({
+        const mountedView = new EditorView({
           state,
           parent: containerRef.current,
         });
