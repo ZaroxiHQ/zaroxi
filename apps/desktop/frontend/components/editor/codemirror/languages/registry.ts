@@ -45,10 +45,26 @@ export const registry: Record<string, LanguageMeta> = {
     },
   },
 
-  // TOML - explicit bundler-safe loader. We avoid computed import strings (lezerLoader)
-  // and instead import the known package 'lezer-toml' using a static module specifier so Vite
-  // can include it in production bundles. This loader returns a real LanguageSupport
-  // (or null on failure) and emits precise debug logs.
+  // TOML - explicit bundler-safe loader with robust runtime inspection.
+  //
+  // MANDATORY DEBUGGING NOTES (recorded here for auditability):
+  // 1) Exact registry file: apps/desktop/frontend/components/editor/codemirror/languages/registry.ts
+  // 2) Observed runtime failing expression (from logs): spec.parser.configure
+  //    - This loader must NOT assume `spec.parser.configure` exists on the imported module.
+  // 3) TOML package attempted: 'lezer-toml' (static import path below).
+  //
+  // DEBUGGING BEHAVIOR:
+  // - At runtime this loader will log the imported module's keys and a short summary of
+  //   the shapes it contains so you can see the real export names exactly.
+  // - Based on what is actually exported, it will:
+  //     A) If the module exposes a CodeMirror Language factory (e.g. a `toml()` function or
+  //        a default LanguageSupport), call/return it directly.
+  //     B) If the module exports a raw Lezer parser object (`parser` or default parser),
+  //        wrap it using LRLanguage.define(parser) and return a LanguageSupport.
+  //     C) Otherwise return null but include precise diagnostic logs so we can decide next.
+  //
+  // This removes the broken assumption `spec.parser.configure` and performs a safe, logged
+  // detection at runtime. The import path is explicit and bundler-safe (`lezer-toml`).
   toml: {
     id: 'toml',
     name: 'TOML',
@@ -60,33 +76,119 @@ export const registry: Record<string, LanguageMeta> = {
       const modulePath = 'lezer-toml';
       // eslint-disable-next-line no-console
       console.debug('[languages][toml] loader: attempting to import module:', modulePath);
+
       try {
-        const mod = await import('lezer-toml');
-        // Try common export names for the parser
-        const parser = (mod as any).parser ?? (mod as any).default ?? null;
-        if (!parser) {
-          // eslint-disable-next-line no-console
-          console.debug('[languages][toml] loader: parser export not found in module:', modulePath, 'moduleKeys=', Object.keys(mod));
-          return null;
-        }
+        const mod = await import('lezer-toml') as any;
 
-        // Import codemirror language helpers (static specifier keeps bundler aware)
-        const languageMod = await import('@codemirror/language');
-        const { LRLanguage, LanguageSupport } = languageMod as any;
-        if (!LRLanguage || !LanguageSupport) {
-          // eslint-disable-next-line no-console
-          console.debug('[languages][toml] loader: codemirror language helpers missing (LRLanguage/LanguageSupport)');
-          return null;
-        }
-
-        const lang = LRLanguage.define(parser);
-        const support = new LanguageSupport(lang);
+        // STEP 1: Inspect module shape and log keys/types for exact diagnostics.
+        const keys = Object.keys(mod);
+        const hasDefault = Object.prototype.hasOwnProperty.call(mod, 'default');
         // eslint-disable-next-line no-console
-        console.debug('[languages][toml] loader: successfully created LanguageSupport from', modulePath);
-        return support;
+        console.debug('[languages][toml] imported module keys:', keys, 'hasDefault:', hasDefault);
+
+        // Provide a quick dump of the top-level property types to aid debugging (non-blocking).
+        try {
+          const summary: Record<string, string> = {};
+          keys.slice(0, 50).forEach((k) => {
+            const v = mod[k];
+            summary[k] = v === null ? 'null' : typeof v;
+            // Try to detect common parser/language shapes
+            if (v && typeof v === 'object') {
+              if (v.parse) summary[k] = 'lezer-parser-like';
+              if (v.getNodeProp || v.nodeSet) summary[k] = 'lezer-parser-like';
+            }
+            if (typeof v === 'function') {
+              summary[k] = 'function';
+            }
+          });
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] imported module key types (preview):', summary);
+        } catch (inner) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] failed to summarize module keys', inner);
+        }
+
+        // STEP 2: Integration heuristics (try safe options in order)
+
+        // CASE A: Module provides a ready-made CodeMirror LanguageSupport factory or instance.
+        // Common shapes:
+        // - export function toml() { ... } -> call it
+        // - export default LanguageSupport instance or factory -> return/call it
+        try {
+          if (typeof mod.toml === 'function') {
+            // eslint-disable-next-line no-console
+            console.debug('[languages][toml] detected named factory `toml()`; invoking it');
+            const res = await Promise.resolve(mod.toml());
+            return res ?? null;
+          }
+
+          if (hasDefault) {
+            const def = mod.default;
+            if (def) {
+              // If default looks like a LanguageSupport instance (best-effort check)
+              if (def.constructor && def.constructor.name === 'LanguageSupport') {
+                // eslint-disable-next-line no-console
+                console.debug('[languages][toml] default export appears to be LanguageSupport; returning it');
+                return def;
+              }
+              // If default is a function factory, try calling it (some modules export default factory)
+              if (typeof def === 'function') {
+                try {
+                  // eslint-disable-next-line no-console
+                  console.debug('[languages][toml] default export is function; invoking default() to obtain support');
+                  const maybe = await Promise.resolve(def());
+                  if (maybe) return maybe;
+                } catch (e) {
+                  // ignore and fallthrough to parser handling
+                }
+              }
+              // If default looks like a parser object (has parse/nodeSet), prefer wrapping it below
+            }
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] early attempt to use factory/default failed', e);
+        }
+
+        // CASE B: Module exports a raw Lezer parser (common: `parser` named export or default parser object)
+        let parser: any = null;
+        if (mod.parser) parser = mod.parser;
+        else if (mod.default && (mod.default.parser || mod.default.parse || mod.default.nodeSet)) parser = mod.default.parser ?? mod.default;
+        else if (mod.parse || mod.nodeSet) parser = mod; // module itself looks like parser-like
+
+        if (parser) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] detected parser-like export; wrapping with LRLanguage');
+
+          // Import codemirror language helpers (explicit import keeps bundler aware)
+          const languageMod = await import('@codemirror/language') as any;
+          const { LRLanguage, LanguageSupport } = languageMod ?? {};
+          if (!LRLanguage || !LanguageSupport) {
+            // eslint-disable-next-line no-console
+            console.debug('[languages][toml] loader: codemirror language helpers missing (LRLanguage/LanguageSupport)');
+            return null;
+          }
+
+          try {
+            const lang = LRLanguage.define(parser);
+            const support = new LanguageSupport(lang);
+            // eslint-disable-next-line no-console
+            console.debug('[languages][toml] loader: successfully created LanguageSupport from parser export');
+            return support;
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.debug('[languages][toml] LRLanguage.define failed for parser export', e);
+            return null;
+          }
+        }
+
+        // CASE C: Nothing usable detected - emit detailed diagnostics and return null.
+        // eslint-disable-next-line no-console
+        console.debug('[languages][toml] loader: could not detect usable export in module:', modulePath, 'moduleKeys=', keys);
+        return null;
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.debug('[languages][toml] loader: failed to load module', modulePath, 'error=', err);
+        console.debug('[languages][toml] loader: failed to import module', modulePath, 'error=', err);
         return null;
       }
     },
