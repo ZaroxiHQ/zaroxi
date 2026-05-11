@@ -392,14 +392,39 @@ function applyThemeColors(colors: SemanticColors) {
   root.style.setProperty('--editor-font-family', '"JetBrains Mono Nerd Font", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace');
   root.style.setProperty('--editor-font-size', '15px');
   
-  // Syntax colors
+  // Syntax colors (mirror the full set emitted by the Rust theme crate).
+  // THEME-FIRST: ensure every semantic role that the backend provides is present
+  // as a CSS custom property so HighlightStyle can consume them without hardcoded colors.
   root.style.setProperty('--color-syntax-keyword', colors.syntax_keyword);
   root.style.setProperty('--color-syntax-function', colors.syntax_function);
+  root.style.setProperty('--color-syntax-method', (colors as any).syntax_method ?? colors.syntax_function);
   root.style.setProperty('--color-syntax-string', colors.syntax_string);
   root.style.setProperty('--color-syntax-comment', colors.syntax_comment);
   root.style.setProperty('--color-syntax-type', colors.syntax_type);
   root.style.setProperty('--color-syntax-variable', colors.syntax_variable);
   root.style.setProperty('--color-syntax-constant', colors.syntax_constant);
+  root.style.setProperty('--color-syntax-number', (colors as any).syntax_number ?? colors.syntax_constant);
+  root.style.setProperty('--color-syntax-operator', (colors as any).syntax_operator ?? colors.syntax_punctuation ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-punctuation', (colors as any).syntax_punctuation ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-attribute', (colors as any).syntax_attribute ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-tag', (colors as any).syntax_tag ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-namespace', (colors as any).syntax_namespace ?? colors.syntax_type);
+  root.style.setProperty('--color-syntax-macro', (colors as any).syntax_macro ?? colors.syntax_operator);
+  root.style.setProperty('--color-syntax-property', (colors as any).syntax_property ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-parameter', (colors as any).syntax_parameter ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-builtin', (colors as any).syntax_builtin ?? colors.syntax_variable);
+  root.style.setProperty('--color-syntax-escape', (colors as any).syntax_escape ?? colors.syntax_string);
+  root.style.setProperty('--color-syntax-embedded', (colors as any).syntax_embedded ?? colors.syntax_string);
+  root.style.setProperty('--color-syntax-regex', (colors as any).syntax_regex ?? colors.syntax_escape);
+  root.style.setProperty('--color-syntax-markup-heading', (colors as any).syntax_markup_heading ?? colors.syntax_tag);
+  root.style.setProperty('--color-syntax-markup-list', (colors as any).syntax_markup_list ?? colors.syntax_regex);
+  root.style.setProperty('--color-syntax-markup-quote', (colors as any).syntax_markup_quote ?? colors.syntax_comment);
+  root.style.setProperty('--color-syntax-markup-link', (colors as any).syntax_markup_link ?? colors.syntax_namespace);
+  root.style.setProperty('--color-syntax-markup-code', (colors as any).syntax_markup_code ?? colors.syntax_embedded);
+  root.style.setProperty('--color-syntax-markup-bold', (colors as any).syntax_markup_bold ?? colors.text_on_surface);
+  root.style.setProperty('--color-syntax-markup-italic', (colors as any).syntax_markup_italic ?? colors.text_on_surface);
+  root.style.setProperty('--color-syntax-markup-strikethrough', (colors as any).syntax_markup_strikethrough ?? colors.text_faint);
+  root.style.setProperty('--color-syntax-lifetime', (colors as any).syntax_lifetime ?? (colors as any).syntax_escape ?? colors.syntax_variable);
 }
 
 // Update CSS custom properties based on theme
