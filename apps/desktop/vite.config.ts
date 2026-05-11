@@ -134,6 +134,11 @@ export default defineConfig({
       '@codemirror/lang-html',
       '@codemirror/lang-css',
       '@codemirror/lang-markdown',
+      // Ensure these newly added language packages are pre-bundled by Vite so they resolve
+      // in production builds as well as dev.
+      '@lezer/toml',
+      '@codemirror/lang-python',
+      '@codemirror/lang-xml',
       'web-tree-sitter',
     ],
   },

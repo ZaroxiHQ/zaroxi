@@ -14,6 +14,7 @@
  */
 
 import type { LanguageMeta } from './types';
+import { lezerLoader, officialLoader } from './loaders';
 
 /**
  * Registry map: id -> LanguageMeta
@@ -44,9 +45,8 @@ export const registry: Record<string, LanguageMeta> = {
     },
   },
 
-  // TOML - use a bundled Lezer TOML parser (@lezer/toml) and wrap it as LRLanguage.
-  // This loader uses an explicit string literal dynamic import so Vite will include
-  // the package in production bundles/chunks (no dev-only magic).
+  // TOML - use a Lezer TOML parser via the shared lezerLoader helper. This keeps the
+  // loader implementation consistent and avoids direct ad-hoc import expressions.
   toml: {
     id: 'toml',
     name: 'TOML',
@@ -54,27 +54,8 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: ['cargo.toml'],
     aliases: ['toml'],
     packageType: 'official',
-    loader: async () => {
-      try {
-        // Import the Lezer TOML parser package (must be added to package.json)
-        const lezer = await import('@lezer/toml');
-        const languageMod = await import('@codemirror/language');
-        const { LRLanguage, LanguageSupport } = languageMod as any;
-        // Common export names: parser
-        const parser = (lezer as any).parser ?? (lezer as any).TomlParser ?? null;
-        if (!parser) {
-          // eslint-disable-next-line no-console
-          console.debug('[languages][loader] @lezer/toml did not expose a parser');
-          return null;
-        }
-        const lang = LRLanguage.define(parser);
-        return new LanguageSupport(lang);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.debug('[languages][loader] failed to load @lezer/toml', err);
-        return null;
-      }
-    },
+    // lezerLoader(lezerPackageName, parserExportName?)
+    loader: lezerLoader('@lezer/toml', 'parser'),
   },
 
   // YAML - official package
