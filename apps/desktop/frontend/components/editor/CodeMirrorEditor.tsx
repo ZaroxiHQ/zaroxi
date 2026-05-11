@@ -172,10 +172,12 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
           // Inspect state extensions (best-effort)
           let extDiagnostics: any = null;
+          let hasSyntaxHighlightingExtension = false;
+          let hasLanguageExtensionPresent = false;
           try {
             const exts = (mountedView.state as any)?.config?.extensions ?? (mountedView.state as any)?.extensions ?? null;
             if (Array.isArray(exts)) {
-              extDiagnostics = exts.slice(0, 50).map((ext: any, i: number) => {
+              const mapped = exts.slice(0, 50).map((ext: any, i: number) => {
                 let name = (ext && (ext as any).constructor && (ext as any).constructor.name) || typeof ext;
                 let str = undefined;
                 try {
@@ -185,10 +187,17 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                 try {
                   if (ext && typeof ext === 'object') keys = Object.keys(ext).slice(0, 10);
                 } catch {}
-                // Heuristic: detect 'lineNumbers' by toString or constructor name
-                const likelyLineNumbers = !!(str && str.toLowerCase().includes('linenumber')) || (name && name.toLowerCase().includes('linenumber'));
-                return { index: i, name, likelyLineNumbers, keys, toString: str };
+                const lowerName = (name || '').toString().toLowerCase();
+                const lowerStr = (str || '').toString().toLowerCase();
+                // Heuristics for detecting highlight / language extensions
+                const likelyLineNumbers = !!(lowerStr && lowerStr.includes('linenumber')) || (lowerName && lowerName.includes('linenumber'));
+                const likelyHighlight = !!(lowerStr && (lowerStr.includes('highlight') || lowerStr.includes('highlightstyle') || lowerStr.includes('syntaxhighlighting'))) || (lowerName && (lowerName.includes('highlight') || lowerName.includes('highlightstyle')));
+                const likelyLanguageSupport = !!(lowerName && (lowerName.includes('languagesupport') || lowerName.includes('language'))) || (lowerStr && lowerStr.includes('language'));
+                if (likelyHighlight) hasSyntaxHighlightingExtension = true;
+                if (likelyLanguageSupport) hasLanguageExtensionPresent = true;
+                return { index: i, name, likelyLineNumbers, likelyHighlight, likelyLanguageSupport, keys, toString: str };
               });
+              extDiagnostics = mapped;
             } else {
               extDiagnostics = { type: typeof exts, value: exts };
             }
@@ -207,6 +216,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             guttersDisplay: guttersStyle?.display ?? null,
             guttersWidth: guttersStyle?.width ?? null,
             extensionsPreview: extDiagnostics,
+            hasSyntaxHighlightingExtension,
+            hasLanguageExtension: hasLanguageExtensionPresent,
           });
 
           // If gutters are missing, capture a snapshot of the DOM and state to help debugging.
