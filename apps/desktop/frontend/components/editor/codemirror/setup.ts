@@ -133,7 +133,8 @@ function buildSyntaxPalette() {
 function buildHighlightStyle() {
   const p = buildSyntaxPalette();
 
-  return HighlightStyle.define([
+  // Raw style entries — same structure as before, validated below.
+  const rawStyles = [
     // Comments
     { tag: [t.blockComment, t.lineComment, t.comment], color: p.comment, fontStyle: 'italic' },
 
@@ -183,7 +184,100 @@ function buildHighlightStyle() {
 
     // Invalid tokens
     { tag: t.invalid, color: p.operator },
-  ]);
+  ];
+
+  // Determine whether we're in development mode (Vite's import.meta.env.MODE or NODE_ENV).
+  const isDev = (() => {
+    try {
+      // Vite provides import.meta.env.MODE; fallback to process.env.NODE_ENV if available.
+      // Use a robust check that won't throw in environments where `import.meta` is not inspectable.
+      // eslint-disable-next-line no-undef
+      if (typeof (import as any).meta !== 'undefined' && (import as any).meta.env && (import as any).meta.env.MODE) {
+        return (import as any).meta.env.MODE === 'development';
+      }
+    } catch (e) {
+      // ignore
+    }
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof process !== 'undefined' && (process as any).env && (process as any).env.NODE_ENV) {
+        return (process as any).env.NODE_ENV === 'development';
+      }
+    } catch (e) {
+      // ignore
+    }
+    return false;
+  })();
+
+  // Validator / sanitizer:
+  // - Ensures every tag referenced is defined and has an `id` (what HighlightStyle expects).
+  // - In development: log details and throw so the author can fix the mapping explicitly.
+  // - In production: filter out invalid tag elements; if an entry ends up with no valid tags,
+  //   the entire entry is omitted to avoid the runtime `tag.id` crash.
+  function validateAndSanitize(styles: any[]) {
+    const invalidEntries: Array<{ index: number; entry: any; invalidTags: any[] }> = [];
+
+    const sanitized = styles.map((entry, idx) => {
+      const tags = entry.tag;
+      // Normalize to array for uniform handling
+      const tagList = Array.isArray(tags) ? tags.slice() : [tags];
+      const validTags = tagList.filter((tg) => {
+        try {
+          return tg !== undefined && tg !== null && typeof (tg as any).id !== 'undefined';
+        } catch {
+          return false;
+        }
+      });
+
+      if (validTags.length === 0) {
+        invalidEntries.push({ index: idx, entry, invalidTags: tagList });
+        // Return entry with undefined tag so caller can decide to omit it
+        return { ...entry, tag: undefined };
+      }
+
+      // Preserve original structure (single vs array)
+      const normalizedTag = Array.isArray(tags) ? validTags : validTags[0];
+      return { ...entry, tag: normalizedTag };
+    });
+
+    if (invalidEntries.length > 0) {
+      // Emit detailed diagnostic to console for the developer.
+      // Include index and a compact preview of the invalid tag objects.
+      try {
+        // eslint-disable-next-line no-console
+        console.error('[codemirror] Invalid highlight tag mappings detected:', invalidEntries.map((e) => ({
+          index: e.index,
+          invalidTagsPreview: e.invalidTags.map((t) => {
+            try {
+              // Best-effort stringification without throwing
+              if (!t) return String(t);
+              if (typeof t === 'object') return Object.prototype.toString.call(t);
+              return String(t);
+            } catch {
+              return '<<unserializable>>';
+            }
+          }),
+        })));
+      } catch {
+        // ignore logging failures
+      }
+
+      const msg = `[codemirror] Invalid highlight tag mappings detected (${invalidEntries.length} entries). See console for details.`;
+
+      if (isDev) {
+        // Fail fast in development so invalid tag usage can be fixed explicitly.
+        throw new Error(msg);
+      }
+      // In production environments, proceed but omit invalid entries to avoid crashing.
+    }
+
+    // Omit any entries where tag became undefined
+    return sanitized.filter((e) => typeof e.tag !== 'undefined');
+  }
+
+  const safeStyles = validateAndSanitize(rawStyles);
+
+  return HighlightStyle.define(safeStyles);
 }
 
 /** The app highlight style used by the editor. Built from CSS variables (no hardcoded hex). */
