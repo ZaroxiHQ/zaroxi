@@ -397,43 +397,106 @@ if $DO_BUILD; then
     popd > /dev/null
   }
 
-  # Search canonical local grammar dirs and attempt builds only where sensible.
-  # Many grammar repositories place buildable sources in nested subdirectories
-  # (e.g. typescript/src, tsx/src, tree-sitter-markdown/src, split_parser/, etc).
-  # To handle those layouts we inspect the top-level dir first and then scan
-  # nested subdirs up to depth 3 for indicators of buildable grammar sources.
-  if [ -d "$LANGUAGES_DIR" ]; then
-    for d in "$LANGUAGES_DIR"/*; do
-      if [ -d "$d" ]; then
-        # Prefer immediate/top-level grammar sources
-        if [ -f "$d/grammar.js" ] || [ -f "$d/src/parser.c" ] || [ -f "$d/binding.gyp" ]; then
-          try_build "$d"
-          continue
-        fi
+  # Build mode: attempt to produce missing artifacts by:
+  # 1) preferring local grammar sources under languages/ or grammars/
+  # 2) if local sources are not present, clone the language repo to BUILD_ROOT and build there
+  #
+  # This ensures missing languages are built on-demand while still skipping work for
+  # languages that already have exact per-language artifacts (both wasm + native).
+  #
+  BUILD_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$BUILD_ROOT"' EXIT
 
-        # Otherwise search nested directories (depth 3) for grammar.js, parser.c or binding.gyp.
-        # This will discover repos that group language subfolders (typescript/tsx) or use split parsers.
-        found_any=false
-        while IFS= read -r subdir; do
-          if [ -n "$subdir" ]; then
-            found_any=true
-            try_build "$subdir"
+  # Iterate requested LANGUAGES list (lang|repo|branch|subdir).
+  for lang_spec in "${LANGUAGES[@]}"; do
+    IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
+    branch="${branch:-master}"
+
+    # Skip languages that are already complete (both wasm and native present)
+    if language_has_artifact "${lang}"; then
+      SKIPPED+=("${lang}")
+      continue
+    fi
+
+    echo "[fetch-grammars] scheduling build for missing language: ${lang} (repo=${repo}, branch=${branch}, subdir=${subdir})"
+
+    built=false
+
+    # 1) Prefer local sources under LANGUAGES_DIR/<lang>
+    if [ -d "${LANGUAGES_DIR}/${lang}" ]; then
+      echo "[fetch-grammars] found local language source: ${LANGUAGES_DIR}/${lang}"
+      try_build "${LANGUAGES_DIR}/${lang}" && built=true || true
+    fi
+
+    # 2) If not built yet, search nested directories under LANGUAGES_DIR for buildable roots
+    if ! $built && [ -d "${LANGUAGES_DIR}" ] && command -v find >/dev/null 2>&1; then
+      # Look for directories that contain grammar.js / grammar.json / parser.c / binding.gyp
+      while IFS= read -r candidate; do
+        if [ -z "$candidate" ]; then continue; fi
+        # If candidate name contains the language token prefer it (helps typescript/tsx layouts)
+        if echo "$candidate" | grep -qi "/${lang}\$" || echo "$candidate" | grep -qi "/${lang}/"; then
+          echo "[fetch-grammars] found nested candidate for ${lang}: ${candidate}"
+          try_build "${candidate}" && { built=true; break; } || true
+        fi
+      done < <(find "${LANGUAGES_DIR}" -maxdepth 4 -type f \( -name 'grammar.js' -o -name 'grammar.json' -o -name 'parser.c' -o -name 'binding.gyp' \) -printf '%h\n' 2>/dev/null | sort -u)
+    fi
+
+    # 3) Also check the platform-specific GRAMMAR_DIR for local repo-like trees
+    if ! $built && [ -d "${GRAMMAR_DIR}" ] && command -v find >/dev/null 2>&1; then
+      # Some packaging places sources under grammars/<platform>/<repo>
+      while IFS= read -r candidate; do
+        if [ -z "$candidate" ]; then continue; fi
+        if echo "$candidate" | grep -qi "/${lang}\$" || echo "$candidate" | grep -qi "/${lang}/"; then
+          echo "[fetch-grammars] found grammmar-root candidate for ${lang}: ${candidate}"
+          try_build "${candidate}" && { built=true; break; } || true
+        fi
+      done < <(find "${GRAMMAR_DIR%/*}" -maxdepth 4 -type f \( -name 'grammar.js' -o -name 'grammar.json' -o -name 'parser.c' -o -name 'binding.gyp' \) -printf '%h\n' 2>/dev/null | sort -u || true)
+    fi
+
+    # 4) If still not built, clone the remote repo into BUILD_ROOT and build there (best-effort).
+    if ! $built; then
+      if [ -n "${repo}" ] && command -v git >/dev/null 2>&1; then
+        echo "[fetch-grammars] cloning ${repo} (branch ${branch}) into build root to build ${lang}"
+        lang_tmp="$(mktemp -d -p "$BUILD_ROOT" "${lang}.XXXXX")"
+        if git clone --depth 1 --branch "${branch}" "${repo}" "${lang_tmp}" 2>/dev/null; then
+          # If a subdir is provided, prefer that subdir inside the clone.
+          target_dir="${lang_tmp}"
+          if [[ -n "${subdir}" && -d "${lang_tmp}/${subdir}" ]]; then
+            target_dir="${lang_tmp}/${subdir}"
           fi
-        done < <(find "$d" -maxdepth 3 -type f \( -name 'grammar.js' -o -name 'parser.c' -o -name 'binding.gyp' \) -printf '%h\n' 2>/dev/null | sort -u)
-
-        if ! $found_any; then
-          echo "[fetch-grammars] skipping $d (no buildable sources found)"
+          try_build "${target_dir}" || echo "[fetch-grammars] build attempt failed for cloned repo: ${repo} (lang=${lang})"
+        else
+          echo "[fetch-grammars] failed to clone ${repo} for ${lang}; skipping"
         fi
+      else
+        echo "[fetch-grammars] no local sources and git unavailable or repo not specified for ${lang}; skipping"
       fi
-    done
+    fi
+
+    # After attempting build/clone, record if artifact now exists.
+    if language_has_artifact "${lang}"; then
+      echo "[fetch-grammars] ${lang} artifacts are now present (build/relocation succeeded)"
+    else
+      echo "[fetch-grammars] ${lang} remains missing after build attempts"
+      TO_BUILD+=("${lang_spec}")
+    fi
+  done
+
+  if [ "${#SKIPPED[@]}" -gt 0 ]; then
+    echo "[fetch-grammars] Languages skipped (already complete): ${SKIPPED[*]}"
   fi
 
-  if [ -d "$GRAMMARS_DIR" ]; then
-    # look for nested grammar.js up to depth 3
-    find "$GRAMMARS_DIR" -maxdepth 3 -type f -name 'grammar.js' -printf '%h\n' | sort -u | while read -r gm; do
-      try_build "$gm"
+  if [ "${#TO_BUILD[@]}" -gt 0 ]; then
+    echo "[fetch-grammars] Languages still missing artifacts after attempts (consider manual inspection or installing toolchain):"
+    for s in "${TO_BUILD[@]}"; do
+      IFS='|' read -r _lang _repo _branch _subdir <<< "$s"
+      echo "  - ${_lang}"
     done
+  else
+    echo "[fetch-grammars] All requested languages either already had artifacts or were built/relocated successfully."
   fi
+
+  # Clean up BUILD_ROOT is handled by trap
 fi
 
 # 4) Report results & actionable next steps
