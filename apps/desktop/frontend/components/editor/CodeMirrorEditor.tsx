@@ -38,10 +38,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     (async () => {
       try {
         // Try to reuse cached state (opaque) if available.
+        // Do NOT reuse cached EditorState here. Cached states may have been created by older
+        // code paths without the mandatory lineNumbers() extension which causes the gutter
+        // to be invisible. Always create a fresh EditorState via createState so the active
+        // extensions (including lineNumbers) are present.
         let state = undefined;
-        if (documentId) {
-          state = getCachedState(documentId);
-        }
 
         // Load language support (lazy) and stash it so we can re-create the state later if needed.
         languageExtRef.current = null;
