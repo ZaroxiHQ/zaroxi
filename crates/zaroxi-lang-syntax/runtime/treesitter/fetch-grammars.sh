@@ -146,38 +146,82 @@ if ! maybe_run_npx tree-sitter --version >/dev/null 2>&1; then
   echo "tree-sitter CLI not available via PATH or npx. Native builds will be skipped."
 else
   # Pre-scan languages and skip ones that already have native or wasm artifacts.
+  # Use exact per-language checks (canonical wasm filenames and canonical native lib names)
+  # instead of merely testing for the presence of a containing directory.
   TO_BUILD=()
   SKIPPED=()
+
+  # Helper: return success (0) if an exact artifact for language exists.
+  language_has_artifact() {
+    local lang="$1"
+    local found=1
+
+    # Canonical wasm filenames to check (ordered)
+    local wasm_names=(
+      "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm"
+      "${RUNTIME_ROOT}/${lang}.wasm"
+      "${RUNTIME_ROOT}/language-${lang}.wasm"
+      "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm" # duplicate on purpose for clarity
+      "${RUNTIME_ROOT}/grammars/${TARGET}/tree-sitter-${lang}.wasm"
+      "${RUNTIME_ROOT}/languages/${TARGET}/tree-sitter-${lang}.wasm"
+      "${RUNTIME_ROOT}/grammars/${TARGET}/${lang}.wasm"
+      "${RUNTIME_ROOT}/languages/${TARGET}/${lang}.wasm"
+    )
+
+    for p in "${wasm_names[@]}"; do
+      if [ -f "$p" ]; then
+        echo "[fetch-grammars] found wasm for ${lang}: $p"
+        found=0
+        break
+      fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+      return 0
+    fi
+
+    # Check for native artifacts in platform grammar dir (exact per-language names/patterns)
+    if [ -d "${GRAMMAR_DIR}" ]; then
+      # canonical library names
+      if [ -f "${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/libtree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/tree-sitter-${lang}${EXT}" ]; then
+        echo "[fetch-grammars] found native lib for ${lang} in ${GRAMMAR_DIR}"
+        return 0
+      fi
+
+      # Node addon / .node named for that language (exact-match patterns)
+      if ls "${GRAMMAR_DIR}/${lang}.node" 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/*"${lang}"*.node 1> /dev/null 2>&1; then
+        echo "[fetch-grammars] found .node addon for ${lang} in ${GRAMMAR_DIR}"
+        return 0
+      fi
+
+      # Broad check: first-class canonical patterns (libtree-sitter-<lang>* or tree-sitter-<lang>*).
+      if ls "${GRAMMAR_DIR}"/libtree-sitter-"${lang}"* 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/tree-sitter-"${lang}"* 1> /dev/null 2>&1; then
+        echo "[fetch-grammars] found native lib pattern for ${lang} in ${GRAMMAR_DIR}"
+        return 0
+      fi
+    fi
+
+    return 1
+  }
 
   for lang_spec in "${LANGUAGES[@]}"; do
       IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
       # Normalize branch default
       branch="${branch:-master}"
 
-      # Check for canonical per-language wasm in the runtime root
-      if [ -f "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm" ]; then
+      if language_has_artifact "${lang}"; then
         SKIPPED+=("${lang}")
         continue
       fi
 
-      # Check for native artifacts in the platform grammar dir (if it exists)
-      if [ -d "${GRAMMAR_DIR}" ]; then
-        if ls "${GRAMMAR_DIR}"/libtree-sitter-"${lang}"* 1> /dev/null 2>&1 || \
-           ls "${GRAMMAR_DIR}"/tree-sitter-"${lang}"* 1> /dev/null 2>&1 || \
-           ls "${GRAMMAR_DIR}"/*.node 1> /dev/null 2>&1; then
-          SKIPPED+=("${lang}")
-          continue
-        fi
-      fi
-
-      # If we reached here, neither wasm nor native artifact is present -> schedule build
+      # If we reached here, neither exact wasm nor native artifact is present -> schedule build
       TO_BUILD+=("${lang_spec}")
   done
 
   if [ "${#TO_BUILD[@]}" -eq 0 ]; then
-    echo "All requested languages already have artifacts under ${RUNTIME_ROOT} or ${GRAMMAR_DIR}; skipping native build pass."
+    echo "All requested languages already have exact artifacts (wasm or native) under ${RUNTIME_ROOT} or ${GRAMMAR_DIR}; skipping native build pass."
   else
-    echo "Languages to build (missing artifacts):"
+    echo "Languages to build (missing exact artifacts):"
     for s in "${TO_BUILD[@]}"; do
       IFS='|' read -r _lang _repo _branch _subdir <<< "$s"
       echo "  - ${_lang}"
