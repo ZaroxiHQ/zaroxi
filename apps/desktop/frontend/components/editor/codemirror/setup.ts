@@ -12,6 +12,8 @@ import { foldGutter } from '@codemirror/language';
 import { history } from '@codemirror/commands';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 
+import { HighlightStyle, syntaxHighlighting, tags } from '@codemirror/highlight';
+
 import { zaroxiCodeMirrorTheme } from './theme';
 
 type Selection = { from: number; to: number };
@@ -42,24 +44,29 @@ export async function createBaseExtensions(
     }
   });
 
-  // Attempt to dynamically import the highlight helper while avoiding Vite's static
-  // import-analysis. We use an eval-based import with a composed string so Vite does
-  // not see a literal "@codemirror/highlight" in the source and fail pre-transform.
-  let highlightExtension: any = null;
-  try {
-    const pkg = '@codemirror/highlight';
-    // Use eval-based dynamic import to avoid Vite static analysis of literal import specifiers.
-    // eslint-disable-next-line no-eval
-    const mod = await eval("import('" + pkg + "')");
-    const { syntaxHighlighting, defaultHighlightStyle } = mod as any;
-    if (typeof syntaxHighlighting === 'function' && defaultHighlightStyle) {
-      highlightExtension = syntaxHighlighting(defaultHighlightStyle, { fallback: true });
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.debug('[codemirror] optional @codemirror/highlight import failed; skipping syntaxHighlighting', err);
-    highlightExtension = null;
-  }
+  // Required highlight style using official @codemirror/highlight API.
+  // We define a small HighlightStyle that maps core syntax tags to the app's CSS variables.
+  // This is intentionally required (not optional): when a language extension is present,
+  // tokens must be styled.
+  const highlightStyle = HighlightStyle.define([
+    { tag: tags.keyword, color: 'var(--color-syntax-keyword)', fontWeight: '600' },
+    { tag: tags.function(tags.variableName), color: 'var(--color-syntax-function)' },
+    { tag: tags.string, color: 'var(--color-syntax-string)' },
+    { tag: tags.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
+    { tag: tags.typeName, color: 'var(--color-syntax-type)' },
+    { tag: tags.variableName, color: 'var(--color-syntax-variable)' },
+    { tag: tags.constant(tags.variableName), color: 'var(--color-syntax-constant)' },
+    { tag: tags.number, color: 'var(--color-syntax-number)' },
+    { tag: tags.operator, color: 'var(--color-syntax-operator)' },
+    { tag: tags.punctuation, color: 'var(--color-syntax-punctuation)' },
+    { tag: tags.propertyName, color: 'var(--color-syntax-property)' },
+    { tag: tags.macroName, color: 'var(--color-syntax-macro)' },
+    { tag: tags.attributeName, color: 'var(--color-syntax-attribute)' },
+    // Fallback mapping for generic identifiers and builtins
+    { tag: tags.definition(tags.variableName), color: 'var(--color-syntax-variable)' },
+    { tag: tags.builtin, color: 'var(--color-syntax-builtin)' },
+  ]);
+  const highlightExtension = syntaxHighlighting(highlightStyle, { fallback: true });
 
   // Compose extensions (deterministic)
   const extensions: any[] = [
@@ -77,8 +84,8 @@ export async function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Attach highlight extension only if we successfully imported it.
-    ...(highlightExtension ? [highlightExtension] : []),
+    // Required syntax highlighting extension so language tokens are visibly styled.
+    highlightExtension,
     // Update listener
     updateListener,
   ];
