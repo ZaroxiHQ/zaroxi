@@ -45,8 +45,10 @@ export const registry: Record<string, LanguageMeta> = {
     },
   },
 
-  // TOML - use a Lezer TOML parser via the shared lezerLoader helper. This keeps the
-  // loader implementation consistent and avoids direct ad-hoc import expressions.
+  // TOML - explicit bundler-safe loader. We avoid computed import strings (lezerLoader)
+  // and instead import the known package 'lezer-toml' using a static module specifier so Vite
+  // can include it in production bundles. This loader returns a real LanguageSupport
+  // (or null on failure) and emits precise debug logs.
   toml: {
     id: 'toml',
     name: 'TOML',
@@ -54,8 +56,40 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: ['cargo.toml'],
     aliases: ['toml'],
     packageType: 'official',
-    // lezerLoader(lezerPackageName, parserExportName?)
-    loader: lezerLoader('lezer-toml', 'parser'),
+    loader: async () => {
+      const modulePath = 'lezer-toml';
+      // eslint-disable-next-line no-console
+      console.debug('[languages][toml] loader: attempting to import module:', modulePath);
+      try {
+        const mod = await import('lezer-toml');
+        // Try common export names for the parser
+        const parser = (mod as any).parser ?? (mod as any).default ?? null;
+        if (!parser) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] loader: parser export not found in module:', modulePath, 'moduleKeys=', Object.keys(mod));
+          return null;
+        }
+
+        // Import codemirror language helpers (static specifier keeps bundler aware)
+        const languageMod = await import('@codemirror/language');
+        const { LRLanguage, LanguageSupport } = languageMod as any;
+        if (!LRLanguage || !LanguageSupport) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] loader: codemirror language helpers missing (LRLanguage/LanguageSupport)');
+          return null;
+        }
+
+        const lang = LRLanguage.define(parser);
+        const support = new LanguageSupport(lang);
+        // eslint-disable-next-line no-console
+        console.debug('[languages][toml] loader: successfully created LanguageSupport from', modulePath);
+        return support;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][toml] loader: failed to load module', modulePath, 'error=', err);
+        return null;
+      }
+    },
   },
 
   // YAML - official package
