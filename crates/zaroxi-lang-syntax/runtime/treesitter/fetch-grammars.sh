@@ -165,6 +165,42 @@ if $DO_BUILD; then
   echo "[fetch-grammars] build mode enabled: attempting best-effort builds from local grammar sources"
   echo "[fetch-grammars] Note: will perform per-language checks and skip only the specific languages that already have exact artifacts. No global short-circuit will be applied."
 
+  # Relocate any existing per-language wasm files that were packaged next to native libraries
+  # inside the platform-specific GRAMMAR_DIR into the canonical runtime root (RUNTIME_DIR).
+  # Many packaging layouts place .wasm next to .so/.dylib files; the frontend expects wasm in
+  # RUNTIME_DIR (not under grammars/<platform>/). Move them here so later checks find them.
+  if [ -d "${GRAMMAR_DIR}" ]; then
+    shopt -s nullglob
+    moved_any=false
+    for wf in "${GRAMMAR_DIR}"/*.wasm; do
+      if [ -f "$wf" ]; then
+        dest="${RUNTIME_DIR}/$(basename "$wf")"
+        if [ -f "${dest}" ]; then
+          if cmp -s "$wf" "${dest}"; then
+            echo "[fetch-grammars] wasm $(basename "$wf") already present in runtime; skipping"
+            continue
+          else
+            echo "[fetch-grammars] backing up existing runtime wasm ${dest} -> ${dest}.bak"
+            mv -v "${dest}" "${dest}.bak" || true
+          fi
+        fi
+        echo "[fetch-grammars] relocating wasm from ${wf} -> ${dest}"
+        if mv -v "$wf" "$dest" 2>/dev/null; then
+          WASM_BUILT+=("$(basename "${dest}")")
+          moved_any=true
+        else
+          cp -v "$wf" "$dest" || true
+          WASM_BUILT+=("$(basename "${dest}")")
+          moved_any=true
+        fi
+      fi
+    done
+    shopt -u nullglob
+    if $moved_any; then
+      echo "[fetch-grammars] relocated wasm artifacts from ${GRAMMAR_DIR} to ${RUNTIME_DIR}"
+    fi
+  fi
+
   try_build() {
     local dir="$1"
     echo "[fetch-grammars] attempting build in: $dir"
@@ -425,13 +461,13 @@ if $DO_BUILD; then
     wasm_present=false
     native_present=false
 
-    # Check common wasm locations (runtime root and platform grammars dir)
+    # Check canonical wasm locations: prefer the runtime root only.
+    # The frontend expects per-language wasm under RUNTIME_DIR (e.g. .../runtime/treesitter/tree-sitter-<lang>.wasm).
+    # Do NOT treat wasm under GRAMMAR_DIR as satisfying the runtime wasm presence; those get relocated above.
     wasm_candidates=(
       "${RUNTIME_DIR}/tree-sitter-${lang}.wasm"
       "${RUNTIME_DIR}/${lang}.wasm"
       "${RUNTIME_DIR}/language-${lang}.wasm"
-      "${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
-      "${GRAMMAR_DIR}/${lang}.wasm"
     )
     for p in "${wasm_candidates[@]}"; do
       if [ -f "$p" ]; then
