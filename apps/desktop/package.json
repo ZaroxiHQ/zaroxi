@@ -14,9 +14,10 @@
   },
   "dependencies": {
     "@codemirror/commands": "*",
-    "@codemirror/fold": "*",
-    "@codemirror/gutter": "*",
-    "@codemirror/history": "*",
+    "@codemirror/state": "*",
+    "@codemirror/view": "*",
+    "@codemirror/language": "*",
+    "@lezer/highlight": "*",
     "@codemirror/lang-javascript": "*",
     "@codemirror/lang-json": "*",
     "@codemirror/lang-html": "*",
@@ -25,9 +26,6 @@
     "@codemirror/lang-rust": "*",
     "@codemirror/lang-yaml": "*",
     "@codemirror/legacy-modes": "*",
-    "@codemirror/language": "*",
-    "@codemirror/state": "*",
-    "@codemirror/view": "*",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
@@ -39,8 +37,7 @@
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.5.4",
     "web-tree-sitter": "*",
-    "zustand": "^5.0.0",
-    "@lezer/highlight": "*"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",

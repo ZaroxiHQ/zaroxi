@@ -6,15 +6,12 @@
  * - No Tree-sitter state or decoration plumbing is present in this file.
  */
 
-import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { foldGutter } from '@codemirror/fold';
-import { history } from '@codemirror/history';
-import { defaultKeymap } from '@codemirror/commands';
-import { historyKeymap } from '@codemirror/history';
+import { foldGutter } from '@codemirror/language';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { lineNumbers, highlightActiveLineGutter } from '@codemirror/gutter';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
