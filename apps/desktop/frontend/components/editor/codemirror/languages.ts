@@ -162,10 +162,29 @@ export async function loadLanguageSupport(lang: LangId): Promise<Extension | nul
       }
 
       case 'yaml': {
-        // Try community package first; if not available, fall back to null
+        // Prefer an official lang package if available; otherwise attempt legacy-modes
+        // but avoid static import specifiers that Vite will pre-resolve when the package
+        // is not installed. We try @codemirror/lang-yaml first, then fall back to the
+        // legacy mode loaded via a computed dynamic import (using eval to avoid bundler analysis).
         try {
-          const mod = await import('@codemirror/legacy-modes/mode/yaml');
-          const legacy = await import('@codemirror/legacy-modes');
+          const langMod = await import('@codemirror/lang-yaml');
+          // Many lang packages export a function named `yaml()` or a default LanguageSupport.
+          if ((langMod as any).yaml) return (langMod as any).yaml();
+          if ((langMod as any).default) return (langMod as any).default;
+        } catch {
+          // ignore and try legacy-modes below
+        }
+
+        try {
+          // Use a computed import path to prevent Vite from reporting unresolved imports
+          // at build time when @codemirror/legacy-modes isn't present.
+          const legacyModuleName = '@codemirror/legacy-modes';
+          // import the mode file and the package entry dynamically via eval so the string
+          // literal does not appear in the source for Vite's static resolver.
+          // eslint-disable-next-line no-eval
+          const mod = await eval("import(legacyModuleName + '/mode/yaml')");
+          // eslint-disable-next-line no-eval
+          const legacy = await eval("import(legacyModuleName)");
           return (legacy as any).StreamLanguage.define((mod as any).yaml);
         } catch {
           return null;
