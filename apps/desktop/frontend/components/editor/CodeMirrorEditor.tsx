@@ -26,6 +26,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const viewRef = useRef<any | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
+  // Hold the loaded language extension so we can re-create/reconfigure EditorState if needed.
+  const languageExtRef = useRef<any | null>(null);
 
   // Mount CodeMirror EditorView (async). If dynamic imports fail, flip to textarea fallback.
   useEffect(() => {
@@ -41,10 +43,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           state = getCachedState(documentId);
         }
 
-        // Load language support (lazy)
-        let languageExt = null;
+        // Load language support (lazy) and stash it so we can re-create the state later if needed.
+        languageExtRef.current = null;
         try {
-          languageExt = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+          languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
         } catch (e) {
           // ignore language load failures; fallback to no language (plaintext)
           // eslint-disable-next-line no-console
@@ -53,14 +55,15 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         if (!state) {
           // createState constructs a state with the provided language extension.
-          state = await createState(
+          // createState is synchronous in this module; use it directly.
+          state = createState(
             text ?? '',
             {
               onChange: (t: string) => {
                 onChange(t);
               },
             },
-            languageExt ?? undefined,
+            languageExtRef.current ?? undefined,
             documentId ?? undefined,
           );
         }
@@ -81,32 +84,36 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }
 
         // Sanity check: if the gutter DOM is missing (styles/extensions not applied),
-        // attempt to append the lineNumbers() extension at runtime as a minimal fallback.
-        // This helps when extension ordering or race conditions prevent the gutter from appearing.
-        setTimeout(async () => {
+        // recreate the EditorState (using createState which includes lineNumbers()) and set it
+        // on the mounted view. This is a small, deterministic fallback that avoids dynamic
+        // imports or reliance on appendConfig behavior.
+        setTimeout(() => {
           try {
             const dom = mountedView.dom;
             if (!dom.querySelector('.cm-gutters')) {
-              // Dynamically import to avoid changing the static bundle.
-              const viewMod = await import('@codemirror/view');
-              const stateMod = await import('@codemirror/state');
-              const lineNumFactory = (viewMod as any).lineNumbers ?? (viewMod as any).default?.lineNumbers;
-              const StateEffect = (stateMod as any).StateEffect;
-              if (typeof lineNumFactory === 'function' && StateEffect && mountedView) {
-                // Append the lineNumbers extension to the existing state.
-                try {
-                  mountedView.dispatch({
-                    effects: StateEffect.appendConfig.of([lineNumFactory()]),
-                  });
-                } catch (e) {
-                  // eslint-disable-next-line no-console
-                  console.debug('[codemirror] failed to append lineNumbers extension', e);
-                }
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] gutter missing; reconfiguring state to include lineNumbers extension');
+              try {
+                const newState = createState(
+                  mountedView.state.doc.toString(),
+                  {
+                    onChange: (t: string) => {
+                      onChange(t);
+                    },
+                  },
+                  languageExtRef.current ?? undefined,
+                  documentId ?? undefined,
+                );
+                // Replace the state so the full extension set is applied.
+                mountedView.setState(newState);
+              } catch (e) {
+                // eslint-disable-next-line no-console
+                console.debug('[codemirror] failed to reconfigure state for gutter', e);
               }
             }
           } catch (e) {
             // eslint-disable-next-line no-console
-            console.debug('[codemirror] gutter fallback append failed', e);
+            console.debug('[codemirror] gutter recheck failed', e);
           }
         }, 50);
       } catch (err) {
