@@ -209,18 +209,53 @@ function buildHighlightStyle() {
     return false;
   })();
 
-  // Validator / sanitizer:
+  // Validator / sanitizer (non-fatal):
   // - Ensures every tag referenced is defined and has an `id` (what HighlightStyle expects).
-  // - In development: log details and throw so the author can fix the mapping explicitly.
-  // - In production: filter out invalid tag elements; if an entry ends up with no valid tags,
-  //   the entire entry is omitted to avoid the runtime `tag.id` crash.
+  // - Detects invalid tag references, logs exact diagnostics, and omits invalid entries.
+  // - Never throws during module init; falls back to a minimal safe style if nothing remains.
   function validateAndSanitize(styles: any[]) {
-    const invalidEntries: Array<{ index: number; entry: any; invalidTags: any[] }> = [];
+    const invalidEntries: Array<{
+      index: number;
+      // original entry for context (not stringified to avoid circular issues)
+      entry: any;
+      // best-effort string representations of the provided tag expressions
+      tagExpressions: string[];
+      // resolved tag ids (or undefined) for each expression
+      resolvedTags: Array<string | undefined>;
+    }> = [];
 
-    const sanitized = styles.map((entry, idx) => {
+    const sanitized: any[] = [];
+
+    // Helper to produce a best-effort string for a tag expression
+    function stringifyTag(t: any) {
+      try {
+        if (t === undefined) return 'undefined';
+        if (t === null) return 'null';
+        // If it's an object with an `id` property (common for lezer tags), show it
+        if (typeof t === 'object' && typeof (t as any).id !== 'undefined') {
+          return `tag.id=${(t as any).id}`;
+        }
+        // Functions/composed tags may stringify more verbosely; fall back to constructor/name
+        if (typeof t === 'function') {
+          return `function:${t.name || '<anonymous>'}`;
+        }
+        // Primitive fallback
+        return String(t);
+      } catch {
+        return '<<unserializable>>';
+      }
+    }
+
+    styles.forEach((entry, idx) => {
       const tags = entry.tag;
-      // Normalize to array for uniform handling
       const tagList = Array.isArray(tags) ? tags.slice() : [tags];
+      const resolvedTags = tagList.map((tg) => {
+        try {
+          return tg !== undefined && tg !== null && typeof (tg as any).id !== 'undefined' ? String((tg as any).id) : undefined;
+        } catch {
+          return undefined;
+        }
+      });
       const validTags = tagList.filter((tg) => {
         try {
           return tg !== undefined && tg !== null && typeof (tg as any).id !== 'undefined';
@@ -230,49 +265,56 @@ function buildHighlightStyle() {
       });
 
       if (validTags.length === 0) {
-        invalidEntries.push({ index: idx, entry, invalidTags: tagList });
-        // Return entry with undefined tag so caller can decide to omit it
-        return { ...entry, tag: undefined };
+        invalidEntries.push({
+          index: idx,
+          entry,
+          tagExpressions: tagList.map(stringifyTag),
+          resolvedTags,
+        });
+        // Skip adding this entry to sanitized result (omit invalid entries)
+        return;
       }
 
-      // Preserve original structure (single vs array)
       const normalizedTag = Array.isArray(tags) ? validTags : validTags[0];
-      return { ...entry, tag: normalizedTag };
+      sanitized.push({ ...entry, tag: normalizedTag });
     });
 
     if (invalidEntries.length > 0) {
-      // Emit detailed diagnostic to console for the developer.
-      // Include index and a compact preview of the invalid tag objects.
       try {
+        // Log each invalid entry with exact index, original tag expressions and resolved ids
         // eslint-disable-next-line no-console
-        console.error('[codemirror] Invalid highlight tag mappings detected:', invalidEntries.map((e) => ({
-          index: e.index,
-          invalidTagsPreview: e.invalidTags.map((t) => {
-            try {
-              // Best-effort stringification without throwing
-              if (!t) return String(t);
-              if (typeof t === 'object') return Object.prototype.toString.call(t);
-              return String(t);
-            } catch {
-              return '<<unserializable>>';
-            }
-          }),
-        })));
+        console.warn('[codemirror] Invalid highlight tag mappings detected — the following entries were omitted. Each item includes index, tagExpressions (best-effort) and resolvedTags (undefined means missing):');
+        invalidEntries.forEach((e) => {
+          // eslint-disable-next-line no-console
+          console.warn('[codemirror] omitted-style-entry', {
+            index: e.index,
+            tagExpressions: e.tagExpressions,
+            resolvedTags: e.resolvedTags,
+            // Do not log entire `entry` to avoid circular structures; log keys instead
+            entryKeys: e.entry && typeof e.entry === 'object' ? Object.keys(e.entry) : String(e.entry),
+          });
+        });
       } catch {
         // ignore logging failures
       }
-
-      const msg = `[codemirror] Invalid highlight tag mappings detected (${invalidEntries.length} entries). See console for details.`;
-
-      if (isDev) {
-        // Fail fast in development so invalid tag usage can be fixed explicitly.
-        throw new Error(msg);
-      }
-      // In production environments, proceed but omit invalid entries to avoid crashing.
     }
 
-    // Omit any entries where tag became undefined
-    return sanitized.filter((e) => typeof e.tag !== 'undefined');
+    // If no sanitized entries remain, provide a minimal safe fallback style (guaranteed-valid tags)
+    if (sanitized.length === 0) {
+      // eslint-disable-next-line no-console
+      console.warn('[codemirror] All highlight mappings were invalid or omitted; using a minimal safe fallback HighlightStyle to avoid startup failure.');
+      const fallback = [
+        { tag: [t.keyword], color: p.keyword, fontWeight: '600' },
+        { tag: [t.string], color: p.string },
+        { tag: [t.comment], color: p.comment, fontStyle: 'italic' },
+        { tag: [t.number], color: p.number },
+        { tag: [t.typeName], color: p.type },
+        { tag: [t.function(t.variableName)], color: p.function },
+      ];
+      return fallback;
+    }
+
+    return sanitized;
   }
 
   const safeStyles = validateAndSanitize(rawStyles);
