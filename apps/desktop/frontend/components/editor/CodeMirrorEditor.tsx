@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createState } from './codemirror/setup';
 import { getCachedState, setCachedState } from './editorEngine';
-import { getLanguageSupportForPath } from './codemirror/languages';
+import { getLanguageSupportForPath } from './codemirror/languages/index';
 
 interface CodeMirrorEditorProps {
   documentId: string | null;
