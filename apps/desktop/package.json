@@ -26,6 +26,7 @@
     "@codemirror/lang-yaml": "*",
     "@codemirror/legacy-modes": "*",
     "@codemirror/language": "*",
+    "@codemirror/highlight": "*",
     "@codemirror/state": "*",
     "@codemirror/view": "*",
     "@radix-ui/react-tooltip": "^1.2.8",
