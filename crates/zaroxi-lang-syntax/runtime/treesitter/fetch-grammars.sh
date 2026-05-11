@@ -152,23 +152,23 @@ else
   SKIPPED=()
 
   # Helper: return success (0) only if BOTH canonical per-language wasm and a native artifact exist.
-  # We treat a language as "complete" only when both runtime/tree-sitter-<lang>.wasm (or sensible
-  # variants) exist and a platform-native library (.so/.dylib/.dll/.node) is present in GRAMMAR_DIR.
+  # Use the actual runtime/grammar directories (RUNTIME_DIR and GRAMMAR_DIR) when probing the FS.
+  # Many earlier failures were caused by checking an undefined variable (RUNTIME_ROOT). Use the
+  # concrete paths that are defined at the top of this script.
   language_has_artifact() {
     local lang="$1"
     local wasm_found=1
     local native_found=1
 
-    # Canonical wasm filenames to check (ordered)
+    # Canonical wasm filenames to check (ordered). Check both the runtime root and the platform-specific
+    # grammar directory because packaging sometimes places wasm next to native libs.
     local wasm_names=(
-      "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm"
-      "${RUNTIME_ROOT}/${lang}.wasm"
-      "${RUNTIME_ROOT}/language-${lang}.wasm"
-      "${RUNTIME_ROOT}/tree-sitter-${lang}.wasm" # duplicate on purpose for clarity
-      "${RUNTIME_ROOT}/grammars/${TARGET}/tree-sitter-${lang}.wasm"
-      "${RUNTIME_ROOT}/languages/${TARGET}/tree-sitter-${lang}.wasm"
-      "${RUNTIME_ROOT}/grammars/${TARGET}/${lang}.wasm"
-      "${RUNTIME_ROOT}/languages/${TARGET}/${lang}.wasm"
+      "${RUNTIME_DIR}/tree-sitter-${lang}.wasm"
+      "${RUNTIME_DIR}/${lang}.wasm"
+      "${RUNTIME_DIR}/language-${lang}.wasm"
+      "${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
+      "${GRAMMAR_DIR}/${lang}.wasm"
+      "${GRAMMAR_DIR}/tree-sitter-${lang}.wasm"
     )
 
     for p in "${wasm_names[@]}"; do
@@ -179,7 +179,8 @@ else
       fi
     done
 
-    # Check for native artifacts in platform grammar dir (exact per-language names/patterns)
+    # Check for native artifacts in platform grammar dir (exact per-language names/patterns).
+    # Native artifacts are expected under GRAMMAR_DIR; do not rely on runtime-root for native libs.
     if [ -d "${GRAMMAR_DIR}" ]; then
       # canonical library names
       if [ -f "${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/libtree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/tree-sitter-${lang}${EXT}" ]; then
@@ -232,7 +233,7 @@ else
   done
 
   if [ "${#TO_BUILD[@]}" -eq 0 ]; then
-    echo "All requested languages already have both wasm and native artifacts under ${RUNTIME_ROOT} and ${GRAMMAR_DIR}; skipping native build pass."
+    echo "All requested languages already have both wasm and native artifacts under ${RUNTIME_DIR} and ${GRAMMAR_DIR}; skipping native build pass."
   else
     echo "Languages to build (missing wasm and/or native artifacts):"
     for s in "${TO_BUILD[@]}"; do
