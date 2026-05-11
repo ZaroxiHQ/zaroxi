@@ -24,13 +24,12 @@ type Selection = { from: number; to: number };
  * - languageExtension is an optional CM6 extension (LanguageSupport) to provide
  *   syntax highlighting and language-specific behavior (folding, indentation).
  *
- * Note: We dynamically import the optional @codemirror/highlight package at runtime
- * to avoid Vite import-analysis errors when the package is not present in certain
- * environments. If the package is available, we attach a working syntaxHighlighting
- * using defaultHighlightStyle as a proof-of-life highlight. If not available, we
- * silently skip it (editor falls back to CSS token classes in theme).
+ * Note: The editor requires a syntax highlight extension. We statically import
+ * the official @codemirror/highlight API at build time and construct a HighlightStyle.
+ * createBaseExtensions is synchronous now (no runtime dynamic imports) to keep the
+ * extension graph deterministic and avoid HMR/import-analysis surprises.
  */
-export async function createBaseExtensions(
+export function createBaseExtensions(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
@@ -96,13 +95,13 @@ export async function createBaseExtensions(
 /**
  * Create a fresh EditorState for initial mounting.
  */
-export async function createState(
+export function createState(
   initialText: string,
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
 ) {
-  const extensions = await createBaseExtensions(opts, languageExtension, docKey);
+  const extensions = createBaseExtensions(opts, languageExtension, docKey);
   return EditorState.create({
     doc: initialText ?? '',
     extensions,
