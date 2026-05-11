@@ -12,6 +12,8 @@ import { foldGutter } from '@codemirror/language';
 import { history } from '@codemirror/commands';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/highlight';
+
 import { zaroxiCodeMirrorTheme } from './theme';
 
 type Selection = { from: number; to: number };
@@ -52,6 +54,9 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
+    // Ensure a working syntax highlight style is present so language tokens are visibly styled.
+    // Use the defaultHighlightStyle as a proof that the highlighting pipeline is active.
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     // Update listener
     updateListener,
   ];
