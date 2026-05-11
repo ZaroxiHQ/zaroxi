@@ -151,10 +151,13 @@ else
   TO_BUILD=()
   SKIPPED=()
 
-  # Helper: return success (0) if an exact artifact for language exists.
+  # Helper: return success (0) only if BOTH canonical per-language wasm and a native artifact exist.
+  # We treat a language as "complete" only when both runtime/tree-sitter-<lang>.wasm (or sensible
+  # variants) exist and a platform-native library (.so/.dylib/.dll/.node) is present in GRAMMAR_DIR.
   language_has_artifact() {
     local lang="$1"
-    local found=1
+    local wasm_found=1
+    local native_found=1
 
     # Canonical wasm filenames to check (ordered)
     local wasm_names=(
@@ -171,34 +174,44 @@ else
     for p in "${wasm_names[@]}"; do
       if [ -f "$p" ]; then
         echo "[fetch-grammars] found wasm for ${lang}: $p"
-        found=0
+        wasm_found=0
         break
       fi
     done
-
-    if [ "$found" -eq 0 ]; then
-      return 0
-    fi
 
     # Check for native artifacts in platform grammar dir (exact per-language names/patterns)
     if [ -d "${GRAMMAR_DIR}" ]; then
       # canonical library names
       if [ -f "${GRAMMAR_DIR}/${PREFIX}tree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/libtree-sitter-${lang}${EXT}" ] || [ -f "${GRAMMAR_DIR}/tree-sitter-${lang}${EXT}" ]; then
         echo "[fetch-grammars] found native lib for ${lang} in ${GRAMMAR_DIR}"
-        return 0
+        native_found=0
       fi
 
       # Node addon / .node named for that language (exact-match patterns)
       if ls "${GRAMMAR_DIR}/${lang}.node" 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/*"${lang}"*.node 1> /dev/null 2>&1; then
         echo "[fetch-grammars] found .node addon for ${lang} in ${GRAMMAR_DIR}"
-        return 0
+        native_found=0
       fi
 
       # Broad check: first-class canonical patterns (libtree-sitter-<lang>* or tree-sitter-<lang>*).
       if ls "${GRAMMAR_DIR}"/libtree-sitter-"${lang}"* 1> /dev/null 2>&1 || ls "${GRAMMAR_DIR}"/tree-sitter-"${lang}"* 1> /dev/null 2>&1; then
         echo "[fetch-grammars] found native lib pattern for ${lang} in ${GRAMMAR_DIR}"
-        return 0
+        native_found=0
       fi
+    fi
+
+    # Only consider the language "complete" if both wasm and native were found.
+    if [ "$wasm_found" -eq 0 ] && [ "$native_found" -eq 0 ]; then
+      return 0
+    fi
+
+    # Diagnostic messages to indicate what is missing for this language.
+    if [ "$wasm_found" -ne 0 ] && [ "$native_found" -ne 0 ]; then
+      echo "[fetch-grammars] missing both wasm and native for ${lang}"
+    elif [ "$wasm_found" -ne 0 ]; then
+      echo "[fetch-grammars] missing wasm for ${lang}"
+    else
+      echo "[fetch-grammars] missing native for ${lang}"
     fi
 
     return 1
@@ -219,13 +232,17 @@ else
   done
 
   if [ "${#TO_BUILD[@]}" -eq 0 ]; then
-    echo "All requested languages already have exact artifacts (wasm or native) under ${RUNTIME_ROOT} or ${GRAMMAR_DIR}; skipping native build pass."
+    echo "All requested languages already have both wasm and native artifacts under ${RUNTIME_ROOT} and ${GRAMMAR_DIR}; skipping native build pass."
   else
-    echo "Languages to build (missing exact artifacts):"
+    echo "Languages to build (missing wasm and/or native artifacts):"
     for s in "${TO_BUILD[@]}"; do
       IFS='|' read -r _lang _repo _branch _subdir <<< "$s"
       echo "  - ${_lang}"
     done
+
+    if [ "${#SKIPPED[@]}" -gt 0 ]; then
+      echo "Languages skipped (already complete): ${SKIPPED[*]}"
+    fi
 
     # Temporary directory for all builds (will be cleaned up on exit)
     BUILD_ROOT="$(mktemp -d)"
