@@ -26,6 +26,8 @@ export default defineConfig({
       '@codemirror/lang-javascript': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-javascript'),
       '@codemirror/lang-rust': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-rust'),
       '@codemirror/lang-json': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-json'),
+      '@codemirror/lang-html': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-html'),
+      '@codemirror/lang-css': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-css'),
       '@codemirror/lang-markdown': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-markdown'),
       'web-tree-sitter': path.resolve(__dirname, 'node_modules', 'web-tree-sitter'),
     },

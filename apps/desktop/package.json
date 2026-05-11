@@ -19,6 +19,8 @@
     "@codemirror/history": "*",
     "@codemirror/lang-javascript": "*",
     "@codemirror/lang-json": "*",
+    "@codemirror/lang-html": "*",
+    "@codemirror/lang-css": "*",
     "@codemirror/lang-markdown": "*",
     "@codemirror/lang-rust": "*",
     "@codemirror/language": "*",
