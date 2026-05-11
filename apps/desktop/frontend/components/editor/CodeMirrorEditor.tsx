@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createState, applyDecorationsToView } from './codemirror/setup';
+import { createState } from './codemirror/setup';
 import { getCachedState, setCachedState } from './editorEngine';
-import { initTreesitterOnce, parseAndComputeDecorations } from './codemirror/treesitterBridge';
+import { getLanguageSupportForPath } from './codemirror/languages';
 
 interface CodeMirrorEditorProps {
   documentId: string | null;
@@ -13,15 +13,11 @@ interface CodeMirrorEditorProps {
 }
 
 /**
- * CodeMirror 6 React wrapper with a safe runtime fallback:
- * - Attempts to dynamically construct an EditorState and EditorView at runtime.
- * - If CodeMirror packages are not available, falls back to a simple <textarea>.
+ * CodeMirror 6 React wrapper using standard CM6 language packages.
  *
- * This variant additionally wires Tree-sitter parsing:
- * - when a document mounts or the text prop changes, it triggers an async parse
- *   (full reparse) and applies decorations via applyDecorationsToView.
- *
- * Using dynamic imports avoids Vite failing when optional deps are not installed.
+ * - Dynamically loads language support via codemirror/languages.ts and passes
+ *   it into the EditorState creation. No Tree-sitter parsing is performed.
+ * - If CodeMirror packages are missing, falls back to a simple <textarea>.
  */
 export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const { documentId, text, languageId, onChange, onSave, readOnly } = props;
@@ -29,13 +25,6 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const viewRef = useRef<any | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
-
-  // Initialize treesitter runtime in background (may throw if wasm not reachable).
-  useEffect(() => {
-    void initTreesitterOnce().catch(() => {
-      // treesitter optional — errors are handled by parse functions
-    });
-  }, []);
 
   // Mount CodeMirror EditorView (async). If dynamic imports fail, flip to textarea fallback.
   useEffect(() => {
@@ -51,8 +40,18 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           state = getCachedState(documentId);
         }
 
+        // Load language support (lazy)
+        let languageExt = null;
+        try {
+          languageExt = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+        } catch (e) {
+          // ignore language load failures; fallback to no language (plaintext)
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] language load failed', e);
+        }
+
         if (!state) {
-          // createState is async and will dynamically import codemirror modules.
+          // createState constructs a state with the provided language extension.
           state = await createState(
             text ?? '',
             {
@@ -60,7 +59,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                 onChange(t);
               },
             },
-            languageId ?? undefined,
+            languageExt ?? undefined,
             documentId ?? undefined,
           );
         }
@@ -84,27 +83,6 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           mountedView.focus();
         } catch {
           // ignore focus errors in environments that don't support it
-        }
-
-        // Trigger an initial parse & decoration application (async).
-        try {
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] initial parse: requesting decorations for documentId=', documentId, 'languageId=', languageId);
-          const specs = await parseAndComputeDecorations(text ?? '', languageId ?? '', documentId ?? text ?? '');
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] initial parse: received specs.length=', specs ? specs.length : 0);
-          if (!destroyed && viewRef.current) {
-            await applyDecorationsToView(viewRef.current, specs);
-            // eslint-disable-next-line no-console
-            console.debug('[codemirror] initial parse: applied decorations to view');
-          } else {
-            // eslint-disable-next-line no-console
-            console.debug('[codemirror] initial parse: view destroyed or missing; skipping apply');
-          }
-        } catch (err) {
-          // parse errors are non-fatal for the editor
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] initial parse failed', err);
         }
       } catch (err) {
         // Fallback path: show a native textarea bound to the document text.
@@ -135,34 +113,6 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
-
-  // Debounced parse effect: when the document text changes (prop or editing),
-  // reparse and reapply decorations. Parsing is async and debounced to avoid churn.
-  useEffect(() => {
-    if (!viewRef.current) return;
-    let active = true;
-    const timer = window.setTimeout(async () => {
-      try {
-        // eslint-disable-next-line no-console
-        console.debug('[codemirror] debounced parse: documentId=', documentId, 'languageId=', languageId);
-        const specs = await parseAndComputeDecorations(text ?? '', languageId ?? '', documentId ?? text ?? '');
-        // eslint-disable-next-line no-console
-        console.debug('[codemirror] debounced parse: specs.length=', specs ? specs.length : 0);
-        if (!active) return;
-        await applyDecorationsToView(viewRef.current, specs);
-        // eslint-disable-next-line no-console
-        console.debug('[codemirror] debounced parse: applied decorations');
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.debug('[codemirror] parse-and-decorate failed', err);
-      }
-    }, 200);
-
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-  }, [text, languageId, documentId]);
 
   // Update document text if changed externally (e.g., reload from workspace).
   useEffect(() => {
