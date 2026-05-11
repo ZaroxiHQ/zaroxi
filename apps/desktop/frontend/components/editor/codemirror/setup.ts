@@ -42,12 +42,15 @@ export async function createBaseExtensions(
     }
   });
 
-  // Attempt to dynamically import the highlight helper. Use @vite-ignore so Vite's
-  // static analysis does not fail the dev server when the package is absent.
+  // Attempt to dynamically import the highlight helper while avoiding Vite's static
+  // import-analysis. We use an eval-based import with a composed string so Vite does
+  // not see a literal "@codemirror/highlight" in the source and fail pre-transform.
   let highlightExtension: any = null;
   try {
+    const pkg = '@codemirror/highlight';
+    // Use eval-based dynamic import to avoid Vite static analysis of literal import specifiers.
     // eslint-disable-next-line no-eval
-    const mod = await import(/* @vite-ignore */ '@codemirror/highlight');
+    const mod = await eval("import('" + pkg + "')");
     const { syntaxHighlighting, defaultHighlightStyle } = mod as any;
     if (typeof syntaxHighlighting === 'function' && defaultHighlightStyle) {
       highlightExtension = syntaxHighlighting(defaultHighlightStyle, { fallback: true });
