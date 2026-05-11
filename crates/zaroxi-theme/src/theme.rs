@@ -223,6 +223,7 @@ pub struct SemanticColors {
     pub syntax_markup_bold: Color,
     pub syntax_markup_italic: Color,
     pub syntax_markup_strikethrough: Color,
+    pub syntax_lifetime: Color,
 }
 
 impl SemanticColors {
@@ -324,6 +325,7 @@ impl SemanticColors {
             syntax_markup_bold: Color::from_hex("#E6EAF2"), // Markdown bold - primary text
             syntax_markup_italic: Color::from_hex("#E6EAF2"), // Markdown italic - primary text
             syntax_markup_strikethrough: Color::from_hex("#7E8794"), // Markdown strikethrough - faint
+            syntax_lifetime: Color::from_hex("#89DDFF"),
         }
     }
 
@@ -424,6 +426,7 @@ impl SemanticColors {
             syntax_markup_bold: Color::from_hex("#22262B"), // Markdown bold - primary text
             syntax_markup_italic: Color::from_hex("#22262B"), // Markdown italic - primary text
             syntax_markup_strikethrough: Color::from_hex("#8A919D"), // Markdown strikethrough - faint
+            syntax_lifetime: Color::from_hex("#00838F"),
         }
     }
 
@@ -526,7 +529,8 @@ impl SemanticColors {
         m.insert("--color-syntax-markup-bold".to_string(), Value::String(self.syntax_markup_bold.to_css_rgba()));
         m.insert("--color-syntax-markup-italic".to_string(), Value::String(self.syntax_markup_italic.to_css_rgba()));
         m.insert("--color-syntax-markup-strikethrough".to_string(), Value::String(self.syntax_markup_strikethrough.to_css_rgba()));
-
+        m.insert("--color-syntax-lifetime".to_string(), Value::String(self.syntax_lifetime.to_css_rgba()));
+ 
         Value::Object(m)
     }
 }

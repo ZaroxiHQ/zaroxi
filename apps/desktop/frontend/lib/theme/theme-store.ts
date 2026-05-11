@@ -77,6 +77,7 @@ function getDefaultColors(isDark: boolean): SemanticColors {
       syntax_type: '#5B8CFF',
       syntax_variable: '#E6EAF2',
       syntax_constant: '#FFB74D',
+      syntax_lifetime: '#89DDFF',
     };
   } else {
     return {
@@ -131,6 +132,7 @@ function getDefaultColors(isDark: boolean): SemanticColors {
       syntax_type: '#426EDB',
       syntax_variable: '#22262B',
       syntax_constant: '#E65100',
+      syntax_lifetime: '#00838F',
     };
   }
 }

@@ -76,6 +76,7 @@ export interface SemanticColors {
   syntax_type: string;
   syntax_variable: string;
   syntax_constant: string;
+  syntax_lifetime: string;
 }
 
 export interface ThemeData {

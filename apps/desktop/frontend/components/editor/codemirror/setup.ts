@@ -97,6 +97,12 @@ function buildSyntaxPalette() {
     property: cssVarChain('--color-syntax-property', primaryText),
     tag: cssVarChain('--color-syntax-tag', primaryText),
     attribute: cssVarChain('--color-syntax-attribute', primaryText),
+    // Additional semantic groups to improve coverage (macros, namespaces, builtins, parameters, lifetimes)
+    macro: cssVarChain('--color-syntax-macro', primaryText),
+    namespace: cssVarChain('--color-syntax-namespace', primaryText),
+    builtin: cssVarChain('--color-syntax-builtin', primaryText),
+    parameter: cssVarChain('--color-syntax-parameter', primaryText),
+    lifetime: cssVarChain('--color-syntax-lifetime', primaryText),
     regex: cssVarChain('--color-syntax-regex', primaryText),
     markupHeading: cssVarChain('--color-syntax-markup-heading', primaryText),
     markupCode: cssVarChain('--color-syntax-markup-code', primaryText),
