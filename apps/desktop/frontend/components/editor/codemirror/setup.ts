@@ -12,7 +12,7 @@ import { foldGutter } from '@codemirror/language';
 import { history } from '@codemirror/commands';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 
-import { HighlightStyle, syntaxHighlighting, tags } from '@codemirror/highlight';
+import { HighlightStyle, syntaxHighlighting, tags } from '@codemirror/highlight/dist/index.js';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
