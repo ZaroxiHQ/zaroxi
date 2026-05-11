@@ -452,7 +452,7 @@ if $DO_BUILD; then
   # Iterate requested LANGUAGES list (lang|repo|branch|subdir).
   for lang_spec in "${LANGUAGES[@]}"; do
     IFS='|' read -r lang repo branch subdir <<< "$lang_spec"
-    branch="${branch:-master}"
+    branch="${branch:-}"
 
     # Determine exact presence of per-language artifacts:
     # - wasm_present: checks for canonical wasm filenames in RUNTIME_DIR and GRAMMAR_DIR
