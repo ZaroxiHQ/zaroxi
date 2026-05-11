@@ -44,29 +44,20 @@ export const registry: Record<string, LanguageMeta> = {
     },
   },
 
-  // TOML - prefer a Lezer-based parser if available, otherwise fallback to plaintext
+  // TOML - no runtime TOML parser is guaranteed in this build. Return null so the editor
+  // falls back to plaintext gracefully. Do NOT attempt direct imports of non-installed
+  // packages like "@lezer/toml" which cause Vite resolution errors.
   toml: {
     id: 'toml',
     name: 'TOML',
     extensions: ['toml'],
     filenames: ['cargo.toml'],
     aliases: ['toml'],
-    packageType: 'modern',
+    packageType: 'plain',
     loader: async () => {
-      try {
-        // Use a Lezer toml parser if installed (@lezer/toml)
-        const lezer = await import('@lezer/toml');
-        const parser = (lezer as any).parser ?? (lezer as any).toml ?? null;
-        if (!parser) return null;
-        const languageMod = await import('@codemirror/language');
-        const { LRLanguage, LanguageSupport } = languageMod as any;
-        const lang = LRLanguage.define(parser);
-        return new LanguageSupport(lang);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.debug('[languages][loader] TOML lezer loader failed or @lezer/toml not installed', err);
-        return null;
-      }
+      // eslint-disable-next-line no-console
+      console.debug('[languages][loader] TOML loader: no runtime parser available; returning null (plaintext fallback)');
+      return null;
     },
   },
 

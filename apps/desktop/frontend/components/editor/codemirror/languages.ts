@@ -192,20 +192,12 @@ export async function loadLanguageSupport(lang: LangId): Promise<Extension | nul
       }
 
       case 'toml': {
-        // TOML: try a community lezer package if available; otherwise null -> plaintext fallback
-        try {
-          const mod = await import('@lezer/toml');
-          // There's no official language wrapper in many setups; try community wrapper
-          try {
-            const wrap = await import('@codemirror/legacy-modes');
-            return (wrap as any).StreamLanguage.define((mod as any).toml);
-          } catch {
-            // If no wrapper, return null
-            return null;
-          }
-        } catch {
-          return null;
-        }
+        // TOML: do not attempt to import unavailable community packages at runtime.
+        // Return null so the editor falls back to plaintext without causing Vite import errors.
+        // If TOML support is later added to package.json, replace this with an explicit loader.
+        // eslint-disable-next-line no-console
+        console.debug('[languages] loadLanguageSupport: toml support not available at runtime; using plaintext fallback');
+        return null;
       }
 
       case 'shell': {
