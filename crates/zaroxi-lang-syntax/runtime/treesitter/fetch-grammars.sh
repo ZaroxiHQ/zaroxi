@@ -30,6 +30,36 @@ RUNTIME_ROOT="${RUNTIME_DIR}"
 LANGUAGES_DIR="${LANGUAGES_DIR:-$RUNTIME_DIR/languages}"
 GRAMMARS_DIR="${GRAMMARS_DIR:-$RUNTIME_DIR/grammars}"
 
+# Determine platform TARGET if not already provided and expose a platform-specific
+# grammar directory path (GRAMMAR_DIR) used throughout the script.
+TARGET=${TARGET:-}
+if [[ -z "$TARGET" ]]; then
+  UNAME_S=$(uname -s)
+  UNAME_M=$(uname -m)
+
+  case "$UNAME_S" in
+    Linux*|linux*) OS="linux" ;;
+    Darwin*|darwin*) OS="macos" ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT) OS="windows" ;;
+    *) OS=$(echo "$UNAME_S" | tr '[:upper:]' '[:lower:]') ;;
+  esac
+
+  case "$UNAME_M" in
+    x86_64|amd64) ARCH="x86_64" ;;
+    aarch64|arm64) ARCH="aarch64" ;;
+    i386|i686) ARCH="x86_32" ;;
+    *) ARCH="x86_64" ;;
+  esac
+
+  TARGET="${OS}-${ARCH}"
+fi
+
+# The script historically expected a platform-specific grammar dir at:
+#   ${RUNTIME_ROOT}/grammars/${TARGET}
+# Set GRAMMAR_DIR to that canonical location so later checks are not unbound.
+GRAMMAR_DIR="${RUNTIME_ROOT}/grammars/${TARGET}"
+mkdir -p "${GRAMMAR_DIR}"
+
 print_help() {
   cat <<EOF
 fetch-grammars.sh - prepare web-tree-sitter runtime
