@@ -158,7 +158,7 @@ export const registry: Record<string, LanguageMeta> = {
 
         if (parser) {
           // eslint-disable-next-line no-console
-          console.debug('[languages][toml] detected parser-like export; wrapping with LRLanguage');
+          console.debug('[languages][toml] detected parser-like export; preparing to wrap with LRLanguage');
 
           // Import codemirror language helpers (explicit import keeps bundler aware)
           const languageMod = await import('@codemirror/language') as any;
@@ -169,11 +169,32 @@ export const registry: Record<string, LanguageMeta> = {
             return null;
           }
 
+          // Log whether the parser exposes a configure method
+          const hasConfigure = !!(parser && typeof (parser as any).configure === 'function');
+          // eslint-disable-next-line no-console
+          console.debug('[languages][toml] parser export detected; has .configure:', hasConfigure);
+
           try {
-            const lang = LRLanguage.define(parser);
+            // If parser has a configure method, attempt to configure it safely; otherwise use as-is.
+            let parserForLang: any = parser;
+            if (hasConfigure) {
+              try {
+                parserForLang = (parser as any).configure({});
+                // eslint-disable-next-line no-console
+                console.debug('[languages][toml] parser.configure() succeeded; using configured parser');
+              } catch (cfgErr) {
+                // If configure fails, fall back to the raw parser but log the issue.
+                // eslint-disable-next-line no-console
+                console.debug('[languages][toml] parser.configure() threw, falling back to raw parser', cfgErr);
+                parserForLang = parser;
+              }
+            }
+
+            // IMPORTANT: LRLanguage.define expects a spec object with a `parser` field.
+            const lang = LRLanguage.define({ parser: parserForLang });
             const support = new LanguageSupport(lang);
             // eslint-disable-next-line no-console
-            console.debug('[languages][toml] loader: successfully created LanguageSupport from parser export');
+            console.debug('[languages][toml] loader: successfully created LanguageSupport from parser export; returning extension');
             return support;
           } catch (e) {
             // eslint-disable-next-line no-console
