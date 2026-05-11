@@ -207,16 +207,11 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['python'],
     packageType: 'official',
-    loader: async () => {
-      try {
-        const m = await import('@codemirror/lang-python');
-        return (m as any).python();
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.debug('[languages][loader] failed to load @codemirror/lang-python', err);
-        return null;
-      }
-    },
+    // Use officialLoader helper so dynamic import is performed via loaders.ts and is bundler-safe.
+    loader: officialLoader('@codemirror/lang-python', (m: any) => {
+      if (m && typeof (m as any).python === 'function') return (m as any).python();
+      return (m && (m as any).default) ?? null;
+    }),
   },
 
   // XML
@@ -227,16 +222,10 @@ export const registry: Record<string, LanguageMeta> = {
     filenames: [],
     aliases: ['xml'],
     packageType: 'official',
-    loader: async () => {
-      try {
-        const m = await import('@codemirror/lang-xml');
-        return (m as any).xml();
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.debug('[languages][loader] failed to load @codemirror/lang-xml', err);
-        return null;
-      }
-    },
+    loader: officialLoader('@codemirror/lang-xml', (m: any) => {
+      if (m && typeof (m as any).xml === 'function') return (m as any).xml();
+      return (m && (m as any).default) ?? null;
+    }),
   },
 
   // Plaintext fallback (no loader)
