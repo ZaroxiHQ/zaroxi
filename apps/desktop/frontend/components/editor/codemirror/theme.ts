@@ -67,7 +67,11 @@ export const zaroxiCodeMirrorTheme = [
       // Prefer explicit gutter variables if provided by the crate/theme.
       '.cm-gutters': {
         display: 'block',
-        minWidth: '40px',
+        /* Force a visible gutter column even if global CSS attempts to collapse it.
+           Use !important to override external rules that may set width:0 or overflow:hidden. */
+        minWidth: '40px !important',
+        width: 'auto !important',
+        overflow: 'visible !important',
         background: 'var(--color-editor-gutter-background)',
         // Use a faint text color for gutter numbers
         color: 'var(--color-text-faint)',
@@ -90,6 +94,8 @@ export const zaroxiCodeMirrorTheme = [
       // Ensure fold gutter column is visible
       '.cm-foldGutter': {
         display: 'block',
+        /* Ensure the fold gutter column remains visible and allocates space when present. */
+        minWidth: '18px !important',
       },
     },
     { dark: true },
