@@ -408,6 +408,9 @@ if $DO_BUILD; then
   # This ensures missing languages are built on-demand while still skipping work for
   # languages that already have exact per-language artifacts (both wasm + native).
   #
+  # Track languages that were skipped (already complete) and those still missing after attempts.
+  TO_BUILD=()
+  SKIPPED=()
   BUILD_ROOT="$(mktemp -d)"
   trap 'rm -rf "$BUILD_ROOT"' EXIT
 
