@@ -22,7 +22,6 @@ export default defineConfig({
       '@codemirror/commands': path.resolve(__dirname, 'node_modules', '@codemirror', 'commands'),
       '@codemirror/history': path.resolve(__dirname, 'node_modules', '@codemirror', 'history'),
       '@codemirror/language': path.resolve(__dirname, 'node_modules', '@codemirror', 'language'),
-      '@codemirror/highlight': path.resolve(__dirname, 'node_modules', '@codemirror', 'highlight'),
       '@codemirror/lang-javascript': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-javascript'),
       '@codemirror/lang-rust': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-rust'),
       '@codemirror/lang-json': path.resolve(__dirname, 'node_modules', '@codemirror', 'lang-json'),
