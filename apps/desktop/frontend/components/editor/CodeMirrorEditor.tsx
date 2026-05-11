@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createState } from './codemirror/setup';
+import { createState, createBaseExtensions } from './codemirror/setup';
 import { getCachedState, setCachedState } from './editorEngine';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
@@ -54,19 +54,60 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         }
 
         if (!state) {
+          // Attempt to inspect the base extensions before creating the EditorState so we can
+          // surface any errors originating from extension construction (e.g. theming/style code).
+          try {
+            const debugExts = createBaseExtensions(
+              { onChange: (_t: string) => {} },
+              languageExtRef.current ?? undefined,
+              documentId ?? undefined,
+            );
+            // eslint-disable-next-line no-console
+            console.debug('[codemirror] createBaseExtensions debug', {
+              documentId,
+              languageLoaded: !!languageExtRef.current,
+              extensionsCount: Array.isArray(debugExts) ? debugExts.length : 'unknown',
+            });
+            try {
+              if (Array.isArray(debugExts)) {
+                debugExts.forEach((ext, i) => {
+                  // eslint-disable-next-line no-console
+                  console.debug('[codemirror] ext[' + i + ']:', {
+                    type: typeof ext,
+                    toString: ext && (ext as any).toString ? (ext as any).toString() : undefined,
+                    inspect: ext && typeof ext === 'object' ? Object.keys(ext as any).slice(0, 10) : undefined,
+                  });
+                });
+              }
+            } catch (inner) {
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] extension inspection failed', inner);
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('[codemirror] createBaseExtensions threw before state creation', e);
+          }
+
           // createState constructs a state with the provided language extension.
           // createState is synchronous in this module; use it directly.
-          state = createState(
-            text ?? '',
-            {
-              onChange: (t: string) => {
-                onChange(t);
+          try {
+            state = createState(
+              text ?? '',
+              {
+                onChange: (t: string) => {
+                  onChange(t);
+                },
               },
-            },
-            languageExtRef.current ?? undefined,
-            documentId ?? undefined,
-          );
+              languageExtRef.current ?? undefined,
+              documentId ?? undefined,
+            );
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('[codemirror] createState threw', e);
+            throw e; // rethrow so outer catch triggers fallback behavior
+          }
         }
+
         // Debugging: report state creation details so we can inspect why gutters may not appear.
         try {
           // Avoid strict type assumptions by using `as any` for diagnostics.
@@ -85,12 +126,35 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         if (destroyed) return;
 
-        const mountedView = new EditorView({
-          state,
-          parent: containerRef.current,
-        });
+        let mountedView: any = null;
+        try {
+          mountedView = new EditorView({
+            state,
+            parent: containerRef.current,
+          });
+          viewRef.current = mountedView;
+        } catch (e) {
+          // Capture and report detailed diagnostics if EditorView construction fails.
+          try {
+            // eslint-disable-next-line no-console
+            console.error('[codemirror] EditorView constructor threw', e, {
+              documentId,
+              languageLoaded: !!languageExtRef.current,
+              stateSnapshot: {
+                docLength: state ? (state as any).doc?.length ?? 'unknown' : 'no-state',
+                // Best effort: inspect extensions array if present on the state
+                extensionsCount: state && (state as any).config
+                  ? (state as any).config.extensions?.length ?? 'unknown'
+                  : (state as any).extensions?.length ?? 'unknown',
+              },
+            });
+          } catch (diagErr) {
+            // eslint-disable-next-line no-console
+            console.error('[codemirror] failed to log EditorView diagnostics', diagErr);
+          }
+          throw e;
+        }
 
-        viewRef.current = mountedView;
         // Focus the editor so caret and wheel interactions behave consistently.
         try {
           mountedView.focus();
