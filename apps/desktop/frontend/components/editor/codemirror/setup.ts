@@ -8,9 +8,9 @@
 
 import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { foldGutter, syntaxHighlighting } from '@codemirror/language';
+import { foldGutter, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { HighlightStyle, tags as t } from '@lezer/highlight';
+import { tags as t } from '@lezer/highlight';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
@@ -30,41 +30,23 @@ type Selection = { from: number; to: number };
  * back to omitting syntaxHighlighting when HighlightStyle is not available.
  */
 /**
- * Deterministic modern HighlightStyle using @lezer/highlight tags.
- * We define a conservative style (cmHighlightStyle) and a strong debug style
- * (debugHighlightStyle) used temporarily to prove whether syntaxHighlighting is
- * being applied in the mounted editor.
+ * Application HighlightStyle using modern CM6 APIs.
+ *
+ * This HighlightStyle is defined using `HighlightStyle.define` from
+ * `@codemirror/language` and tags from `@lezer/highlight`. It uses the
+ * requested diagnostic palette to ensure token colors are visibly distinct.
  */
-const cmHighlightStyle = HighlightStyle.define([
-  { tag: t.keyword, color: 'var(--color-syntax-keyword)' },
-  { tag: t.string, color: 'var(--color-syntax-string)' },
-  { tag: t.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
-  { tag: t.number, color: 'var(--color-syntax-number)' },
-  { tag: t.bool, color: 'var(--color-syntax-constant)' },
-  { tag: t.null, color: 'var(--color-syntax-constant)' },
-  { tag: t.typeName, color: 'var(--color-syntax-type)' },
-  { tag: t.function(t.variableName), color: 'var(--color-syntax-function)' },
-  { tag: t.variableName, color: 'var(--color-syntax-variable)' },
-  { tag: t.propertyName, color: 'var(--color-syntax-property)' },
+const appHighlightStyle = HighlightStyle.define([
+  { tag: t.keyword, color: "#c792ea" },
+  { tag: t.comment, color: "#676e95", fontStyle: "italic" },
+  { tag: t.string, color: "#c3e88d" },
+  { tag: t.number, color: "#f78c6c" },
+  { tag: t.bool, color: "#ff9cac" },
+  { tag: t.typeName, color: "#82aaff" },
+  { tag: t.function(t.variableName), color: "#82aaff" },
+  { tag: t.variableName, color: "#eeffff" },
+  { tag: t.propertyName, color: "#addb67" }
 ]);
-
-// Strong diagnostic highlight style (very high contrast) used only for proving
-// the pipeline during this debugging iteration. This intentionally vivid palette
-// makes it trivial to see whether syntaxHighlighting is active.
-const debugHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: '#FF00FF', fontStyle: 'italic' },    // magenta
-  { tag: t.keyword, color: '#FF0000', fontWeight: 'bold' },     // red
-  { tag: t.string, color: '#00FF00' },                          // green
-  { tag: t.number, color: '#00FFFF' },                          // cyan
-  { tag: t.typeName, color: '#FFA500' },                        // orange
-  { tag: t.function(t.variableName), color: '#FFD700' },        // gold
-  { tag: t.variableName, color: '#FFFFFF', background: 'rgba(0,0,0,0.06)' }, // white on faint bg
-  { tag: t.propertyName, color: '#00A8FF' },                    // bright blue
-]);
-
-// Use the diagnostic style as the active highlight style during debugging so
-// token application is visually obvious. Replace with cmHighlightStyle later.
-const activeHighlightStyle = debugHighlightStyle;
 
 /**
  * Build the base extensions for an editor instance.
@@ -127,9 +109,9 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Attach the active highlight style (diagnostic). This uses modern API:
-    // syntaxHighlighting from @codemirror/language with a HighlightStyle from @lezer/highlight.
-    syntaxHighlighting(activeHighlightStyle),
+    // Attach the app highlight style using the modern CM6 API:
+    // syntaxHighlighting from @codemirror/language with a HighlightStyle defined above.
+    syntaxHighlighting(appHighlightStyle),
     // Update listener
     updateListener,
   ];
