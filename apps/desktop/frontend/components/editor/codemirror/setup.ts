@@ -8,12 +8,34 @@
 
 import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { foldGutter } from '@codemirror/language';
+import { foldGutter, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { HighlightStyle, tags as t } from '@lezer/highlight';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
 type Selection = { from: number; to: number };
+
+/**
+ * Conservative HighlightStyle for modern CM6 using @lezer/highlight tags.
+ * Colors reference CSS variables provided by the centralized theme system so
+ * token colors remain consistent with the rest of the UI.
+ *
+ * This style intentionally maps a small, safe set of tags to CSS vars and
+ * avoids any uncertain or custom tags to prevent runtime crashes.
+ */
+const cmHighlightStyle = HighlightStyle.define([
+  { tag: t.keyword, color: 'var(--color-syntax-keyword)' },
+  { tag: t.string, color: 'var(--color-syntax-string)' },
+  { tag: t.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
+  { tag: t.number, color: 'var(--color-syntax-number)' },
+  { tag: t.bool, color: 'var(--color-syntax-constant)' },
+  { tag: t.null, color: 'var(--color-syntax-constant)' },
+  { tag: t.typeName, color: 'var(--color-syntax-type)' },
+  { tag: t.function, color: 'var(--color-syntax-function)' },
+  { tag: t.variableName, color: 'var(--color-syntax-variable)' },
+  { tag: t.propertyName, color: 'var(--color-syntax-property)' },
+]);
 
 /**
  * Build the base extensions for an editor instance.
@@ -21,8 +43,8 @@ type Selection = { from: number; to: number };
  * - languageExtension is an optional CM6 extension (LanguageSupport) to provide
  *   syntax highlighting and language-specific behavior (folding, indentation).
  *
- * Note: The editor requires a syntax highlight extension. We statically import
- * the official @codemirror/highlight API at build time and construct a HighlightStyle.
+ * Note: The editor requires a syntax highlight extension. We attach a conservative
+ * HighlightStyle (cmHighlightStyle) using @codemirror/language's syntaxHighlighting.
  * createBaseExtensions is synchronous now (no runtime dynamic imports) to keep the
  * extension graph deterministic and avoid HMR/import-analysis surprises.
  */
@@ -73,7 +95,9 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Syntax highlighting temporarily removed to avoid runtime crash (see EDITOR_DEBUG_NOTES).
+    // Modern syntax highlighting (safe): attach a conservative HighlightStyle backed by @lezer/highlight tags.
+    // This is independent from the gutter/view lifecycle and will be a no-op if the language loader returned null.
+    syntaxHighlighting(cmHighlightStyle),
     // Update listener
     updateListener,
   ];
