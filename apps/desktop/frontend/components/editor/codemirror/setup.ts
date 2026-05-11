@@ -36,17 +36,141 @@ type Selection = { from: number; to: number };
  * `@codemirror/language` and tags from `@lezer/highlight`. It uses the
  * requested diagnostic palette to ensure token colors are visibly distinct.
  */
-const appHighlightStyle = HighlightStyle.define([
-  { tag: t.keyword, color: "#c792ea" },
-  { tag: t.comment, color: "#676e95", fontStyle: "italic" },
-  { tag: t.string, color: "#c3e88d" },
-  { tag: t.number, color: "#f78c6c" },
-  { tag: t.bool, color: "#ff9cac" },
-  { tag: t.typeName, color: "#82aaff" },
-  { tag: t.function(t.variableName), color: "#82aaff" },
-  { tag: t.variableName, color: "#eeffff" },
-  { tag: t.propertyName, color: "#addb67" }
-]);
+/**
+ * Build syntax color expressions using existing CSS custom properties.
+ *
+ * Strategy:
+ * - Prefer explicit --color-syntax-* variables already emitted by theme-store.
+ * - For resilience, build a nested var(...) fallback chain that falls back to a semantic
+ *   theme variable (e.g. --color-accent or --color-text-on-surface) if a syntax variable
+ *   is not provided. No hardcoded hex values are used in the final HighlightStyle.
+ *
+ * Example resulting expression:
+ *   var(--color-syntax-keyword, var(--color-accent, var(--color-text-on-surface)))
+ *
+ * This approach allows the browser to update token colors automatically when the theme's
+ * CSS variables change; no explicit editor reconfiguration is required.
+ */
+
+/** Helper: compose a nested var(...) expression from a priority list of CSS custom properties. */
+function cssVarChain(...vars: string[]) {
+  // Accept inputs both with and without leading "--". Normalize to "--name".
+  const normalized = vars.map((v) => (v.startsWith('--') ? v : `--${v}`));
+  // Build nested var expressions: var(--a, var(--b, var(--c)))
+  return normalized.reduceRight((acc, name) => (acc ? `var(${name}, ${acc})` : `var(${name})`), '');
+}
+
+/** Build a small syntax palette expressed as CSS var(...) expressions.
+ *  We still use getComputedStyle for a non-blocking diagnostic check but we use
+ *  var(...) expressions for the colors so theme switching remains reactive.
+ */
+function buildSyntaxPalette() {
+  const root = document.documentElement;
+  let cs: CSSStyleDeclaration | null = null;
+  try {
+    cs = getComputedStyle(root);
+  } catch {
+    // getComputedStyle may fail in some unusual test environments; ignore.
+  }
+
+  // Primary semantic fallbacks from the theme system
+  const primaryText = '--color-text-on-surface';
+  const mutedText = '--color-text-faint';
+  const accent = '--color-accent';
+  const info = '--color-info';
+  const success = '--color-success';
+  const warning = '--color-warning';
+
+  // Syntax variables already provided by theme-store (use them first)
+  const syntax = {
+    keyword: cssVarChain('--color-syntax-keyword', accent, primaryText),
+    function: cssVarChain('--color-syntax-function', primaryText),
+    method: cssVarChain('--color-syntax-method', '--color-syntax-function', primaryText),
+    string: cssVarChain('--color-syntax-string', success, primaryText),
+    comment: cssVarChain('--color-syntax-comment', mutedText),
+    type: cssVarChain('--color-syntax-type', info, primaryText),
+    variable: cssVarChain('--color-syntax-variable', primaryText),
+    constant: cssVarChain('--color-syntax-constant', '--color-syntax-string', primaryText),
+    number: cssVarChain('--color-syntax-number', '--color-syntax-constant', warning, primaryText),
+    operator: cssVarChain('--color-syntax-operator', primaryText),
+    punctuation: cssVarChain('--color-syntax-punctuation', primaryText),
+    property: cssVarChain('--color-syntax-property', primaryText),
+    tag: cssVarChain('--color-syntax-tag', primaryText),
+    attribute: cssVarChain('--color-syntax-attribute', primaryText),
+    regex: cssVarChain('--color-syntax-regex', primaryText),
+    markupHeading: cssVarChain('--color-syntax-markup-heading', primaryText),
+    markupCode: cssVarChain('--color-syntax-markup-code', primaryText),
+  };
+
+  // Diagnostic: log when a top-level syntax CSS variable is missing (non-blocking)
+  if (cs) {
+    try {
+      const inspectVars = [
+        '--color-syntax-keyword',
+        '--color-syntax-string',
+        '--color-syntax-comment',
+        '--color-syntax-type',
+        '--color-syntax-function',
+      ];
+      const missing = inspectVars.filter((v) => !cs!.getPropertyValue(v).trim());
+      // eslint-disable-next-line no-console
+      if (missing.length > 0) console.debug('[codemirror] missing syntax CSS vars (will use fallbacks):', missing);
+    } catch {
+      // ignore
+    }
+  }
+
+  return syntax;
+}
+
+/** Build the HighlightStyle using CSS var expressions (no hardcoded hex). */
+function buildHighlightStyle() {
+  const p = buildSyntaxPalette();
+
+  return HighlightStyle.define([
+    // Comments
+    { tag: [t.blockComment, t.lineComment, t.comment], color: p.comment, fontStyle: 'italic' },
+
+    // Keywords & control
+    { tag: [t.keyword, t.atom, t.special(t.keyword)], color: p.keyword, fontWeight: '600' },
+
+    // Strings & regex
+    { tag: [t.string, t.special(t.string)], color: p.string },
+    { tag: [t.regexp, t.escape], color: p.regex },
+
+    // Numbers / constants
+    { tag: [t.number, t.bool, t.null], color: p.number },
+
+    // Types / classes / namespaces
+    { tag: [t.typeName, t.className, t.namespace], color: p.type },
+
+    // Functions, methods, and function calls
+    { tag: [t.function(t.variableName), t.function(t.propertyName), t.function], color: p.function },
+
+    // Variables, names
+    { tag: [t.variableName, t.name], color: p.variable },
+
+    // Properties and attributes
+    { tag: [t.propertyName], color: p.property },
+    { tag: [t.attributeName], color: p.attribute },
+
+    // Tags (HTML, XML)
+    { tag: [t.tagName], color: p.tag },
+
+    // Operators and punctuation
+    { tag: [t.operator, t.punctuation], color: p.operator },
+
+    // Markup tokens (headings, code blocks)
+    { tag: [t.heading, t.contentSeparator], color: p.markupHeading },
+    { tag: [t.special(t.propertyName), t.macroName], color: p.constant },
+
+    // Invalid tokens
+    { tag: t.invalid, color: p.operator },
+  ]);
+}
+
+/** The app highlight style used by the editor. Built from CSS variables (no hardcoded hex). */
+const appHighlightStyle = buildHighlightStyle();
 
 /**
  * Build the base extensions for an editor instance.
