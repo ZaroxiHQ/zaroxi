@@ -42,25 +42,25 @@ export function createBaseExtensions(
     }
   });
 
-  // Required highlight style — start with a known-good visible palette so syntax is clearly visible.
-  // Once we confirm visual correctness we can switch these to theme CSS variables.
+  // Required highlight style — map tokens to theme CSS variables (no hard-coded colors).
+  // This ensures token colors follow the centralized theme-store (--color-syntax-*) values.
   const highlightStyle = HighlightStyle.define([
-    { tag: tags.keyword, color: '#FF6B6B', fontWeight: '600' },
-    { tag: tags.function(tags.variableName), color: '#4CAF50' },
-    { tag: tags.string, color: '#FFB74D' },
-    { tag: tags.comment, color: '#7E8794', fontStyle: 'italic' },
-    { tag: tags.typeName, color: '#5B8CFF' },
-    { tag: tags.variableName, color: '#E6EAF2' },
-    { tag: tags.constant(tags.variableName), color: '#FFB74D' },
-    { tag: tags.number, color: '#B39DDB' },
-    { tag: tags.operator, color: '#C792EA' },
-    { tag: tags.punctuation, color: '#AAB2BF' },
-    { tag: tags.propertyName, color: '#FFCB6B' },
-    { tag: tags.macroName, color: '#C792EA' },
-    { tag: tags.attributeName, color: '#F78C6C' },
+    { tag: tags.keyword, color: 'var(--color-syntax-keyword)', fontWeight: '600' },
+    { tag: tags.function(tags.variableName), color: 'var(--color-syntax-function)' },
+    { tag: tags.string, color: 'var(--color-syntax-string)' },
+    { tag: tags.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
+    { tag: tags.typeName, color: 'var(--color-syntax-type)' },
+    { tag: tags.variableName, color: 'var(--color-syntax-variable)' },
+    { tag: tags.constant(tags.variableName), color: 'var(--color-syntax-constant)' },
+    { tag: tags.number, color: 'var(--color-syntax-number)' },
+    { tag: tags.operator, color: 'var(--color-syntax-operator)' },
+    { tag: tags.punctuation, color: 'var(--color-syntax-punctuation)' },
+    { tag: tags.propertyName, color: 'var(--color-syntax-property)' },
+    { tag: tags.macroName, color: 'var(--color-syntax-macro)' },
+    { tag: tags.attributeName, color: 'var(--color-syntax-attribute)' },
     // Fallback mapping for generic identifiers and builtins
-    { tag: tags.definition(tags.variableName), color: '#E6EAF2' },
-    { tag: tags.builtin, color: '#FF5370' },
+    { tag: tags.definition(tags.variableName), color: 'var(--color-syntax-variable)' },
+    { tag: tags.builtin, color: 'var(--color-syntax-builtin)' },
   ]);
   const highlightExtension = syntaxHighlighting(highlightStyle, { fallback: true });
 
