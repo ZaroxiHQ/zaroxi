@@ -162,13 +162,39 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           // ignore focus errors in environments that don't support it
         }
 
-        // Debugging: inspect DOM and computed styles immediately after mount.
+        // Debugging: inspect DOM, extensions and computed styles immediately after mount.
         try {
           const hasGutters = !!mountedView.dom.querySelector('.cm-gutters');
           const guttersEl = mountedView.dom.querySelector('.cm-gutters');
           const containerClass = containerRef.current?.className ?? null;
           const containerStyle = containerRef.current ? window.getComputedStyle(containerRef.current) : null;
           const guttersStyle = guttersEl ? window.getComputedStyle(guttersEl as Element) : null;
+
+          // Inspect state extensions (best-effort)
+          let extDiagnostics: any = null;
+          try {
+            const exts = (mountedView.state as any)?.config?.extensions ?? (mountedView.state as any)?.extensions ?? null;
+            if (Array.isArray(exts)) {
+              extDiagnostics = exts.slice(0, 50).map((ext: any, i: number) => {
+                let name = (ext && (ext as any).constructor && (ext as any).constructor.name) || typeof ext;
+                let str = undefined;
+                try {
+                  str = (ext && typeof ext.toString === 'function') ? (ext as any).toString().slice(0, 200) : undefined;
+                } catch {}
+                let keys = undefined;
+                try {
+                  if (ext && typeof ext === 'object') keys = Object.keys(ext).slice(0, 10);
+                } catch {}
+                // Heuristic: detect 'lineNumbers' by toString or constructor name
+                const likelyLineNumbers = !!(str && str.toLowerCase().includes('linenumber')) || (name && name.toLowerCase().includes('linenumber'));
+                return { index: i, name, likelyLineNumbers, keys, toString: str };
+              });
+            } else {
+              extDiagnostics = { type: typeof exts, value: exts };
+            }
+          } catch (e) {
+            extDiagnostics = { error: String(e) };
+          }
 
           // eslint-disable-next-line no-console
           console.debug('[codemirror] mounted EditorView', {
@@ -180,7 +206,67 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             containerOverflow: containerStyle?.overflow ?? null,
             guttersDisplay: guttersStyle?.display ?? null,
             guttersWidth: guttersStyle?.width ?? null,
+            extensionsPreview: extDiagnostics,
           });
+
+          // If gutters are missing, capture a snapshot of the DOM and state to help debugging.
+          if (!hasGutters) {
+            try {
+              const domSnapshot = mountedView.dom.outerHTML?.slice(0, 2000);
+              // Also attempt to detect whether the lineNumbers() extension exists in the base extensions factory.
+              let baseExtPreview = null;
+              try {
+                const dbg = createBaseExtensions(
+                  { onChange: (_t: string) => {} },
+                  languageExtRef.current ?? undefined,
+                  documentId ?? undefined,
+                );
+                if (Array.isArray(dbg)) {
+                  baseExtPreview = dbg.slice(0, 50).map((ext: any, i: number) => {
+                    let name = (ext && (ext as any).constructor && (ext as any).constructor.name) || typeof ext;
+                    let str = undefined;
+                    try {
+                      str = (ext && typeof ext.toString === 'function') ? (ext as any).toString().slice(0, 200) : undefined;
+                    } catch {}
+                    const likelyLineNumbers = !!(str && str.toLowerCase().includes('linenumber')) || (name && name.toLowerCase().includes('linenumber'));
+                    return { index: i, name, likelyLineNumbers, toString: str };
+                  });
+                } else {
+                  baseExtPreview = { type: typeof dbg, value: dbg };
+                }
+              } catch (e) {
+                baseExtPreview = { error: String(e) };
+              }
+
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] GUTTER MISSING: mountedView DOM snapshot (truncated), baseExtensions preview:', {
+                domSnapshot,
+                baseExtPreview,
+                languageExtRef: !!languageExtRef.current,
+              });
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] failed to capture DOM/state snapshot when gutter missing', e);
+            }
+          } else {
+            // If gutters exist, provide a small content preview for verification.
+            try {
+              const gutterHTML = (guttersEl as Element)?.innerHTML?.slice(0, 1000) ?? null;
+              const gutterChildren = guttersEl ? (guttersEl.querySelectorAll('.cm-gutterElement')?.length ?? 0) : 0;
+              const firstLabels: string[] = [];
+              if (guttersEl) {
+                const els = guttersEl.querySelectorAll('.cm-gutterElement');
+                for (let i = 0; i < Math.min(5, els.length); i++) {
+                  firstLabels.push((els[i] as Element).textContent?.trim() ?? '');
+                }
+              }
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] GUTTERS PRESENT preview', { gutterChildren, firstLabels, gutterHTML });
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] failed to snapshot gutter content', e);
+            }
+          }
 
           // Ensure the gutter column is visible even if global CSS attempts to collapse it.
           // Apply a minimal set of inline styles derived from theme CSS variables with safe fallbacks.
@@ -230,9 +316,35 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           try {
             const dom = mountedView.dom;
             const guttersBefore = dom.querySelector('.cm-gutters');
+
+            // Diagnostic helper to snapshot extension list
+            const snapshotExtensions = (state: any) => {
+              try {
+                const exts = state?.config?.extensions ?? state?.extensions ?? null;
+                if (!exts) return { type: typeof exts, value: exts };
+                if (Array.isArray(exts)) {
+                  return exts.slice(0, 100).map((ext: any, i: number) => {
+                    let name = (ext && (ext as any).constructor && (ext as any).constructor.name) || typeof ext;
+                    let str = undefined;
+                    try { str = (ext && typeof ext.toString === 'function') ? (ext as any).toString().slice(0, 300) : undefined; } catch {}
+                    const likelyLineNumbers = !!(str && str.toLowerCase().includes('linenumber')) || (name && name.toLowerCase().includes('linenumber'));
+                    return { index: i, name, likelyLineNumbers, toString: str };
+                  });
+                }
+                return { type: typeof exts, value: exts };
+              } catch (e) {
+                return { error: String(e) };
+              }
+            };
+
             if (!guttersBefore) {
               // eslint-disable-next-line no-console
-              console.debug('[codemirror] gutter missing on initial mount; reconfiguring state to include lineNumbers extension');
+              console.debug('[codemirror] gutter missing on initial mount; attempting diagnostic reconfigure', {
+                documentId,
+                languageLoaded: !!languageExtRef.current,
+                preReconfigureExtensions: snapshotExtensions(mountedView.state),
+              });
+
               try {
                 const newState = createState(
                   mountedView.state.doc.toString(),
@@ -244,30 +356,57 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                   languageExtRef.current ?? undefined,
                   documentId ?? undefined,
                 );
+
                 // Replace the state so the full extension set is applied.
                 mountedView.setState(newState);
-                // Post-reconfiguration check: report whether gutters are now present.
-                const nowHas = !!mountedView.dom.querySelector('.cm-gutters');
-                // eslint-disable-next-line no-console
-                console.debug('[codemirror] after reconfigure hasGutters=', nowHas);
 
-                // If gutters are now present, enforce visible styles.
-                if (nowHas) {
+                // Post-reconfiguration diagnostics
+                const nowHas = !!mountedView.dom.querySelector('.cm-gutters');
+                const postExts = snapshotExtensions(mountedView.state);
+                // eslint-disable-next-line no-console
+                console.debug('[codemirror] after reconfigure', {
+                  hasGuttersAfterReconfigure: nowHas,
+                  postReconfigureExtensions: postExts,
+                });
+
+                if (!nowHas) {
+                  // If still missing, capture DOM snapshot and first 5000 chars for offline analysis
+                  try {
+                    const domHtml = mountedView.dom.outerHTML?.slice(0, 5000) ?? null;
+                    // eslint-disable-next-line no-console
+                    console.debug('[codemirror] GUTTER STILL MISSING after reconfigure; DOM snapshot (truncated):', domHtml);
+                  } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.debug('[codemirror] failed to capture DOM snapshot after failed reconfigure', e);
+                  }
+                } else {
+                  // If gutters are now present, log a small preview and apply styles
                   try {
                     const guttersEl = mountedView.dom.querySelector('.cm-gutters') as Element | null;
-                    const htmlRoot = document.documentElement;
-                    const rootStyle = window.getComputedStyle(htmlRoot);
-                    const gutterBg = (rootStyle.getPropertyValue('--color-editor-gutter-background') || rootStyle.getPropertyValue('--color-editor-background') || '#1E1F24').trim();
-                    const gutterColor = (rootStyle.getPropertyValue('--color-text-faint') || rootStyle.getPropertyValue('--color-text-on-surface') || '#7E8794').trim();
-                    if (guttersEl && (guttersEl as HTMLElement).style) {
-                      const s = (guttersEl as HTMLElement).style;
+                    const gutterChildren = guttersEl ? (guttersEl.querySelectorAll('.cm-gutterElement')?.length ?? 0) : 0;
+                    const firstLabels: string[] = [];
+                    if (guttersEl) {
+                      const els = guttersEl.querySelectorAll('.cm-gutterElement');
+                      for (let i = 0; i < Math.min(5, els.length); i++) {
+                        firstLabels.push((els[i] as Element).textContent?.trim() ?? '');
+                      }
+                    }
+                    // eslint-disable-next-line no-console
+                    console.debug('[codemirror] gutters restored after reconfigure', { gutterChildren, firstLabels });
+                    const guttersElNode = mountedView.dom.querySelector('.cm-gutters') as Element | null;
+                    if (guttersElNode && (guttersElNode as HTMLElement).style) {
+                      const htmlRoot = document.documentElement;
+                      const rootStyle = window.getComputedStyle(htmlRoot);
+                      const gutterBg = (rootStyle.getPropertyValue('--color-editor-gutter-background') || rootStyle.getPropertyValue('--color-editor-background') || '#1E1F24').trim();
+                      const gutterColor = (rootStyle.getPropertyValue('--color-text-faint') || rootStyle.getPropertyValue('--color-text-on-surface') || '#7E8794').trim();
+                      const s = (guttersElNode as HTMLElement).style;
                       s.minWidth = '40px';
                       s.width = 'auto';
                       s.overflow = 'visible';
                       s.display = 'block';
                       s.background = gutterBg;
                       s.color = gutterColor;
-                      const gutterElems = guttersEl.querySelectorAll('.cm-gutterElement');
+                      const gutterElems = guttersElNode.querySelectorAll('.cm-gutterElement');
                       gutterElems.forEach((ge) => {
                         try {
                           const se = (ge as HTMLElement).style;
@@ -289,7 +428,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               }
             } else {
               // eslint-disable-next-line no-console
-              console.debug('[codemirror] gutter present on initial mount; no reconfigure needed');
+              console.debug('[codemirror] gutter present on initial mount; no reconfigure needed', {
+                documentId,
+                preReconfigureExtensions: snapshotExtensions(mountedView.state),
+              });
               // Ensure styles are applied even when present.
               try {
                 const guttersEl = mountedView.dom.querySelector('.cm-gutters') as Element | null;
