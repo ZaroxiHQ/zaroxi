@@ -68,14 +68,36 @@ export interface SemanticColors {
   editor_selection: string;
   editor_find_highlight: string;
   
-  // Syntax colors
+  // Syntax colors (extended to mirror backend/crate SemanticColors)
   syntax_keyword: string;
   syntax_function: string;
+  syntax_method: string;
   syntax_string: string;
   syntax_comment: string;
   syntax_type: string;
   syntax_variable: string;
   syntax_constant: string;
+  syntax_number: string;
+  syntax_operator: string;
+  syntax_punctuation: string;
+  syntax_attribute: string;
+  syntax_tag: string;
+  syntax_namespace: string;
+  syntax_macro: string;
+  syntax_property: string;
+  syntax_parameter: string;
+  syntax_builtin: string;
+  syntax_escape: string;
+  syntax_embedded: string;
+  syntax_regex: string;
+  syntax_markup_heading: string;
+  syntax_markup_list: string;
+  syntax_markup_quote: string;
+  syntax_markup_link: string;
+  syntax_markup_code: string;
+  syntax_markup_bold: string;
+  syntax_markup_italic: string;
+  syntax_markup_strikethrough: string;
   syntax_lifetime: string;
 }
 
