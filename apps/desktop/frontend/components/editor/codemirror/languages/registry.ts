@@ -44,20 +44,36 @@ export const registry: Record<string, LanguageMeta> = {
     },
   },
 
-  // TOML - no runtime TOML parser is guaranteed in this build. Return null so the editor
-  // falls back to plaintext gracefully. Do NOT attempt direct imports of non-installed
-  // packages like "@lezer/toml" which cause Vite resolution errors.
+  // TOML - use a bundled Lezer TOML parser (@lezer/toml) and wrap it as LRLanguage.
+  // This loader uses an explicit string literal dynamic import so Vite will include
+  // the package in production bundles/chunks (no dev-only magic).
   toml: {
     id: 'toml',
     name: 'TOML',
     extensions: ['toml'],
     filenames: ['cargo.toml'],
     aliases: ['toml'],
-    packageType: 'plain',
+    packageType: 'official',
     loader: async () => {
-      // eslint-disable-next-line no-console
-      console.debug('[languages][loader] TOML loader: no runtime parser available; returning null (plaintext fallback)');
-      return null;
+      try {
+        // Import the Lezer TOML parser package (must be added to package.json)
+        const lezer = await import('@lezer/toml');
+        const languageMod = await import('@codemirror/language');
+        const { LRLanguage, LanguageSupport } = languageMod as any;
+        // Common export names: parser
+        const parser = (lezer as any).parser ?? (lezer as any).TomlParser ?? null;
+        if (!parser) {
+          // eslint-disable-next-line no-console
+          console.debug('[languages][loader] @lezer/toml did not expose a parser');
+          return null;
+        }
+        const lang = LRLanguage.define(parser);
+        return new LanguageSupport(lang);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @lezer/toml', err);
+        return null;
+      }
     },
   },
 
@@ -197,6 +213,46 @@ export const registry: Record<string, LanguageMeta> = {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.debug('[languages][loader] failed to load @codemirror/lang-css', err);
+        return null;
+      }
+    },
+  },
+
+  // Python
+  python: {
+    id: 'python',
+    name: 'Python',
+    extensions: ['py'],
+    filenames: [],
+    aliases: ['python'],
+    packageType: 'official',
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-python');
+        return (m as any).python();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-python', err);
+        return null;
+      }
+    },
+  },
+
+  // XML
+  xml: {
+    id: 'xml',
+    name: 'XML',
+    extensions: ['xml'],
+    filenames: [],
+    aliases: ['xml'],
+    packageType: 'official',
+    loader: async () => {
+      try {
+        const m = await import('@codemirror/lang-xml');
+        return (m as any).xml();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.debug('[languages][loader] failed to load @codemirror/lang-xml', err);
         return null;
       }
     },
