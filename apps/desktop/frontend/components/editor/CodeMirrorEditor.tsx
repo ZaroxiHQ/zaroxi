@@ -471,8 +471,12 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       } catch (err) {
         // Fallback path: show a native textarea bound to the document text.
         // This keeps the app usable when codemirror packages are missing.
+        // Make failures explicit and expose debug info for diagnostics.
         // eslint-disable-next-line no-console
-        console.debug('[codemirror] falling back to textarea (dynamic import failed)', err);
+        console.error('[codemirror] falling back to textarea (dynamic import failed)', err);
+        try {
+          (window as any).__codemirror_mount_error = { message: String((err as any)?.message ?? err), stack: (err as any)?.stack ?? null };
+        } catch {}
         setUsingFallback(true);
       }
     })();

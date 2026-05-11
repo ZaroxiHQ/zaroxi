@@ -10,8 +10,6 @@ import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, hi
 import { EditorState } from '@codemirror/state';
 import { foldGutter } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
@@ -42,27 +40,11 @@ export function createBaseExtensions(
     }
   });
 
-  // Required highlight style — map tokens to theme CSS variables (no hard-coded colors).
-  // This ensures token colors follow the centralized theme-store (--color-syntax-*) values.
-  const highlightStyle = HighlightStyle.define([
-    { tag: tags.keyword, color: 'var(--color-syntax-keyword)', fontWeight: '600' },
-    { tag: tags.function(tags.variableName), color: 'var(--color-syntax-function)' },
-    { tag: tags.string, color: 'var(--color-syntax-string)' },
-    { tag: tags.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
-    { tag: tags.typeName, color: 'var(--color-syntax-type)' },
-    { tag: tags.variableName, color: 'var(--color-syntax-variable)' },
-    { tag: tags.constant(tags.variableName), color: 'var(--color-syntax-constant)' },
-    { tag: tags.number, color: 'var(--color-syntax-number)' },
-    { tag: tags.operator, color: 'var(--color-syntax-operator)' },
-    { tag: tags.punctuation, color: 'var(--color-syntax-punctuation)' },
-    { tag: tags.propertyName, color: 'var(--color-syntax-property)' },
-    { tag: tags.macroName, color: 'var(--color-syntax-macro)' },
-    { tag: tags.attributeName, color: 'var(--color-syntax-attribute)' },
-    // Fallback mapping for generic identifiers and builtins
-    { tag: tags.definition(tags.variableName), color: 'var(--color-syntax-variable)' },
-    { tag: tags.builtin, color: 'var(--color-syntax-builtin)' },
-  ]);
-  const highlightExtension = syntaxHighlighting(highlightStyle, { fallback: true });
+  // NOTE: Custom HighlightStyle removed temporarily to prevent runtime crash
+  // (TypeError: undefined is not an object (evaluating 'style.tag.id')).
+  // Reintroduce language token styling after the editor mounts and we verify the
+  // exact tag set available from @lezer/highlight in the runtime environment.
+  // highlightExtension intentionally omitted in this debug patch.
 
   // Compose extensions (deterministic)
   // Create specific ext instances so we can log their presence for debugging.
@@ -93,8 +75,7 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Required syntax highlighting extension so language tokens are visibly styled.
-    highlightExtension,
+    // Syntax highlighting temporarily removed to avoid runtime crash (see EDITOR_DEBUG_NOTES).
     // Update listener
     updateListener,
   ];
