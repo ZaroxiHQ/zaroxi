@@ -15,7 +15,8 @@
     "@codemirror/language": "*",
     "@codemirror/lang-javascript": "*",
     "@codemirror/lang-rust": "*",
-    "@codemirror/lang-json": "*"
+    "@codemirror/lang-json": "*",
+    "@codemirror/lang-markdown": "*"
   },
   "scripts": {
     "dev": "vite",
