@@ -65,13 +65,25 @@ export function createBaseExtensions(
   const highlightExtension = syntaxHighlighting(highlightStyle, { fallback: true });
 
   // Compose extensions (deterministic)
+  // Create specific ext instances so we can log their presence for debugging.
+  const lineNumbersExt = lineNumbers();
+  const foldGutterExt = languageExtension ? foldGutter() : null;
+  // Runtime debug: report whether language support was provided and which gutter extensions are included.
+  // eslint-disable-next-line no-console
+  console.debug('[codemirror] createBaseExtensions', {
+    docKey,
+    languageProvided: !!languageExtension,
+    lineNumbersIncluded: !!lineNumbersExt,
+    foldGutterIncluded: !!foldGutterExt,
+  });
+
   const extensions: any[] = [
     // Theme must be present to guarantee gutter visibility
     zaroxiCodeMirrorTheme,
     // Line numbers gutter (always show)
-    lineNumbers(),
+    lineNumbersExt,
     // Fold gutter: include only when languageExtension is provided (language support typically enables folding)
-    ...(languageExtension ? [foldGutter()] : []),
+    ...(foldGutterExt ? [foldGutterExt] : []),
     highlightActiveLineGutter(),
     // Selection and caret
     drawSelection(),

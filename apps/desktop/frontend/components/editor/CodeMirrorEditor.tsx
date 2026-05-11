@@ -67,6 +67,21 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             documentId ?? undefined,
           );
         }
+        // Debugging: report state creation details so we can inspect why gutters may not appear.
+        try {
+          // Avoid strict type assumptions by using `as any` for diagnostics.
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] state created', {
+            documentId,
+            languageLoaded: !!languageExtRef.current,
+            docLength: (state as any).doc?.length ?? 'unknown',
+            // extensions count is an internal detail; attempt best-effort inspection
+            extensionsCount: (state as any).config?.extensions?.length ?? (state as any).extensions?.length ?? 'unknown',
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] state debug info failed', e);
+        }
 
         if (destroyed) return;
 
@@ -83,6 +98,29 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           // ignore focus errors in environments that don't support it
         }
 
+        // Debugging: inspect DOM and computed styles immediately after mount.
+        try {
+          const hasGutters = !!mountedView.dom.querySelector('.cm-gutters');
+          const guttersEl = mountedView.dom.querySelector('.cm-gutters');
+          const containerClass = containerRef.current?.className ?? null;
+          const containerStyle = containerRef.current ? window.getComputedStyle(containerRef.current) : null;
+          const guttersStyle = guttersEl ? window.getComputedStyle(guttersEl as Element) : null;
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] mounted EditorView', {
+            documentId,
+            languageLoaded: !!languageExtRef.current,
+            hasGutters,
+            containerClass,
+            containerWidth: containerStyle?.width ?? null,
+            containerOverflow: containerStyle?.overflow ?? null,
+            guttersDisplay: guttersStyle?.display ?? null,
+            guttersWidth: guttersStyle?.width ?? null,
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.debug('[codemirror] post-mount DOM inspection failed', e);
+        }
+
         // Sanity check: if the gutter DOM is missing (styles/extensions not applied),
         // recreate the EditorState (using createState which includes lineNumbers()) and set it
         // on the mounted view. This is a small, deterministic fallback that avoids dynamic
@@ -92,7 +130,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             const dom = mountedView.dom;
             if (!dom.querySelector('.cm-gutters')) {
               // eslint-disable-next-line no-console
-              console.debug('[codemirror] gutter missing; reconfiguring state to include lineNumbers extension');
+              console.debug('[codemirror] gutter missing on initial mount; reconfiguring state to include lineNumbers extension');
               try {
                 const newState = createState(
                   mountedView.state.doc.toString(),
@@ -106,10 +144,17 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                 );
                 // Replace the state so the full extension set is applied.
                 mountedView.setState(newState);
+                // Post-reconfiguration check: report whether gutters are now present.
+                const nowHas = !!mountedView.dom.querySelector('.cm-gutters');
+                // eslint-disable-next-line no-console
+                console.debug('[codemirror] after reconfigure hasGutters=', nowHas);
               } catch (e) {
                 // eslint-disable-next-line no-console
                 console.debug('[codemirror] failed to reconfigure state for gutter', e);
               }
+            } else {
+              // eslint-disable-next-line no-console
+              console.debug('[codemirror] gutter present on initial mount; no reconfigure needed');
             }
           } catch (e) {
             // eslint-disable-next-line no-console
