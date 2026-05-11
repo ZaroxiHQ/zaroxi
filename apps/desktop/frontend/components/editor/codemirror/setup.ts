@@ -10,7 +10,7 @@ import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, hi
 import { EditorState } from '@codemirror/state';
 import { foldGutter, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { HighlightStyle, tags as t } from '@lezer/highlight';
+import * as lezerHighlight from '@lezer/highlight';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
@@ -23,19 +23,35 @@ type Selection = { from: number; to: number };
  *
  * This style intentionally maps a small, safe set of tags to CSS vars and
  * avoids any uncertain or custom tags to prevent runtime crashes.
+ *
+ * NOTE: Some bundler/resolution combos may not expose named exports as expected.
+ * To avoid the runtime "Importing binding name 'HighlightStyle' is not found"
+ * error, resolve the runtime exports safely from a namespace import and fall
+ * back to omitting syntaxHighlighting when HighlightStyle is not available.
  */
-const cmHighlightStyle = HighlightStyle.define([
-  { tag: t.keyword, color: 'var(--color-syntax-keyword)' },
-  { tag: t.string, color: 'var(--color-syntax-string)' },
-  { tag: t.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
-  { tag: t.number, color: 'var(--color-syntax-number)' },
-  { tag: t.bool, color: 'var(--color-syntax-constant)' },
-  { tag: t.null, color: 'var(--color-syntax-constant)' },
-  { tag: t.typeName, color: 'var(--color-syntax-type)' },
-  { tag: t.function, color: 'var(--color-syntax-function)' },
-  { tag: t.variableName, color: 'var(--color-syntax-variable)' },
-  { tag: t.propertyName, color: 'var(--color-syntax-property)' },
-]);
+const _hl = lezerHighlight as any;
+const HighlightStyleImpl = _hl.HighlightStyle ?? (_hl.default && _hl.default.HighlightStyle);
+const tags = _hl.tags ?? (_hl.default && _hl.default.tags);
+
+let cmHighlightStyle: any = null;
+if (HighlightStyleImpl && tags) {
+  cmHighlightStyle = HighlightStyleImpl.define([
+    { tag: tags.keyword, color: 'var(--color-syntax-keyword)' },
+    { tag: tags.string, color: 'var(--color-syntax-string)' },
+    { tag: tags.comment, color: 'var(--color-syntax-comment)', fontStyle: 'italic' },
+    { tag: tags.number, color: 'var(--color-syntax-number)' },
+    { tag: tags.bool, color: 'var(--color-syntax-constant)' },
+    { tag: tags.null, color: 'var(--color-syntax-constant)' },
+    { tag: tags.typeName, color: 'var(--color-syntax-type)' },
+    { tag: tags.function, color: 'var(--color-syntax-function)' },
+    { tag: tags.variableName, color: 'var(--color-syntax-variable)' },
+    { tag: tags.propertyName, color: 'var(--color-syntax-property)' },
+  ]);
+} else {
+  // If HighlightStyle/tags are not available at runtime, leave cmHighlightStyle null.
+  // The createBaseExtensions() function will conditionally skip attaching syntaxHighlighting.
+  cmHighlightStyle = null;
+}
 
 /**
  * Build the base extensions for an editor instance.
@@ -96,8 +112,8 @@ export function createBaseExtensions(
     // Language support (if provided)
     languageExtension ?? [],
     // Modern syntax highlighting (safe): attach a conservative HighlightStyle backed by @lezer/highlight tags.
-    // This is independent from the gutter/view lifecycle and will be a no-op if the language loader returned null.
-    syntaxHighlighting(cmHighlightStyle),
+    // If cmHighlightStyle couldn't be resolved at runtime, omit the syntaxHighlighting extension to avoid runtime import errors.
+    ...(cmHighlightStyle ? [syntaxHighlighting(cmHighlightStyle)] : []),
     // Update listener
     updateListener,
   ];
