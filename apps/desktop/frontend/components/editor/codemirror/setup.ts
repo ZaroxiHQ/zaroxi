@@ -18,7 +18,7 @@
  * modern CM6 APIs and avoids deprecated imports.
  */
 
-import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -393,6 +393,8 @@ function normalEditorExtensions(
     drawSelection(),
     // highlight the active line in the content
     highlightActiveLine(),
+    // highlight the active line in the gutter (kept for normal profile)
+    highlightActiveLineGutter(),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     ...(languageExtension ? [languageExtension] : []),
@@ -426,6 +428,8 @@ function largeFileExtensions(
     drawSelection(),
     // Always keep the active-line visual in content.
     highlightActiveLine(),
+    // Conditionally enable gutter active-line highlight when the gutter is shown.
+    ...(showGutter ? [highlightActiveLineGutter()] : []),
     keymap.of(defaultKeymap),
     ...(languageExtension && allowSyntax ? [languageExtension] : []),
     ...(allowSyntax && syntaxExt ? [syntaxExt] : []),
