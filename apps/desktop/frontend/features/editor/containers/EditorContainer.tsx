@@ -160,10 +160,12 @@ export function EditorContainer() {
             };
             next.set(k, shrunk);
 
-            // Also drop any engine-level cached EditorState to free memory
+            // Also drop any engine-level cached EditorState to free memory.
+            // NOTE: `stateCache` keys are documentIds, not tabIds — use the session's documentId.
             try {
-              if ((stateCache as Map<string, any>).has(k)) {
-                (stateCache as Map<string, any>).delete(k);
+              const docId = s.documentId ?? null;
+              if (docId && (stateCache as Map<string, any>).has(docId)) {
+                (stateCache as Map<string, any>).delete(docId);
               }
             } catch {}
 

@@ -30,6 +30,8 @@ export function setEditorEngine(v: EditorEngine) {
 /**
  * Opaque per-document EditorState cache. The CodeMirror wrapper will store EditorState
  * instances here so switching tabs can restore state/selection without full re-creation.
+ *
+ * Keys are canonical documentIds.
  */
 export const stateCache: Map<string, any> = new Map();
 
@@ -69,5 +71,21 @@ export function setCachedState(docId: string, state: any) {
     const w: any = window as any;
     w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
     w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+  } catch {}
+}
+
+/**
+ * Delete cached EditorState for a given document id (safe no-op).
+ * This helper ensures callers remove by documentId (not tabId).
+ */
+export function deleteCachedState(docId: string | null | undefined) {
+  if (!docId) return;
+  try {
+    if (stateCache.has(docId)) stateCache.delete(docId);
+    try {
+      const w: any = window as any;
+      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+      w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+    } catch {}
   } catch {}
 }

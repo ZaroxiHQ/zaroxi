@@ -124,10 +124,17 @@ class SessionCachePolicy {
           // demote immediately
           this.tiers.set(id, 'cold');
           this.emit(id, 'cold');
-          // Enforce demotion side-effects: compact session, destroy live view, clear engine state cache
+          // Enforce demotion side-effects: compact session, destroy live view, clear engine state cache.
           try { EditorSessionStore.compactToCold(id); } catch {}
           try { editorViewHost.destroyIfFor(id); } catch {}
-          try { if (stateCache && typeof (stateCache as any).delete === 'function') (stateCache as any).delete(id); } catch {}
+          try {
+            // stateCache keys are documentIds. Resolve tabId -> documentId via EditorSessionStore snapshot.
+            const snap = EditorSessionStore.getSnapshot(id);
+            const docId = snap?.documentId ?? null;
+            if (docId && stateCache && typeof (stateCache as any).delete === 'function') {
+              (stateCache as any).delete(docId);
+            }
+          } catch {}
         } else {
           warmCandidates.push({ id, last });
         }
@@ -145,7 +152,14 @@ class SessionCachePolicy {
         // Enforce demotion side-effects for each demoted session.
         try { EditorSessionStore.compactToCold(c.id); } catch {}
         try { editorViewHost.destroyIfFor(c.id); } catch {}
-        try { if (stateCache && typeof (stateCache as any).delete === 'function') (stateCache as any).delete(c.id); } catch {}
+        try {
+          // Resolve tabId -> documentId before deleting engine cache entries.
+          const snap = EditorSessionStore.getSnapshot(c.id);
+          const docId = snap?.documentId ?? null;
+          if (docId && stateCache && typeof (stateCache as any).delete === 'function') {
+            (stateCache as any).delete(docId);
+          }
+        } catch {}
         toDemote--;
       }
     }

@@ -11,6 +11,8 @@
  * This enforces a single place to `destroy()` view instances on demotion.
  */
 
+import EditorSessionStore from '@/stores/EditorSessionStore';
+
 type AnyView = { destroy?: () => void } | null;
 
 /**
@@ -21,19 +23,19 @@ type AnyView = { destroy?: () => void } | null;
  * Guarantees:
  *  - Only the host may construct and retain a live view reference.
  *  - createView destroys the previous live view when exceeding the live cap.
- *  - destroyIfFor(tabId) is idempotent.
+ *  - destroyIfFor(id) is idempotent and accepts either a tabId or a documentId.
  *  - Lightweight, non-reactive runtime diagnostics are updated here.
  */
 class EditorViewHost {
   private currentView: AnyView | null = null;
-  private currentTabId: string | null = null;
+  private currentOwnerId: string | null = null; // canonical id supplied by creator (often documentId)
   private maxLiveViews: number = 1; // hard guard: only allow 1 live view by default
 
   // Create a view using a factory that receives the parent DOM element.
   // The host becomes the authoritative owner of the returned view.
-  createView(tabId: string, parent: Element, factory: (parent: Element) => AnyView): AnyView {
+  createView(ownerId: string, parent: Element, factory: (parent: Element) => AnyView): AnyView {
     // If a different view is attached, destroy it first to enforce single owner
-    if (this.currentView && this.currentTabId !== tabId) {
+    if (this.currentView && this.currentOwnerId !== ownerId) {
       try {
         if (typeof this.currentView.destroy === 'function') {
           this.currentView.destroy();
@@ -42,7 +44,7 @@ class EditorViewHost {
         // swallow
       }
       this.currentView = null;
-      this.currentTabId = null;
+      this.currentOwnerId = null;
       // instrumentation: update non-reactive stats
       try {
         const s: any = (window as any).__zaroxi_cm_stats ?? {};
@@ -52,12 +54,11 @@ class EditorViewHost {
       } catch {}
     }
 
-    // Enforce max live view count: if we already have max and it's for the same tab, reuse.
-    // If it's for a different tab we already destroyed it above.
+    // Create the view. Caller is responsible for providing a stable factory.
     const created = factory(parent);
 
     this.currentView = created;
-    this.currentTabId = tabId;
+    this.currentOwnerId = ownerId;
 
     // instrumentation: update non-reactive stats
     try {
@@ -65,11 +66,11 @@ class EditorViewHost {
       s.created = (s.created || 0) + 1;
       s.live = (s.live || 0) + 1;
       const map = s.createdByDoc || (s.createdByDoc = Object.create(null));
-      if (typeof tabId === 'string') {
-        if (Object.prototype.hasOwnProperty.call(map, tabId)) {
-          map[tabId] += 1;
+      if (typeof ownerId === 'string') {
+        if (Object.prototype.hasOwnProperty.call(map, ownerId)) {
+          map[ownerId] += 1;
         } else if (Object.keys(map).length < 200) {
-          map[tabId] = 1;
+          map[ownerId] = 1;
         } else {
           s.createdOtherDocs = (s.createdOtherDocs || 0) + 1;
         }
@@ -80,9 +81,10 @@ class EditorViewHost {
     return created;
   }
 
-  // Return the active view only if it belongs to the requested tab id.
-  getView(tabId: string): AnyView | null {
-    if (this.currentTabId === tabId) return this.currentView;
+  // Return the active view only if it belongs to the requested owner id.
+  // The API is defensive: callers may provide either a tabId or a documentId.
+  getView(ownerId: string): AnyView | null {
+    if (this.currentOwnerId === ownerId) return this.currentView;
     return null;
   }
 
@@ -91,9 +93,9 @@ class EditorViewHost {
     return this.currentView ? 1 : 0;
   }
 
-  attach(tabId: string, view: AnyView) {
+  attach(ownerId: string, view: AnyView) {
     // Backwards-compatible attach: ensure previous view is destroyed if different.
-    if (this.currentView && this.currentTabId !== tabId) {
+    if (this.currentView && this.currentOwnerId !== ownerId) {
       try {
         if (typeof this.currentView.destroy === 'function') {
           this.currentView.destroy();
@@ -102,7 +104,7 @@ class EditorViewHost {
         // swallow
       }
       this.currentView = null;
-      this.currentTabId = null;
+      this.currentOwnerId = null;
       try {
         const s: any = (window as any).__zaroxi_cm_stats ?? {};
         s.destroyed = (s.destroyed || 0) + 1;
@@ -111,7 +113,7 @@ class EditorViewHost {
       } catch {}
     }
     this.currentView = view;
-    this.currentTabId = tabId;
+    this.currentOwnerId = ownerId;
     try {
       const s: any = (window as any).__zaroxi_cm_stats ?? {};
       s.created = (s.created || 0) + 1;
@@ -130,7 +132,7 @@ class EditorViewHost {
         // swallow
       }
       this.currentView = null;
-      this.currentTabId = null;
+      this.currentOwnerId = null;
       try {
         const s: any = (window as any).__zaroxi_cm_stats ?? {};
         s.destroyed = (s.destroyed || 0) + 1;
@@ -140,17 +142,62 @@ class EditorViewHost {
     }
   }
 
-  destroyIfFor(tabId: string) {
-    if (this.currentTabId === tabId) {
+  /**
+   * destroyIfFor(id)
+   *
+   * Id can be:
+   *  - a documentId (the common ownerId used by CodeMirrorEditor)
+   *  - a tabId (EditorContainer and SessionCachePolicy pass tabIds)
+   *
+   * We defensively resolve tabId -> documentId using EditorSessionStore when needed.
+   */
+  destroyIfFor(id: string) {
+    // Direct match: owner id equals provided id
+    if (this.currentOwnerId === id) {
       this.detach();
+      return;
+    }
+
+    // Try resolving id as a tabId -> documentId mapping via EditorSessionStore
+    try {
+      const snap = EditorSessionStore.getSnapshot(id);
+      const docId = snap?.documentId;
+      if (docId && this.currentOwnerId === String(docId)) {
+        this.detach();
+        return;
+      }
+    } catch {
+      // ignore resolution errors
     }
   }
 
-  getActiveTabId() {
-    return this.currentTabId;
+  getActiveOwnerId() {
+    return this.currentOwnerId;
+  }
+
+  // Inspect runtime host state (non-reactive). Returns a small serializable summary.
+  inspect() {
+    return {
+      live: this.getLiveCount(),
+      currentOwnerId: this.currentOwnerId,
+      // Provide best-effort local stats snapshot if available.
+      stats: (typeof (window as any).__zaroxi_cm_stats !== 'undefined') ? (window as any).__zaroxi_cm_stats : null,
+    };
   }
 }
 
 const editorViewHost = new EditorViewHost();
+
+// Expose a non-reactive inspection helper for debugging (safe no-op if window missing)
+try {
+  (window as any).__zaroxi_cm_inspect = () => {
+    try {
+      return editorViewHost.inspect();
+    } catch {
+      return { live: 0, currentOwnerId: null, stats: null };
+    }
+  };
+} catch {}
+
 export { editorViewHost };
 export default editorViewHost;
