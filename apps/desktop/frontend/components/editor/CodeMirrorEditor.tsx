@@ -131,7 +131,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     return () => {
       destroyed = true;
       try {
-        editorViewHost.destroyIfFor(String(documentId ?? 'unknown'));
+        editorViewHost.destroyIfFor(String(documentId ?? ''));
       } catch {}
       cmStatDestroyed();
     };

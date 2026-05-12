@@ -36,7 +36,7 @@ import { GUTTER_CONFIG } from './gutter/GutterConfig';
 import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
-import CustomSurface from './CustomSurface';
+import CodeMirrorEditor from './CodeMirrorEditor';
 import EditorSessionStore from '@/stores/EditorSessionStore';
 
 import { getDocumentSyntax, setDocumentSyntax, clearDocumentSyntax } from './syntaxStore';
@@ -784,6 +784,7 @@ export function CodeEditor(props: CodeEditorProps) {
     visibleEndLine = totalLines;
     visibleCount = totalLines;
   } else {
+    const scrollTop = scrollTopRef.current ?? 0;
     visibleStartLine = Math.max(0, Math.floor(scrollTop / lineHeight) - 3);
     visibleCount = Math.ceil((measuredContainerHeight + lineHeight) / lineHeight) * 2;
     visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
@@ -1011,21 +1012,12 @@ export function CodeEditor(props: CodeEditorProps) {
             </pre>
           </div>
         ) : (
-          <CustomSurface
-            value={value}
+          <CodeMirrorEditor
+            documentId={session.documentId ?? null}
+            text={value}
+            languageId={session.language}
             onChange={(v: string) => { setValue(v); onChange(v); }}
-            onCursorChange={(line: number, col: number) => setCursorLine(line)}
-            onScroll={handleScroll}
-            lines={overlayHighlighted}
-            lineHeight={lineHeight}
-            totalHeight={totalHeight}
-            className="flex-1 h-full"
-            /* Gutter rendering moved into the surface so it scrolls with the content */
-            showGutter={!largeFile}
-            gutterWidth={gutterWidth}
-            gutterLineCount={totalLines}
-            gutterCursorLine={cursorLine + 1}
-            gutterLineHeight={lineHeight}
+            readOnly={effectiveReadOnly}
           />
         )}
       </div>
