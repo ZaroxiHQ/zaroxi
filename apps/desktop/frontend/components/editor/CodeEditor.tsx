@@ -934,6 +934,10 @@ export function CodeEditor(props: CodeEditorProps) {
   const overlayReady = false;
 
   // Handlers
+  // Baseline guard: disable scroll-driven persistence during stabilization.
+  // Toggle this to `false` only when you have verified lifecycle and store echo fixes.
+  const DISABLE_SCROLL_PERSIST = true;
+
   // Debounced outward onChange emitter to avoid immediate store persistence on every keystroke.
   const scheduleEmitChange = useCallback((nextText: string) => {
     try {
@@ -1021,6 +1025,21 @@ export function CodeEditor(props: CodeEditorProps) {
 
     // Throttle persistence of scroll position to avoid write hot-paths during fast scrolling.
     try {
+      // If baseline guard is enabled, do NOT schedule persistence writes on scroll.
+      if (DISABLE_SCROLL_PERSIST) {
+        // Still record a lightweight timer entry for diagnostics but do not write to store.
+        try {
+          const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_w) {
+            _w.__zaroxi_timers = _w.__zaroxi_timers || [];
+            _w.__zaroxi_timers.push({ id: null, type: 'scroll_persist_disabled', docId: session?.documentId ?? null, ts: Date.now() });
+            if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();
+          }
+        } catch {}
+        // Do not schedule the persistence timer.
+        return;
+      }
+
       if (scrollPersistTimer.current) {
         window.clearTimeout(scrollPersistTimer.current);
       }
