@@ -513,7 +513,6 @@ export function createBaseExtensions(
       ];
     }
   }
-}
 
 /**
  * Create a fresh EditorState for initial mounting.
