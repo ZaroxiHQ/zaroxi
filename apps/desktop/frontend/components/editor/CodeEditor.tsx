@@ -671,6 +671,15 @@ export function CodeEditor(props: CodeEditorProps) {
   // Debounced outward change emission refs to avoid immediate persistence echoes.
   const changeEmitTimerRef = useRef<number | null>(null);
   const lastEmittedHashRef = useRef<string | null>(null);
+
+  // Editor-owned session isolation refs:
+  // - editorOwnedRef: when true the editor is the primary live source and adoption
+  //   from parent/session is suppressed for a short window to avoid echo/ping-pong.
+  // - editorOwnedTimerRef: clears the editor-owned lock after inactivity.
+  // - editorOwnedLastTsRef: timestamp of last editor activity (ms since epoch).
+  const editorOwnedRef = useRef<boolean>(false);
+  const editorOwnedTimerRef = useRef<number | null>(null);
+  const editorOwnedLastTsRef = useRef<number | null>(null);
   // Locked large-file decision derived synchronously from session metadata.
   // Use a strict byte-size check (TextEncoder) to enforce the 5 MB rule.
   const initialLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
@@ -686,6 +695,8 @@ export function CodeEditor(props: CodeEditorProps) {
   // Sync from session to local controlled value when session identity or loadSeq changes.
   // Guard adoption: skip setValue when the incoming session text is effectively identical
   // to the current editor value to avoid metadata-only echoes causing programmatic replaces.
+  // Additionally, when the editor is the active live owner (recent local edits), suppress
+  // adoption for a short window to avoid re-syncing normalized persistence writes back into the live view.
   useEffect(() => {
     const sessionIdentity = `${session.documentId}::${session.loadSeq ?? 0}`;
     if (lastSessionIdRef.current !== sessionIdentity) {
@@ -712,6 +723,22 @@ export function CodeEditor(props: CodeEditorProps) {
         if (changeEmitTimerRef.current) {
           window.clearTimeout(changeEmitTimerRef.current);
           changeEmitTimerRef.current = null;
+        }
+      } catch {}
+
+      // If the editor is currently the primary live owner and we are within the editor-owned
+      // protection window, skip adoption to prevent normalized echo replays. This window is
+      // short (EDIT_OWNED_BLOCK_MS) and only defers adoption briefly.
+      try {
+        const EDITOR_OWNED_BLOCK_MS = 5000;
+        const lastOwned = editorOwnedLastTsRef.current ?? 0;
+        if (editorOwnedRef.current && (Date.now() - lastOwned) < EDITOR_OWNED_BLOCK_MS) {
+          // Treat this as active editor session; do not re-adopt right now.
+          // Record last emitted hash for safety and return.
+          try {
+            if (incomingHash) lastEmittedHashRef.current = incomingHash;
+          } catch {}
+          return;
         }
       } catch {}
 
@@ -1020,6 +1047,25 @@ export function CodeEditor(props: CodeEditorProps) {
     if (lastEmittedHashRef.current === nextHash) {
       return;
     }
+
+    // Mark editor as the primary live owner for a short window to prevent immediate
+    // parent/store re-adoption of normalized echoes.
+    try {
+      editorOwnedRef.current = true;
+      editorOwnedLastTsRef.current = Date.now();
+      // reset/clear existing timer
+      if (editorOwnedTimerRef.current) {
+        try { window.clearTimeout(editorOwnedTimerRef.current); } catch {}
+        editorOwnedTimerRef.current = null;
+      }
+      // Hold ownership for a conservative idle window (20s) after last editor activity.
+      const EDITOR_OWNED_IDLE_MS = 20_000;
+      editorOwnedTimerRef.current = window.setTimeout(() => {
+        try { editorOwnedRef.current = false; } catch {}
+        try { editorOwnedLastTsRef.current = null; } catch {}
+        try { editorOwnedTimerRef.current = null; } catch {}
+      }, EDITOR_OWNED_IDLE_MS) as unknown as number;
+    } catch {}
 
     // Publish a short-lived editor-origin marker so persistence layers can avoid
     // echoing this editor-originated write back into the UI. This marker carries
