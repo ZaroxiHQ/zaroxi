@@ -668,14 +668,30 @@ export function CodeEditor(props: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync from session to local controlled value when session identity or loadSeq changes.
+  // Guard adoption: skip setValue when the incoming session text is effectively identical
+  // to the current editor value to avoid metadata-only echoes causing programmatic replaces.
   useEffect(() => {
     const sessionIdentity = `${session.documentId}::${session.loadSeq ?? 0}`;
     if (lastSessionIdRef.current !== sessionIdentity) {
-      // New session or new load result -> adopt session.text deterministically.
+      // New session or new load result -> consider adopting session.text deterministically.
       lastSessionIdRef.current = sessionIdentity;
-      setValue(session.text ?? '');
 
-      // Cancel any pending outbound change emission to avoid echoing this adoption.
+      const incomingText = session.text ?? '';
+      const currentText = value ?? '';
+
+      // Cheap guard: if the visible value already matches incoming text, skip adoption.
+      // Use stableHashString to be robust against instance identity differences.
+      let incomingHash: string | null = null;
+      let currentHash: string | null = null;
+      try {
+        incomingHash = typeof incomingText === 'string' ? stableHashString(incomingText) : null;
+        currentHash = typeof currentText === 'string' ? stableHashString(currentText) : null;
+      } catch {
+        incomingHash = null;
+        currentHash = null;
+      }
+
+      // Cancel any pending outbound change emission to avoid echoing this adoption (even if skipped).
       try {
         if (changeEmitTimerRef.current) {
           window.clearTimeout(changeEmitTimerRef.current);
@@ -683,10 +699,19 @@ export function CodeEditor(props: CodeEditorProps) {
         }
       } catch {}
 
-      // Record last emitted hash as the adopted text to avoid re-sending identical content.
-      try {
-        lastEmittedHashRef.current = typeof session.text === 'string' ? stableHashString(session.text) : null;
-      } catch {}
+      // If hashes match, treat this as a metadata-only update and skip setValue().
+      if (incomingHash && currentHash && incomingHash === currentHash) {
+        // Record last emitted hash as the adopted text to avoid re-sending identical content.
+        try {
+          lastEmittedHashRef.current = incomingHash;
+        } catch {}
+      } else {
+        // Content differs materially: perform adoption.
+        setValue(incomingText);
+        try {
+          lastEmittedHashRef.current = incomingHash;
+        } catch {}
+      }
 
       // Decide large-file for this session deterministically and persist it.
       // Lock the decision synchronously so highlight/hydration logic sees it immediately.
