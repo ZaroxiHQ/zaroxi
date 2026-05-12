@@ -18,7 +18,7 @@
  * modern CM6 APIs and avoids deprecated imports.
  */
 
-import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -298,7 +298,6 @@ function normalEditorExtensions(
   return [
     ...common,
     lineNumbers(),
-    highlightActiveLineGutter(),
     drawSelection(),
     highlightActiveLine(),
     history(),
