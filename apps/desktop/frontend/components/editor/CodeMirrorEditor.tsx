@@ -131,10 +131,35 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         languageExtRef.current = null;
 
-        // Only load language support for NORMAL profile (avoid heavy parser work for large/extreme)
+        // Defer language support loading until the editor reaches a stable idle state.
+        // This avoids heavy async loading during mount/open which can coincide with persistence
+        // churn and cause allocation spikes. The loader runs via requestIdleCallback or a
+        // fallback timeout and is cancellable on unmount.
+        let langLoadHandle: any = null;
+        const STABILIZE_LOAD_MS = 1500;
         if (profile === 'normal') {
           try {
-            languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+            if (typeof (window as any).requestIdleCallback === 'function') {
+              langLoadHandle = (window as any).requestIdleCallback(async (_deadline: any) => {
+                if (destroyed) return;
+                try {
+                  const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+                  languageExtRef.current = ext ?? null;
+                } catch {
+                  languageExtRef.current = null;
+                }
+              }, { timeout: 2000 });
+            } else {
+              langLoadHandle = window.setTimeout(async () => {
+                if (destroyed) return;
+                try {
+                  const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+                  languageExtRef.current = ext ?? null;
+                } catch {
+                  languageExtRef.current = null;
+                }
+              }, STABILIZE_LOAD_MS) as unknown as number;
+            }
           } catch {
             languageExtRef.current = null;
           }
@@ -214,6 +239,21 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     return () => {
       destroyed = true;
+
+      // Cancel any pending deferred language load to avoid late completions re-attaching state.
+      try {
+        if (typeof langLoadHandle !== 'undefined' && langLoadHandle !== null) {
+          try {
+            if (typeof (window as any).cancelIdleCallback === 'function' && typeof langLoadHandle === 'number') {
+              (window as any).cancelIdleCallback(langLoadHandle);
+            } else {
+              window.clearTimeout(langLoadHandle as number);
+            }
+          } catch {}
+          langLoadHandle = null;
+        }
+      } catch {}
+
       try {
         // Instrumentation: mark view destroyed in global diagnostic list before host destroy.
         try {
