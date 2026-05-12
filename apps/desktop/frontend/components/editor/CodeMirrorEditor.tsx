@@ -117,6 +117,10 @@ function stableHashString(s: string): string {
   return (h >>> 0).toString(16);
 }
 
+// Dedupe in-flight language support loads to avoid duplicate dynamic imports
+// when the mount effect runs multiple times (e.g. React StrictMode double-mount).
+const languageLoadInflight: Map<string, Promise<any>> = new Map();
+
 /**
  * Lightweight, non-invasive runtime instrumentation for EditorView lifecycle.
  *
@@ -269,15 +273,36 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         debug('[codemirror] mount profile', { profile, metrics });
 
+        // Early guard: if a live view already exists for this document owner,
+        // skip duplicate initialization. This prevents expensive duplicate work
+        // when React StrictMode double-invokes mount effects in development.
+        try {
+          if (editorViewHost.getView(String(documentId ?? ''))) {
+            try { debug && debug('[codemirror] skipping duplicate mount; view already exists for', documentId); } catch {}
+            return;
+          }
+        } catch {}
+
         languageExtRef.current = null;
 
-        // Load language support for NORMAL profile immediately (restoring pre-188496e behaviour).
-        // Keep this synchronous from the mount's perspective so syntax is available promptly.
-        languageExtRef.current = null;
+        // Deduplicate language support loading across concurrent mount runs.
+        // Key strategy: prefer languageId when present; otherwise fall back to per-document key.
         if (profile === 'normal') {
           try {
-            const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
-            languageExtRef.current = ext ?? null;
+            const langKey = (languageId ?? `doc:${String(documentId ?? '')}`);
+            let langPromise = languageLoadInflight.get(langKey);
+            if (!langPromise) {
+              langPromise = (async () => {
+                try {
+                  const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+                  return ext ?? null;
+                } finally {
+                  try { languageLoadInflight.delete(langKey); } catch {}
+                }
+              })();
+              languageLoadInflight.set(langKey, langPromise);
+            }
+            languageExtRef.current = await langPromise;
           } catch {
             languageExtRef.current = null;
           }
@@ -304,6 +329,15 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         );
 
         if (destroyed) return;
+
+        // If a concurrent mount already created a live view for this owner while we awaited,
+        // avoid creating a second view.
+        try {
+          if (editorViewHost.getView(String(documentId ?? ''))) {
+            try { debug && debug('[codemirror] createView suppressed; another mount created view for', documentId); } catch {}
+            return;
+          }
+        } catch {}
 
         // Create the view via the host (host ensures single live view).
         const mountedView = editorViewHost.createView(String(documentId ?? ''), containerRef.current, (parent: Element) => {
