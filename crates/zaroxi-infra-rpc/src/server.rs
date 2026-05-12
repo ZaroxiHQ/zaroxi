@@ -54,7 +54,7 @@ ERROR MAPPING
 
 EXAMPLE METHOD FLOW (workspace.open)
 1. protocol defines WorkspaceOpenRequest/WorkspaceOpenResponse in zaroxi-protocol.
-2. frontend sends request (method = \"workspace.open\", params = {...}).
+2. frontend sends request (method = "workspace.open", params = {...}).
 3. infra-rpc:
    - receives raw payload, deserializes into protocol::rpc::Request<WorkspaceOpenRequest>.
    - looks up handler by method name -> handlers::workspace::open.
@@ -74,6 +74,7 @@ use std::sync::Arc;
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Application context passed to handlers. This is intentionally trait-based
 /// so tests can inject mocks and the infra crate does not force concrete
