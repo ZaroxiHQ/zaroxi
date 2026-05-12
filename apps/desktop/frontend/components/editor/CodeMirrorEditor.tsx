@@ -68,6 +68,8 @@ try {
         };
         _w.__zaroxi_runtime_report = report;
         try { console.info('[zaroxi-runtime-report]', report); } catch {}
+        try { localStorage.setItem('__zaroxi_runtime_report', JSON.stringify(report)); } catch {}
+        try { window.dispatchEvent(new CustomEvent('zaroxi-runtime-report', { detail: report })); } catch {}
         return report;
       } catch (err) {
         try { console.error('[zaroxi-runtime-report] failed to collect', String(err)); } catch {}
