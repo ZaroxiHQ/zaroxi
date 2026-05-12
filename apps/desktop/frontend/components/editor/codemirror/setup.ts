@@ -251,10 +251,16 @@ const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
 // Create an update listener factory that uses the provided opts.onChange.
 // This is module-scoped but produces a listener bound to the caller's onChange.
 function createNormalUpdateListener(opts: { onChange: (text: string, selection?: Selection) => void }) {
-  // Debounced update listener with transaction-annotation guarding:
-  // - Skip transactions that were applied by the "app sync" path (APP_SYNC_ANNOT).
-  // - Defer heavy doc.toString() work into the debounced callback to avoid
-  //   performing full-text serialization synchronously on every transaction.
+  // Debounced update listener with transaction-annotation guarding and a cheap
+  // fingerprint pre-check to avoid full-document serialization when the
+  // visible document has not materially changed since the last emission.
+  //
+  // Goals:
+  // - Skip transactions annotated with APP_SYNC_ANNOT (programmatic sync).
+  // - Compute a cheap fingerprint (length + head + tail samples) and only
+  //   call state.doc.toString() when that fingerprint differs from the last
+  //   emitted fingerprint for this view.
+  // - Keep the hot path light and limit full-text allocations.
   return EditorView.updateListener.of((update) => {
     if (!update.docChanged) return;
     try {
@@ -270,22 +276,84 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
         window.clearTimeout(viewAny.__cm_onchange_timer);
       }
 
-      // Debounce and fetch full text only when stable. Use the live view
-      // reference inside the timeout rather than the snapshot captured here
-      // to minimize synchronous cost.
+      // Compute a cheap fingerprint for the current document state without serializing the whole doc.
+      // Use length + head(32) + tail(32) slices to form a compact representation.
+      const makeFingerprint = (stateDoc: any) => {
+        try {
+          const len = (stateDoc as any).length ?? 0;
+          const sample = (n: number, fromEnd = false) => {
+            try {
+              if (typeof stateDoc.sliceString === 'function') {
+                if (!fromEnd) return stateDoc.sliceString(0, n);
+                const start = Math.max(0, len - n);
+                return stateDoc.sliceString(start, len);
+              } else {
+                const s = stateDoc.toString();
+                if (!fromEnd) return s.slice(0, n);
+                const start = Math.max(0, s.length - n);
+                return s.slice(start);
+              }
+            } catch {
+              return '';
+            }
+          };
+          const head = sample(32, false);
+          const tail = sample(32, true);
+          return `${len}|${head}|${tail}`;
+        } catch {
+          return 'err';
+        }
+      };
+
+      // Capture current quick fingerprint into a pending slot; the debounced callback
+      // will compare against the last emitted fingerprint and decide whether to serialize.
+      try {
+        viewAny.__cm_pending_fingerprint = makeFingerprint(update.state.doc);
+      } catch {
+        viewAny.__cm_pending_fingerprint = null;
+      }
+
       viewAny.__cm_onchange_timer = window.setTimeout(() => {
         try {
-          const latestText = update.view.state.doc.toString();
-          const sel = update.view.state.selection.main;
+          // Recompute fingerprint from the live view state to avoid race issues.
+          const fingerprint = (() => {
+            try {
+              const sd = update.view.state.doc;
+              return makeFingerprint(sd);
+            } catch {
+              return null;
+            }
+          })();
+
+          // If fingerprint equals the last emitted fingerprint for this view, skip heavy serialization.
           try {
-            opts.onChange(latestText, { from: sel.from, to: sel.to });
+            if (fingerprint && viewAny.__cm_last_emitted_fingerprint === fingerprint) {
+              // Nothing materially changed since last emission.
+              return;
+            }
+          } catch {}
+
+          // Otherwise, perform a single full-text serialization and emit.
+          try {
+            const latestText = update.view.state.doc.toString();
+            const sel = update.view.state.selection.main;
+            try {
+              opts.onChange(latestText, { from: sel.from, to: sel.to });
+            } catch {
+              // swallow host errors to avoid destabilizing the editor
+            }
+            // Record the fingerprint we emitted to avoid emitting identical content again soon.
+            try {
+              viewAny.__cm_last_emitted_fingerprint = fingerprint;
+            } catch {}
           } catch {
-            // swallow host errors to avoid destabilizing the editor
+            // swallow errors from doc serialization
           }
-        } catch {
-          // swallow errors from doc serialization
         } finally {
           viewAny.__cm_onchange_timer = undefined;
+          try {
+            viewAny.__cm_pending_fingerprint = undefined;
+          } catch {}
         }
       }, 150) as unknown as number;
     } catch {
