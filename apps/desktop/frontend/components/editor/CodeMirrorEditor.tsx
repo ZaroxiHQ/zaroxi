@@ -5,6 +5,61 @@ import { EditorView } from '@codemirror/view';
 import editorViewHost from '@/lib/session/EditorViewHost';
 import { isDebug, debug, error as logError, setMountError, incrementStat } from '@/lib/logger';
 
+/**
+ * Lightweight, non-invasive runtime instrumentation for EditorView lifecycle.
+ *
+ * Exposes:
+ *  - window.__zaroxi_editor_views: array of weak refs and metadata for created views
+ *  - window.__zaroxi_timers: array of recorded timer ids and metadata
+ *  - window.__zaroxi_editor_view_report(): returns a compact live report
+ *
+ * These are diagnostics only and do not change editor behavior.
+ */
+try {
+  const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+  if (_w) {
+    _w.__zaroxi_editor_views = _w.__zaroxi_editor_views || [];
+    _w.__zaroxi_timers = _w.__zaroxi_timers || [];
+    _w.__zaroxi_editor_view_report = function () {
+      try {
+        const out: any = { total: 0, alive: 0, entries: [] };
+        const now = Date.now();
+        const arr = _w.__zaroxi_editor_views || [];
+        out.total = arr.length;
+        for (let i = 0; i < arr.length; i++) {
+          const e = arr[i];
+          const ref = e && e.ref;
+          let alive = false;
+          try {
+            if (ref && typeof ref.deref === 'function') {
+              alive = !!ref.deref();
+            } else {
+              // Fallback: optimistic alive if no WeakRef support
+              alive = true;
+            }
+          } catch {
+            alive = true;
+          }
+          if (alive) out.alive++;
+          out.entries.push({
+            documentId: e.documentId,
+            createdAt: e.createdAt,
+            alive,
+            meta: e.meta,
+            lastSeenAt: e.lastSeenAt,
+          });
+        }
+        // timers snapshot (non-reactive)
+        out.timers = (_w.__zaroxi_timers || []).slice(-200);
+        out.reportedAt = now;
+        return out;
+      } catch (err) {
+        return { error: String(err) };
+      }
+    };
+  }
+} catch {}
+
 // Large-file thresholds (tunable)
 const LARGE_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 const LARGE_FILE_LINES = 100_000;
@@ -110,6 +165,22 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           });
         });
 
+        // Instrumentation: register created view weak-ref with a global diagnostics list.
+        try {
+          const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_w) {
+            const ref = (typeof WeakRef !== 'undefined') ? new WeakRef(mountedView) : { deref: () => mountedView };
+            _w.__zaroxi_editor_views = _w.__zaroxi_editor_views || [];
+            _w.__zaroxi_editor_views.push({
+              documentId: String(documentId ?? ''),
+              ref,
+              createdAt: Date.now(),
+              lastSeenAt: Date.now(),
+              meta: { profile: (typeof profile !== 'undefined' ? profile : null) },
+            });
+          }
+        } catch {}
+
         cmStatCreated();
 
         // Focus editor when possible
@@ -125,7 +196,36 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     return () => {
       destroyed = true;
       try {
+        // Instrumentation: mark view destroyed in global diagnostic list before host destroy.
+        try {
+          const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_w && _w.__zaroxi_editor_views) {
+            for (const e of _w.__zaroxi_editor_views) {
+              try {
+                if (e && e.documentId === String(documentId ?? '')) {
+                  e.lastSeenAt = Date.now();
+                  e._destroyRequestedAt = Date.now();
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+
         editorViewHost.destroyIfFor(String(documentId ?? ''));
+        // After destroyIfFor attempt, mark as likely destroyed (best-effort).
+        try {
+          const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_w && _w.__zaroxi_editor_views) {
+            for (const e of _w.__zaroxi_editor_views) {
+              try {
+                if (e && e.documentId === String(documentId ?? '')) {
+                  e.lastSeenAt = Date.now();
+                  e._destroyedAt = Date.now();
+                }
+              } catch {}
+            }
+          }
+        } catch {}
       } catch {}
       cmStatDestroyed();
     };

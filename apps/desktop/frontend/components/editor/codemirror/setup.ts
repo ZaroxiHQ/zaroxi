@@ -313,7 +313,8 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
         viewAny.__cm_pending_fingerprint = null;
       }
 
-      viewAny.__cm_onchange_timer = window.setTimeout(() => {
+      // Register a debounced timer and record it in a lightweight global diagnostics array.
+      const __cm_timer_id = window.setTimeout(() => {
         try {
           // Recompute fingerprint from the live view state to avoid race issues.
           const fingerprint = (() => {
@@ -356,6 +357,15 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
           } catch {}
         }
       }, 150) as unknown as number;
+      viewAny.__cm_onchange_timer = __cm_timer_id;
+      try {
+        const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+        if (_w) {
+          _w.__zaroxi_timers = _w.__zaroxi_timers || [];
+          _w.__zaroxi_timers.push({ id: __cm_timer_id, type: 'cm_onchange', ts: Date.now() });
+          if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();
+        }
+      } catch {}
     } catch {
       // swallow any unexpected errors in the listener
     }

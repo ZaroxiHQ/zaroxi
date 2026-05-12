@@ -960,13 +960,22 @@ export function CodeEditor(props: CodeEditorProps) {
       };
     } catch {}
 
-    changeEmitTimerRef.current = window.setTimeout(() => {
+    const __emit_tid = window.setTimeout(() => {
       try {
         lastEmittedHashRef.current = nextHash;
         onChange(nextText);
       } catch {}
       changeEmitTimerRef.current = null;
     }, 300) as unknown as number;
+    changeEmitTimerRef.current = __emit_tid;
+    try {
+      const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+      if (_w) {
+        _w.__zaroxi_timers = _w.__zaroxi_timers || [];
+        _w.__zaroxi_timers.push({ id: __emit_tid, type: 'emit', docId: session?.documentId ?? null, ts: Date.now() });
+        if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();
+      }
+    } catch {}
   }, [onChange, session?.documentId]);
 
   const flushPendingChange = useCallback(() => {
@@ -1015,7 +1024,7 @@ export function CodeEditor(props: CodeEditorProps) {
       if (scrollPersistTimer.current) {
         window.clearTimeout(scrollPersistTimer.current);
       }
-      scrollPersistTimer.current = window.setTimeout(() => {
+      const __scroll_tid = window.setTimeout(() => {
         try {
           if (session && session.tabId) {
             // Persist lightweight snapshot to editor session store (no DOM).
@@ -1028,7 +1037,16 @@ export function CodeEditor(props: CodeEditorProps) {
           }
         } catch {}
         scrollPersistTimer.current = null;
-      }, 200);
+      }, 200) as unknown as number;
+      scrollPersistTimer.current = __scroll_tid;
+      try {
+        const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+        if (_w) {
+          _w.__zaroxi_timers = _w.__zaroxi_timers || [];
+          _w.__zaroxi_timers.push({ id: __scroll_tid, type: 'scroll_persist', docId: session?.documentId ?? null, ts: Date.now() });
+          if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();
+        }
+      } catch {}
     } catch {}
     // No immediate setState to avoid rerenders; UI uses the live DOM scroll.
   }, [session]);
