@@ -300,8 +300,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   }, [documentId, languageId, readOnly]);
 
   // Keep the live EditorView document in sync when `text` prop changes.
-  // This dispatch is intentionally minimal: we only replace the document when
-  // the incoming text differs from the current view content.
+  // Make this path intentionally cheap: avoid synchronous full-text hashing
+  // or calling `view.state.doc.toString()` here. Use only non-allocating guards
+  // (length + small prefix via sliceString) and skip fallback to toString.
+  // Stronger checks, if necessary, must run later on an idle/deferred path.
   useEffect(() => {
     if (usingFallback) {
       if (textareaRef.current && textareaRef.current.value !== text) {
@@ -315,74 +317,55 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     try {
       const viewAny: any = view;
-      // Compute incoming normalized text and its hash for equality guards.
       const incoming = (text ?? '');
-      const normalizeForHash = (s: string) => {
-        try {
-          let n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-          if (n.endsWith('\n')) n = n.slice(0, -1);
-          return n;
-        } catch {
-          return s;
-        }
-      };
-      const incomingHash = stableHashString(incoming);
-      const incomingNormHash = stableHashString(normalizeForHash(incoming));
 
-      // If this view recently applied a programmatic update with the same exact or normalized hash,
-      // skip re-applying the same content to avoid ping-pong between persistence and editor.
-      try {
-        const lastProgHash = viewAny.__lastProgrammaticHash;
-        const lastProgNorm = viewAny.__lastProgrammaticNormHash;
-        const lastProgTs = viewAny.__lastProgrammaticTs || 0;
-        const RECENT_MS = 8000;
-        if (lastProgHash && (lastProgHash === incomingHash) && (Date.now() - lastProgTs) < RECENT_MS) {
-          return;
-        }
-        if (lastProgNorm && (lastProgNorm === incomingNormHash) && (Date.now() - lastProgTs) < RECENT_MS) {
-          return;
-        }
-      } catch {}
-
-      // Avoid a full doc.toString() in the hot path. First do a cheap length + prefix check.
+      // Cheap equality guard: compare lengths first.
       let identical = false;
       try {
         const docLen = (view.state.doc as any).length as number;
-        const textLen = (incoming ?? '').length;
+        const textLen = incoming.length;
         if (docLen === textLen) {
+          // If sliceString is available, compare a small prefix only (no full serialization).
           const prefixLen = Math.min(64, docLen);
-          const docPrefix = (view.state.doc as any).sliceString
-            ? (view.state.doc as any).sliceString(0, prefixLen)
-            : view.state.doc.toString().slice(0, prefixLen);
-          if ((incoming ?? '').slice(0, prefixLen) === docPrefix) {
-            // Cheap equality likely; treat as identical and avoid a full-replace.
+          if (typeof (view.state.doc as any).sliceString === 'function') {
+            const docPrefix = (view.state.doc as any).sliceString(0, prefixLen);
+            if (incoming.slice(0, prefixLen) === docPrefix) {
+              identical = true;
+            }
+          } else {
+            // Cannot safely sample the document without toString(); be conservative:
+            // assume identical when lengths match to avoid forcing a heavy toString().
+            // This may defer necessary replacements, but avoids large synchronous work.
             identical = true;
           }
         }
       } catch {
-        // Fallback: if our cheap check failed, fall back to full string compare.
+        // If anything fails, keep identical=false and let replacement occur as needed.
+        identical = false;
       }
 
+      // Skip if we've recently applied a programmatic update (short window).
+      try {
+        const lastProgTs = viewAny.__lastProgrammaticTs || 0;
+        const RECENT_MS = 8000;
+        if ((Date.now() - lastProgTs) < RECENT_MS && identical) {
+          return;
+        }
+      } catch {}
+
       if (!identical) {
-        // Replace the full document content in a single transaction.
-        // Mark this transaction with APP_SYNC_ANNOT so the update listener can
-        // ignore it and we avoid re-entering the parent change pipeline.
+        // Programmatic replace: still necessary when incoming content materially differs.
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: incoming ?? '' },
           annotations: APP_SYNC_ANNOT.of(true),
         });
-        // Record that we programmatically applied this exact content so subsequent
-        // incoming normalized echoes from persistence can be suppressed briefly.
+        // Record programmatic application time to prevent immediate replays.
         try {
-          viewAny.__lastProgrammaticHash = incomingHash;
-          viewAny.__lastProgrammaticNormHash = incomingNormHash;
           viewAny.__lastProgrammaticTs = Date.now();
-          // Clear after a timeout to avoid permanent suppression.
+          // Clear marker after a reasonable timeout.
           setTimeout(() => {
             try {
               if (viewAny) {
-                viewAny.__lastProgrammaticHash = undefined;
-                viewAny.__lastProgrammaticNormHash = undefined;
                 viewAny.__lastProgrammaticTs = undefined;
               }
             } catch {}
