@@ -973,18 +973,34 @@ export function CodeEditor(props: CodeEditorProps) {
     } catch {}
 
     const nextHash = stableHashString(nextText);
-    // If identical to last emitted, skip scheduling.
+
+    // Compute a normalized hash (normalize line endings and trim a single trailing newline)
+    // This helps detect normalization-only edits (CRLF -> LF, trailing newline differences)
+    // so we can avoid echoing those back into the live editor.
+    const normalizeForHash = (s: string) => {
+      try {
+        let n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        if (n.endsWith('\n')) n = n.slice(0, -1);
+        return n;
+      } catch {
+        return s;
+      }
+    };
+    const nextNormHash = stableHashString(normalizeForHash(nextText));
+
+    // If identical to last emitted (exact), skip scheduling.
     if (lastEmittedHashRef.current === nextHash) {
       return;
     }
 
     // Publish a short-lived editor-origin marker so persistence layers can avoid
     // echoing this editor-originated write back into the UI. This marker carries
-    // only the documentId and a compact hash (no full-text payload).
+    // the documentId, exact hash and a normalized hash, plus a timestamp.
     try {
       (window as any).__zaroxi_last_editor_emit = {
         documentId: session?.documentId ?? null,
         hash: nextHash,
+        normHash: nextNormHash,
         ts: Date.now(),
       };
     } catch {}
@@ -1000,6 +1016,8 @@ export function CodeEditor(props: CodeEditorProps) {
     try {
       const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
       if (_w) {
+        // Diagnostics push intentionally suppressed on hot path in prior change;
+        // keep a minimal trace for emit events without capturing the full text.
         _w.__zaroxi_timers = _w.__zaroxi_timers || [];
         _w.__zaroxi_timers.push({ id: __emit_tid, type: 'emit', docId: session?.documentId ?? null, ts: Date.now() });
         if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();

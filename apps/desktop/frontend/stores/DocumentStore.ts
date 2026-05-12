@@ -41,9 +41,9 @@ class DocumentStore {
 
     // Guard against editor-origin echoes:
     // If a recent editor emission marker exists for this document and the
-    // merged content matches the editor's emitted hash, skip writing. This
-    // prevents editor-originated changes from being re-emitted back into the
-    // component tree and re-triggering adoption cycles.
+    // merged content matches the editor's emitted hash (exact or normalized),
+    // skip writing. This prevents editor-originated or normalization-only changes
+    // from being re-emitted back into the component tree and re-triggering adoption cycles.
     try {
       const lastEmit = (typeof window !== 'undefined') ? (window as any).__zaroxi_last_editor_emit : undefined;
       if (lastEmit && lastEmit.documentId === documentId && typeof merged.content === 'string') {
@@ -55,10 +55,39 @@ class DocumentStore {
           }
           return (h >>> 0).toString(16);
         };
-        if (stableHashString(merged.content) === lastEmit.hash) {
-          // Skip write to avoid echoing editor-originated content back into UI.
-          return;
-        }
+
+        // Exact-match check (previous behaviour).
+        try {
+          if (stableHashString(merged.content) === lastEmit.hash) {
+            // Skip write to avoid echoing editor-originated content back into UI.
+            return;
+          }
+        } catch {}
+
+        // Normalized-match check: compute a normalized hash of the merged content
+        // (normalize line endings and trim a single trailing newline) and compare
+        // against the normalized hash emitted by the editor. Only suppress if the
+        // editor emit is recent to avoid blocking genuine external edits.
+        try {
+          const normalizeForHash = (s: string) => {
+            try {
+              let n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+              if (n.endsWith('\n')) n = n.slice(0, -1);
+              return n;
+            } catch {
+              return s;
+            }
+          };
+          const normHash = stableHashString(normalizeForHash(merged.content));
+          const emitNorm = lastEmit.normHash;
+          const emitTs = lastEmit.ts || 0;
+          const now = Date.now();
+          const RECENT_MS = 5000;
+          if (emitNorm && normHash === emitNorm && (now - emitTs) < RECENT_MS) {
+            // Normalized echo from the active editor within a short window -> skip.
+            return;
+          }
+        } catch {}
       }
     } catch {
       // Defensive: if anything goes wrong, fall back to writing as before.

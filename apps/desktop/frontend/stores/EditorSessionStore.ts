@@ -63,8 +63,10 @@ class EditorSessionStore {
     };
 
     // Guard against editor-origin echoes:
-    // If a recent editor emission marker exists and the merged.text matches the editor's hash,
-    // avoid overwriting the store entry in order to prevent re-emitting the same content back into the UI.
+    // If a recent editor emission marker exists and the merged.text matches the editor's hash
+    // (exact or normalized), avoid overwriting the store entry in order to prevent re-emitting
+    // the same content back into the UI. Only suppress normalized echoes when the editor emit
+    // was recent to avoid blocking legitimate external edits.
     try {
       const lastEmit = (typeof window !== 'undefined') ? (window as any).__zaroxi_last_editor_emit : undefined;
       if (lastEmit && lastEmit.documentId === merged.documentId && typeof merged.text === 'string') {
@@ -76,18 +78,48 @@ class EditorSessionStore {
           }
           return (h >>> 0).toString(16);
         };
-        if (stableHashString(merged.text) === lastEmit.hash) {
-          // If only lastActiveAt changed, update it in-place to keep recency info but avoid changing object identity.
-          if (this.store.has(tabId)) {
-            const existing = this.store.get(tabId)!;
-            existing.lastActiveAt = merged.lastActiveAt;
-            this.store.set(tabId, existing);
-          } else {
-            // No previous entry, set the merged snapshot as this is the first observation.
-            this.store.set(tabId, merged);
+
+        // Exact match suppression.
+        try {
+          if (stableHashString(merged.text) === lastEmit.hash) {
+            if (this.store.has(tabId)) {
+              const existing = this.store.get(tabId)!;
+              existing.lastActiveAt = merged.lastActiveAt;
+              this.store.set(tabId, existing);
+            } else {
+              this.store.set(tabId, merged);
+            }
+            return;
           }
-          return;
-        }
+        } catch {}
+
+        // Normalized-match suppression within a short time window.
+        try {
+          const normalizeForHash = (s: string) => {
+            try {
+              let n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+              if (n.endsWith('\n')) n = n.slice(0, -1);
+              return n;
+            } catch {
+              return s;
+            }
+          };
+          const normHash = stableHashString(normalizeForHash(merged.text));
+          const emitNorm = lastEmit.normHash;
+          const emitTs = lastEmit.ts || 0;
+          const now = Date.now();
+          const RECENT_MS = 5000;
+          if (emitNorm && normHash === emitNorm && (now - emitTs) < RECENT_MS) {
+            if (this.store.has(tabId)) {
+              const existing = this.store.get(tabId)!;
+              existing.lastActiveAt = merged.lastActiveAt;
+              this.store.set(tabId, existing);
+            } else {
+              this.store.set(tabId, merged);
+            }
+            return;
+          }
+        } catch {}
       }
     } catch {
       // Defensive: fall through to normal behavior if hashing/marker inspection fails
