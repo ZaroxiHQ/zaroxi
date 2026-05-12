@@ -1,4 +1,4 @@
-#![doc = r"
+#![doc = r#"
 RPC transport adapter (implementation plan + skeleton)
 
 This file contains the transport-layer skeleton for the RPC server and a
@@ -67,7 +67,7 @@ EXAMPLE METHOD FLOW (workspace.open)
 EXAMPLE CODE: lightweight skeleton types and helper functions follow.
 This file intentionally keeps dependencies minimal and exposes trait shapes
 so concrete service crates can implement them and be injected at runtime.
-"]
+"#]
 
 use std::collections::HashMap;
 use std::sync::Arc;
