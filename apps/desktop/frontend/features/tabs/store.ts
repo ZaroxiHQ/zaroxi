@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore';
+import sessionCache from '@/lib/session/SessionCachePolicy';
+import EditorSessionStore from '@/stores/EditorSessionStore';
 
 export type TabKind = 'file' | 'welcome';
 
@@ -9,6 +11,12 @@ export interface Tab {
   title: string;
   isDirty: boolean;
   kind: TabKind;
+  // Optional pin flag (UI-level)
+  pinned?: boolean;
+  // Explicit cache tier for tab session caching: 'hot' = active, 'warm' = recent inactive, 'cold' = persisted/lightweight
+  cacheTier?: 'hot' | 'warm' | 'cold';
+  // Last time (ms since epoch) this tab was active. Used by cache policy for LRU/idle demotion.
+  lastActiveAt?: number;
 }
 
 /** The reserved id for the built‑in Welcome tab. */
@@ -46,6 +54,9 @@ export const useTabsStore = create<TabsState>()(
           } else {
             useWorkspaceStore.getState().setActiveFilePath(null);
           }
+          // Inform session cache policy that this tab was activated.
+          try { sessionCache.onActivate(id); } catch {}
+          try { EditorSessionStore.touch(id); } catch {}
           return;
         }
         const newTab: Tab = {
@@ -64,6 +75,9 @@ export const useTabsStore = create<TabsState>()(
         } else {
           useWorkspaceStore.getState().setActiveFilePath(null);
         }
+        // Inform session cache that a tab was opened and activated.
+        try { sessionCache.onOpenTab(id); sessionCache.onActivate(id); } catch {}
+        try { EditorSessionStore.touch(id); } catch {}
       },
 
       closeTab: (id) => {
@@ -89,6 +103,11 @@ export const useTabsStore = create<TabsState>()(
           }
         }
         set({ tabs: newTabs, activeTabId: newActive });
+        try { sessionCache.onCloseTab(id); } catch {}
+        if (newActive) {
+          try { sessionCache.onActivate(newActive); } catch {}
+          try { EditorSessionStore.touch(newActive); } catch {}
+        }
 
         // Keep workspace explorer activeFilePath in sync with the newly active tab.
         if (newActive) {

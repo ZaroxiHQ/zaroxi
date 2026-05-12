@@ -7,6 +7,8 @@ import { useWorkspaceStore } from '@/features/workspace/stores/useWorkspaceStore
 import { Icon } from '@/components/ui/Icon';
 import { useTabsStore } from '@/features/tabs/store';
 import { WelcomeView } from '@/features/welcome/WelcomeView';
+import sessionCache from '@/lib/session/SessionCachePolicy';
+import EditorSessionStore from '@/stores/EditorSessionStore';
 
 /**
  * EditorContainer - Simplified, deterministic session owner.
@@ -171,6 +173,10 @@ export function EditorContainer() {
     if (!tabId) return;
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+
+    // Notify session cache that the tab became active and update session last-active timestamp.
+    try { sessionCache.onActivate(tabId); } catch {}
+    try { EditorSessionStore.touch(tabId); } catch {}
 
     const sess = sessions.get(tabId);
     if (!sess) {
