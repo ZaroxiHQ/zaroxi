@@ -8,6 +8,7 @@
  * localStorage so you can toggle the experiment in the browser.
  */
 
+import { setStat } from '@/lib/logger';
 export type EditorEngine = 'custom' | 'codemirror';
 
 const LS_KEY = 'editorEngine:v1';
