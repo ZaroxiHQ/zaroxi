@@ -76,7 +76,6 @@ use std::future::Future;
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Application context passed to handlers. This is intentionally trait-based
 /// so tests can inject mocks and the infra crate does not force concrete
