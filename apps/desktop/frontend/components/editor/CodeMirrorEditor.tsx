@@ -22,26 +22,53 @@ function ensureCmStats() {
         created: 0,
         destroyed: 0,
         live: 0,
-        createdByDoc: {},
-        destroyedByDoc: {},
+        // bounded per-document summaries to avoid unbounded growth in long-running sessions
+        createdByDoc: Object.create(null),
+        destroyedByDoc: Object.create(null),
+        // counters for creations/destroys that exceed the per-doc key cap
+        createdOtherDocs: 0,
+        destroyedOtherDocs: 0,
         tabSwitches: 0,
         cachedStates: 0,
       };
     }
     return w.__zaroxi_cm_stats;
   } catch {
-    return { created: 0, destroyed: 0, live: 0, createdByDoc: {}, destroyedByDoc: {}, tabSwitches: 0, cachedStates: 0 };
+    return {
+      created: 0,
+      destroyed: 0,
+      live: 0,
+      createdByDoc: Object.create(null),
+      destroyedByDoc: Object.create(null),
+      createdOtherDocs: 0,
+      destroyedOtherDocs: 0,
+      tabSwitches: 0,
+      cachedStates: 0,
+    };
   }
 }
+
+// Cap how many unique document keys we will keep detailed counters for.
+// Keeping this finite prevents unbounded memory growth when many different files are opened.
+const CM_STATS_DOC_KEY_LIMIT = 200;
 
 function cmStatCreated(key: string) {
   try {
     const s: any = ensureCmStats();
     s.created += 1;
     s.live += 1;
-    s.createdByDoc[key] = (s.createdByDoc[key] || 0) + 1;
-    // eslint-disable-next-line no-console
-    console.debug('[codemirror-stats] created', { key, created: s.created, live: s.live });
+
+    const map = s.createdByDoc;
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      map[key] += 1;
+    } else if (Object.keys(map).length < CM_STATS_DOC_KEY_LIMIT) {
+      map[key] = 1;
+    } else {
+      s.createdOtherDocs = (s.createdOtherDocs || 0) + 1;
+    }
+
+    // Do not log on every creation to avoid hot-path noise; if needed, inspect
+    // window.__zaroxi_cm_stats from the console or add on-demand diagnostics.
   } catch {}
 }
 
@@ -50,9 +77,15 @@ function cmStatDestroyed(key: string) {
     const s: any = ensureCmStats();
     s.destroyed += 1;
     s.live = Math.max(0, (s.live || 1) - 1);
-    s.destroyedByDoc[key] = (s.destroyedByDoc[key] || 0) + 1;
-    // eslint-disable-next-line no-console
-    console.debug('[codemirror-stats] destroyed', { key, destroyed: s.destroyed, live: s.live });
+
+    const map = s.destroyedByDoc;
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      map[key] += 1;
+    } else if (Object.keys(map).length < CM_STATS_DOC_KEY_LIMIT) {
+      map[key] = 1;
+    } else {
+      s.destroyedOtherDocs = (s.destroyedOtherDocs || 0) + 1;
+    }
   } catch {}
 }
 
