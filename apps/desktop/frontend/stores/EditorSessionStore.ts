@@ -35,11 +35,23 @@ class EditorSessionStore {
 
   setSnapshot(tabId: string, snap: Partial<EditorSessionSnapshot>) {
     const now = Date.now();
-    const prev = this.store.get(tabId) ?? { tabId };
+    const prev = this.store.get(tabId) ?? ({ tabId, documentId: undefined, text: undefined, selection: null, scrollTop: null, language: null, isDirty: false, version: null, lastActiveAt: now, tier: 'cold', historyToken: null } as EditorSessionSnapshot);
+
+    // Decide what text to persist:
+    // - If caller provided text but it equals existing text, avoid overwriting to prevent echo.
+    // - If caller provided a very large text payload, avoid persisting it into the session store (stabilization mode).
+    const incomingText = typeof snap.text === 'string' ? snap.text : prev.text;
+    const MAX_PERSIST_TEXT = 10000; // do not persist giant texts in the session snapshot during hot-path
+
+    const textToStore =
+      typeof snap.text === 'string'
+        ? (snap.text === prev.text ? prev.text : (snap.text.length > MAX_PERSIST_TEXT ? prev.text : snap.text))
+        : prev.text;
+
     const merged: EditorSessionSnapshot = {
       tabId,
       documentId: snap.documentId ?? prev.documentId,
-      text: snap.text ?? prev.text,
+      text: textToStore,
       selection: snap.selection ?? prev.selection ?? null,
       scrollTop: snap.scrollTop ?? prev.scrollTop ?? null,
       language: snap.language ?? prev.language ?? null,
@@ -49,6 +61,34 @@ class EditorSessionStore {
       tier: snap.tier ?? prev.tier ?? 'cold',
       historyToken: snap.historyToken ?? prev.historyToken ?? null,
     };
+
+    // If the merged snapshot is identical to the previous stored snapshot, avoid touching the map
+    // to prevent emitting change events / rerenders in consumers that would re-feed the editor.
+    const unchanged =
+      merged.documentId === prev.documentId &&
+      merged.text === prev.text &&
+      JSON.stringify(merged.selection) === JSON.stringify(prev.selection) &&
+      merged.scrollTop === prev.scrollTop &&
+      merged.language === prev.language &&
+      merged.isDirty === prev.isDirty &&
+      merged.version === prev.version &&
+      merged.tier === prev.tier &&
+      merged.historyToken === prev.historyToken;
+
+    if (unchanged) {
+      // Still update lastActiveAt in-place without replacing the map entry to avoid causing observers to receive
+      // a new object reference while keeping the stored snapshot stable.
+      if (this.store.has(tabId)) {
+        const existing = this.store.get(tabId)!;
+        existing.lastActiveAt = merged.lastActiveAt;
+        this.store.set(tabId, existing);
+      } else {
+        // No previous entry, set the merged snapshot.
+        this.store.set(tabId, merged);
+      }
+      return;
+    }
+
     this.store.set(tabId, merged);
   }
 

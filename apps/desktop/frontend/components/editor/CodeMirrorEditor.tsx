@@ -148,8 +148,26 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     if (!view) return;
 
     try {
-      const current = view.state.doc.toString();
-      if (text !== current) {
+      // Avoid a full doc.toString() in the hot path. First do a cheap length + prefix check.
+      let identical = false;
+      try {
+        const docLen = (view.state.doc as any).length as number;
+        const textLen = (text ?? '').length;
+        if (docLen === textLen) {
+          const prefixLen = Math.min(64, docLen);
+          const docPrefix = (view.state.doc as any).sliceString
+            ? (view.state.doc as any).sliceString(0, prefixLen)
+            : view.state.doc.toString().slice(0, prefixLen);
+          if ((text ?? '').slice(0, prefixLen) === docPrefix) {
+            // Cheap equality likely; treat as identical and avoid a full-replace.
+            identical = true;
+          }
+        }
+      } catch {
+        // Fallback: if our cheap check failed, fall back to full string compare.
+      }
+
+      if (!identical) {
         // Replace the full document content in a single transaction.
         // Mark this transaction with APP_SYNC_ANNOT so the update listener can
         // ignore it and we avoid re-entering the parent change pipeline.

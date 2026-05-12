@@ -442,10 +442,7 @@ function largeFileExtensions(
     ...common,
     ...(showGutter ? [lineNumbers()] : []),
     drawSelection(),
-    // Always keep the active-line visual in content.
-    highlightActiveLine(),
-    // Conditionally enable gutter active-line highlight when the gutter is shown.
-    ...(showGutter ? [highlightActiveLineGutter()] : []),
+    // NOTE: active-line visuals temporarily disabled to avoid repaint churn during fast scroll.
     keymap.of(defaultKeymap),
     ...(languageExtension && allowSyntax ? [languageExtension] : []),
     ...(allowSyntax && syntaxExt ? [syntaxExt] : []),
