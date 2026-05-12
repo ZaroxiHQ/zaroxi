@@ -4,6 +4,103 @@ import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 import editorViewHost from '@/lib/session/EditorViewHost';
 import { isDebug, debug, error as logError, setMountError, incrementStat } from '@/lib/logger';
+import DocumentStore from '@/stores/DocumentStore';
+import EditorSessionStore from '@/stores/EditorSessionStore';
+
+/**
+ * Minimal runtime instrumentation to produce an automatic snapshot of
+ * the editor-related runtime state. This is intentionally tiny and safe:
+ * - does not retain heavy objects
+ * - exposes a single report object on window.__zaroxi_runtime_report
+ * - logs a compact trace when an uncaught error / unhandled rejection occurs
+ *
+ * The instrumentation is only for diagnostics (temporary) and is designed
+ * to be low-overhead until the crash can be reproduced and analyzed.
+ */
+try {
+  const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+  if (_w) {
+    /**
+     * generateRuntimeReport(documentId?, tabId?)
+     *
+     * Collect best-effort diagnostics about the editor host, timers, store state,
+     * and recent events. This function is safe to call anywhere and will never
+     * throw (defensive try/catch).
+     */
+    _w.__zaroxi_generate_runtime_report = function (documentId?: string | null, tabId?: string | null) {
+      try {
+        const hostInfo = (typeof editorViewHost !== 'undefined' && typeof editorViewHost.inspect === 'function') ? (editorViewHost.inspect ? editorViewHost.inspect() : null) : null;
+        const registry = (_w.__zaroxi_editor_view_report && typeof _w.__zaroxi_editor_view_report === 'function') ? _w.__zaroxi_editor_view_report() : { total: (_w.__zaroxi_editor_views || []).length, alive: null, entries: [] };
+        const timers = (_w.__zaroxi_timers || []).slice(-300);
+        const isScrolling = !!_w.__zaroxi_is_scrolling;
+        const lastAdopt = _w.__zaroxi_last_adopt_global_ts || null;
+        const lastEmit = _w.__zaroxi_last_editor_emit || null;
+        let docRecord = null;
+        let sessionRecord = null;
+        try {
+          if (typeof DocumentStore !== 'undefined' && documentId) {
+            docRecord = DocumentStore.get(documentId) ?? null;
+          }
+        } catch {}
+        try {
+          if (typeof EditorSessionStore !== 'undefined' && tabId) {
+            sessionRecord = EditorSessionStore.getSnapshot(tabId) ?? null;
+          }
+        } catch {}
+
+        const perfMem = (typeof performance !== 'undefined' && (performance as any).memory) ? (performance as any).memory : null;
+        const now = Date.now();
+
+        const report = {
+          ts: now,
+          host: hostInfo,
+          registry,
+          timersCount: timers.length,
+          timers: timers.slice(-50),
+          isScrolling,
+          lastAdopt,
+          lastEmit,
+          documentId: documentId ?? null,
+          tabId: tabId ?? null,
+          document: docRecord,
+          session: sessionRecord,
+          perfMemory: perfMem,
+        };
+        _w.__zaroxi_runtime_report = report;
+        try { console.info('[zaroxi-runtime-report]', report); } catch {}
+        return report;
+      } catch (err) {
+        try { console.error('[zaroxi-runtime-report] failed to collect', String(err)); } catch {}
+        return { error: String(err) };
+      }
+    };
+
+    // Hook global error handlers to emit a runtime report when an uncaught error/rejection happens.
+    if (!_w.__zaroxi_runtime_report_hooked) {
+      _w.__zaroxi_runtime_report_hooked = true;
+      _w.addEventListener('error', (ev: any) => {
+        try {
+          const r = _w.__zaroxi_generate_runtime_report?.(null, null) ?? {};
+          try { console.error('[zaroxi] uncaught error', ev && ev.error ? ev.error : ev, r); } catch {}
+        } catch {}
+      });
+      _w.addEventListener('unhandledrejection', (ev: any) => {
+        try {
+          const r = _w.__zaroxi_generate_runtime_report?.(null, null) ?? {};
+          try { console.error('[zaroxi] unhandledrejection', ev && ev.reason ? ev.reason : ev, r); } catch {}
+        } catch {}
+      });
+      // Periodic low-rate snapshot to observe long-running growth (very cheap).
+      try {
+        setInterval(() => {
+          try {
+            _w.__zaroxi_generate_runtime_report?.(null, null);
+          } catch {}
+        }, 30_000);
+      } catch {}
+    }
+  }
+} catch {}
 
 /**
  * Stable 32-bit-ish string hash used by several guard checks in the editor.
