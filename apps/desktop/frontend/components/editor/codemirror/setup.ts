@@ -8,7 +8,8 @@
 
 import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { foldGutter, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { foldGutter } from '@codemirror/fold';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { tags as t } from '@lezer/highlight';
 
@@ -370,14 +371,8 @@ export function createBaseExtensions(
   }
 
   // Normal (full-featured) editor extensions for typical files.
-  const highlightStyle = (() => {
-    try {
-      return getAppHighlightStyle();
-    } catch {
-      return null;
-    }
-  })();
-  const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : [];
+  const highlightStyle = appHighlightStyle ?? null;
+  const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : null;
 
   // Build standard featureful extension set for normal files.
   const extensions: any[] = [
