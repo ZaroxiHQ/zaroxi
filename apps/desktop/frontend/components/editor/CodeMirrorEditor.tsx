@@ -109,7 +109,6 @@ interface CodeMirrorEditorProps {
 export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const { documentId, text, languageId, onChange, onSave, readOnly } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const viewRef = useRef<any | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
   // Hold the loaded language extension so we can re-create/reconfigure EditorState if needed.
@@ -216,19 +215,14 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         let mountedView: any = null;
         try {
-          mountedView = new EditorView({
-            state,
-            parent: containerRef.current,
+          // Create the EditorView via the centralized host so it becomes the single owner.
+          mountedView = editorViewHost.createView(String(documentId ?? ''), containerRef.current!, (parent: Element) => {
+            return new EditorView({
+              state,
+              parent,
+            });
           });
-          viewRef.current = mountedView;
-          // Register the live view with the centralized host so only one live view
-          // is owned across the app and can be destroyed on demotion/eviction.
-          try { editorViewHost.attach(String(documentId ?? ''), mountedView); } catch {}
-
-          // Instrument creation with document id for diagnostics
-          try {
-            cmStatCreated(String(documentId ?? 'unknown'));
-          } catch {}
+          // The host owns the live view; do not retain a local ref to the EditorView.
         } catch (e) {
           // Capture and report detailed diagnostics if EditorView construction fails.
           try {
@@ -441,20 +435,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     return () => {
       destroyed = true;
-      if (viewRef.current) {
-        try {
-          viewRef.current.destroy();
-        } catch {
-          // ignore destroy errors
-        }
-        // instrumentation: record destruction
-        try {
-          cmStatDestroyed(String(documentId ?? 'unknown'));
-        } catch {}
-        // Ensure host releases any references if it thinks this view was for the same document.
-        try { editorViewHost.destroyIfFor(String(documentId ?? 'unknown')); } catch {}
-        viewRef.current = null;
-      }
+      try { editorViewHost.destroyIfFor(String(documentId ?? 'unknown')); } catch {}
       // Clear any scheduled gutter sanity timer
       if (gutterTimer) {
         try {
@@ -474,15 +455,19 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       }
       return;
     }
-    const view = viewRef.current;
+    const view = editorViewHost.getView(documentId ?? '') as any;
     if (!view) return;
-    const current = view.state.doc.toString();
-    if (text !== current) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
-      });
+    try {
+      const current = view.state.doc.toString();
+      if (text !== current) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
+        });
+      }
+    } catch {
+      // view might not be a CodeMirror view (defensive)
     }
-  }, [text, usingFallback]);
+  }, [text, usingFallback, documentId]);
 
   // Render fallback textarea if CodeMirror isn't available.
   if (usingFallback) {

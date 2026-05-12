@@ -13,6 +13,11 @@
  * This implementation is intentionally conservative (no UI updates produced).
  */
 
+import EditorSessionStore from '@/stores/EditorSessionStore';
+import editorViewHost from '@/lib/session/EditorViewHost';
+import { stateCache } from '@/components/editor/editorEngine';
+import documentStore from '@/stores/DocumentStore';
+
 type Tier = 'hot' | 'warm' | 'cold';
 
 type Listener = (tabId: string, tier: Tier) => void;
@@ -119,6 +124,10 @@ class SessionCachePolicy {
           // demote immediately
           this.tiers.set(id, 'cold');
           this.emit(id, 'cold');
+          // Enforce demotion side-effects: compact session, destroy live view, clear engine state cache
+          try { EditorSessionStore.compactToCold(id); } catch {}
+          try { editorViewHost.destroyIfFor(id); } catch {}
+          try { if (stateCache && typeof (stateCache as any).delete === 'function') (stateCache as any).delete(id); } catch {}
         } else {
           warmCandidates.push({ id, last });
         }
@@ -133,9 +142,26 @@ class SessionCachePolicy {
         if (toDemote <= 0) break;
         this.tiers.set(c.id, 'cold');
         this.emit(c.id, 'cold');
+        // Enforce demotion side-effects for each demoted session.
+        try { EditorSessionStore.compactToCold(c.id); } catch {}
+        try { editorViewHost.destroyIfFor(c.id); } catch {}
+        try { if (stateCache && typeof (stateCache as any).delete === 'function') (stateCache as any).delete(c.id); } catch {}
         toDemote--;
       }
     }
+
+    // Update runtime diagnostics (non-reactive)
+    try {
+      const warmCount = Array.from(this.tiers.values()).filter((t) => t === 'warm').length;
+      const coldCount = Array.from(this.tiers.values()).filter((t) => t === 'cold').length;
+      const live = typeof (editorViewHost as any).getLiveCount === 'function' ? (editorViewHost as any).getLiveCount() : 0;
+      const rs: any = (window as any).__zaroxi_runtime_stats || {};
+      rs.warmCount = warmCount;
+      rs.coldCount = coldCount;
+      rs.liveViews = live;
+      rs.lastEnforce = Date.now();
+      (window as any).__zaroxi_runtime_stats = rs;
+    } catch {}
   }
 
   // Administrative helpers
