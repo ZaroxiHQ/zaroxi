@@ -351,64 +351,168 @@ export function createBaseExtensions(
   const common = [zaroxiCodeMirrorTheme];
 
   // Folding is intentionally omitted here to avoid a hard dependency on a separate
-  // package that may not be resolvable in all environments. Gutter (lineNumbers)
-  // continues to be provided by @codemirror/view; folding can be re-enabled by
-  // adding @codemirror/fold and restoring foldGutter() usage.
-  const foldExt = null;
+  // package that may not be resolvable in all environments. We provide an explicit,
+  // professional large-file policy below that builds three clear extension profiles:
+  //
+  // - NORMAL: full-featured editor with gutter, language support, and syntax highlighting.
+  // - LARGE: reduced feature set; gutter kept, syntax optional, expensive listeners disabled.
+  // - EXTREME: minimal stable viewer/editor; syntax OFF, minimal extensions, editable=false by default.
+  //
+  // The following helpers measure file characteristics at runtime and choose a profile.
+  // This keeps the primary path on CM6 while ensuring stable behavior for pathological files.
 
-  // TRUE minimal large-file profile: start with the smallest possible extension set.
-  // This intentionally omits lineNumbers(), folding, active-line, drawSelection, history, keymaps,
-  // and syntaxHighlighting to prove a stable baseline for extremely large files.
-  if (largeFile) {
-    // Rationale: many CM6-side costs are driven by per-line bookkeeping done by
-    // gutters/folding/active-line/highlighting. For a read-only large-file viewer
-    // we keep only a minimal theme and make the editor non-editable.
+  // Default tunable thresholds (easy to override during testing).
+  export const PROFILE_THRESHOLDS = {
+    // bytes thresholds (approximate)
+    normalMaxBytes: 1 * 1024 * 1024, // 1 MB
+    largeMaxBytes: 5 * 1024 * 1024, // 5 MB
+    // line count thresholds
+    normalMaxLines: 10_000,
+    largeMaxLines: 100_000,
+    // max single-line length thresholds
+    normalMaxLineLength: 2_000,
+    largeMaxLineLength: 50_000,
+    // when max line length exceeds this, gutter may be disabled for safety
+    extremeNoGutterLineLength: 200_000,
+  } as const;
+
+  export type FileMetrics = {
+    bytes: number;
+    lines: number;
+    maxLineLength: number;
+  };
+
+  // Analyze the provided text and return byte size, line count, and max line length.
+  export function analyzeText(s: string): FileMetrics {
+    try {
+      const bytes = new TextEncoder().encode(s || '').length;
+      // Count lines and compute max line length efficiently.
+      let lines = 1;
+      let maxLine = 0;
+      let cur = 0;
+      for (let i = 0; i < s.length; i++) {
+        const ch = s.charCodeAt(i);
+        if (ch === 10) { // '\n'
+          lines++;
+          if (cur > maxLine) maxLine = cur;
+          cur = 0;
+        } else {
+          cur++;
+        }
+      }
+      if (cur > maxLine) maxLine = cur;
+      if (s.length === 0) lines = 0;
+      return { bytes, lines, maxLineLength: maxLine };
+    } catch {
+      return { bytes: 0, lines: 0, maxLineLength: 0 };
+    }
+  }
+
+  // Profile discriminator: returns 'normal' | 'large' | 'extreme' based on conservative thresholds.
+  export function decideProfile(metrics: FileMetrics): 'normal' | 'large' | 'extreme' {
+    const t = PROFILE_THRESHOLDS;
+    // Pathological single-line files are the worst case; treat long single lines as extreme.
+    if (metrics.maxLineLength > t.largeMaxLineLength || metrics.bytes > t.largeMaxBytes * 4 || metrics.lines > t.largeMaxLines * 4) {
+      return 'extreme';
+    }
+    // Large files by size/lines/long lines
+    if (metrics.bytes > t.largeMaxBytes || metrics.lines > t.largeMaxLines || metrics.maxLineLength > t.largeMaxLineLength) {
+      return 'large';
+    }
+    // Otherwise normal
+    return 'normal';
+  }
+
+  // Three explicit extension set builders.
+  function normalEditorExtensions(opts: { onChange: (text: string, selection?: Selection) => void }, languageExtension: any, docKey?: string) {
+    const highlightStyle = appHighlightStyle ?? null;
+    const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : null;
     return [
       ...common,
-      // Make editor non-editable for stability and to avoid expensive edit paths.
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      // Selection and caret
+      drawSelection(),
+      highlightActiveLine(),
+      // History + keymaps
+      history(),
+      keymap.of([...defaultKeymap, ...historyKeymap]),
+      // Language support if provided
+      languageExtension ?? [],
+      // Syntax highlighting (if HighlightStyle available)
+      ...(syntaxExt ? [syntaxExt] : []),
+      // Full-featured update listener
+      normalUpdateListener,
+    ];
+  }
+
+  function largeFileExtensions(opts: { onChange: (text: string, selection?: Selection) => void }, languageExtension: any, docKey?: string, allowSyntax = true, showGutter = true) {
+    const highlightStyle = appHighlightStyle ?? null;
+    const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : null;
+    const ext: any[] = [
+      ...common,
+      // Keep gutter when safe
+      ...(showGutter ? [lineNumbers()] : []),
+      // Minimal selection rendering; avoid active-line gutter extras
+      drawSelection(),
+      // Minimal keymap (omit history to reduce per-change bookkeeping)
+      keymap.of(defaultKeymap),
+      // Optional language support (for language-aware features like indentation) but no guaranteed syntax
+      ...(languageExtension && allowSyntax ? [languageExtension] : []),
+      // Only attach syntaxHighlighting when explicitly allowed and available
+      ...(allowSyntax && syntaxExt ? [syntaxExt] : []),
+      // Minimal listener to avoid expensive full-document serialization
+      minimalLargeListener,
+    ];
+    return ext;
+  }
+
+  function extremeFileExtensions(opts: { onChange: (text: string, selection?: Selection) => void }, languageExtension: any, docKey?: string, showGutter = false) {
+    // Extreme profile: minimal, safe, and preferably read-only.
+    return [
+      ...common,
+      ...(showGutter ? [lineNumbers()] : []),
       EditorView.editable.of(false),
-      // Minimal no-op update listener to avoid doc serialization.
+      // Very small/no-op listener
       minimalLargeListener,
     ];
   }
 
-  // Normal (full-featured) editor extensions for typical files.
-  const highlightStyle = appHighlightStyle ?? null;
-  const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : null;
-
-  // Build standard featureful extension set for normal files.
-  const extensions: any[] = [
-    ...common,
-    // Line numbers gutter (normal files)
-    lineNumbers(),
-    // Fold gutter only when language support is present
-    ...(foldExt ? [foldExt] : []),
-    highlightActiveLineGutter(),
-    // Selection and caret
-    drawSelection(),
-    highlightActiveLine(),
-    // History + keymaps
-    history(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
-    // Language support (if provided)
-    languageExtension ?? [],
-    // Syntax highlighting (if HighlightStyle available)
-    ...(syntaxExt ? [syntaxExt] : []),
-    // Update listener (serializes full text on changes)
-    normalUpdateListener,
-  ];
-
-  // Runtime diagnostics (lightweight)
-  try {
-    // eslint-disable-next-line no-console
-    console.debug('[codemirror] createBaseExtensions assembled', {
-      docKey,
-      largeFile,
-      extensionsCount: Array.isArray(extensions) ? extensions.length : 'unknown',
-    });
-  } catch {}
-
-  return extensions;
+  /**
+   * createBaseExtensions now accepts a profile hint and an explicit showGutter flag.
+   * - profile: 'normal' | 'large' | 'extreme'
+   * - showGutter: boolean (for extreme cases where gutter itself is unsafe)
+   */
+  export function createBaseExtensions(
+    opts: { onChange: (text: string, selection?: Selection) => void },
+    languageExtension?: any,
+    docKey?: string,
+    profile: 'normal' | 'large' | 'extreme' = 'normal',
+    showGutter: boolean = true,
+  ) {
+    // Decide and return the proper extension set based on profile.
+    try {
+      if (profile === 'normal') {
+        return normalEditorExtensions(opts, languageExtension, docKey);
+      } else if (profile === 'large') {
+        // For large files, prefer to keep syntax off unless the caller explicitly allows it.
+        // The caller (CodeMirrorEditor) can decide allowSyntax based on measured metrics.
+        const allowSyntax = true; // caller may request to disable by passing null languageExtension
+        return largeFileExtensions(opts, languageExtension, docKey, allowSyntax, showGutter);
+      } else {
+        // extreme
+        return extremeFileExtensions(opts, languageExtension, docKey, showGutter);
+      }
+    } catch (e) {
+      // Fallback to a minimal stable baseline if something unexpected happens.
+      try { console.warn('[codemirror] failed to build extensions for profile', profile, String(e)); } catch {}
+      return [
+        ...common,
+        EditorView.editable.of(false),
+        minimalLargeListener,
+      ];
+    }
+  }
 }
 
 /**
@@ -419,9 +523,10 @@ export function createState(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
-  largeFile: boolean = false,
+  profile: 'normal' | 'large' | 'extreme' = 'normal',
+  showGutter: boolean = true,
 ) {
-  const extensions = createBaseExtensions(opts, languageExtension, docKey, largeFile);
+  const extensions = createBaseExtensions(opts, languageExtension, docKey, profile, showGutter);
   return EditorState.create({
     doc: initialText ?? '',
     extensions,

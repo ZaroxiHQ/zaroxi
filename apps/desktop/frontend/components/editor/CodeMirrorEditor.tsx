@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createState } from './codemirror/setup';
+import { createState, analyzeText, decideProfile, PROFILE_THRESHOLDS } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 import editorViewHost from '@/lib/session/EditorViewHost';
@@ -56,28 +56,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   // We do not keep a local strong reference to allow the host to manage lifecycle.
   const languageExtRef = useRef<any | null>(null);
 
-  // Decide large-file mode deterministically from the incoming text.
-  function decideLargeFile(t: string | undefined | null) {
-    try {
-      if (!t) return false;
-      const bytes = new TextEncoder().encode(t).length;
-      const lines = t.split('\n').length;
-      // compute max line length efficiently
-      let maxLine = 0;
-      let idx = 0;
-      while (idx < t.length) {
-        const next = t.indexOf('\n', idx);
-        const end = next === -1 ? t.length : next;
-        const len = end - idx;
-        if (len > maxLine) maxLine = len;
-        if (next === -1) break;
-        idx = next + 1;
-      }
-      return bytes > LARGE_FILE_BYTES || lines > LARGE_FILE_LINES || maxLine > LARGE_FILE_LINE_LENGTH;
-    } catch {
-      return false;
-    }
-  }
+  // File profile decision is handled centrally by codemirror/setup.ts (analyzeText + decideProfile).
+  // We keep this spot intentionally empty so the editor can ask setup for a profile.
 
   // Create/mount EditorView when documentId or language changes.
   useEffect(() => {
@@ -87,11 +67,18 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
     (async () => {
       try {
-        const isLarge = decideLargeFile(text);
+        // Measure file metrics and decide a safe profile.
+        const metrics = analyzeText(text ?? '');
+        const profile = decideProfile(metrics);
+        // For extreme single-line files we may want to hide the gutter to avoid per-line bookkeeping.
+        const showGutter = !(metrics.maxLineLength > PROFILE_THRESHOLDS.extremeNoGutterLineLength || profile === 'extreme' && metrics.maxLineLength > PROFILE_THRESHOLDS.largeMaxLineLength);
+
+        debug('[codemirror] mount profile', { profile, metrics });
+
         languageExtRef.current = null;
 
-        // Only load language support for non-large files (avoids heavy parser loads)
-        if (!isLarge) {
+        // Only load language support for NORMAL profile (avoid heavy parser work for large/extreme)
+        if (profile === 'normal') {
           try {
             languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
           } catch {
@@ -99,22 +86,24 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           }
         }
 
-        // Build the EditorState with explicit largeFile flag.
+        // Build the EditorState with explicit profile and gutter decision.
         const state = createState(
           text ?? '',
           {
             onChange: (t: string) => {
-              // Only forward onChange when not in large-file preview and not readOnly.
-              if (!isLarge && !readOnly) {
+              // Only forward onChange for the NORMAL profile and when editable.
+              if (profile === 'normal' && !readOnly) {
                 try {
                   onChange(t);
                 } catch {}
               }
             },
           },
-          languageExtRef.current ?? undefined,
+          // Pass language extension only for normal profile (or when caller deliberately provided one).
+          profile === 'normal' ? languageExtRef.current ?? undefined : undefined,
           String(documentId ?? ''),
-          isLarge,
+          profile,
+          showGutter,
         );
 
         if (destroyed) return;
