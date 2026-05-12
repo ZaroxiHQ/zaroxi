@@ -297,10 +297,11 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_open_handler_success() {
-        let svc = Arc::new(MockWorkspaceService { opened: Mutex::new(vec![]) });
-        let handler = WorkspaceOpenHandler::new(svc);
+        let svc: Arc<dyn WorkspaceService + Send + Sync> =
+            Arc::new(MockWorkspaceService { opened: Mutex::new(vec![]) });
+        let handler = WorkspaceOpenHandler::new(svc.clone());
         let ctx = AppContext {
-            workspace_service: Arc::new(MockWorkspaceService { opened: Mutex::new(vec![]) }),
+            workspace_service: svc.clone(),
             ai_service: Arc::new(MockAiService {}),
         };
         let params = json!({ "path": "/home/project" });
