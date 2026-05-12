@@ -6,6 +6,19 @@ import editorViewHost from '@/lib/session/EditorViewHost';
 import { isDebug, debug, error as logError, setMountError, incrementStat } from '@/lib/logger';
 
 /**
+ * Stable 32-bit-ish string hash used by several guard checks in the editor.
+ * Kept local to avoid importing cross-file utilities and to be fast.
+ */
+function stableHashString(s: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return (h >>> 0).toString(16);
+}
+
+/**
  * Lightweight, non-invasive runtime instrumentation for EditorView lifecycle.
  *
  * Exposes:
@@ -301,17 +314,47 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     if (!view) return;
 
     try {
+      const viewAny: any = view;
+      // Compute incoming normalized text and its hash for equality guards.
+      const incoming = (text ?? '');
+      const normalizeForHash = (s: string) => {
+        try {
+          let n = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          if (n.endsWith('\n')) n = n.slice(0, -1);
+          return n;
+        } catch {
+          return s;
+        }
+      };
+      const incomingHash = stableHashString(incoming);
+      const incomingNormHash = stableHashString(normalizeForHash(incoming));
+
+      // If this view recently applied a programmatic update with the same exact or normalized hash,
+      // skip re-applying the same content to avoid ping-pong between persistence and editor.
+      try {
+        const lastProgHash = viewAny.__lastProgrammaticHash;
+        const lastProgNorm = viewAny.__lastProgrammaticNormHash;
+        const lastProgTs = viewAny.__lastProgrammaticTs || 0;
+        const RECENT_MS = 8000;
+        if (lastProgHash && (lastProgHash === incomingHash) && (Date.now() - lastProgTs) < RECENT_MS) {
+          return;
+        }
+        if (lastProgNorm && (lastProgNorm === incomingNormHash) && (Date.now() - lastProgTs) < RECENT_MS) {
+          return;
+        }
+      } catch {}
+
       // Avoid a full doc.toString() in the hot path. First do a cheap length + prefix check.
       let identical = false;
       try {
         const docLen = (view.state.doc as any).length as number;
-        const textLen = (text ?? '').length;
+        const textLen = (incoming ?? '').length;
         if (docLen === textLen) {
           const prefixLen = Math.min(64, docLen);
           const docPrefix = (view.state.doc as any).sliceString
             ? (view.state.doc as any).sliceString(0, prefixLen)
             : view.state.doc.toString().slice(0, prefixLen);
-          if ((text ?? '').slice(0, prefixLen) === docPrefix) {
+          if ((incoming ?? '').slice(0, prefixLen) === docPrefix) {
             // Cheap equality likely; treat as identical and avoid a full-replace.
             identical = true;
           }
@@ -325,9 +368,26 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         // Mark this transaction with APP_SYNC_ANNOT so the update listener can
         // ignore it and we avoid re-entering the parent change pipeline.
         view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
+          changes: { from: 0, to: view.state.doc.length, insert: incoming ?? '' },
           annotations: APP_SYNC_ANNOT.of(true),
         });
+        // Record that we programmatically applied this exact content so subsequent
+        // incoming normalized echoes from persistence can be suppressed briefly.
+        try {
+          viewAny.__lastProgrammaticHash = incomingHash;
+          viewAny.__lastProgrammaticNormHash = incomingNormHash;
+          viewAny.__lastProgrammaticTs = Date.now();
+          // Clear after a timeout to avoid permanent suppression.
+          setTimeout(() => {
+            try {
+              if (viewAny) {
+                viewAny.__lastProgrammaticHash = undefined;
+                viewAny.__lastProgrammaticNormHash = undefined;
+                viewAny.__lastProgrammaticTs = undefined;
+              }
+            } catch {}
+          }, 10000);
+        } catch {}
       }
     } catch {
       // Defensive: ignore failures (view might be destroyed concurrently).
