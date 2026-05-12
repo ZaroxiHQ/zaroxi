@@ -407,10 +407,8 @@ function normalEditorExtensions(
     ...common,
     lineNumbers(),
     drawSelection(),
-    // highlight the active line in the content
-    highlightActiveLine(),
-    // highlight the active line in the gutter (kept for normal profile)
-    highlightActiveLineGutter(),
+    // NOTE: highlightActiveLine() and highlightActiveLineGutter() temporarily removed
+    // to eliminate active-line repaint churn while we stabilise the editor/gutter.
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     ...(languageExtension ? [languageExtension] : []),
