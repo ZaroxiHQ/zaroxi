@@ -23,6 +23,7 @@ import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { tags as t } from '@lezer/highlight';
+import { Annotation } from '@codemirror/state';
 
 import { zaroxiCodeMirrorTheme } from './theme';
 
@@ -163,6 +164,8 @@ function buildHighlightStyle() {
 
 const appHighlightStyle = buildHighlightStyle();
 
+export const APP_SYNC_ANNOT = Annotation.define<boolean>();
+
 /* -------------------------
    Module-scoped helpers
    ------------------------- */
@@ -248,26 +251,39 @@ const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
 // Create an update listener factory that uses the provided opts.onChange.
 // This is module-scoped but produces a listener bound to the caller's onChange.
 function createNormalUpdateListener(opts: { onChange: (text: string, selection?: Selection) => void }) {
-  // Debounced update listener:
-  // - coalesces rapid doc changes to avoid immediate feedback loops into React
-  // - avoids calling heavy state.doc.toString() in a hot synchronous loop more than necessary
-  // - keeps the hot path cheap while still delivering consistent updates to the host
+  // Debounced update listener with transaction-annotation guarding:
+  // - Skip transactions that were applied by the "app sync" path (APP_SYNC_ANNOT).
+  // - Defer heavy doc.toString() work into the debounced callback to avoid
+  //   performing full-text serialization synchronously on every transaction.
   return EditorView.updateListener.of((update) => {
     if (!update.docChanged) return;
     try {
-      // store the latest snapshot and selection, then debounce the onChange call
-      const latestText = update.state.doc.toString();
-      const sel = update.state.selection.main;
+      // If any transaction in this update carries the app-sync annotation,
+      // treat it as programmatic and ignore it to avoid feedback loops.
+      for (const tr of update.transactions) {
+        if (tr.annotation(APP_SYNC_ANNOT)) return;
+      }
+
       // attach a per-view timer property (safe to use `any` here)
       const viewAny = update.view as any;
       if (viewAny.__cm_onchange_timer) {
         window.clearTimeout(viewAny.__cm_onchange_timer);
       }
+
+      // Debounce and fetch full text only when stable. Use the live view
+      // reference inside the timeout rather than the snapshot captured here
+      // to minimize synchronous cost.
       viewAny.__cm_onchange_timer = window.setTimeout(() => {
         try {
-          opts.onChange(latestText, { from: sel.from, to: sel.to });
+          const latestText = update.view.state.doc.toString();
+          const sel = update.view.state.selection.main;
+          try {
+            opts.onChange(latestText, { from: sel.from, to: sel.to });
+          } catch {
+            // swallow host errors to avoid destabilizing the editor
+          }
         } catch {
-          // swallow host errors to avoid destabilizing the editor
+          // swallow errors from doc serialization
         } finally {
           viewAny.__cm_onchange_timer = undefined;
         }

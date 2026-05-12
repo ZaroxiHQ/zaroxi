@@ -802,8 +802,9 @@ export function CodeEditor(props: CodeEditorProps) {
     visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
   }
 
-  // Highlights are enabled only when the session is NOT a locked large-file.
-  const highlightsEnabled = !largeFile && !!session.documentId;
+  // Highlights disabled temporarily to avoid highlight/bridge hot-path while
+  // root edit sync loop is being fixed. Re-enable once sync is stable.
+  const highlightsEnabled = false;
   // Use the new stable highlight snapshot hook (revision-aware).
   // We pass the full visible text so the backend can compute stable line snapshots.
   const highlightedMap = useHighlightSnapshot(

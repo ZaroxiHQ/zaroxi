@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createState, analyzeText, decideProfile, PROFILE_THRESHOLDS } from './codemirror/setup';
+import { createState, analyzeText, decideProfile, PROFILE_THRESHOLDS, APP_SYNC_ANNOT } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 import editorViewHost from '@/lib/session/EditorViewHost';
@@ -151,8 +151,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       const current = view.state.doc.toString();
       if (text !== current) {
         // Replace the full document content in a single transaction.
+        // Mark this transaction with APP_SYNC_ANNOT so the update listener can
+        // ignore it and we avoid re-entering the parent change pipeline.
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: text ?? '' },
+          annotations: APP_SYNC_ANNOT.of(true),
         });
       }
     } catch {
