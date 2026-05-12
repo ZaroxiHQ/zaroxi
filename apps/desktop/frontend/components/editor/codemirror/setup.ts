@@ -164,11 +164,8 @@ function buildHighlightStyle() {
     { tag: [t.labelName], color: p.property },
     // Macros (Rust macros and macro invocations)
     { tag: [t.macroName], color: p.macro },
-    // Namespace and builtin tokens
+    // Namespace tokens
     { tag: [t.namespace], color: p.namespace },
-    { tag: [t.builtin], color: p.builtin },
-    // Parameters (function parameters, placeholders)
-    { tag: [t.parameter], color: p.parameter },
     // Lifetimes and special variable-like tokens (Rust lifetimes often treated as special identifiers)
     { tag: [t.special(t.variableName)], color: p.lifetime },
 
@@ -242,52 +239,7 @@ function buildHighlightStyle() {
       }
     }
 
-    // Focused pre-sanitize inspection for the reported bad indices (13, 14).
-    // This prints the raw entry, the tag expression strings, resolved tag ids (or undefined),
-    // and the theme CSS variable name (if we can heuristically extract it from the color expression).
-    try {
-      const inspectIndices = [13, 14];
-      inspectIndices.forEach((idx) => {
-        const entry = styles[idx];
-        if (!entry) {
-          // eslint-disable-next-line no-console
-          console.debug(`[codemirror] pre-sanitize inspect: index ${idx} not present in raw styles`);
-          return;
-        }
-        const tags = entry.tag;
-        const tagList = Array.isArray(tags) ? tags.slice() : [tags];
-        const tagExpressions = tagList.map(stringifyTag);
-        const resolvedTags = tagList.map((tg) => {
-          try {
-            return tg !== undefined && tg !== null && typeof (tg as any).id !== 'undefined' ? String((tg as any).id) : undefined;
-          } catch {
-            return undefined;
-          }
-        });
-        // Try to extract the first CSS custom property name from the color expression (best-effort).
-        let themeVar: string | undefined = undefined;
-        try {
-          const colorExpr = entry.color;
-          if (typeof colorExpr === 'string') {
-            const m = colorExpr.match(/(--color-[\w-]+)/);
-            if (m) themeVar = m[1];
-          }
-        } catch {
-          // ignore
-        }
-        // eslint-disable-next-line no-console
-        console.warn('[codemirror] pre-sanitize inspect', {
-          index: idx,
-          tagExpressions,
-          resolvedTags,
-          themeVar,
-          entryKeys: entry && typeof entry === 'object' ? Object.keys(entry) : String(entry),
-        });
-      });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.debug('[codemirror] pre-sanitize inspect failed', err);
-    }
+    // Pre-sanitize focused inspection removed to avoid verbose developer-only logs.
 
     // Core sanitize pass: collect valid tags and record invalid entries
     styles.forEach((entry, idx) => {
@@ -322,23 +274,12 @@ function buildHighlightStyle() {
       sanitized.push({ ...entry, tag: normalizedTag });
     });
 
-    // Emit structured diagnostics for invalid entries but DO NOT THROW.
-    if (invalidEntries.length > 0) {
+    // Emit concise diagnostic only in development to avoid log spam.
+    if (invalidEntries.length > 0 && isDev) {
       try {
         // eslint-disable-next-line no-console
-        console.warn('[codemirror] Invalid highlight tag mappings detected — omitted entries:', invalidEntries.length);
-        invalidEntries.forEach((e) => {
-          // eslint-disable-next-line no-console
-          console.warn('[codemirror] omitted-style-entry', {
-            index: e.index,
-            tagExpressions: e.tagExpressions,
-            resolvedTags: e.resolvedTags,
-            entryKeys: e.entry && typeof e.entry === 'object' ? Object.keys(e.entry) : String(e.entry),
-          });
-        });
-      } catch {
-        // ignore logging failures
-      }
+        console.warn('[codemirror] Some highlight style entries omitted:', invalidEntries.length);
+      } catch {}
     }
 
     // If nothing valid remains, return a minimal safe fallback (guaranteed-valid tags).
