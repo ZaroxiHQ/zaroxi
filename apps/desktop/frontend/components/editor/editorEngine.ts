@@ -68,9 +68,12 @@ export function setCachedState(docId: string, state: any) {
 
   // Update runtime instrumentation if present
   try {
+    // Only update runtime instrumentation when explicit debug flag is set.
     const w: any = window as any;
-    w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-    w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+    if (w.__zaroxi_cm_debug) {
+      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+      w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+    }
   } catch {}
 }
 
@@ -84,8 +87,10 @@ export function deleteCachedState(docId: string | null | undefined) {
     if (stateCache.has(docId)) stateCache.delete(docId);
     try {
       const w: any = window as any;
-      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-      w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+      if (w.__zaroxi_cm_debug) {
+        w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+        w.__zaroxi_cm_stats.cachedStates = stateCache.size;
+      }
     } catch {}
   } catch {}
 }

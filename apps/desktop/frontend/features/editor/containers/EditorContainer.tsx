@@ -30,7 +30,8 @@ type LocalSession = {
   documentId: string | null;
   filePath: string | null;
   revision: number | null;
-  text: string;
+  // Only the active (HOT) session holds `text`. Inactive sessions should NOT keep full text.
+  text?: string;
   language?: string | undefined;
   initialHighlight?: any | null;
   isLoading: boolean;
@@ -59,7 +60,7 @@ export function EditorContainer() {
         documentId: null,
         filePath: null,
         revision: null,
-        text: '',
+        text: undefined,
         language: undefined,
         initialHighlight: null,
         isLoading: false,
@@ -95,7 +96,7 @@ export function EditorContainer() {
         documentId: null,
         filePath: null,
         revision: null,
-        text: '',
+        text: undefined,
         language: undefined,
         initialHighlight: null,
         isLoading: false,
@@ -152,7 +153,7 @@ export function EditorContainer() {
             // Shrink heavy payload while preserving minimal metadata
             const shrunk: LocalSession = {
               ...s,
-              text: '',
+              text: undefined,
               initialHighlight: null,
               lineCount: undefined,
               charCount: undefined,
@@ -280,7 +281,7 @@ export function EditorContainer() {
       // Try frontend cache first
       const cached = WorkspaceService.getCachedDocument(path);
       if (cached) {
-        // Apply cached snapshot synchronously
+        // Apply cached snapshot synchronously (active session owns the text)
         setSessions((prev) => {
           const next = new Map(prev);
           const base = next.get(tabId) ?? ({} as LocalSession);
@@ -369,7 +370,7 @@ export function EditorContainer() {
           documentId: null,
           filePath: null,
           revision: null,
-          text: '',
+          text: undefined,
           language: undefined,
           initialHighlight: null,
           isLoading: false,
@@ -500,7 +501,7 @@ export function EditorContainer() {
         <div className="flex-1 overflow-hidden code-editor-font min-h-0 bg-editor w-full min-w-0">
           <CodeMirrorEditor
             documentId={activeSession.documentId ?? activeSession.tabId}
-            text={activeSession.text}
+            text={activeSession.text ?? ''}
             languageId={activeSession.language}
             onChange={(value: string) => handleEditorChange(value)}
             onSave={handleEditorSave}
@@ -519,7 +520,7 @@ export function EditorContainer() {
             tabId: activeSession.tabId,
             documentId: activeSession.documentId,
             revision: activeSession.revision,
-            text: activeSession.text,
+            text: activeSession.text ?? '',
             language: activeSession.language,
             initialHighlight: activeSession.initialHighlight,
             isLoading: activeSession.isLoading,

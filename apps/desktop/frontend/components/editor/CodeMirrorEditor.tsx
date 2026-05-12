@@ -21,77 +21,31 @@ const LARGE_FILE_LINE_LENGTH = 50_000;
  * These counters are intended for debugging and verification only and are written
  * in a best-effort, non-throwing manner.
  */
-function ensureCmStats() {
+const CM_DEBUG = typeof window !== 'undefined' && !!(window as any).__zaroxi_cm_debug;
+function dbg(...args: any[]) { if (CM_DEBUG) console.debug(...args); }
+
+/**
+ * Minimal gated stats increment helpers.
+ * These only update global counters when the explicit debug flag is set.
+ */
+function cmStatCreated(_key: string) {
   try {
-    const w: any = window as any;
-    if (!w.__zaroxi_cm_stats) {
-      w.__zaroxi_cm_stats = {
-        created: 0,
-        destroyed: 0,
-        live: 0,
-        // bounded per-document summaries to avoid unbounded growth in long-running sessions
-        createdByDoc: Object.create(null),
-        destroyedByDoc: Object.create(null),
-        // counters for creations/destroys that exceed the per-doc key cap
-        createdOtherDocs: 0,
-        destroyedOtherDocs: 0,
-        tabSwitches: 0,
-        cachedStates: 0,
-      };
+    const w: any = (window as any);
+    if (w.__zaroxi_cm_debug) {
+      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+      w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
+      w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
     }
-    return w.__zaroxi_cm_stats;
-  } catch {
-    return {
-      created: 0,
-      destroyed: 0,
-      live: 0,
-      createdByDoc: Object.create(null),
-      destroyedByDoc: Object.create(null),
-      createdOtherDocs: 0,
-      destroyedOtherDocs: 0,
-      tabSwitches: 0,
-      cachedStates: 0,
-    };
-  }
-}
-
-// Cap how many unique document keys we will keep detailed counters for.
-// Keeping this finite prevents unbounded memory growth when many different files are opened.
-const CM_STATS_DOC_KEY_LIMIT = 200;
-
-function cmStatCreated(key: string) {
-  try {
-    const s: any = ensureCmStats();
-    s.created += 1;
-    s.live += 1;
-
-    const map = s.createdByDoc;
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      map[key] += 1;
-    } else if (Object.keys(map).length < CM_STATS_DOC_KEY_LIMIT) {
-      map[key] = 1;
-    } else {
-      s.createdOtherDocs = (s.createdOtherDocs || 0) + 1;
-    }
-
-    // Do not log on every creation to avoid hot-path noise; if needed, inspect
-    // window.__zaroxi_cm_stats from the console or add on-demand diagnostics.
   } catch {}
 }
 
-function cmStatDestroyed(key: string) {
+function cmStatDestroyed(_key: string) {
   try {
-    const s: any = ensureCmStats();
-    s.destroyed += 1;
-    s.live = Math.max(0, (s.live || 1) - 1);
-
-    const map = s.destroyedByDoc;
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      map[key] += 1;
-    } else if (Object.keys(map).length < CM_STATS_DOC_KEY_LIMIT) {
-      map[key] = 1;
-    } else {
-      s.destroyedOtherDocs = (s.destroyedOtherDocs || 0) + 1;
+    const w: any = (window as any);
+    if (w.__zaroxi_cm_debug) {
+      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+      w.__zaroxi_cm_stats.destroyed = (w.__zaroxi_cm_stats.destroyed || 0) + 1;
+      w.__zaroxi_cm_stats.live = Math.max(0, (w.__zaroxi_cm_stats.live || 1) - 1);
     }
   } catch {}
 }
@@ -159,15 +113,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           if (bytes > LARGE_FILE_BYTES || lines > LARGE_FILE_LINES || maxLine > LARGE_FILE_LINE_LENGTH) {
             largeFileMode = true;
             languageExtRef.current = null;
-            // eslint-disable-next-line no-console
-            console.info('[codemirror] largeFileMode enabled', { documentId, bytes, lines, maxLine });
+            dbg('[codemirror] largeFileMode enabled', { documentId, bytes, lines, maxLine });
           } else {
             languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
           }
         } catch (e) {
           // ignore language load failures; fallback to no language (plaintext)
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] language load failed', e);
+          dbg('[codemirror] language load failed', e);
         }
 
         if (!state) {
@@ -179,8 +131,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               languageExtRef.current ?? undefined,
               documentId ?? undefined,
             );
-            // eslint-disable-next-line no-console
-            console.debug('[codemirror] createBaseExtensions debug', {
+            dbg('[codemirror] createBaseExtensions debug', {
               documentId,
               languageLoaded: !!languageExtRef.current,
               extensionsCount: Array.isArray(debugExts) ? debugExts.length : 'unknown',
@@ -188,8 +139,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             try {
               if (Array.isArray(debugExts)) {
                 debugExts.forEach((ext, i) => {
-                  // eslint-disable-next-line no-console
-                  console.debug('[codemirror] ext[' + i + ']:', {
+                  dbg('[codemirror] ext[' + i + ']:', {
                     type: typeof ext,
                     toString: ext && (ext as any).toString ? (ext as any).toString() : undefined,
                     inspect: ext && typeof ext === 'object' ? Object.keys(ext as any).slice(0, 10) : undefined,
@@ -253,8 +203,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         // Debugging: report state creation details so we can inspect why gutters may not appear.
         try {
           // Avoid strict type assumptions by using `as any` for diagnostics.
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] state created', {
+          dbg('[codemirror] state created', {
             documentId,
             languageLoaded: !!languageExtRef.current,
             docLength: (state as any).doc?.length ?? 'unknown',
@@ -262,8 +211,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             extensionsCount: (state as any).config?.extensions?.length ?? (state as any).extensions?.length ?? 'unknown',
           });
         } catch (e) {
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] state debug info failed', e);
+          dbg('[codemirror] state debug info failed', e);
         }
 
         if (destroyed) return;
@@ -350,8 +298,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             extDiagnostics = { error: String(e) };
           }
 
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] mounted EditorView', {
+          dbg('[codemirror] mounted EditorView', {
             documentId,
             languageLoaded: !!languageExtRef.current,
             hasGutters,
@@ -394,15 +341,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                 baseExtPreview = { error: String(e) };
               }
 
-              // eslint-disable-next-line no-console
-              console.debug('[codemirror] GUTTER MISSING: mountedView DOM snapshot (truncated), baseExtensions preview:', {
+              dbg('[codemirror] GUTTER MISSING: mountedView DOM snapshot (truncated), baseExtensions preview:', {
                 domSnapshot,
                 baseExtPreview,
                 languageExtRef: !!languageExtRef.current,
               });
             } catch (e) {
-              // eslint-disable-next-line no-console
-              console.debug('[codemirror] failed to capture DOM/state snapshot when gutter missing', e);
+              dbg('[codemirror] failed to capture DOM/state snapshot when gutter missing', e);
             }
           } else {
             // If gutters exist, provide a small content preview for verification.
@@ -416,8 +361,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
                   firstLabels.push((els[i] as Element).textContent?.trim() ?? '');
                 }
               }
-              // eslint-disable-next-line no-console
-              console.debug('[codemirror] GUTTERS PRESENT preview', { gutterChildren, firstLabels, gutterHTML });
+              dbg('[codemirror] GUTTERS PRESENT preview', { gutterChildren, firstLabels, gutterHTML });
             } catch (e) {
               // eslint-disable-next-line no-console
               console.debug('[codemirror] failed to snapshot gutter content', e);
@@ -460,16 +404,14 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
           applyGutterStyles(guttersEl);
         } catch (e) {
-          // eslint-disable-next-line no-console
-          console.debug('[codemirror] post-mount DOM inspection failed', e);
+          dbg('[codemirror] post-mount DOM inspection failed', e);
         }
 
         // Post-mount gutter sanity: log presence but do not auto-reconfigure or mutate DOM.
         gutterTimer = window.setTimeout(() => {
           try {
             const hasGutters = !!mountedView.dom.querySelector('.cm-gutters');
-            // eslint-disable-next-line no-console
-            console.debug('[codemirror] gutter check after mount', { documentId, hasGutters });
+            dbg('[codemirror] gutter check after mount', { documentId, hasGutters });
           } catch (e) {
             // eslint-disable-next-line no-console
             console.debug('[codemirror] gutter recheck failed', e);

@@ -47,10 +47,12 @@ class EditorViewHost {
       this.currentOwnerId = null;
       // instrumentation: update non-reactive stats
       try {
-        const s: any = (window as any).__zaroxi_cm_stats ?? {};
-        s.destroyed = (s.destroyed || 0) + 1;
-        s.live = Math.max(0, (s.live || 1) - 1);
-        (window as any).__zaroxi_cm_stats = s;
+        const w: any = window as any;
+        if (w.__zaroxi_cm_debug) {
+          w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+          w.__zaroxi_cm_stats.destroyed = (w.__zaroxi_cm_stats.destroyed || 0) + 1;
+          w.__zaroxi_cm_stats.live = Math.max(0, (w.__zaroxi_cm_stats.live || 1) - 1);
+        }
       } catch {}
     }
 
@@ -62,20 +64,12 @@ class EditorViewHost {
 
     // instrumentation: update non-reactive stats
     try {
-      const s: any = (window as any).__zaroxi_cm_stats ?? {};
-      s.created = (s.created || 0) + 1;
-      s.live = (s.live || 0) + 1;
-      const map = s.createdByDoc || (s.createdByDoc = Object.create(null));
-      if (typeof ownerId === 'string') {
-        if (Object.prototype.hasOwnProperty.call(map, ownerId)) {
-          map[ownerId] += 1;
-        } else if (Object.keys(map).length < 200) {
-          map[ownerId] = 1;
-        } else {
-          s.createdOtherDocs = (s.createdOtherDocs || 0) + 1;
-        }
+      const w: any = window as any;
+      if (w.__zaroxi_cm_debug) {
+        w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+        w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
+        w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
       }
-      (window as any).__zaroxi_cm_stats = s;
     } catch {}
 
     return created;
@@ -115,10 +109,12 @@ class EditorViewHost {
     this.currentView = view;
     this.currentOwnerId = ownerId;
     try {
-      const s: any = (window as any).__zaroxi_cm_stats ?? {};
-      s.created = (s.created || 0) + 1;
-      s.live = (s.live || 0) + 1;
-      (window as any).__zaroxi_cm_stats = s;
+      const w: any = window as any;
+      if (w.__zaroxi_cm_debug) {
+        w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
+        w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
+        w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
+      }
     } catch {}
   }
 
