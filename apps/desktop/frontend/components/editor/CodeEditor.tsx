@@ -240,6 +240,14 @@ function useHighlightSnapshot(
     }
     bridgeTimerRef.current = window.setTimeout(async () => {
       try {
+        // Stabilization guard: if a recent adoption/mount occurred, skip issuing a heavy bridge request now.
+        const STABILIZE_MS = 5000;
+        const lastAdopt = (typeof window !== 'undefined' && (window as any).__zaroxi_last_adopt_global_ts) ? (window as any).__zaroxi_last_adopt_global_ts : 0;
+        if (Date.now() - lastAdopt < STABILIZE_MS) {
+          // Skip heavy highlight request during stabilization window; keep previous snapshot visible.
+          return;
+        }
+
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
             documentId,
@@ -712,6 +720,11 @@ export function CodeEditor(props: CodeEditorProps) {
           lastEmittedHashRef.current = incomingHash;
         } catch {}
       }
+
+      // Record a global adoption timestamp to mark the editor as stabilizing.
+      try {
+        (window as any).__zaroxi_last_adopt_global_ts = Date.now();
+      } catch {}
 
       // Decide large-file for this session deterministically and persist it.
       // Lock the decision synchronously so highlight/hydration logic sees it immediately.

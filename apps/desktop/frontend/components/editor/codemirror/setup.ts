@@ -318,6 +318,15 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
       const DEBOUNCE_MS = (typeof window !== 'undefined' && (window as any).__Z_MINIMAL_RUNTIME) ? 400 : 150;
       const __cm_timer_id = window.setTimeout(() => {
         try {
+          // Small stabilization window after mount/adoption to avoid hot full-text serialization
+          // storms. When an adoption/mount has recently occurred we defer heavy serialization.
+          const STABILIZE_MS = 5000;
+          const lastAdopt = (typeof window !== 'undefined' && (window as any).__zaroxi_last_adopt_global_ts) ? (window as any).__zaroxi_last_adopt_global_ts : 0;
+          if (Date.now() - lastAdopt < STABILIZE_MS) {
+            // Still stabilizing after recent adoption/mount: skip heavy work.
+            return;
+          }
+
           // Recompute fingerprint from the live view state to avoid race issues.
           const fingerprint = (() => {
             try {
