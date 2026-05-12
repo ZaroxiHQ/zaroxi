@@ -248,6 +248,14 @@ function useHighlightSnapshot(
           return;
         }
 
+        // If the user is actively scrolling, skip issuing heavy highlight requests to avoid main-thread spikes.
+        try {
+          const _w: any = (typeof window !== 'undefined') ? (window as any) : undefined;
+          if (_w && _w.__zaroxi_is_scrolling) {
+            return;
+          }
+        } catch {}
+
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
             documentId,
@@ -803,6 +811,9 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const scrollPersistTimer = useRef<number | null>(null);
+  // Timer used to track transient scrolling state during high-frequency scroll events.
+  const scrollIsScrollingTimerRef = useRef<number | null>(null);
+  const SCROLL_IDLE_MS = 250;
 
   // Lightweight non-reactive scroll diagnostics (temporary).
   // This uses refs and a best-effort window export so we can inspect
@@ -1082,6 +1093,27 @@ export function CodeEditor(props: CodeEditorProps) {
 
     // Update runtime ref for any synchronous consumers but avoid frequent rerenders.
     scrollTopRef.current = top;
+
+    // Mark transient scrolling state so hot listeners can avoid heavy work while the user scrolls.
+    try {
+      const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+      if (_w) {
+        _w.__zaroxi_is_scrolling = true;
+      }
+      if (scrollIsScrollingTimerRef.current) {
+        try { window.clearTimeout(scrollIsScrollingTimerRef.current); } catch {}
+        scrollIsScrollingTimerRef.current = null;
+      }
+      // Clear the flag after SCROLL_IDLE_MS of no scroll events.
+      const tid = window.setTimeout(() => {
+        try {
+          const _ww: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_ww) _ww.__zaroxi_is_scrolling = false;
+        } catch {}
+        try { scrollIsScrollingTimerRef.current = null; } catch {}
+      }, SCROLL_IDLE_MS) as unknown as number;
+      scrollIsScrollingTimerRef.current = tid;
+    } catch {}
 
     // Throttle persistence of scroll position to avoid write hot-paths during fast scrolling.
     try {

@@ -327,6 +327,14 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
             return;
           }
 
+          // If the user is actively scrolling, avoid heavy serialization to keep the main thread responsive.
+          try {
+            const _w: any = (typeof window !== 'undefined') ? (window as any) : undefined;
+            if (_w && _w.__zaroxi_is_scrolling) {
+              return;
+            }
+          } catch {}
+
           // Recompute fingerprint from the live view state to avoid race issues.
           const fingerprint = (() => {
             try {
