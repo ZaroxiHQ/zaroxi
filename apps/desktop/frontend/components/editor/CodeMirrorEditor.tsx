@@ -117,9 +117,26 @@ function stableHashString(s: string): string {
   return (h >>> 0).toString(16);
 }
 
-// Dedupe in-flight language support loads to avoid duplicate dynamic imports
-// when the mount effect runs multiple times (e.g. React StrictMode double-mount).
-const languageLoadInflight: Map<string, Promise<any>> = new Map();
+ // Dedupe in-flight language support loads to avoid duplicate dynamic imports
+ // when the mount effect runs multiple times (e.g. React StrictMode double-mount).
+ const languageLoadInflight: Map<string, Promise<any>> = new Map();
+
+ // Minimal op ring buffer for last CM6 operations to help capture the right-before-crash path.
+ // Stored on window to be picked up by the persisted runtime report. Kept bounded and non-retaining.
+ try {
+   const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+   if (_w) {
+     _w.__zaroxi_last_ops = _w.__zaroxi_last_ops || [];
+     _w.__zaroxi_push_op = function (op: string, meta?: any) {
+       try {
+         const entry = { op, ts: Date.now(), meta: meta ?? null };
+         _w.__zaroxi_last_ops.push(entry);
+         if (_w.__zaroxi_last_ops.length > 200) _w.__zaroxi_last_ops.shift();
+       } catch {}
+     };
+     _w.__zaroxi_last_error = _w.__zaroxi_last_error || null;
+   }
+ } catch {}
 
 /**
  * Lightweight, non-invasive runtime instrumentation for EditorView lifecycle.
@@ -290,6 +307,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         if (profile === 'normal') {
           try {
             const langKey = (languageId ?? `doc:${String(documentId ?? '')}`);
+            // record language load start
+            try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('language_load_start', { langKey }); } catch {}
             let langPromise = languageLoadInflight.get(langKey);
             if (!langPromise) {
               langPromise = (async () => {
@@ -303,12 +322,16 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               languageLoadInflight.set(langKey, langPromise);
             }
             languageExtRef.current = await langPromise;
+            // record language load done
+            try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('language_load_done', { langKey }); } catch {}
           } catch {
             languageExtRef.current = null;
+            try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('language_load_failed', { documentId, languageId }); } catch {}
           }
         }
 
         // Build the EditorState with explicit profile and gutter decision.
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('create_state_start', { documentId, profile }); } catch {}
         const state = createState(
           text ?? '',
           {
@@ -327,6 +350,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           profile,
           showGutter,
         );
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('create_state_done', { documentId, profile }); } catch {}
 
         if (destroyed) return;
 
@@ -340,12 +364,14 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         } catch {}
 
         // Create the view via the host (host ensures single live view).
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('create_view_start', { documentId }); } catch {}
         const mountedView = editorViewHost.createView(String(documentId ?? ''), containerRef.current, (parent: Element) => {
           return new EditorView({
             state,
             parent,
           });
         });
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('create_view_done', { documentId }); } catch {}
 
         // Instrumentation: register created view with a global diagnostics list.
         // IMPORTANT: store only a WeakRef where available to avoid retaining the view.
@@ -385,6 +411,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       } catch (err) {
         try { logError('[codemirror] mount failed:', String(err)); } catch {}
         try { setMountError(err); } catch {}
+        try {
+          const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
+          if (_w) {
+            _w.__zaroxi_push_op && _w.__zaroxi_push_op('mount_error', { documentId, err: String(err) });
+            _w.__zaroxi_last_error = { message: (err && err.message) ? err.message : String(err), stack: (err && err.stack) ? err.stack : null, ts: Date.now() };
+          }
+        } catch {}
         setUsingFallback(true);
       }
     })();
@@ -487,6 +520,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       } catch {}
 
       if (!identical) {
+        // Record programmatic replace operation for diagnostics
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('programmatic_replace', { documentId }); } catch {}
         // Programmatic replace: still necessary when incoming content materially differs.
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: incoming ?? '' },
