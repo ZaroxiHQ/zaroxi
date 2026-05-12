@@ -949,6 +949,17 @@ export function CodeEditor(props: CodeEditorProps) {
       return;
     }
 
+    // Publish a short-lived editor-origin marker so persistence layers can avoid
+    // echoing this editor-originated write back into the UI. This marker carries
+    // only the documentId and a compact hash (no full-text payload).
+    try {
+      (window as any).__zaroxi_last_editor_emit = {
+        documentId: session?.documentId ?? null,
+        hash: nextHash,
+        ts: Date.now(),
+      };
+    } catch {}
+
     changeEmitTimerRef.current = window.setTimeout(() => {
       try {
         lastEmittedHashRef.current = nextHash;
@@ -956,7 +967,7 @@ export function CodeEditor(props: CodeEditorProps) {
       } catch {}
       changeEmitTimerRef.current = null;
     }, 300) as unknown as number;
-  }, [onChange]);
+  }, [onChange, session?.documentId]);
 
   const flushPendingChange = useCallback(() => {
     try {

@@ -39,6 +39,31 @@ class DocumentStore {
 
     if (same) return;
 
+    // Guard against editor-origin echoes:
+    // If a recent editor emission marker exists for this document and the
+    // merged content matches the editor's emitted hash, skip writing. This
+    // prevents editor-originated changes from being re-emitted back into the
+    // component tree and re-triggering adoption cycles.
+    try {
+      const lastEmit = (typeof window !== 'undefined') ? (window as any).__zaroxi_last_editor_emit : undefined;
+      if (lastEmit && lastEmit.documentId === documentId && typeof merged.content === 'string') {
+        const stableHashString = (s: string) => {
+          let h = 2166136261 >>> 0;
+          for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619) >>> 0;
+          }
+          return (h >>> 0).toString(16);
+        };
+        if (stableHashString(merged.content) === lastEmit.hash) {
+          // Skip write to avoid echoing editor-originated content back into UI.
+          return;
+        }
+      }
+    } catch {
+      // Defensive: if anything goes wrong, fall back to writing as before.
+    }
+
     this.map.set(documentId, merged);
   }
 
