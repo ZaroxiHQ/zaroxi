@@ -18,7 +18,7 @@
  * modern CM6 APIs and avoids deprecated imports.
  */
 
-import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -180,15 +180,35 @@ const appHighlightStyle = buildHighlightStyle();
  * box-sizing and line-height inheritance to keep the gutter in rhythm
  * with the content.
  */
+/**
+ * Defensive gutter/content sync theme.
+ *
+ * This theme focuses on layout consistency (not colors). It enforces:
+ * - identical line rhythm for gutters and content (inherit line-height)
+ * - no transforms on scroller/gutters that can break paint/order
+ * - explicit white-space rules so CM6's internal line geometry is stable
+ * - visible active-line gutter/state styles so content and gutter highlights match
+ */
 const cmGutterSyncTheme = EditorView.theme({
-  '.cm-gutters': { boxSizing: 'border-box' },
-  '.cm-gutter': { padding: '0 6px', margin: '0' },
+  '.cm-editor': { height: '100%', boxSizing: 'border-box' },
+  '.cm-scroller': {
+    overflow: 'auto',
+    '-webkit-overflow-scrolling': 'touch',
+    transform: 'none',
+  },
+  // Keep gutters simple and measured by standard flow.
+  '.cm-gutters': { boxSizing: 'border-box', display: 'flex', alignItems: 'stretch', transform: 'none' },
+  '.cm-gutter': { padding: '0 6px', margin: '0', boxSizing: 'border-box', whiteSpace: 'nowrap' },
   '.cm-lineNumbers': { padding: '0 6px', margin: '0' },
-  '.cm-gutterElement': { padding: '0', margin: '0', lineHeight: 'inherit', display: 'inline-block' },
-  '.cm-line': { lineHeight: 'inherit' },
-  '.cm-content': { padding: '0', boxSizing: 'border-box' },
-  '.cm-scroller': { overflow: 'auto' },
-});
+  '.cm-gutterElement': { padding: '0', margin: '0', lineHeight: 'inherit', display: 'inline-block', verticalAlign: 'top' },
+  // Content side: preserve pre-formatted text and inherit line rhythm.
+  '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'inherit' },
+  '.cm-line': { lineHeight: 'inherit', minHeight: '0' },
+  // Active-line visuals (both content and gutter) to keep them visually identical.
+  '.cm-activeLine': { backgroundColor: 'var(--editor-selection, rgba(90,120,200,0.08))' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--editor-selection, rgba(90,120,200,0.08))' },
+}, { dark: false });
+
 const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
 
 // Create an update listener factory that uses the provided opts.onChange.
@@ -320,7 +340,10 @@ function normalEditorExtensions(
     ...common,
     lineNumbers(),
     drawSelection(),
+    // highlight the active line in the content
     highlightActiveLine(),
+    // highlight the active line in the gutter as well (only modern CM6 API)
+    highlightActiveLineGutter(),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     ...(languageExtension ? [languageExtension] : []),
@@ -352,10 +375,10 @@ function largeFileExtensions(
     ...common,
     ...(showGutter ? [lineNumbers()] : []),
     drawSelection(),
-    // Keep the active line highlighting inside the content (not the gutter).
-    // This preserves the desired current-line visual cue while ensuring the
-    // gutter remains minimal (lineNumbers() only).
+    // Always keep the active-line visual in content.
     highlightActiveLine(),
+    // Only add gutter active-line if the gutter is shown for this profile.
+    ...(showGutter ? [highlightActiveLineGutter()] : []),
     keymap.of(defaultKeymap),
     ...(languageExtension && allowSyntax ? [languageExtension] : []),
     ...(allowSyntax && syntaxExt ? [syntaxExt] : []),
