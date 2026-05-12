@@ -66,14 +66,9 @@ export function setCachedState(docId: string, state: any) {
     }
   }
 
-  // Update runtime instrumentation if present
+  // Update runtime instrumentation if present (debug-only)
   try {
-    // Only update runtime instrumentation when explicit debug flag is set.
-    const w: any = window as any;
-    if (w.__zaroxi_cm_debug) {
-      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-      w.__zaroxi_cm_stats.cachedStates = stateCache.size;
-    }
+    setStat('cachedStates', stateCache.size);
   } catch {}
 }
 

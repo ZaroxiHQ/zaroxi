@@ -40,6 +40,7 @@ import CustomSurface from './CustomSurface';
 import EditorSessionStore from '@/stores/EditorSessionStore';
 
 import { getDocumentSyntax, setDocumentSyntax, clearDocumentSyntax } from './syntaxStore';
+import { debug, warn } from '@/lib/logger';
 
 // Frontend per-document syntax session store is now persisted in ./syntaxStore.
 // The local hook will consult and update that store instead of keeping the
@@ -643,9 +644,9 @@ export function CodeEditor(props: CodeEditorProps) {
   // Use a strict byte-size check (TextEncoder) to enforce the 5 MB rule.
   const initialLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
   const largeFileRef = useRef<boolean>(initialLarge);
-  // Log initial decision immediately for diagnosability.
+  // Log initial decision only when debugging.
   if (initialLarge) {
-    console.info(`[CodeEditor] file ${session.documentId} initial large-file decision: true (session.contentTruncated=${String(session.contentTruncated)})`);
+    debug(`[CodeEditor] file ${session.documentId} initial large-file decision: true (session.contentTruncated=${String(session.contentTruncated)})`);
   }
   // Local container ref used for measurements only. The CustomSurface component
   // remains the single vertical scroller (its own internal container).
@@ -704,12 +705,12 @@ export function CodeEditor(props: CodeEditorProps) {
   useEffect(() => {
     if (largeFile && session.documentId) {
       try {
-        console.info(`[CodeEditor] large-file mode enabled for ${session.documentId}`);
+        debug(`[CodeEditor] large-file mode enabled for ${session.documentId}`);
         // Clear any persisted frontend syntax snapshot so stale highlights can't be reused.
         clearDocumentSyntax(session.documentId);
-        console.info(`[CodeEditor] cleared persisted syntax for large-file ${session.documentId}`);
+        debug(`[CodeEditor] cleared persisted syntax for large-file ${session.documentId}`);
       } catch (e) {
-        console.warn(`[CodeEditor] failed to clear persisted syntax for ${session.documentId}:`, e);
+        warn(`[CodeEditor] failed to clear persisted syntax for ${session.documentId}: ${String(e)}`);
       }
     }
   }, [largeFile, session.documentId]);
@@ -810,8 +811,8 @@ export function CodeEditor(props: CodeEditorProps) {
   // Build a visible slice of highlight lines from the highlightedMap.
   const uidCounterRef = useRef(0);
   const overlayHighlighted: HighlightLine[] = useMemo(() => {
-    // Diagnostics: log visible range for easier debugging.
-    console.info(`[CodeEditor] visible range ${visibleStartLine}..${visibleEndLine} of ${totalLines} lines`);
+    // Diagnostics: log visible range for easier debugging (debug-only).
+    debug(`[CodeEditor] visible range ${visibleStartLine}..${visibleEndLine} of ${totalLines} lines`);
 
     // Large-file plain-text path: avoid relying on any backend highlights and
     // render the available text lines in full. This disables reuse of persisted

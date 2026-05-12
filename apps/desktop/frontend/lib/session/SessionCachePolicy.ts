@@ -17,6 +17,7 @@ import EditorSessionStore from '@/stores/EditorSessionStore';
 import editorViewHost from '@/lib/session/EditorViewHost';
 import { stateCache } from '@/components/editor/editorEngine';
 import documentStore from '@/stores/DocumentStore';
+import { debug, isDebug } from '@/lib/logger';
 
 type Tier = 'hot' | 'warm' | 'cold';
 
@@ -51,9 +52,8 @@ class SessionCachePolicy {
       try {
         this.enforcePolicy();
       } catch (e) {
-        // swallow to avoid breaking host app
-        // eslint-disable-next-line no-console
-        console.debug('[session-cache] enforcement error', e);
+        // swallow to avoid breaking host app (debug-only)
+        try { debug('[session-cache] enforcement error', String(e)); } catch {}
       }
     }, this.checkInterval);
   }
@@ -164,17 +164,19 @@ class SessionCachePolicy {
       }
     }
 
-    // Update runtime diagnostics (non-reactive)
+    // Update runtime diagnostics (debug-only, lightweight)
     try {
       const warmCount = Array.from(this.tiers.values()).filter((t) => t === 'warm').length;
       const coldCount = Array.from(this.tiers.values()).filter((t) => t === 'cold').length;
       const live = typeof (editorViewHost as any).getLiveCount === 'function' ? (editorViewHost as any).getLiveCount() : 0;
-      const rs: any = (window as any).__zaroxi_runtime_stats || {};
-      rs.warmCount = warmCount;
-      rs.coldCount = coldCount;
-      rs.liveViews = live;
-      rs.lastEnforce = Date.now();
-      (window as any).__zaroxi_runtime_stats = rs;
+      if (isDebug()) {
+        const rs: any = (window as any).__zaroxi_runtime_stats || {};
+        rs.warmCount = warmCount;
+        rs.coldCount = coldCount;
+        rs.liveViews = live;
+        rs.lastEnforce = Date.now();
+        (window as any).__zaroxi_runtime_stats = rs;
+      }
     } catch {}
   }
 

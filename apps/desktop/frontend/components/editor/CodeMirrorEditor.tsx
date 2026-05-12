@@ -4,6 +4,7 @@ import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import editorViewHost from '@/lib/session/EditorViewHost';
+import { isDebug, debug, error as logError, setMountError, incrementStat } from '@/lib/logger';
 
 // Large-file thresholds (tunable)
 const LARGE_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -21,8 +22,7 @@ const LARGE_FILE_LINE_LENGTH = 50_000;
  * These counters are intended for debugging and verification only and are written
  * in a best-effort, non-throwing manner.
  */
-const CM_DEBUG = typeof window !== 'undefined' && !!(window as any).__zaroxi_cm_debug;
-function dbg(...args: any[]) { if (CM_DEBUG) console.debug(...args); }
+function dbg(...args: any[]) { debug(...args); }
 
 /**
  * Minimal gated stats increment helpers.
@@ -30,23 +30,15 @@ function dbg(...args: any[]) { if (CM_DEBUG) console.debug(...args); }
  */
 function cmStatCreated(_key: string) {
   try {
-    const w: any = (window as any);
-    if (w.__zaroxi_cm_debug) {
-      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-      w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
-      w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
-    }
+    incrementStat('created', 1);
+    incrementStat('live', 1);
   } catch {}
 }
 
 function cmStatDestroyed(_key: string) {
   try {
-    const w: any = (window as any);
-    if (w.__zaroxi_cm_debug) {
-      w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-      w.__zaroxi_cm_stats.destroyed = (w.__zaroxi_cm_stats.destroyed || 0) + 1;
-      w.__zaroxi_cm_stats.live = Math.max(0, (w.__zaroxi_cm_stats.live || 1) - 1);
-    }
+    incrementStat('destroyed', 1);
+    incrementStat('live', -1);
   } catch {}
 }
 
@@ -151,8 +143,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               console.debug('[codemirror] extension inspection failed', inner);
             }
           } catch (e) {
-            // eslint-disable-next-line no-console
-            console.error('[codemirror] createBaseExtensions threw before state creation', e);
+            try { logError('[codemirror] createBaseExtensions threw before state creation:', String(e)); } catch {}
           }
 
           // createState constructs a state with the provided language extension.
@@ -194,8 +185,7 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               );
             }
           } catch (e) {
-            // eslint-disable-next-line no-console
-            console.error('[codemirror] createState threw', e);
+            try { logError('[codemirror] createState threw:', String(e)); } catch {}
             throw e; // rethrow so outer catch triggers fallback behavior
           }
         }
@@ -227,23 +217,10 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           });
           // The host owns the live view; do not retain a local ref to the EditorView.
         } catch (e) {
-          // Capture and report detailed diagnostics if EditorView construction fails.
           try {
-            // eslint-disable-next-line no-console
-            console.error('[codemirror] EditorView constructor threw', e, {
-              documentId,
-              languageLoaded: !!languageExtRef.current,
-              stateSnapshot: {
-                docLength: state ? (state as any).doc?.length ?? 'unknown' : 'no-state',
-                // Best effort: inspect extensions array if present on the state
-                extensionsCount: state && (state as any).config
-                  ? (state as any).config.extensions?.length ?? 'unknown'
-                  : (state as any).extensions?.length ?? 'unknown',
-              },
-            });
+            logError('[codemirror] EditorView constructor threw:', String(e));
           } catch (diagErr) {
-            // eslint-disable-next-line no-console
-            console.error('[codemirror] failed to log EditorView diagnostics', diagErr);
+            try { logError('[codemirror] failed to log EditorView diagnostics:', String(diagErr)); } catch {}
           }
           throw e;
         }
@@ -420,12 +397,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       } catch (err) {
         // Fallback path: show a native textarea bound to the document text.
         // This keeps the app usable when codemirror packages are missing.
-        // Make failures explicit and expose debug info for diagnostics.
-        // eslint-disable-next-line no-console
-        console.error('[codemirror] falling back to textarea (dynamic import failed)', err);
+        // Make failures explicit and expose debug info for diagnostics (debug-only).
         try {
-          (window as any).__codemirror_mount_error = { message: String((err as any)?.message ?? err), stack: (err as any)?.stack ?? null };
+          logError('[codemirror] falling back to textarea (dynamic import failed):', String(err));
         } catch {}
+        try { setMountError(err); } catch {}
         setUsingFallback(true);
       }
     })();

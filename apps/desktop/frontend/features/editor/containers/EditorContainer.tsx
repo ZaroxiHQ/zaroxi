@@ -11,6 +11,7 @@ import sessionCache from '@/lib/session/SessionCachePolicy';
 import EditorSessionStore from '@/stores/EditorSessionStore';
 import documentStore from '@/stores/DocumentStore';
 import editorViewHost from '@/lib/session/EditorViewHost';
+import { warn } from '@/lib/logger';
 
 /**
  * EditorContainer - Simplified, deterministic session owner.
@@ -179,9 +180,8 @@ export function EditorContainer() {
           }
         }
       } catch (e) {
-        // Non-fatal: eviction best-effort
-        // eslint-disable-next-line no-console
-        console.debug('[editor-container] eviction error', e);
+        // Non-fatal: eviction best-effort (debug-only)
+        try { warn('[editor-container] eviction error', String(e)); } catch {}
       }
 
       return next;

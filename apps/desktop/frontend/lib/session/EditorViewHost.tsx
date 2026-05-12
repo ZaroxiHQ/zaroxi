@@ -12,6 +12,7 @@
  */
 
 import EditorSessionStore from '@/stores/EditorSessionStore';
+import { isDebug, incrementStat, setInspect } from '@/lib/logger';
 
 type AnyView = { destroy?: () => void } | null;
 
@@ -45,13 +46,11 @@ class EditorViewHost {
       }
       this.currentView = null;
       this.currentOwnerId = null;
-      // instrumentation: update non-reactive stats
+      // instrumentation: update non-reactive stats (debug-only)
       try {
-        const w: any = window as any;
-        if (w.__zaroxi_cm_debug) {
-          w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-          w.__zaroxi_cm_stats.destroyed = (w.__zaroxi_cm_stats.destroyed || 0) + 1;
-          w.__zaroxi_cm_stats.live = Math.max(0, (w.__zaroxi_cm_stats.live || 1) - 1);
+        if (isDebug()) {
+          incrementStat('destroyed', 1);
+          incrementStat('live', -1);
         }
       } catch {}
     }
@@ -62,13 +61,11 @@ class EditorViewHost {
     this.currentView = created;
     this.currentOwnerId = ownerId;
 
-    // instrumentation: update non-reactive stats
+    // instrumentation: update non-reactive stats (debug-only)
     try {
-      const w: any = window as any;
-      if (w.__zaroxi_cm_debug) {
-        w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-        w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
-        w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
+      if (isDebug()) {
+        incrementStat('created', 1);
+        incrementStat('live', 1);
       }
     } catch {}
 
@@ -100,20 +97,18 @@ class EditorViewHost {
       this.currentView = null;
       this.currentOwnerId = null;
       try {
-        const s: any = (window as any).__zaroxi_cm_stats ?? {};
-        s.destroyed = (s.destroyed || 0) + 1;
-        s.live = Math.max(0, (s.live || 1) - 1);
-        (window as any).__zaroxi_cm_stats = s;
+        if (isDebug()) {
+          incrementStat('destroyed', 1);
+          incrementStat('live', -1);
+        }
       } catch {}
     }
     this.currentView = view;
     this.currentOwnerId = ownerId;
     try {
-      const w: any = window as any;
-      if (w.__zaroxi_cm_debug) {
-        w.__zaroxi_cm_stats = w.__zaroxi_cm_stats || {};
-        w.__zaroxi_cm_stats.created = (w.__zaroxi_cm_stats.created || 0) + 1;
-        w.__zaroxi_cm_stats.live = (w.__zaroxi_cm_stats.live || 0) + 1;
+      if (isDebug()) {
+        incrementStat('created', 1);
+        incrementStat('live', 1);
       }
     } catch {}
   }
@@ -184,16 +179,18 @@ class EditorViewHost {
 
 const editorViewHost = new EditorViewHost();
 
-// Expose a non-reactive inspection helper for debugging (safe no-op if window missing)
-try {
-  (window as any).__zaroxi_cm_inspect = () => {
-    try {
-      return editorViewHost.inspect();
-    } catch {
-      return { live: 0, currentOwnerId: null, stats: null };
-    }
-  };
-} catch {}
+if (isDebug()) {
+  // Expose a non-reactive inspection helper for debugging (debug-only).
+  try {
+    (window as any).__zaroxi_cm_inspect = () => {
+      try {
+        return editorViewHost.inspect();
+      } catch {
+        return { live: 0, currentOwnerId: null, stats: null };
+      }
+    };
+  } catch {}
+}
 
 export { editorViewHost };
 export default editorViewHost;
