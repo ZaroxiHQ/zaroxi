@@ -3,7 +3,6 @@ import { createState, createBaseExtensions } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
-import { lineNumbers } from '@codemirror/gutter';
 import editorViewHost from '@/lib/session/EditorViewHost';
 
 // Large-file thresholds (tunable)
@@ -211,8 +210,11 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           try {
             if (largeFileMode) {
               // Minimal extension set for large-file safe mode.
+              // NOTE: We intentionally omit the `lineNumbers()` import here to avoid a hard
+              // build-time dependency on @codemirror/gutter for the large-file path.
+              // The full editor state (for normal files) is still created via createState(),
+              // which includes the standard gutter/lineNumbers when available.
               const extensions = [
-                lineNumbers(),
                 // Make editor read-only for extremely large files to avoid heavy onChange serialisation.
                 EditorView.editable.of(false),
                 // Minimal update listener (no heavy doc serialization).
