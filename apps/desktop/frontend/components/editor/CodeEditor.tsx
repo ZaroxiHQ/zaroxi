@@ -735,6 +735,31 @@ export function CodeEditor(props: CodeEditorProps) {
 
   const scrollTopRef = useRef<number>(0);
   const scrollPersistTimer = useRef<number | null>(null);
+
+  // Lightweight non-reactive scroll diagnostics (temporary).
+  // This uses refs and a best-effort window export so we can inspect
+  // scroll frequency without any React state updates on the hot path.
+  const scrollStatsRef = useRef<{ events: number; lastTs: number; burstMax: number }>({ events: 0, lastTs: 0, burstMax: 0 });
+  function recordScrollEvent() {
+    try {
+      const now = Date.now();
+      const s = scrollStatsRef.current;
+      s.events = (s.events || 0) + 1;
+      const delta = now - (s.lastTs || now);
+      // Simple burst heuristic: increments burst counter for short deltas.
+      if (delta < 50) s.burstMax = Math.max(s.burstMax || 0, (s.burstMax || 0) + 1);
+      s.lastTs = now;
+      // Expose non-reactive runtime metric (best-effort, bounded)
+      try {
+        (window as any).__zaroxi_scroll_stats = {
+          events: s.events,
+          lastTs: s.lastTs,
+          burstMax: s.burstMax,
+        };
+      } catch {}
+    } catch {}
+  }
+
   // Authoritative cursor line (0-based). Updated by CustomSurface via onCursorChange.
   const [cursorLine, setCursorLine] = useState<number>(0);
   // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
@@ -859,9 +884,12 @@ export function CodeEditor(props: CodeEditorProps) {
   }, [overlayHighlighted, lineHeight]);
 
   // Overlay transform synchronization disabled for baseline.
+  // Keep this effect non-reactive to avoid referencing undefined values
+  // during render/eval time. Removing reactive deps avoids ReferenceError
+  // and ensures the scroll hot-path does not accidentally re-run the effect.
   useEffect(() => {
-    // no-op
-  }, [scrollTop]);
+    // no-op - intentionally no reactive dependency
+  }, []);
 
   // Always compute gutter width from the canonical totalLines so gutter stays
   // in sync with the document model even in large-file/read-only view.
@@ -899,6 +927,10 @@ export function CodeEditor(props: CodeEditorProps) {
   const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
     const target = e.currentTarget as HTMLElement;
     const top = (target.scrollTop ?? 0);
+
+    // Record event in non-reactive diagnostics (very cheap).
+    recordScrollEvent();
+
     // Update runtime ref for any synchronous consumers but avoid frequent rerenders.
     scrollTopRef.current = top;
 
