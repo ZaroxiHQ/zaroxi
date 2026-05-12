@@ -738,6 +738,10 @@ export function CodeEditor(props: CodeEditorProps) {
           try {
             if (incomingHash) lastEmittedHashRef.current = incomingHash;
           } catch {}
+          try {
+            (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('wrapper_adopt_skipped_due_to_editor_owned', { documentId: session?.documentId ?? null, tabId: session?.tabId ?? null, incomingHash });
+            (window as any).__zaroxi_last_wrapper_action = { type: 'adopt_skipped', documentId: session?.documentId ?? null, tabId: session?.tabId ?? null, ts: Date.now() };
+          } catch {}
           return;
         }
       } catch {}
@@ -1079,9 +1083,18 @@ export function CodeEditor(props: CodeEditorProps) {
       };
     } catch {}
 
+    // Record wrapper emit action into small ops buffer for crash correlation.
+    try {
+      (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('wrapper_emit_scheduled', { documentId: session?.documentId ?? null, tabId: session?.tabId ?? null, hash: nextHash });
+      (window as any).__zaroxi_last_wrapper_action = { type: 'emit_scheduled', documentId: session?.documentId ?? null, tabId: session?.tabId ?? null, hash: nextHash, ts: Date.now() };
+    } catch {}
+
     const __emit_tid = window.setTimeout(() => {
       try {
         lastEmittedHashRef.current = nextHash;
+        // Record actual emit firing
+        try { (window as any).__zaroxi_push_op && (window as any).__zaroxi_push_op('wrapper_emit_fired', { documentId: session?.documentId ?? null, tabId: session?.tabId ?? null }); } catch {}
+        try { (window as any).__zaroxi_last_wrapper_action = { type: 'emit_fired', documentId: session?.documentId ?? null, tabId: session?.tabId ?? null, ts: Date.now() }; } catch {}
         onChange(nextText);
       } catch {}
       changeEmitTimerRef.current = null;

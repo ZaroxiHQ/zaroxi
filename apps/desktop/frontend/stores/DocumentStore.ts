@@ -60,6 +60,8 @@ class DocumentStore {
         try {
           if (stableHashString(merged.content) === lastEmit.hash) {
             // Skip write to avoid echoing editor-originated content back into UI.
+            // Record last store-write attempt for diagnostics
+            try { (window as any).__zaroxi_last_store_write = { documentId, method: 'set', suppressed: true, reason: 'exact_match_emit', ts: Date.now() }; } catch {}
             return;
           }
         } catch {}
@@ -85,6 +87,7 @@ class DocumentStore {
           const RECENT_MS = 5000;
           if (emitNorm && normHash === emitNorm && (now - emitTs) < RECENT_MS) {
             // Normalized echo from the active editor within a short window -> skip.
+            try { (window as any).__zaroxi_last_store_write = { documentId, method: 'set', suppressed: true, reason: 'normalized_recent_emit', ts: Date.now() }; } catch {}
             return;
           }
         } catch {}
@@ -92,6 +95,9 @@ class DocumentStore {
     } catch {
       // Defensive: if anything goes wrong, fall back to writing as before.
     }
+
+    // Record actual store write for diagnostics before mutating map
+    try { (window as any).__zaroxi_last_store_write = { documentId, method: 'set', suppressed: false, length: typeof merged.content === 'string' ? merged.content.length : null, ts: Date.now() }; } catch {}
 
     this.map.set(documentId, merged);
   }

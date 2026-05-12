@@ -149,6 +149,7 @@ class EditorSessionStore {
         // No previous entry, set the merged snapshot.
         this.store.set(tabId, merged);
       }
+      try { (window as any).__zaroxi_last_session_write = { tabId, documentId: merged.documentId ?? null, suppressed: true, reason: 'unchanged', ts: Date.now() }; } catch {}
       return;
     }
 
