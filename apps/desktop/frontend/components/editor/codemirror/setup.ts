@@ -323,43 +323,69 @@ export function createBaseExtensions(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
+  largeFile: boolean = false,
 ) {
-  // Editor update listener to forward change events to the host
-  const updateListener = EditorView.updateListener.of((update) => {
+  // Normal update listener that serializes full doc when document changes.
+  // Only attached in the normal (non-large-file) path because doc.toString()
+  // can be expensive on very large documents.
+  const normalUpdateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
-      const text = update.state.doc.toString();
-      const sel = update.state.selection.main;
-      opts.onChange(text, { from: sel.from, to: sel.to });
+      try {
+        const text = update.state.doc.toString();
+        const sel = update.state.selection.main;
+        opts.onChange(text, { from: sel.from, to: sel.to });
+      } catch {
+        // Swallow to avoid bubbling errors into editor core.
+      }
     }
   });
 
-  // NOTE: Custom HighlightStyle removed temporarily to prevent runtime crash
-  // (TypeError: undefined is not an object (evaluating 'style.tag.id')).
-  // Reintroduce language token styling after the editor mounts and we verify the
-  // exact tag set available from @lezer/highlight in the runtime environment.
-  // highlightExtension intentionally omitted in this debug patch.
-
-  // Compose extensions (deterministic)
-  // Create specific ext instances so we can log their presence for debugging.
-  const lineNumbersExt = lineNumbers();
-  const foldGutterExt = languageExtension ? foldGutter() : null;
-  // Runtime debug: report whether language support was provided.
-  // eslint-disable-next-line no-console
-  console.debug('[codemirror] createBaseExtensions', {
-    docKey,
-    languageProvided: !!languageExtension,
+  // Minimal listener for large-file preview: do not serialize the full document.
+  const minimalLargeListener = EditorView.updateListener.of((update) => {
+    if (update.docChanged) {
+      // intentionally no-op to keep hot path cheap
+    }
   });
 
-  // Assemble extensions deterministically and include an explicit syntaxHighlighting
-  // extension for diagnostics. We intentionally attach the `activeHighlightStyle`
-  // (debug high-contrast) so we can prove token colors render.
+  // Common minimal theme so the editor renders with app visuals.
+  const common = [zaroxiCodeMirrorTheme];
+
+  // Folding extension only when language support is present (normal mode).
+  const foldExt = languageExtension ? foldGutter() : null;
+
+  // TRUE minimal large-file profile: start with the smallest possible extension set.
+  // This intentionally omits lineNumbers(), folding, active-line, drawSelection, history, keymaps,
+  // and syntaxHighlighting to prove a stable baseline for extremely large files.
+  if (largeFile) {
+    // Rationale: many CM6-side costs are driven by per-line bookkeeping done by
+    // gutters/folding/active-line/highlighting. For a read-only large-file viewer
+    // we keep only a minimal theme and make the editor non-editable.
+    return [
+      ...common,
+      // Make editor non-editable for stability and to avoid expensive edit paths.
+      EditorView.editable.of(false),
+      // Minimal no-op update listener to avoid doc serialization.
+      minimalLargeListener,
+    ];
+  }
+
+  // Normal (full-featured) editor extensions for typical files.
+  const highlightStyle = (() => {
+    try {
+      return getAppHighlightStyle();
+    } catch {
+      return null;
+    }
+  })();
+  const syntaxExt = highlightStyle ? syntaxHighlighting(highlightStyle) : [];
+
+  // Build standard featureful extension set for normal files.
   const extensions: any[] = [
-    // Theme must be present to guarantee gutter visibility
-    zaroxiCodeMirrorTheme,
-    // Line numbers gutter (always show)
-    lineNumbersExt,
-    // Fold gutter: include only when languageExtension is provided (language support typically enables folding)
-    ...(foldGutterExt ? [foldGutterExt] : []),
+    ...common,
+    // Line numbers gutter (normal files)
+    lineNumbers(),
+    // Fold gutter only when language support is present
+    ...(foldExt ? [foldExt] : []),
     highlightActiveLineGutter(),
     // Selection and caret
     drawSelection(),
@@ -369,23 +395,21 @@ export function createBaseExtensions(
     keymap.of([...defaultKeymap, ...historyKeymap]),
     // Language support (if provided)
     languageExtension ?? [],
-    // Attach the app highlight style using the modern CM6 API:
-    // syntaxHighlighting from @codemirror/language with a HighlightStyle defined above.
-    syntaxHighlighting(appHighlightStyle),
-    // Update listener
-    updateListener,
+    // Syntax highlighting (if HighlightStyle available)
+    ...(syntaxExt ? [syntaxExt] : []),
+    // Update listener (serializes full text on changes)
+    normalUpdateListener,
   ];
 
-  // Runtime diagnostics: explicit booleans to help determine whether highlighting and language are present
-  const hasSyntaxHighlightingExtension = true;
-  const hasLanguageExtension = !!languageExtension;
-  // eslint-disable-next-line no-console
-  console.debug('[codemirror] createBaseExtensions assembled', {
-    docKey,
-    hasSyntaxHighlightingExtension,
-    hasLanguageExtension,
-    extensionsCount: Array.isArray(extensions) ? extensions.length : 'unknown',
-  });
+  // Runtime diagnostics (lightweight)
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[codemirror] createBaseExtensions assembled', {
+      docKey,
+      largeFile,
+      extensionsCount: Array.isArray(extensions) ? extensions.length : 'unknown',
+    });
+  } catch {}
 
   return extensions;
 }
@@ -398,8 +422,9 @@ export function createState(
   opts: { onChange: (text: string, selection?: Selection) => void },
   languageExtension?: any,
   docKey?: string,
+  largeFile: boolean = false,
 ) {
-  const extensions = createBaseExtensions(opts, languageExtension, docKey);
+  const extensions = createBaseExtensions(opts, languageExtension, docKey, largeFile);
   return EditorState.create({
     doc: initialText ?? '',
     extensions,
