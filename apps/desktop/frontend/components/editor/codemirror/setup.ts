@@ -198,6 +198,10 @@ const cmGutterSyncTheme = EditorView.theme({
     overflow: 'auto',
     '-webkit-overflow-scrolling': 'touch',
     transform: 'none',
+    // Hint to the compositor that this layer will be scrolled/animated to
+    // reduce main-thread paint work and keep gutter/content moving together.
+    willChange: 'transform',
+    backfaceVisibility: 'hidden',
   },
   // Keep gutters simple and measured by standard flow. Use theme CSS variables
   // for background so the visual chrome follows the app theme instead of hardcoded colors.
@@ -207,6 +211,10 @@ const cmGutterSyncTheme = EditorView.theme({
     alignItems: 'stretch',
     transform: 'none',
     backgroundColor: 'var(--editor-gutter-background, var(--editor-background))',
+    // Promote gutters to their own composite layer where available so they move
+    // with the scroller without forcing synchronous layout on scroll.
+    willChange: 'transform',
+    backfaceVisibility: 'hidden',
   },
   // Reduce horizontal padding so the gutter isn't oversized. Use explicit CSS vars
   // for typography and rhythm to avoid fragile `inherit` assumptions.
@@ -239,7 +247,7 @@ const cmGutterSyncTheme = EditorView.theme({
     verticalAlign: 'top',
   },
   // Content side: preserve pre-formatted text and use explicit line rhythm variable.
-  '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'var(--code-line-height, 20px)' },
+  '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'var(--code-line-height, 20px)', willChange: 'transform', backfaceVisibility: 'hidden' },
   '.cm-line': { lineHeight: 'var(--code-line-height, 20px)', minHeight: '0' },
   // Active-line visuals (both content and gutter) use theme variables (no hardcoded rgba).
   '.cm-activeLine': { backgroundColor: 'var(--editor-selection, transparent)' },
