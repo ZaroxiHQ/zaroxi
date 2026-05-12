@@ -167,8 +167,29 @@ const appHighlightStyle = buildHighlightStyle();
    Module-scoped helpers
    ------------------------- */
 
-// Small shared theme extension list
-const common = [zaroxiCodeMirrorTheme];
+/**
+ * Small shared theme extension list.
+ *
+ * Add a minimal, defensive EditorView.theme that enforces consistent
+ * measurements between the gutter and the content. This prevents
+ * visual desync caused by mismatched line-height / padding between
+ * the gutter elements and the content lines during fast scrolling.
+ *
+ * The theme is intentionally minimal: it DOES NOT change colors or
+ * visual chrome — only layout-related properties such as padding,
+ * box-sizing and line-height inheritance to keep the gutter in rhythm
+ * with the content.
+ */
+const cmGutterSyncTheme = EditorView.theme({
+  '.cm-gutters': { boxSizing: 'border-box' },
+  '.cm-gutter': { padding: '0 6px', margin: '0' },
+  '.cm-lineNumbers': { padding: '0 6px', margin: '0' },
+  '.cm-gutterElement': { padding: '0', margin: '0', lineHeight: 'inherit', display: 'inline-block' },
+  '.cm-line': { lineHeight: 'inherit' },
+  '.cm-content': { padding: '0', boxSizing: 'border-box' },
+  '.cm-scroller': { overflow: 'auto' },
+});
+const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
 
 // Create an update listener factory that uses the provided opts.onChange.
 // This is module-scoped but produces a listener bound to the caller's onChange.
@@ -331,6 +352,10 @@ function largeFileExtensions(
     ...common,
     ...(showGutter ? [lineNumbers()] : []),
     drawSelection(),
+    // Keep the active line highlighting inside the content (not the gutter).
+    // This preserves the desired current-line visual cue while ensuring the
+    // gutter remains minimal (lineNumbers() only).
+    highlightActiveLine(),
     keymap.of(defaultKeymap),
     ...(languageExtension && allowSyntax ? [languageExtension] : []),
     ...(allowSyntax && syntaxExt ? [syntaxExt] : []),
