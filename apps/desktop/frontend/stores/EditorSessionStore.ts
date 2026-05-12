@@ -117,6 +117,7 @@ class EditorSessionStore {
             } else {
               this.store.set(tabId, merged);
             }
+            try { (window as any).__zaroxi_last_session_write = { tabId, documentId: merged.documentId ?? null, suppressed: true, reason: 'normalized_recent_emit', ts: Date.now() }; } catch {}
             return;
           }
         } catch {}
