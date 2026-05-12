@@ -313,7 +313,9 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
         viewAny.__cm_pending_fingerprint = null;
       }
 
-      // Register a debounced timer and record it in a lightweight global diagnostics array.
+      // Register a debounced timer. In minimal runtime mode, increase debounce
+      // and avoid repeated full-document serializations when recent emission occurred.
+      const DEBOUNCE_MS = (typeof window !== 'undefined' && (window as any).__Z_MINIMAL_RUNTIME) ? 400 : 150;
       const __cm_timer_id = window.setTimeout(() => {
         try {
           // Recompute fingerprint from the live view state to avoid race issues.
@@ -325,6 +327,14 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
               return null;
             }
           })();
+
+          // In minimal runtime, skip heavy serialization if we recently emitted for this view.
+          try {
+            const minimal = (typeof window !== 'undefined' && (window as any).__Z_MINIMAL_RUNTIME);
+            if (minimal && viewAny.__cm_last_emit_ts && (Date.now() - viewAny.__cm_last_emit_ts) < 500) {
+              return;
+            }
+          } catch {}
 
           // If fingerprint equals the last emitted fingerprint for this view, skip heavy serialization.
           try {
@@ -346,6 +356,7 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
             // Record the fingerprint we emitted to avoid emitting identical content again soon.
             try {
               viewAny.__cm_last_emitted_fingerprint = fingerprint;
+              viewAny.__cm_last_emit_ts = Date.now();
             } catch {}
           } catch {
             // swallow errors from doc serialization
@@ -356,16 +367,9 @@ function createNormalUpdateListener(opts: { onChange: (text: string, selection?:
             viewAny.__cm_pending_fingerprint = undefined;
           } catch {}
         }
-      }, 150) as unknown as number;
+      }, DEBOUNCE_MS) as unknown as number;
       viewAny.__cm_onchange_timer = __cm_timer_id;
-      try {
-        const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
-        if (_w) {
-          _w.__zaroxi_timers = _w.__zaroxi_timers || [];
-          _w.__zaroxi_timers.push({ id: __cm_timer_id, type: 'cm_onchange', ts: Date.now() });
-          if (_w.__zaroxi_timers.length > 5000) _w.__zaroxi_timers.shift();
-        }
-      } catch {}
+      // Do not push hot-path diagnostics here to avoid extra main-thread work.
     } catch {
       // swallow any unexpected errors in the listener
     }

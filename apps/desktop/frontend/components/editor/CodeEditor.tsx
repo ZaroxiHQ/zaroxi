@@ -844,6 +844,10 @@ export function CodeEditor(props: CodeEditorProps) {
     visibleEndLine = Math.min(visibleStartLine + visibleCount, totalLines);
   }
 
+  // Minimal runtime guard: when enabled, suppress non-essential background work
+  // during crash isolation. This flag is read by other modules to reduce hot-path load.
+  try { (window as any).__Z_MINIMAL_RUNTIME = true; } catch {}
+
   // Highlights disabled temporarily to avoid highlight/bridge hot-path while
   // root edit sync loop is being fixed. Re-enable once sync is stable.
   const highlightsEnabled = false;
