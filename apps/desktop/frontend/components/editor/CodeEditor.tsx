@@ -652,6 +652,9 @@ export function CodeEditor(props: CodeEditorProps) {
   const [value, setValue] = useState<string>(session.text ?? '');
   // Keep a session identity to decide when to resync the controlled value
   const lastSessionIdRef = useRef<string | number | null>(null);
+  // Debounced outward change emission refs to avoid immediate persistence echoes.
+  const changeEmitTimerRef = useRef<number | null>(null);
+  const lastEmittedHashRef = useRef<string | null>(null);
   // Locked large-file decision derived synchronously from session metadata.
   // Use a strict byte-size check (TextEncoder) to enforce the 5 MB rule.
   const initialLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
@@ -671,6 +674,20 @@ export function CodeEditor(props: CodeEditorProps) {
       // New session or new load result -> adopt session.text deterministically.
       lastSessionIdRef.current = sessionIdentity;
       setValue(session.text ?? '');
+
+      // Cancel any pending outbound change emission to avoid echoing this adoption.
+      try {
+        if (changeEmitTimerRef.current) {
+          window.clearTimeout(changeEmitTimerRef.current);
+          changeEmitTimerRef.current = null;
+        }
+      } catch {}
+
+      // Record last emitted hash as the adopted text to avoid re-sending identical content.
+      try {
+        lastEmittedHashRef.current = typeof session.text === 'string' ? stableHashString(session.text) : null;
+      } catch {}
+
       // Decide large-file for this session deterministically and persist it.
       // Lock the decision synchronously so highlight/hydration logic sees it immediately.
       const decidedLarge = session.contentTruncated ?? (session.text ? (new TextEncoder().encode(session.text).length > LARGE_FILE_BYTES) : false);
@@ -917,14 +934,47 @@ export function CodeEditor(props: CodeEditorProps) {
   const overlayReady = false;
 
   // Handlers
+  // Debounced outward onChange emitter to avoid immediate store persistence on every keystroke.
+  const scheduleEmitChange = useCallback((nextText: string) => {
+    try {
+      if (changeEmitTimerRef.current) {
+        window.clearTimeout(changeEmitTimerRef.current);
+        changeEmitTimerRef.current = null;
+      }
+    } catch {}
+
+    const nextHash = stableHashString(nextText);
+    // If identical to last emitted, skip scheduling.
+    if (lastEmittedHashRef.current === nextHash) {
+      return;
+    }
+
+    changeEmitTimerRef.current = window.setTimeout(() => {
+      try {
+        lastEmittedHashRef.current = nextHash;
+        onChange(nextText);
+      } catch {}
+      changeEmitTimerRef.current = null;
+    }, 300) as unknown as number;
+  }, [onChange]);
+
+  const flushPendingChange = useCallback(() => {
+    try {
+      if (changeEmitTimerRef.current) {
+        window.clearTimeout(changeEmitTimerRef.current);
+        changeEmitTimerRef.current = null;
+      }
+    } catch {}
+  }, []);
+
   const handleInput = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     if (effectiveReadOnly) return;
     const el = e.currentTarget as HTMLDivElement;
     // innerText preserves line breaks in a plain way; normalize CRLF to LF.
     const text = el.innerText.replace(/\r\n/g, '\n');
     setValue(text);
-    onChange(text);
-  }, [onChange, effectiveReadOnly]);
+    scheduleEmitChange(text);
+  }, [scheduleEmitChange, effectiveReadOnly]);
 
   // Keep a textarea-compatible onChange handler for legacy code paths that still
   // update the hidden textarea; this prevents ReferenceError when a handler
