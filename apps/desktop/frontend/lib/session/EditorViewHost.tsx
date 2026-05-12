@@ -32,27 +32,70 @@ class EditorViewHost {
   private currentOwnerId: string | null = null; // canonical id supplied by creator (often documentId)
   private maxLiveViews: number = 1; // hard guard: only allow 1 live view by default
 
+  // Prune diagnostic registry entries that may hold strong references to destroyed views.
+  // This is defensive: the diagnostics registry is useful for debugging but must not
+  // itself keep EditorView instances alive. Remove entries for the specified owner id.
+  private _pruneDiagnosticsForOwner(ownerId: string | null) {
+    try {
+      if (!ownerId) return;
+      const _w: any = (typeof window !== 'undefined') ? (window as any) : undefined;
+      if (!_w) return;
+      if (!_w.__zaroxi_editor_views) return;
+      try {
+        _w.__zaroxi_editor_views = (_w.__zaroxi_editor_views || []).filter((e: any) => {
+          try {
+            return !(e && String(e.documentId) === String(ownerId));
+          } catch {
+            return true;
+          }
+        });
+      } catch {}
+    } catch {}
+  }
+
   // Create a view using a factory that receives the parent DOM element.
   // The host becomes the authoritative owner of the returned view.
   createView(ownerId: string, parent: Element, factory: (parent: Element) => AnyView): AnyView {
-    // If a different view is attached, destroy it first to enforce single owner
-    if (this.currentView && this.currentOwnerId !== ownerId) {
-      try {
-        if (typeof this.currentView.destroy === 'function') {
-          this.currentView.destroy();
+    // If a different view is attached, or an existing view exists for the same owner,
+    // destroy it first to enforce single owner and to free any retained resources.
+    if (this.currentView) {
+      if (this.currentOwnerId !== ownerId) {
+        try {
+          if (typeof this.currentView.destroy === 'function') {
+            this.currentView.destroy();
+          }
+        } catch {
+          // swallow
         }
-      } catch {
-        // swallow
+        const oldOwner = this.currentOwnerId;
+        this.currentView = null;
+        this.currentOwnerId = null;
+        // Prune diagnostics for the old owner to avoid the registry keeping references.
+        this._pruneDiagnosticsForOwner(oldOwner);
+        // instrumentation: update non-reactive stats (debug-only)
+        try {
+          if (isDebug()) {
+            incrementStat('destroyed', 1);
+            incrementStat('live', -1);
+          }
+        } catch {}
+      } else {
+        // Same owner: replace existing view deterministically.
+        try {
+          if (typeof this.currentView.destroy === 'function') {
+            this.currentView.destroy();
+          }
+        } catch {}
+        this._pruneDiagnosticsForOwner(ownerId);
+        this.currentView = null;
+        this.currentOwnerId = null;
+        try {
+          if (isDebug()) {
+            incrementStat('destroyed', 1);
+            incrementStat('live', -1);
+          }
+        } catch {}
       }
-      this.currentView = null;
-      this.currentOwnerId = null;
-      // instrumentation: update non-reactive stats (debug-only)
-      try {
-        if (isDebug()) {
-          incrementStat('destroyed', 1);
-          incrementStat('live', -1);
-        }
-      } catch {}
     }
 
     // Create the view. Caller is responsible for providing a stable factory.
@@ -94,8 +137,11 @@ class EditorViewHost {
       } catch {
         // swallow
       }
+      const oldOwner = this.currentOwnerId;
       this.currentView = null;
       this.currentOwnerId = null;
+      // Prune diagnostics for the old owner to avoid holding strong refs.
+      this._pruneDiagnosticsForOwner(oldOwner);
       try {
         if (isDebug()) {
           incrementStat('destroyed', 1);
@@ -103,8 +149,14 @@ class EditorViewHost {
         }
       } catch {}
     }
+
+    // Attach the provided view and record owner.
     this.currentView = view;
     this.currentOwnerId = ownerId;
+
+    // Prune any stale diagnostics that might duplicate this owner entry.
+    this._pruneDiagnosticsForOwner(ownerId);
+
     try {
       if (isDebug()) {
         incrementStat('created', 1);
@@ -122,8 +174,17 @@ class EditorViewHost {
       } catch {
         // swallow
       }
+      // Capture owner before clearing so we can prune diagnostics.
+      const oldOwner = this.currentOwnerId;
       this.currentView = null;
       this.currentOwnerId = null;
+
+      // Prune diagnostics for the destroyed owner to ensure the debug registry
+      // does not retain a strong reference to the view.
+      try {
+        this._pruneDiagnosticsForOwner(oldOwner);
+      } catch {}
+
       try {
         const s: any = (window as any).__zaroxi_cm_stats ?? {};
         s.destroyed = (s.destroyed || 0) + 1;
@@ -146,6 +207,8 @@ class EditorViewHost {
     // Direct match: owner id equals provided id
     if (this.currentOwnerId === id) {
       this.detach();
+      // Ensure diagnostic records are pruned for this id.
+      try { this._pruneDiagnosticsForOwner(id); } catch {}
       return;
     }
 
@@ -155,11 +218,15 @@ class EditorViewHost {
       const docId = snap?.documentId;
       if (docId && this.currentOwnerId === String(docId)) {
         this.detach();
+        try { this._pruneDiagnosticsForOwner(String(docId)); } catch {}
         return;
       }
     } catch {
       // ignore resolution errors
     }
+
+    // Also defensively prune diagnostics for the provided id to avoid registry retention
+    try { this._pruneDiagnosticsForOwner(id); } catch {}
   }
 
   getActiveOwnerId() {
