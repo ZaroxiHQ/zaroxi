@@ -9,6 +9,8 @@ import { useTabsStore } from '@/features/tabs/store';
 import { WelcomeView } from '@/features/welcome/WelcomeView';
 import sessionCache from '@/lib/session/SessionCachePolicy';
 import EditorSessionStore from '@/stores/EditorSessionStore';
+import documentStore from '@/stores/DocumentStore';
+import editorViewHost from '@/lib/session/EditorViewHost';
 
 /**
  * EditorContainer - Simplified, deterministic session owner.
@@ -118,6 +120,35 @@ export function EditorContainer() {
             if (toEvict <= 0) break;
             if (k === activeTabId) continue; // don't evict active tab
             if (s.isDirty) continue; // preserve dirty sessions
+
+            // Persist heavier fields to a document-level store before shrinking.
+            // This ensures the in-memory session becomes lightweight while the
+            // authoritative document content is retained for later restore.
+            try {
+              if (s.documentId && typeof s.text === 'string' && s.text.length > 0) {
+                documentStore.set(s.documentId, { documentId: s.documentId, content: s.text, version: s.revision ?? undefined });
+              }
+            } catch {}
+
+            // Also persist a minimal editor session snapshot (selection/scroll) so
+            // we can restore view position without keeping EditorView instances.
+            try {
+              if (s.tabId) {
+                EditorSessionStore.setSnapshot(s.tabId, {
+                  tabId: s.tabId,
+                  documentId: s.documentId ?? null,
+                  text: undefined,
+                  selection: undefined,
+                  scrollTop: undefined,
+                  language: s.language ?? null,
+                  isDirty: s.isDirty ?? false,
+                  version: s.revision ?? null,
+                  lastActiveAt: s.lastAccess ?? Date.now(),
+                  tier: 'warm',
+                } as any);
+              }
+            } catch {}
+
             // Shrink heavy payload while preserving minimal metadata
             const shrunk: LocalSession = {
               ...s,
@@ -128,12 +159,19 @@ export function EditorContainer() {
               lastAccess: s.lastAccess,
             };
             next.set(k, shrunk);
+
             // Also drop any engine-level cached EditorState to free memory
             try {
               if ((stateCache as Map<string, any>).has(k)) {
                 (stateCache as Map<string, any>).delete(k);
               }
             } catch {}
+
+            // Ensure any live EditorView for this tab is destroyed and released.
+            try {
+              editorViewHost.destroyIfFor(k);
+            } catch {}
+
             toEvict--;
           }
         }

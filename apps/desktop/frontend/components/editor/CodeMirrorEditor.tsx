@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createState, createBaseExtensions } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
+import editorViewHost from '@/lib/session/EditorViewHost';
 
 /**
  * Small runtime instrumentation helpers exposed on window.__zaroxi_cm_stats:
@@ -220,6 +221,9 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
             parent: containerRef.current,
           });
           viewRef.current = mountedView;
+          // Register the live view with the centralized host so only one live view
+          // is owned across the app and can be destroyed on demotion/eviction.
+          try { editorViewHost.attach(String(documentId ?? ''), mountedView); } catch {}
 
           // Instrument creation with document id for diagnostics
           try {
@@ -447,6 +451,8 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
         try {
           cmStatDestroyed(String(documentId ?? 'unknown'));
         } catch {}
+        // Ensure host releases any references if it thinks this view was for the same document.
+        try { editorViewHost.destroyIfFor(String(documentId ?? 'unknown')); } catch {}
         viewRef.current = null;
       }
       // Clear any scheduled gutter sanity timer

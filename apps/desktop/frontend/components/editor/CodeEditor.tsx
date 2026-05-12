@@ -37,6 +37,7 @@ import { computeGutterWidth } from './gutter/GutterLayout';
 import { FONT_TOKENS } from '@/lib/theme/font-tokens';
 import { bridge } from '@/lib/bridge';
 import CustomSurface from './CustomSurface';
+import EditorSessionStore from '@/stores/EditorSessionStore';
 
 import { getDocumentSyntax, setDocumentSyntax, clearDocumentSyntax } from './syntaxStore';
 
@@ -733,7 +734,7 @@ export function CodeEditor(props: CodeEditorProps) {
   }, []);
 
   const scrollTopRef = useRef<number>(0);
-  const [scrollTop, setScrollTop] = useState(0);
+  const scrollPersistTimer = useRef<number | null>(null);
   // Authoritative cursor line (0-based). Updated by CustomSurface via onCursorChange.
   const [cursorLine, setCursorLine] = useState<number>(0);
   // Overlay DOM node ref - we'll render highlighted HTML into this stable node.
@@ -898,14 +899,44 @@ export function CodeEditor(props: CodeEditorProps) {
   const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
     const target = e.currentTarget as HTMLElement;
     const top = (target.scrollTop ?? 0);
+    // Update runtime ref for any synchronous consumers but avoid frequent rerenders.
     scrollTopRef.current = top;
-    setScrollTop(top);
-    // No overlay sync: baseline uses native textarea scrolling only.
-  }, []);
+
+    // Throttle persistence of scroll position to avoid write hot-paths during fast scrolling.
+    try {
+      if (scrollPersistTimer.current) {
+        window.clearTimeout(scrollPersistTimer.current);
+      }
+      scrollPersistTimer.current = window.setTimeout(() => {
+        try {
+          if (session && session.tabId) {
+            // Persist lightweight snapshot to editor session store (no DOM).
+            EditorSessionStore.setSnapshot(session.tabId, {
+              tabId: session.tabId,
+              documentId: session.documentId ?? null,
+              scrollTop: top,
+              lastActiveAt: Date.now(),
+            } as any);
+          }
+        } catch {}
+        scrollPersistTimer.current = null;
+      }, 200);
+    } catch {}
+    // No immediate setState to avoid rerenders; UI uses the live DOM scroll.
+  }, [session]);
 
   // Editor engine removed: using CustomSurface (custom DOM-based editor).
   useEffect(() => {
     // No-op: the CustomSurface component mounts the editor DOM and handles input.
+    return () => {
+      // Ensure any pending scroll persistence timers are cleared on unmount.
+      try {
+        if (scrollPersistTimer.current) {
+          window.clearTimeout(scrollPersistTimer.current);
+          scrollPersistTimer.current = null;
+        }
+      } catch {}
+    };
   }, [value]);
 
   // Render
