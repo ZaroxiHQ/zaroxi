@@ -2,7 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createState, createBaseExtensions } from './codemirror/setup';
 import { getLanguageSupportForPath } from './codemirror/languages/index';
 import { EditorView } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
+import { lineNumbers } from '@codemirror/gutter';
 import editorViewHost from '@/lib/session/EditorViewHost';
+
+// Large-file thresholds (tunable)
+const LARGE_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+const LARGE_FILE_LINES = 100_000;
+const LARGE_FILE_LINE_LENGTH = 50_000;
 
 /**
  * Small runtime instrumentation helpers exposed on window.__zaroxi_cm_stats:
@@ -132,8 +139,32 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         // Load language support (lazy) and stash it so we can re-create the state later if needed.
         languageExtRef.current = null;
+        // Determine whether to enable a lightweight "large-file" safe mode.
+        let largeFileMode = false;
         try {
-          languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+          // Compute simple heuristics from the provided text to avoid heavy work on open.
+          const bytes = (typeof text === 'string') ? (new TextEncoder().encode(text).length) : 0;
+          const lines = (typeof text === 'string') ? (text.split('\n').length) : 0;
+          let maxLine = 0;
+          if (typeof text === 'string') {
+            let idx = 0;
+            while (idx < text.length) {
+              const next = text.indexOf('\n', idx);
+              const end = next === -1 ? text.length : next;
+              const len = end - idx;
+              if (len > maxLine) maxLine = len;
+              if (next === -1) break;
+              idx = next + 1;
+            }
+          }
+          if (bytes > LARGE_FILE_BYTES || lines > LARGE_FILE_LINES || maxLine > LARGE_FILE_LINE_LENGTH) {
+            largeFileMode = true;
+            languageExtRef.current = null;
+            // eslint-disable-next-line no-console
+            console.info('[codemirror] largeFileMode enabled', { documentId, bytes, lines, maxLine });
+          } else {
+            languageExtRef.current = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+          }
         } catch (e) {
           // ignore language load failures; fallback to no language (plaintext)
           // eslint-disable-next-line no-console
@@ -176,18 +207,40 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           }
 
           // createState constructs a state with the provided language extension.
-          // createState is synchronous in this module; use it directly.
+          // For extremely large files we build a minimal, safe EditorState to avoid expensive processing.
           try {
-            state = createState(
-              text ?? '',
-              {
-                onChange: (t: string) => {
-                  onChange(t);
+            if (largeFileMode) {
+              // Minimal extension set for large-file safe mode.
+              const extensions = [
+                lineNumbers(),
+                // Make editor read-only for extremely large files to avoid heavy onChange serialisation.
+                EditorView.editable.of(false),
+                // Minimal update listener (no heavy doc serialization).
+                EditorView.updateListener.of((v: any) => {
+                  // Intentionally minimal: do not call onChange; avoid full doc.toString() on every edit.
+                  // Keep listener sparse for potential future lightweight diagnostics.
+                  if (v.docChanged) {
+                    try {
+                      const s: any = (window as any).__zaroxi_cm_stats || {};
+                      s.largeFileDocChanges = (s.largeFileDocChanges || 0) + 1;
+                      (window as any).__zaroxi_cm_stats = s;
+                    } catch {}
+                  }
+                }),
+              ];
+              state = EditorState.create({ doc: text ?? '', extensions });
+            } else {
+              state = createState(
+                text ?? '',
+                {
+                  onChange: (t: string) => {
+                    onChange(t);
+                  },
                 },
-              },
-              languageExtRef.current ?? undefined,
-              documentId ?? undefined,
-            );
+                languageExtRef.current ?? undefined,
+                documentId ?? undefined,
+              );
+            }
           } catch (e) {
             // eslint-disable-next-line no-console
             console.error('[codemirror] createState threw', e);
