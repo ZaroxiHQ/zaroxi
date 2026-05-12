@@ -14,6 +14,10 @@ import { isDebug, debug, error as logError, setMountError, incrementStat } from 
  *  - window.__zaroxi_editor_view_report(): returns a compact live report
  *
  * These are diagnostics only and do not change editor behavior.
+ *
+ * Important: to avoid retaining live EditorView instances we only store a WeakRef
+ * when available. On environments without WeakRef we store a null ref to ensure
+ * we do not accidentally capture the view in a closure.
  */
 try {
   const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
@@ -31,22 +35,23 @@ try {
           const ref = e && e.ref;
           let alive = false;
           try {
+            // Consider an entry alive only if it holds a WeakRef and the referent is reachable.
             if (ref && typeof ref.deref === 'function') {
               alive = !!ref.deref();
             } else {
-              // Fallback: optimistic alive if no WeakRef support
-              alive = true;
+              // No WeakRef present or no ref stored: assume not alive (do not treat as retention).
+              alive = false;
             }
           } catch {
-            alive = true;
+            alive = false;
           }
           if (alive) out.alive++;
           out.entries.push({
             documentId: e.documentId,
             createdAt: e.createdAt,
             alive,
-            meta: e.meta,
-            lastSeenAt: e.lastSeenAt,
+            meta: e.meta ?? null,
+            lastSeenAt: e.lastSeenAt ?? null,
           });
         }
         // timers snapshot (non-reactive)
@@ -165,11 +170,12 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           });
         });
 
-        // Instrumentation: register created view weak-ref with a global diagnostics list.
+        // Instrumentation: register created view with a global diagnostics list.
+        // IMPORTANT: store only a WeakRef where available to avoid retaining the view.
         try {
           const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
           if (_w) {
-            const ref = (typeof WeakRef !== 'undefined') ? new WeakRef(mountedView) : { deref: () => mountedView };
+            const ref = (typeof WeakRef !== 'undefined') ? new WeakRef(mountedView) : null;
             _w.__zaroxi_editor_views = _w.__zaroxi_editor_views || [];
             _w.__zaroxi_editor_views.push({
               documentId: String(documentId ?? ''),
@@ -178,6 +184,19 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
               lastSeenAt: Date.now(),
               meta: { profile: (typeof profile !== 'undefined' ? profile : null) },
             });
+            // Opportunistically prune dead weak refs to keep the registry bounded.
+            try {
+              _w.__zaroxi_editor_views = (_w.__zaroxi_editor_views || []).filter((entry: any) => {
+                try {
+                  if (!entry) return false;
+                  const r = entry.ref;
+                  if (!r) return true; // keep entries without WeakRef (they don't retain view)
+                  return !!r.deref();
+                } catch {
+                  return true;
+                }
+              });
+            } catch {}
           }
         } catch {}
 

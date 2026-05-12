@@ -41,10 +41,24 @@ class EditorViewHost {
       const _w: any = (typeof window !== 'undefined') ? (window as any) : undefined;
       if (!_w) return;
       if (!_w.__zaroxi_editor_views) return;
+
+      // Prune entries that match the ownerId and also eagerly remove dead weak refs.
       try {
         _w.__zaroxi_editor_views = (_w.__zaroxi_editor_views || []).filter((e: any) => {
           try {
-            return !(e && String(e.documentId) === String(ownerId));
+            // If the entry matches the ownerId, drop it.
+            if (e && String(e.documentId) === String(ownerId)) return false;
+
+            // If the entry has a WeakRef, keep it only if the referent is alive.
+            const ref = e && e.ref;
+            if (ref && typeof ref.deref === 'function') {
+              return !!ref.deref();
+            }
+
+            // If there is no WeakRef available (legacy environments), keep the entry
+            // but ensure it does not contain a strong reference to the view (we only
+            // store metadata in that case). This avoids accidental retention.
+            return true;
           } catch {
             return true;
           }
@@ -168,6 +182,23 @@ class EditorViewHost {
   detach() {
     if (this.currentView) {
       try {
+        // Attempt to clear well-known per-view timers and properties that can retain closures.
+        try {
+          const vAny: any = this.currentView;
+          // Clear CodeMirror per-view debounce timer if present.
+          if (vAny && vAny.__cm_onchange_timer) {
+            try {
+              window.clearTimeout(vAny.__cm_onchange_timer);
+            } catch {}
+            try { vAny.__cm_onchange_timer = undefined; } catch {}
+            try { delete vAny.__cm_onchange_timer; } catch {}
+          }
+          // Null out other known per-view properties that may capture closures.
+          try { delete vAny.__cm_last_emitted_fingerprint; } catch {}
+          try { delete vAny.__cm_pending_fingerprint; } catch {}
+          try { delete vAny.__cm_stats; } catch {}
+        } catch {}
+
         if (typeof this.currentView.destroy === 'function') {
           this.currentView.destroy();
         }
