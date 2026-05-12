@@ -157,6 +157,8 @@ function useHighlightSnapshot(
   const reqIdRef = useRef(0);
   // Per-hook uid counter to generate unique canonical line ids when not supplied
   const uidCounterRef = useRef(0);
+  // Timer ref used to debounce bridge highlight requests from this hook.
+  const bridgeTimerRef = useRef<number | null>(null);
 
   // Seed cache/state immediately from an initialSnapshot when it exactly matches the
   // provided `text`. This ensures the frontend can render the server-provided compact
@@ -194,9 +196,9 @@ function useHighlightSnapshot(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, initialSnapshot, enabled]);
 
-  // Core: request highlights immediately when documentId/text/enabled/language/theme changes.
-  // No timers, no idle callbacks, no debouncing. Each request increments reqId and any
-  // later-arriving responses that don't match the latest reqId are discarded.
+  // Core: request highlights with debounce when documentId/text/enabled/language/theme changes.
+  // Debounce avoids bridge churn on fast typing and prevents tight feedback loops that can cause
+  // React update depth problems when stores/other components react to persisted snapshots.
   useEffect(() => {
     if (!documentId) {
       // No document -> clear visible map.
@@ -227,11 +229,16 @@ function useHighlightSnapshot(
       return;
     }
 
-    // Issue a single immediate request for the full document text.
+    // Start request generation with a monotonic id to discard stale arrivals.
     reqIdRef.current += 1;
     const thisReq = reqIdRef.current;
 
-    (async () => {
+    // Debounce the bridge invocation to avoid issuing a request per keystroke.
+    if (bridgeTimerRef.current) {
+      window.clearTimeout(bridgeTimerRef.current);
+      bridgeTimerRef.current = null;
+    }
+    bridgeTimerRef.current = window.setTimeout(async () => {
       try {
         const res: HighlightResponse = await bridge.invoke('highlight_text', {
           request: {
@@ -259,7 +266,6 @@ function useHighlightSnapshot(
         if (!matchesText) return;
 
         // Build a full incoming map and replace the visible map atomically.
-        // This prevents intermediate partial patches that can cause visual flashes.
         const incomingMap = new Map<number, HighlightLine>();
         const prevSessionForCache = documentId ? getDocumentSyntax(documentId) : undefined;
         const usedUidsLocal = new Set<string>();
@@ -293,9 +299,7 @@ function useHighlightSnapshot(
           incomingMap.set(l.index, { uid: canonicalUid, index: l.index, text: l.text, spans: l.spans });
         }
 
-        // Patch existing map non-destructively: update changed lines, add new ones,
-        // and remove lines no longer present. This preserves uids for unchanged
-        // lines and avoids broad React remounts that cause visual flashing.
+        // Patch existing map non-destructively to avoid remount storms.
         setMapState((prev) => {
           const updated = new Map(prev);
           const incomingIndices = new Set<number>();
@@ -339,18 +343,26 @@ function useHighlightSnapshot(
           return updated;
         });
 
-        // Cache and persist for fast reuses. Only persist document syntax when the
-        // hook is enabled (caller controls enabled based on large-file policy).
+        // Cache result for fast reuse.
         cacheRef.current.set(textKey, { text, map: incomingMap, version: res.version });
-        if (enabled) {
-          setDocumentSyntax(documentId, { text, map: new Map(incomingMap), version: res.version, language: res.language });
-        }
+
+        // Persisting into global store is intentionally disabled here to avoid
+        // cross-component render cycles that can trigger update-depth issues.
+        // If persistence is later required, gate it behind an explicit, non-hot-path flush.
+        // setDocumentSyntax(documentId, { text, map: new Map(incomingMap), version: res.version, language: res.language });
       } catch {
         // Non-fatal: keep previous snapshot visible.
       }
-    })();
+    }, 200) as unknown as number;
 
-    // No timers to clean up.
+    return () => {
+      try {
+        if (bridgeTimerRef.current) {
+          window.clearTimeout(bridgeTimerRef.current);
+          bridgeTimerRef.current = null;
+        }
+      } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, text, enabled, theme, language]);
 

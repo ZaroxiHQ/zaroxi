@@ -18,7 +18,7 @@
  * modern CM6 APIs and avoids deprecated imports.
  */
 
-import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -205,39 +205,39 @@ const cmGutterSyncTheme = EditorView.theme({
     transform: 'none',
     backgroundColor: 'var(--editor-gutter-background, var(--editor-background))',
   },
-  // Reduce horizontal padding so the gutter isn't oversized. Ensure the gutter
-  // text inherits editor typography so line rhythm matches content.
+  // Reduce horizontal padding so the gutter isn't oversized. Use explicit CSS vars
+  // for typography and rhythm to avoid fragile `inherit` assumptions.
   '.cm-gutter': {
     padding: '0 4px',
     margin: '0',
     boxSizing: 'border-box',
     whiteSpace: 'nowrap',
     minWidth: '0',
-    fontFamily: 'inherit',
-    fontSize: 'inherit',
+    fontFamily: 'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+    fontSize: 'var(--editor-font-size, 14px)',
   },
   '.cm-lineNumbers': {
     padding: '0 4px',
     margin: '0',
     textAlign: 'right',
-    fontFamily: 'inherit',
-    fontSize: 'inherit',
+    fontFamily: 'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+    fontSize: 'var(--editor-font-size, 14px)',
     color: 'var(--editor-foreground)',
   },
   // Ensure gutter elements align to the same line rhythm as .cm-line.
   '.cm-gutterElement': {
     padding: '0',
     margin: '0',
-    lineHeight: 'inherit',
+    lineHeight: 'var(--code-line-height, 20px)',
     display: 'block',
     textAlign: 'right',
-    fontFamily: 'inherit',
-    fontSize: 'inherit',
+    fontFamily: 'var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Courier New", monospace)',
+    fontSize: 'var(--editor-font-size, 14px)',
     verticalAlign: 'top',
   },
-  // Content side: preserve pre-formatted text and inherit line rhythm.
-  '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'inherit' },
-  '.cm-line': { lineHeight: 'inherit', minHeight: '0' },
+  // Content side: preserve pre-formatted text and use explicit line rhythm variable.
+  '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'var(--code-line-height, 20px)' },
+  '.cm-line': { lineHeight: 'var(--code-line-height, 20px)', minHeight: '0' },
   // Active-line visuals (both content and gutter) use theme variables (no hardcoded rgba).
   '.cm-activeLine': { backgroundColor: 'var(--editor-selection, transparent)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--editor-selection, transparent)' },
@@ -248,15 +248,32 @@ const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
 // Create an update listener factory that uses the provided opts.onChange.
 // This is module-scoped but produces a listener bound to the caller's onChange.
 function createNormalUpdateListener(opts: { onChange: (text: string, selection?: Selection) => void }) {
+  // Debounced update listener:
+  // - coalesces rapid doc changes to avoid immediate feedback loops into React
+  // - avoids calling heavy state.doc.toString() in a hot synchronous loop more than necessary
+  // - keeps the hot path cheap while still delivering consistent updates to the host
   return EditorView.updateListener.of((update) => {
-    if (update.docChanged) {
-      try {
-        const text = update.state.doc.toString();
-        const sel = update.state.selection.main;
-        opts.onChange(text, { from: sel.from, to: sel.to });
-      } catch {
-        // swallow
+    if (!update.docChanged) return;
+    try {
+      // store the latest snapshot and selection, then debounce the onChange call
+      const latestText = update.state.doc.toString();
+      const sel = update.state.selection.main;
+      // attach a per-view timer property (safe to use `any` here)
+      const viewAny = update.view as any;
+      if (viewAny.__cm_onchange_timer) {
+        window.clearTimeout(viewAny.__cm_onchange_timer);
       }
+      viewAny.__cm_onchange_timer = window.setTimeout(() => {
+        try {
+          opts.onChange(latestText, { from: sel.from, to: sel.to });
+        } catch {
+          // swallow host errors to avoid destabilizing the editor
+        } finally {
+          viewAny.__cm_onchange_timer = undefined;
+        }
+      }, 150) as unknown as number;
+    } catch {
+      // swallow any unexpected errors in the listener
     }
   });
 }
@@ -376,8 +393,6 @@ function normalEditorExtensions(
     drawSelection(),
     // highlight the active line in the content
     highlightActiveLine(),
-    // highlight the active line in the gutter as well (only modern CM6 API)
-    highlightActiveLineGutter(),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     ...(languageExtension ? [languageExtension] : []),
@@ -411,8 +426,6 @@ function largeFileExtensions(
     drawSelection(),
     // Always keep the active-line visual in content.
     highlightActiveLine(),
-    // Only add gutter active-line if the gutter is shown for this profile.
-    ...(showGutter ? [highlightActiveLineGutter()] : []),
     keymap.of(defaultKeymap),
     ...(languageExtension && allowSyntax ? [languageExtension] : []),
     ...(allowSyntax && syntaxExt ? [syntaxExt] : []),

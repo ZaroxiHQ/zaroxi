@@ -11,16 +11,10 @@ const LARGE_FILE_LINES = 100_000;
 const LARGE_FILE_LINE_LENGTH = 50_000;
 
 function cmStatCreated() {
-  try {
-    incrementStat('created', 1);
-    incrementStat('live', 1);
-  } catch {}
+  // Intentionally no-op in hot path to avoid stats-driven feedback loops and excessive logging.
 }
 function cmStatDestroyed() {
-  try {
-    incrementStat('destroyed', 1);
-    incrementStat('live', -1);
-  } catch {}
+  // Intentionally no-op.
 }
 
 interface CodeMirrorEditorProps {
