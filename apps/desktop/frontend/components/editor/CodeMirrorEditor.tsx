@@ -81,42 +81,46 @@ try {
     if (!_w.__zaroxi_runtime_report_hooked) {
       _w.__zaroxi_runtime_report_hooked = true;
 
-      // Synchronous live crash dump on uncaught errors.
+      // Expose a tiny manual tester to verify crash hooks in dev.
+      _w.__zaroxi_test_crash_hooks = function () {
+        // Trigger a synchronous thrown error
+        try {
+          throw new Error('ZAROXI_TEST_ERROR');
+        } catch (e) {
+          // rethrow on next tick to surface as uncaught
+          setTimeout(() => { throw e; }, 0);
+        }
+        // Trigger an unhandled rejection
+        setTimeout(() => { Promise.reject(new Error('ZAROXI_TEST_REJECTION')); }, 10);
+      };
+
+      // Synchronous live crash dump on uncaught errors (distinct unique prefix).
       _w.addEventListener('error', (ev: any) => {
         try {
-          // Best-effort generate the persisted report (may be null if generation fails).
           const persisted = _w.__zaroxi_generate_runtime_report?.(null, null) ?? {};
-          // Collect lightweight contextual pieces that may not be present in the persisted snapshot.
           const live = {
             ts: Date.now(),
             errorEvent: (ev && ev.error) ? { message: ev.error.message ?? String(ev.error), stack: ev.error.stack ?? null } : { message: String(ev) },
             documentId: persisted.documentId ?? _w.__zaroxi_last_wrapper_action?.documentId ?? null,
             tabId: persisted.tabId ?? _w.__zaroxi_last_wrapper_action?.tabId ?? null,
-            host: persisted.host ?? null,
+            hostOwnerId: persisted.host?.currentOwnerId ?? (typeof editorViewHost !== 'undefined' ? editorViewHost.getActiveOwnerId?.() : null) ?? null,
             lastAdopt: persisted.lastAdopt ?? _w.__zaroxi_last_adopt_global_ts ?? null,
             lastEmit: persisted.lastEmit ?? _w.__zaroxi_last_editor_emit ?? null,
-            lastWrapperAction: _w.__zaroxi_last_wrapper_action ?? null,
             lastStoreWrite: _w.__zaroxi_last_store_write ?? null,
             lastSessionWrite: _w.__zaroxi_last_session_write ?? null,
             lastCM6Ops: (_w.__zaroxi_last_ops || []).slice(-100),
+            lastWrapperAction: _w.__zaroxi_last_wrapper_action ?? null,
             isScrolling: !!_w.__zaroxi_is_scrolling,
-            lastError: _w.__zaroxi_last_error || null,
             perfMemory: persisted.perfMemory ?? null,
           };
-          try {
-            // Synchronously log the crash dump to console (guaranteed immediate visibility).
-            console.error('[zaroxi-live-crash-dump]', live);
-          } catch {}
-          try {
-            // Also persist the last-minute crash dump to localStorage for post-mortem.
-            localStorage.setItem('__zaroxi_last_crash_dump', JSON.stringify(live));
-          } catch {}
+          try { console.error('[zaroxi-LIVE-CRASH-DUMP]', live); } catch {}
+          try { localStorage.setItem('__zaroxi_last_crash_dump', JSON.stringify(live)); } catch {}
         } catch (err) {
           try { console.error('[zaroxi] failed to produce live crash dump', String(err)); } catch {}
         }
       });
 
-      // Synchronous live crash dump on unhandled promise rejections.
+      // Synchronous live crash dump on unhandled promise rejections (distinct prefix).
       _w.addEventListener('unhandledrejection', (ev: any) => {
         try {
           const persisted = _w.__zaroxi_generate_runtime_report?.(null, null) ?? {};
@@ -126,23 +130,18 @@ try {
             rejection: (reason && reason.message) ? { message: reason.message, stack: reason.stack ?? null } : { info: String(reason) },
             documentId: persisted.documentId ?? _w.__zaroxi_last_wrapper_action?.documentId ?? null,
             tabId: persisted.tabId ?? _w.__zaroxi_last_wrapper_action?.tabId ?? null,
-            host: persisted.host ?? null,
+            hostOwnerId: persisted.host?.currentOwnerId ?? (typeof editorViewHost !== 'undefined' ? editorViewHost.getActiveOwnerId?.() : null) ?? null,
             lastAdopt: persisted.lastAdopt ?? _w.__zaroxi_last_adopt_global_ts ?? null,
             lastEmit: persisted.lastEmit ?? _w.__zaroxi_last_editor_emit ?? null,
-            lastWrapperAction: _w.__zaroxi_last_wrapper_action ?? null,
             lastStoreWrite: _w.__zaroxi_last_store_write ?? null,
             lastSessionWrite: _w.__zaroxi_last_session_write ?? null,
             lastCM6Ops: (_w.__zaroxi_last_ops || []).slice(-100),
+            lastWrapperAction: _w.__zaroxi_last_wrapper_action ?? null,
             isScrolling: !!_w.__zaroxi_is_scrolling,
-            lastError: _w.__zaroxi_last_error || null,
             perfMemory: persisted.perfMemory ?? null,
           };
-          try {
-            console.error('[zaroxi-live-crash-dump][unhandledrejection]', live);
-          } catch {}
-          try {
-            localStorage.setItem('__zaroxi_last_crash_dump', JSON.stringify(live));
-          } catch {}
+          try { console.error('[zaroxi-LIVE-CRASH-DUMP][unhandledrejection]', live); } catch {}
+          try { localStorage.setItem('__zaroxi_last_crash_dump', JSON.stringify(live)); } catch {}
         } catch (err) {
           try { console.error('[zaroxi] failed to produce live crash dump for rejection', String(err)); } catch {}
         }
