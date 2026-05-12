@@ -9,7 +9,6 @@
 import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers, highlightActiveLineGutter } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
-import { foldGutter } from '@codemirror/fold';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { tags as t } from '@lezer/highlight';
 
@@ -351,8 +350,11 @@ export function createBaseExtensions(
   // Common minimal theme so the editor renders with app visuals.
   const common = [zaroxiCodeMirrorTheme];
 
-  // Folding extension only when language support is present (normal mode).
-  const foldExt = languageExtension ? foldGutter() : null;
+  // Folding is intentionally omitted here to avoid a hard dependency on a separate
+  // package that may not be resolvable in all environments. Gutter (lineNumbers)
+  // continues to be provided by @codemirror/view; folding can be re-enabled by
+  // adding @codemirror/fold and restoring foldGutter() usage.
+  const foldExt = null;
 
   // TRUE minimal large-file profile: start with the smallest possible extension set.
   // This intentionally omits lineNumbers(), folding, active-line, drawSelection, history, keymaps,
