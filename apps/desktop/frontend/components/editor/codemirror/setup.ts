@@ -196,17 +196,51 @@ const cmGutterSyncTheme = EditorView.theme({
     '-webkit-overflow-scrolling': 'touch',
     transform: 'none',
   },
-  // Keep gutters simple and measured by standard flow.
-  '.cm-gutters': { boxSizing: 'border-box', display: 'flex', alignItems: 'stretch', transform: 'none' },
-  '.cm-gutter': { padding: '0 6px', margin: '0', boxSizing: 'border-box', whiteSpace: 'nowrap' },
-  '.cm-lineNumbers': { padding: '0 6px', margin: '0' },
-  '.cm-gutterElement': { padding: '0', margin: '0', lineHeight: 'inherit', display: 'inline-block', verticalAlign: 'top' },
+  // Keep gutters simple and measured by standard flow. Use theme CSS variables
+  // for background so the visual chrome follows the app theme instead of hardcoded colors.
+  '.cm-gutters': {
+    boxSizing: 'border-box',
+    display: 'flex',
+    alignItems: 'stretch',
+    transform: 'none',
+    backgroundColor: 'var(--editor-gutter-background, var(--editor-background))',
+  },
+  // Reduce horizontal padding so the gutter isn't oversized. Ensure the gutter
+  // text inherits editor typography so line rhythm matches content.
+  '.cm-gutter': {
+    padding: '0 4px',
+    margin: '0',
+    boxSizing: 'border-box',
+    whiteSpace: 'nowrap',
+    minWidth: '0',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+  },
+  '.cm-lineNumbers': {
+    padding: '0 4px',
+    margin: '0',
+    textAlign: 'right',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+    color: 'var(--editor-foreground)',
+  },
+  // Ensure gutter elements align to the same line rhythm as .cm-line.
+  '.cm-gutterElement': {
+    padding: '0',
+    margin: '0',
+    lineHeight: 'inherit',
+    display: 'block',
+    textAlign: 'right',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+    verticalAlign: 'top',
+  },
   // Content side: preserve pre-formatted text and inherit line rhythm.
   '.cm-content': { padding: '0', boxSizing: 'border-box', whiteSpace: 'pre', lineHeight: 'inherit' },
   '.cm-line': { lineHeight: 'inherit', minHeight: '0' },
-  // Active-line visuals (both content and gutter) to keep them visually identical.
-  '.cm-activeLine': { backgroundColor: 'var(--editor-selection, rgba(90,120,200,0.08))' },
-  '.cm-activeLineGutter': { backgroundColor: 'var(--editor-selection, rgba(90,120,200,0.08))' },
+  // Active-line visuals (both content and gutter) use theme variables (no hardcoded rgba).
+  '.cm-activeLine': { backgroundColor: 'var(--editor-selection, transparent)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--editor-selection, transparent)' },
 }, { dark: false });
 
 const common = [zaroxiCodeMirrorTheme, cmGutterSyncTheme];
