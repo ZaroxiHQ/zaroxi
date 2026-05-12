@@ -131,35 +131,13 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
 
         languageExtRef.current = null;
 
-        // Defer language support loading until the editor reaches a stable idle state.
-        // This avoids heavy async loading during mount/open which can coincide with persistence
-        // churn and cause allocation spikes. The loader runs via requestIdleCallback or a
-        // fallback timeout and is cancellable on unmount.
-        let langLoadHandle: any = null;
-        const STABILIZE_LOAD_MS = 1500;
+        // Load language support for NORMAL profile immediately (restoring pre-188496e behaviour).
+        // Keep this synchronous from the mount's perspective so syntax is available promptly.
+        languageExtRef.current = null;
         if (profile === 'normal') {
           try {
-            if (typeof (window as any).requestIdleCallback === 'function') {
-              langLoadHandle = (window as any).requestIdleCallback(async (_deadline: any) => {
-                if (destroyed) return;
-                try {
-                  const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
-                  languageExtRef.current = ext ?? null;
-                } catch {
-                  languageExtRef.current = null;
-                }
-              }, { timeout: 2000 });
-            } else {
-              langLoadHandle = window.setTimeout(async () => {
-                if (destroyed) return;
-                try {
-                  const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
-                  languageExtRef.current = ext ?? null;
-                } catch {
-                  languageExtRef.current = null;
-                }
-              }, STABILIZE_LOAD_MS) as unknown as number;
-            }
+            const ext = await getLanguageSupportForPath(documentId ?? undefined, languageId ?? undefined);
+            languageExtRef.current = ext ?? null;
           } catch {
             languageExtRef.current = null;
           }
@@ -240,20 +218,6 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
     return () => {
       destroyed = true;
 
-      // Cancel any pending deferred language load to avoid late completions re-attaching state.
-      try {
-        if (typeof langLoadHandle !== 'undefined' && langLoadHandle !== null) {
-          try {
-            if (typeof (window as any).cancelIdleCallback === 'function' && typeof langLoadHandle === 'number') {
-              (window as any).cancelIdleCallback(langLoadHandle);
-            } else {
-              window.clearTimeout(langLoadHandle as number);
-            }
-          } catch {}
-          langLoadHandle = null;
-        }
-      } catch {}
-
       try {
         // Instrumentation: mark view destroyed in global diagnostic list before host destroy.
         try {
@@ -270,7 +234,9 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
           }
         } catch {}
 
+        // Ensure host destroys any view for this document and prunes diagnostics.
         editorViewHost.destroyIfFor(String(documentId ?? ''));
+
         // After destroyIfFor attempt, mark as likely destroyed (best-effort).
         try {
           const _w: any = typeof window !== 'undefined' ? (window as any) : undefined;
