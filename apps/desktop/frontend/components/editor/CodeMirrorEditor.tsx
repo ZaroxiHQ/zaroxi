@@ -123,7 +123,35 @@ export function CodeMirrorEditor(props: CodeMirrorEditorProps) {
       try {
         // Measure file metrics and decide a safe profile.
         const metrics = analyzeText(text ?? '');
-        const profile = decideProfile(metrics);
+        // Base profile from metrics
+        let profile = decideProfile(metrics);
+
+        // Stress-mode override: apply a strict reduced-profile when the document
+        // appears likely to trigger allocation / viewport pressure. This single
+        // guarded decision keeps heuristics centralized and reversible.
+        try {
+          const STRESS_EXTREME_BYTES = PROFILE_THRESHOLDS.largeMaxBytes * 2;
+          const STRESS_EXTREME_LINE = PROFILE_THRESHOLDS.largeMaxLineLength * 2;
+          const lastAdopt = (typeof window !== 'undefined' && (window as any).__zaroxi_last_adopt_global_ts) ? (window as any).__zaroxi_last_adopt_global_ts : 0;
+          const recentlyUnstable = (Date.now() - lastAdopt) < 3000;
+
+          // Escalate to 'extreme' for pathological files (very large or very long lines).
+          if (metrics.bytes > STRESS_EXTREME_BYTES || metrics.maxLineLength > STRESS_EXTREME_LINE) {
+            profile = 'extreme';
+          // Use 'large' profile for files that are large, contain long lines, or when the editor
+          // has recently undergone adoption (unstable period).
+          } else if (
+            metrics.bytes > PROFILE_THRESHOLDS.largeMaxBytes ||
+            metrics.lines > PROFILE_THRESHOLDS.largeMaxLines ||
+            metrics.maxLineLength > PROFILE_THRESHOLDS.largeMaxLineLength ||
+            recentlyUnstable
+          ) {
+            profile = 'large';
+          }
+        } catch {
+          // If anything goes wrong, fall back to the conservative profile previously chosen.
+        }
+
         // For extreme single-line files we may want to hide the gutter to avoid per-line bookkeeping.
         const showGutter = !(metrics.maxLineLength > PROFILE_THRESHOLDS.extremeNoGutterLineLength || profile === 'extreme' && metrics.maxLineLength > PROFILE_THRESHOLDS.largeMaxLineLength);
 
