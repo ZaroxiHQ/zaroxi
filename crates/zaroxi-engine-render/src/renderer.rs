@@ -38,7 +38,7 @@ impl<'a> Renderer<'a> {
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
-            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::disabled(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             backend_options: wgpu::BackendOptions::default(),
             display: None,
         });
@@ -47,13 +47,16 @@ impl<'a> Renderer<'a> {
         let surface = unsafe { instance.create_surface(window) }
             .map_err(|e| RenderError::Other(format!("Failed to create surface: {:?}", e)))?;
 
-        // Request an adapter compatible with the surface (returns Option in current API).
-        // Prefer a synchronous enumeration approach for adapter selection to avoid
-        // dealing with subtle async/Option/Result API differences across wgpu versions.
+        // Request an adapter compatible with the surface.
+        // Use `request_adapter(...).await` and map any error to our RenderError.
         let adapter = instance
-            .enumerate_adapters(Backends::all())
-            .find(|a| !surface.get_capabilities(a).formats.is_empty())
-            .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_err(|e| RenderError::Other(format!("request_adapter failed: {:?}", e)))?;
 
         // Minimal device requirements for v1.
         let required_features = Features::empty();
@@ -149,12 +152,16 @@ impl<'a> Renderer<'a> {
         // Acquire the next surface texture. Map any surface error into our RenderError.
         // Acquire the current surface texture (returns Result in current API).
         // Acquire the current surface texture and convert any surface error
-        // into our crate-level RenderError. This uses the Result-returning form
-        // of get_current_texture where available.
-        let surface_texture = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| RenderError::Other(format!("get_current_texture failed: {:?}", e)))?;
+        // into our crate-level RenderError.
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(tex) => tex,
+            Err(e) => {
+                return Err(RenderError::Other(format!(
+                    "get_current_texture failed: {:?}",
+                    e
+                )))
+            }
+        };
 
         // Create a texture view for the render pass.
         let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
