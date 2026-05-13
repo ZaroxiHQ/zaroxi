@@ -32,9 +32,15 @@ impl<'a> Renderer<'a> {
     /// Initialize the GPU renderer asynchronously.
     pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
         // Create instance with all native backends enabled.
+        // Build a complete InstanceDescriptor to match wgpu 29.x API.
         let instance = Instance::new(InstanceDescriptor {
-            backends: Backends::all(),
-            dx12_shader_compiler: Dx12Compiler::Fxc,
+            flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: None,
+            backend_options: wgpu::BackendOptions {
+                backends: Backends::all(),
+                ..Default::default()
+            },
+            display: None,
         });
 
         // SAFETY: winit guarantees the window handle is valid while the Window is alive.
@@ -42,14 +48,23 @@ impl<'a> Renderer<'a> {
             .map_err(|e| RenderError::Other(format!("Failed to create surface: {:?}", e)))?;
 
         // Request an adapter that is compatible with the surface if possible.
-        let adapter = instance
+        // Request an adapter; convert any error into a RenderError.
+        let adapter = match instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
+        {
+            Ok(a) => a,
+            Err(e) => {
+                return Err(RenderError::Other(format!(
+                    "request_adapter failed: {:?}",
+                    e
+                )))
+            }
+        };
 
         // Minimal device requirements for v1.
         let required_features = Features::empty();
@@ -61,6 +76,10 @@ impl<'a> Renderer<'a> {
                     label: Some("zaroxi-engine-device"),
                     required_features,
                     required_limits,
+                    // Fill newer DeviceDescriptor fields expected by recent wgpu.
+                    experimental_features: wgpu::ExperimentalFeatures::empty(),
+                    memory_hints: None,
+                    trace: None,
                 },
                 None,
             )
@@ -142,18 +161,10 @@ impl<'a> Renderer<'a> {
     /// can decide how to react without depending on wgpu's exact error type.
     pub fn render(&mut self) -> Result<(), RenderError> {
         // Acquire the next surface texture. Map any surface error into our RenderError.
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(e) => {
-                return Err(RenderError::Other(format!(
-                    "get_current_texture failed: {:?}",
-                    e
-                )))
-            }
-        };
+        // Acquire the current surface texture (v29 exposes a CurrentSurfaceTexture directly).
+        let surface_texture = self.surface.get_current_texture();
 
-        // Best-effort: create a texture view for the render pass.
-        // Different wgpu releases expose the inner texture differently; use the common API.
+        // Create a texture view for the render pass.
         let view = surface_texture
             .texture
             .create_view(&TextureViewDescriptor::default());
@@ -173,7 +184,6 @@ impl<'a> Renderer<'a> {
                         load: LoadOp::Clear(self.clear_color),
                         store: StoreOp::Store,
                     },
-                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 ..Default::default()
