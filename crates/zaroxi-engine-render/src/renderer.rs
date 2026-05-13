@@ -485,9 +485,6 @@ impl<'a> Renderer<'a> {
             return Ok(());
         }
 
-        // Acquire the current surface texture (CurrentSurfaceTexture).
-        let current = self.surface.get_current_texture();
-
         // Build draw lists from app_state into vertex/index buffers.
         // For simplicity we only render textual labels and simple colored quads
         // representing panels. Text is rendered via the glyph atlas.
@@ -588,107 +585,51 @@ impl<'a> Renderer<'a> {
         self.queue.write_buffer(&self.index_buffer, 0, ib_bytes);
 
         // Acquire frame and render
-        match current {
-            CurrentSurfaceTexture::Success(frame) => {
-                let view = frame.texture.create_view(&TextureViewDescriptor::default());
-
-                let mut encoder =
-                    self.device
-                        .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("zaroxi-render-encoder"),
-                        });
-
-                {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("main-pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(self.clear_color),
-                                store: StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: None,
-                        ..Default::default()
-                    });
-
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-                }
-
-                self.queue.submit(Some(encoder.finish()));
-                frame.present();
-                Ok(())
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(tex) => tex,
+            Err(e) => {
+                // Map wgpu surface errors to renderer surface errors
+                return match e {
+                    wgpu::SurfaceError::Lost => Err(RenderError::SurfaceLost),
+                    wgpu::SurfaceError::OutOfMemory => Err(RenderError::Other("surface out of memory".to_string())),
+                    wgpu::SurfaceError::Timeout => Err(RenderError::SurfaceTimeout),
+                    wgpu::SurfaceError::Outdated => Err(RenderError::SurfaceOutdated),
+                    // Fallback for unexpected cases
+                    other => Err(RenderError::Other(format!("surface error: {:?}", other))),
+                };
             }
+        };
 
-            CurrentSurfaceTexture::Suboptimal(frame) => {
-                // try to present anyway and signal runtime to reconfigure
-                let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
 
-                let mut encoder =
-                    self.device
-                        .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("zaroxi-render-encoder"),
-                        });
+        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("zaroxi-render-encoder"),
+        });
 
-                {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("main-pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(self.clear_color),
-                                store: StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: None,
-                        ..Default::default()
-                    });
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("main-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
 
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-                }
-
-                self.queue.submit(Some(encoder.finish()));
-                frame.present();
-                Err(RenderError::SurfaceOutdated)
-            }
-
-            CurrentSurfaceTexture::Timeout => {
-                debug!("Surface timeout; skipping frame");
-                Err(RenderError::SurfaceTimeout)
-            }
-
-            CurrentSurfaceTexture::Occluded => {
-                debug!("Surface occluded; skipping frame");
-                Err(RenderError::SurfaceOccluded)
-            }
-
-            CurrentSurfaceTexture::Outdated => {
-                debug!("Surface outdated; reconfigure required");
-                Err(RenderError::SurfaceOutdated)
-            }
-
-            CurrentSurfaceTexture::Lost => {
-                debug!("Surface lost; reconfigure required");
-                Err(RenderError::SurfaceLost)
-            }
-
-            CurrentSurfaceTexture::Validation => {
-                debug!("Surface validation variant encountered");
-                Err(RenderError::SurfaceValidation("validation error".to_string()))
-            }
+            rpass.set_pipeline(&self.text_pipeline);
+            rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
         }
+
+        self.queue.submit(Some(encoder.finish()));
+        surface_texture.present();
+        Ok(())
     }
 
     /// Emit text into the provided vertex/index arrays using the font atlas.
