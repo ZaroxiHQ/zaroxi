@@ -139,16 +139,17 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Res
     let _ = env_logger::try_init();
     info!("Starting runtime (application API) with title '{}'", title);
 
-    // Create EventLoop and activate it.
+    // Create EventLoop and run the application. The ActiveEventLoop is provided
+    // by winit to ApplicationHandler callbacks; do not construct it manually.
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut active = ActiveEventLoop::new(event_loop)?;
-
-    // Create the app and run it.
+    // Create the app and run it using the event loop's run_app method.
     let mut app = App::new(title, width, height, clear_color);
 
-    active.run_app(&mut app).map_err(|e| anyhow::anyhow!("run_app failed: {:?}", e))?;
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| anyhow::anyhow!("run_app failed: {:?}", e))?;
 
     // Return fatal error if recorded.
     if let Some(err) = app.fatal_error {
