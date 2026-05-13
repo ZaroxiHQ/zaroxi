@@ -9,9 +9,9 @@ use winit::window::Window;
 use wgpu::{
     util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
     DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
-    Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color, LoadOp, Operations,
-    StoreOp, SurfaceError, Origin3d, TextureDescriptor, Extent3d, TextureDimension, TextureView, Sampler,
-    SamplerDescriptor,
+    Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
+    LoadOp, Operations, StoreOp, Origin3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Extent3d,
+    TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
 };
 
 use fontdue::Font;
@@ -160,22 +160,36 @@ impl FontAtlas {
             row_h = row_h.max(h);
         }
 
-        // Upload atlas to GPU using write_texture
-        queue.write_texture(
+        // Upload atlas to GPU using a staging buffer + copy_buffer_to_texture (wgpu 29 exact API).
+        let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("font-atlas-staging"),
+            contents: &atlas_buf,
+            usage: wgpu::BufferUsages::COPY_SRC,
+        });
+
+        let mut upload_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("font-atlas-upload-encoder"),
+        });
+
+        upload_encoder.copy_buffer_to_texture(
+            wgpu::ImageCopyBuffer {
+                buffer: &staging,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: NonZeroU32::new(atlas_w),
+                    rows_per_image: None,
+                },
+            },
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &atlas_buf,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(atlas_w),
-                rows_per_image: None,
-            },
             atlas_size,
         );
+
+        queue.submit(Some(upload_encoder.finish()));
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -187,7 +201,7 @@ impl FontAtlas {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            // use defaults for mipmap behavior to avoid version mismatches
             ..Default::default()
         });
 
@@ -391,8 +405,9 @@ impl<'a> Renderer<'a> {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("text-pipeline-layout"),
-            bind_group_layouts: &[&text_bind_layout],
-            push_constant_ranges: &[],
+            // wgpu 29 uses Option<&BindGroupLayout> in the slice
+            bind_group_layouts: &[Some(&text_bind_layout)],
+            ..Default::default()
         });
 
         let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -400,22 +415,26 @@ impl<'a> Renderer<'a> {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[Vertex::desc()],
+                compilation_options: None,
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: None,
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            // wgpu 29 uses multiview_mask & cache fields
+            multiview_mask: None,
+            cache: None,
         });
 
         // create empty vertex/index buffers sized for moderate content; we'll recreate if needed
@@ -455,7 +474,7 @@ impl<'a> Renderer<'a> {
             font_atlas,
             vertex_buffer,
             index_buffer,
-            theme: Theme::default(),
+            theme: Theme::dark(),
             index_count: 0,
         })
     }
@@ -591,52 +610,103 @@ impl<'a> Renderer<'a> {
         let ib_bytes = bytemuck::cast_slice(&indices);
         self.queue.write_buffer(&self.index_buffer, 0, ib_bytes);
 
-        // Acquire frame and render
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(e) => {
-                // Map wgpu surface errors to renderer surface errors
-                return match e {
-                    wgpu::SurfaceError::Lost => Err(RenderError::SurfaceLost),
-                    wgpu::SurfaceError::OutOfMemory => Err(RenderError::Other("surface out of memory".to_string())),
-                    wgpu::SurfaceError::Timeout => Err(RenderError::SurfaceTimeout),
-                    wgpu::SurfaceError::Outdated => Err(RenderError::SurfaceOutdated),
-                    // Fallback for unexpected cases
-                    other => Err(RenderError::Other(format!("surface error: {:?}", other))),
-                };
+        // Acquire current surface texture (wgpu 29 CurrentSurfaceTexture API)
+        let current = self.surface.get_current_texture();
+
+        match current {
+            wgpu::CurrentSurfaceTexture::Success(frame) => {
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
+
+                let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("zaroxi-render-encoder"),
+                });
+
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("main-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(self.clear_color),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            // no depth/stencil in this pass
+                            // depth_slice is not used here
+                        })],
+                        ..Default::default()
+                    });
+
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                }
+
+                self.queue.submit(Some(encoder.finish()));
+                frame.present();
+                Ok(())
             }
-        };
 
-        let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("zaroxi-render-encoder"),
-        });
+                let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("zaroxi-render-encoder"),
+                });
 
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("main-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("main-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(self.clear_color),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
 
-            rpass.set_pipeline(&self.text_pipeline);
-            rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                }
+
+                self.queue.submit(Some(encoder.finish()));
+                frame.present();
+                Err(RenderError::SurfaceOutdated)
+            }
+
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                debug!("Surface timeout; skipping frame");
+                Err(RenderError::SurfaceTimeout)
+            }
+
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                debug!("Surface occluded; skipping frame");
+                Err(RenderError::SurfaceOccluded)
+            }
+
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                debug!("Surface outdated; reconfigure required");
+                Err(RenderError::SurfaceOutdated)
+            }
+
+            wgpu::CurrentSurfaceTexture::Lost => {
+                debug!("Surface lost; reconfigure required");
+                Err(RenderError::SurfaceLost)
+            }
+
+            wgpu::CurrentSurfaceTexture::Validation => {
+                debug!("Surface validation variant encountered");
+                Err(RenderError::SurfaceValidation("validation error".to_string()))
+            }
         }
-
-        self.queue.submit(Some(encoder.finish()));
-        surface_texture.present();
-        Ok(())
     }
 
     /// Emit text into the provided vertex/index arrays using the font atlas.
