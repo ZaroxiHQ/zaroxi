@@ -31,13 +31,13 @@ impl Event {
     /// Returns None for events we don't normalize yet.
     pub fn from_winit(ev: &WindowEvent) -> Option<Event> {
         match ev {
-            // WindowEvent::KeyboardInput is a tuple-variant in current winit.
-            // Match and extract the KeyboardInput value directly.
-            WindowEvent::KeyboardInput(input) => {
-                let sc = input.scancode;
+            // WindowEvent::KeyboardInput is a struct variant in current winit.
+            // Match the `event` field to obtain the KeyboardInput.
+            WindowEvent::KeyboardInput { event, .. } => {
+                let sc = event.scancode;
                 Some(Event::Key {
                     scancode: sc,
-                    state: input.state,
+                    state: event.state,
                 })
             }
             WindowEvent::MouseInput { state, button, .. } => Some(Event::MouseButton {

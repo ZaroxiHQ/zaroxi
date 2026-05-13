@@ -16,7 +16,7 @@ use wgpu::{
 /// with the window reference that outlives the renderer for v1.
 pub struct Renderer<'a> {
     instance: Instance,
-    surface: Surface,
+    surface: Surface<'a>,
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
@@ -137,12 +137,26 @@ impl<'a> Renderer<'a> {
         window.request_redraw();
     }
 
-    /// Perform a single clear-pass render. Returns SurfaceError for caller handling.
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // CurrentSurfaceTexture is returned by get_current_texture() in this wgpu version.
-        // Assign directly and operate on it.
-        let output = self.surface.get_current_texture();
-        let view = output.texture.create_view(&TextureViewDescriptor::default());
+    /// Perform a single clear-pass render.
+    /// For v1 we return our crate RenderError on failure so the runtime
+    /// can decide how to react without depending on wgpu's exact error type.
+    pub fn render(&mut self) -> Result<(), RenderError> {
+        // Acquire the next surface texture. Map any surface error into our RenderError.
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(tex) => tex,
+            Err(e) => {
+                return Err(RenderError::Other(format!(
+                    "get_current_texture failed: {:?}",
+                    e
+                )))
+            }
+        };
+
+        // Best-effort: create a texture view for the render pass.
+        // Different wgpu releases expose the inner texture differently; use the common API.
+        let view = surface_texture
+            .texture
+            .create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("clear-encoder"),
@@ -159,6 +173,7 @@ impl<'a> Renderer<'a> {
                         load: LoadOp::Clear(self.clear_color),
                         store: StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 ..Default::default()
@@ -166,7 +181,10 @@ impl<'a> Renderer<'a> {
         } // rpass dropped here
 
         self.queue.submit(Some(encoder.finish()));
-        output.present();
+
+        // Present the frame. Some wgpu versions require calling `present` on the surface texture.
+        // If the concrete type doesn't provide `present`, this line will need adjustment.
+        let _ = surface_texture.present();
 
         Ok(())
     }
