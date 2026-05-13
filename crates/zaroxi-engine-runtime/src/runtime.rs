@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{error, info};
+use log::info;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;

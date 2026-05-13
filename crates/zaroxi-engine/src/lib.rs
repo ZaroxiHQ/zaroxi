@@ -5,15 +5,17 @@
 //! Keeps implementation details in sub-crates.
 
 use anyhow::Result;
-use std::sync::Arc;
 
 pub use zaroxi_engine_input::event::Event as InputEvent;
 
 /// Minimal configuration for launching the engine window.
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
+    /// Window title shown in the desktop app.
     pub title: String,
+    /// Initial window width in physical pixels.
     pub width: u32,
+    /// Initial window height in physical pixels.
     pub height: u32,
     /// Clear color as RGBA in 0.0..=1.0
     pub clear_color: [f64; 4],

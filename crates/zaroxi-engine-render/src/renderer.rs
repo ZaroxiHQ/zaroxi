@@ -19,9 +19,13 @@ use wgpu::{
 /// The renderer returns `RenderError` variants for fatal conditions and uses
 /// explicit surface-state variants so the runtime can react (reconfigure/exit).
 pub struct Renderer<'a> {
-    instance: Instance,
+    // Keep the Instance alive to preserve ownership relationships required by wgpu
+    // (surface/device lifetimes). It's intentionally retained even if not read.
+    _instance: Instance,
     surface: Surface<'a>,
-    adapter: wgpu::Adapter,
+    // Keep the Adapter for potential future adapter queries and to preserve its lifetime.
+    // Intentionally unused for now.
+    _adapter: wgpu::Adapter,
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
