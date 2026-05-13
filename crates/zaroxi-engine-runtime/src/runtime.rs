@@ -68,7 +68,7 @@ impl ApplicationHandler for App {
 
                 let app_state = self.app_state.as_ref().expect("app_state missing").clone();
 
-                match pollster::block_on(Renderer::new(window_ref, self.clear_color, app_state.clone())) {
+                match pollster::block_on(Renderer::new(window_ref, self.clear_color)) {
                     Ok(renderer) => {
                         self.renderer = Some(renderer);
                         // Request an initial redraw.

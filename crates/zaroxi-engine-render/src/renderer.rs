@@ -18,11 +18,11 @@ use fontdue::Font;
 use std::collections::HashMap;
 
 use zaroxi_app::AppState;
-use zaroxi_theme::{SemanticColors, Color};
+use zaroxi_theme::{SemanticColors, Color as ThemeColor};
 
 /// Helper to convert theme Color -> renderer [f32;4]
-fn color_to_rgba(c: &Color) -> [f32; 4] {
-    [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
+fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
+    [c.r, c.g, c.b, c.a]
 }
 
 /// Simple rectangle used by the resolved layout.
@@ -183,17 +183,16 @@ impl FontAtlas {
         }
 
         // Upload atlas to GPU using queue.write_texture (direct write).
-        // This is the simpler, preferred path for small-to-moderate uploads and
-        // keeps the renderer implementation compact.
+        // Use wgpu_types explicitly for the copy types to match the pinned wgpu API.
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu_types::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
-                origin: Origin3d::ZERO,
+                origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &atlas_buf,
-            wgpu::ImageDataLayout {
+            wgpu_types::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: NonZeroU32::new(atlas_w),
                 rows_per_image: None,
@@ -310,7 +309,7 @@ impl<'a> Renderer<'a> {
     ///
     /// Additionally accepts the shared AppState so the renderer can prepare
     /// state dependent resources (if needed).
-    pub async fn new(window: &'a Window, clear_color: [f64; 4], app_state: Arc<std::sync::Mutex<AppState>>) -> Result<Self, RenderError> {
+    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
         // Build Instance
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
