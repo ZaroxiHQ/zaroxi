@@ -1,4 +1,4 @@
-use winit::event::{ElementState, LogicalKey, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 
 /// A very small normalization layer for input events.
 /// This is intentionally minimal for v1 to provide a stable seam
@@ -6,7 +6,7 @@ use winit::event::{ElementState, LogicalKey, MouseButton, MouseScrollDelta, Wind
 #[derive(Debug, Clone)]
 pub enum Event {
     Key {
-        logical_key: LogicalKey,
+        key_repr: String,
         state: ElementState,
     },
     MouseButton {
@@ -34,9 +34,9 @@ impl Event {
             // WindowEvent::KeyboardInput is a struct variant in current winit.
             // Use the LogicalKey (stable semantic key) for higher-level handling.
             WindowEvent::KeyboardInput { event, .. } => {
-                let lk = event.logical_key.clone();
+                let key_repr = format!("{:?}", event.logical_key);
                 Some(Event::Key {
-                    logical_key: lk,
+                    key_repr,
                     state: event.state,
                 })
             }
