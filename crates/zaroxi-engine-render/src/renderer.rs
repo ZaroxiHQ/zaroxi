@@ -1,13 +1,14 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use wgpu::{
-    util::DeviceExt, Backends, Color, Device, DeviceDescriptor, Instance, LoadOp, Operations,
-    RequestAdapterOptions, RenderPassColorAttachment, RenderPassDescriptor, Surface, SurfaceConfiguration,
-    TextureUsages, TextureView, TextureFormat, PresentMode, Features, Limits, Queue, CommandEncoderDescriptor,
-};
-use winit::window::Window;
-use winit::dpi::PhysicalSize;
 use std::num::NonZeroU32;
+use winit::dpi::PhysicalSize;
+use winit::window::Window;
+use wgpu::{
+    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
+    InstanceDescriptor, Limits, LoadOp, Operations, PresentMode, RequestAdapterOptions,
+    RenderPassColorAttachment, RenderPassDescriptor, Surface, SurfaceConfiguration, StoreOp,
+    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue,
+};
 
 /// GPU renderer owning the device, queue, and surface.
 pub struct Renderer {
@@ -18,20 +19,22 @@ pub struct Renderer {
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
-    window: Window,
 }
 
 impl Renderer {
     /// Initialize the GPU renderer asynchronously.
     pub async fn new(window: &Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
-        // Create instance with Vulkan + Metal + DX12 + Browser GL disabled for native desktop.
-        let instance = Instance::new(Backends::all());
+        // Create instance with all native backends enabled.
+        let instance = Instance::new(InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
 
         // SAFETY: winit guarantees the window handle is valid while the Window is alive.
-        let surface = unsafe { instance.create_surface(window) }.map_err(|e| {
-            RenderError::Other(format!("Failed to create surface: {:?}", e))
-        })?;
+        let surface = unsafe { instance.create_surface(window) }
+            .map_err(|e| RenderError::Other(format!("Failed to create surface: {:?}", e)))?;
 
+        // Request an adapter that is compatible with the surface if possible.
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -41,28 +44,32 @@ impl Renderer {
             .await
             .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
 
+        // Minimal device requirements for v1.
         let required_features = Features::empty();
-        let required_limits = Limits::downlevel_webgl2_defaults().using_resolution(1);
+        let required_limits = Limits::default();
 
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
                     label: Some("zaroxi-engine-device"),
-                    features: required_features,
-                    limits: required_limits,
+                    required_features: required_features,
+                    required_limits: required_limits,
+                    ..Default::default()
                 },
                 None,
             )
             .await
-            .map_err(RenderError::from)?;
+            .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
         let size = window.inner_size();
         let surface_caps = surface.get_capabilities(&adapter);
+
+        // Prefer an sRGB format when available.
         let surface_format = surface_caps
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| matches!(f, TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb))
             .or_else(|| surface_caps.formats.get(0).copied())
             .unwrap_or(TextureFormat::Bgra8UnormSrgb);
 
@@ -74,6 +81,7 @@ impl Renderer {
             present_mode: PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: None,
         };
 
         surface.configure(&device, &config);
@@ -88,12 +96,11 @@ impl Renderer {
             config,
             size,
             clear_color: Color {
-                r: clear_color[0] as f64 as f32,
-                g: clear_color[1] as f64 as f32,
-                b: clear_color[2] as f64 as f32,
-                a: clear_color[3] as f64 as f32,
+                r: clear_color[0],
+                g: clear_color[1],
+                b: clear_color[2],
+                a: clear_color[3],
             },
-            window: window.clone(),
         })
     }
 
@@ -118,25 +125,22 @@ impl Renderer {
     }
 
     /// Request a redraw by calling Window.request_redraw.
-    pub fn request_redraw(&self) {
-        self.window.request_redraw();
+    /// The runtime owns the Window; pass it here when requesting a redraw.
+    pub fn request_redraw(&self, window: &Window) {
+        window.request_redraw();
     }
 
     /// Perform a single clear-pass render. Returns SurfaceError for caller handling.
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = match self.surface.get_current_texture() {
-            Ok(o) => o,
-            Err(e) => return Err(e),
-        };
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("clear-encoder"),
         });
 
         {
+            // Begin a simple render pass that clears the frame.
             let _rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("clear-pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
@@ -144,10 +148,11 @@ impl Renderer {
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(self.clear_color),
-                        store: true,
+                        store: StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                ..Default::default()
             });
         } // rpass dropped here
 
