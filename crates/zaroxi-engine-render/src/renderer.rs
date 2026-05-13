@@ -149,18 +149,14 @@ impl<'a> Renderer<'a> {
     /// For v1 we return our crate RenderError on failure so the runtime
     /// can decide how to react without depending on wgpu's exact error type.
     pub fn render(&mut self) -> Result<(), RenderError> {
-        // Try to acquire the next surface texture. On success, drop it immediately
-        // (no drawing performed in this scaffold). On error, map into RenderError
-        // so the runtime can decide whether to reconfigure, retry, or exit.
-        match self.surface.get_current_texture() {
-            Ok(surface_texture) => {
-                drop(surface_texture);
-                Ok(())
-            }
-            Err(e) => Err(RenderError::Other(format!(
-                "failed to acquire surface texture: {:?}",
-                e
-            ))),
-        }
+        // Acquire the current surface texture. In wgpu 0.29 the method returns
+        // a CurrentSurfaceTexture (not a Result), so call it directly and drop
+        // the texture immediately (this scaffold performs no drawing yet).
+        //
+        // If the API changes in the future to return a Result, this simple
+        // direct call will cause a type error and should be adapted then.
+        let surface_texture = self.surface.get_current_texture();
+        drop(surface_texture);
+        Ok(())
     }
 }
