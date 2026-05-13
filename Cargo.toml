@@ -27,6 +27,7 @@ members = [
   "crates/zaroxi-engine-text",
 
   # Application binaries
+  "apps/desktop",
   "apps/ai-daemon",
   "apps/workspace-daemon",
 ]
