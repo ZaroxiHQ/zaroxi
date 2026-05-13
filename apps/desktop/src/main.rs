@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::{Arc, Mutex};
 
 /// Thin desktop entrypoint for Zaroxi Studio.
 ///
@@ -19,7 +20,8 @@ fn main() -> Result<()> {
     // Construct a minimal app state from the config. This creates a welcome
     // document and placeholder workspace items. The state is purely in-memory
     // and intentionally small for v1.
-    let _app_state = zaroxi_app::AppState::new(&app_config);
+    let app_state = zaroxi_app::AppState::new(&app_config);
+    let app_state = Arc::new(Mutex::new(app_state));
 
     // Compose engine config (engine crate already provides EngineConfig used
     // elsewhere in the workspace). We map the app config into the engine config
@@ -34,5 +36,5 @@ fn main() -> Result<()> {
     // Run the engine (blocks until window close). Rendering wiring will be
     // integrated later; for v1 this opens the window and keeps the binary
     // consistent with prior expectations.
-    zaroxi_engine::run(engine_config)
+    zaroxi_engine::run(engine_config, app_state)
 }

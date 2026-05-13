@@ -5,6 +5,8 @@
 //! Keeps implementation details in sub-crates.
 
 use anyhow::Result;
+use std::sync::{Arc, Mutex};
+use zaroxi_app::AppState;
 
 pub use zaroxi_engine_input::event::Event as InputEvent;
 
@@ -32,14 +34,15 @@ impl Default for EngineConfig {
     }
 }
 
-/// Run the engine with the provided configuration.
+/// Run the engine with the provided configuration and shared AppState.
 /// This is the public entrypoint used by apps/desktop.
-pub fn run(config: EngineConfig) -> Result<()> {
+pub fn run(config: EngineConfig, app_state: Arc<Mutex<AppState>>) -> Result<()> {
     // Forward primitive fields to the runtime to avoid a cyclic dependency.
     zaroxi_engine_runtime::run(
         config.title,
         config.width,
         config.height,
         config.clear_color,
+        app_state,
     )
 }

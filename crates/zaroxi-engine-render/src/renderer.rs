@@ -1,30 +1,239 @@
 use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
+use std::path::PathBuf;
+use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
-    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
-    CurrentSurfaceTexture,
+    util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
+    Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color, LoadOp, Operations,
+    StoreOp, CurrentSurfaceTexture, TextureDescriptor, Extent3d, TextureDimension, TextureView,
 };
 
-/// GPU renderer owning the device, queue, and surface.
-///
-/// This implementation targets the exact wgpu API resolved in this workspace:
-/// - `Surface<'a>` is used (lifetime tied to the window borrow)
-/// - `request_adapter(...).await` returns a Result which we map into RenderError
-/// - `get_current_texture()` returns a `CurrentSurfaceTexture` (enum-like)
-/// The renderer returns `RenderError` variants for fatal conditions and uses
-/// explicit surface-state variants so the runtime can react (reconfigure/exit).
+use fontdue::Font;
+use std::collections::HashMap;
+
+use zaroxi_app::AppState;
+
+/// Simple glyph metadata stored in the atlas.
+struct GlyphInfo {
+    pub u0: f32,
+    pub v0: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub width: u32,
+    pub height: u32,
+    pub advance: f32,
+    pub xoffset: i32,
+    pub yoffset: i32,
+}
+
+/// Minimal font atlas backing struct.
+struct FontAtlas {
+    pub atlas_width: u32,
+    pub atlas_height: u32,
+    // GPU texture view & bind group for sampling
+    pub texture_view: TextureView,
+    pub bind_group: BindGroup,
+    pub glyphs: HashMap<char, GlyphInfo>,
+    pub font_size: f32,
+}
+
+impl FontAtlas {
+    /// Build an atlas from the bundled font bytes.
+    fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
+        // Load bundled font from workspace assets (crate-agnostic path).
+        // Use CARGO_MANIFEST_DIR relative traversal to reach workspace root.
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let font_data = std::fs::read(&font_path).map_err(|e| RenderError::Other(format!("failed to read font: {:?}", e)))?;
+
+        let font = Font::from_bytes(font_data, fontdue::FontSettings::default());
+
+        // Rasterize ASCII range 32..=126
+        let padding = 2;
+        let atlas_w = 2048u32;
+        let mut atlas_h = 256u32;
+        let mut x = padding;
+        let mut y = padding;
+        let mut row_h = 0u32;
+
+        // store bitmaps temporarily
+        let mut placements: Vec<(char, Vec<u8>, u32, u32, i32, i32, f32)> = Vec::new();
+
+        for c in 32u8..=126u8 {
+            let ch = c as char;
+            let (metrics, bitmap) = font.rasterize(ch, font_size);
+            let w = metrics.width as u32;
+            let h = metrics.height as u32;
+            if w == 0 || h == 0 {
+                // Still need to store advance and offsets
+                placements.push((ch, Vec::new(), w, h, metrics.xmin, metrics.ymin, metrics.advance_width));
+                continue;
+            }
+            if x + w + padding > atlas_w {
+                // new row
+                x = padding;
+                y += row_h + padding;
+                row_h = 0;
+            }
+            placements.push((ch, bitmap, w, h, metrics.xmin, metrics.ymin, metrics.advance_width));
+            x += w + padding;
+            row_h = row_h.max(h);
+            atlas_h = atlas_h.max(y + row_h + padding);
+        }
+
+        // Create atlas RGBA8 texture
+        let atlas_size = Extent3d {
+            width: atlas_w,
+            height: atlas_h,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("font-atlas"),
+            size: atlas_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // create a cpu buffer for atlas (R8)
+        let mut atlas_buf = vec![0u8; (atlas_w * atlas_h) as usize];
+
+        // place glyphs
+        x = padding;
+        y = padding;
+        row_h = 0;
+        let mut glyphs = HashMap::new();
+
+        for (ch, bitmap, w, h, xmin, ymin, advance) in placements {
+            if w == 0 || h == 0 {
+                // empty glyph -> store advance only
+                glyphs.insert(ch, GlyphInfo {
+                    u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
+                    width: 0, height: 0,
+                    advance,
+                    xoffset: xmin, yoffset: ymin,
+                });
+                continue;
+            }
+            if x + w + padding > atlas_w {
+                x = padding;
+                y += row_h + padding;
+                row_h = 0;
+            }
+            for row in 0..h {
+                let dst_off = ((y + row) * atlas_w + x) as usize;
+                let src_off = (row * w) as usize;
+                atlas_buf[dst_off..dst_off + w as usize].copy_from_slice(&bitmap[src_off..src_off + w as usize]);
+            }
+            let u0 = x as f32 / atlas_w as f32;
+            let v0 = y as f32 / atlas_h as f32;
+            let u1 = (x + w) as f32 / atlas_w as f32;
+            let v1 = (y + h) as f32 / atlas_h as f32;
+
+            glyphs.insert(ch, GlyphInfo {
+                u0, v0, u1, v1,
+                width: w, height: h,
+                advance,
+                xoffset: xmin, yoffset: ymin,
+            });
+
+            x += w + padding;
+            row_h = row_h.max(h);
+        }
+
+        // Upload atlas to GPU using write_texture
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &atlas_buf,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(std::num::NonZeroU32::new(atlas_w).unwrap()),
+                rows_per_image: None,
+            },
+            atlas_size,
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                }
+            ],
+            label: Some("font-atlas-bind-group"),
+        });
+
+        Ok(Self {
+            atlas_width: atlas_w,
+            atlas_height: atlas_h,
+            texture_view,
+            bind_group,
+            glyphs,
+            font_size,
+        })
+    }
+}
+
+/// Vertex for textured quad.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 4],
+}
+
+impl Vertex {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                // pos
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                // uv
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                // color
+                wgpu::VertexAttribute {
+                    offset: 16,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
+/// GPU renderer owning the device, queue, surface and text pipelines.
 pub struct Renderer<'a> {
     // Keep the Instance alive to preserve ownership relationships required by wgpu
-    // (surface/device lifetimes). It's intentionally retained even if not read.
     _instance: Instance,
     surface: Surface<'a>,
-    // Keep the Adapter for potential future adapter queries and to preserve its lifetime.
-    // Intentionally unused for now.
     _adapter: wgpu::Adapter,
     device: Device,
     queue: Queue,
@@ -32,11 +241,25 @@ pub struct Renderer<'a> {
     size: PhysicalSize<u32>,
     clear_color: Color,
     _window_lifetime: PhantomData<&'a Window>,
+
+    // pipelines / bind groups
+    text_pipeline: wgpu::RenderPipeline,
+    text_bind_layout: BindGroupLayout,
+    // font atlas
+    font_atlas: FontAtlas,
+
+    // vertex/index buffers reused each frame
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
 }
 
 impl<'a> Renderer<'a> {
     /// Create a new renderer. `window` must outlive the returned Renderer.
-    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+    ///
+    /// Additionally accepts the shared AppState so the renderer can prepare
+    /// state dependent resources (if needed).
+    pub async fn new(window: &'a Window, clear_color: [f64; 4], app_state: Arc<std::sync::Mutex<AppState>>) -> Result<Self, RenderError> {
         // Build Instance
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
@@ -102,6 +325,78 @@ impl<'a> Renderer<'a> {
 
         surface.configure(&device, &config);
 
+        // Create bind group layout for font atlas (simple texture)
+        let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // sampled texture (R8)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("text_bind_layout"),
+        });
+
+        // Build font atlas now
+        let font_size = 14.0;
+        let font_atlas = FontAtlas::new(&device, &queue, &text_bind_layout, font_size)?;
+
+        // Create a simple shader for textured text (WGSL).
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("text-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("text_shader.wgsl").into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("text-pipeline-layout"),
+            bind_group_layouts: &[&text_bind_layout],
+            push_constant_ranges: &[],
+        });
+
+        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[Vertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        // create empty vertex/index buffers sized for moderate content; we'll recreate if needed
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vb"),
+            size: 65536,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ib"),
+            size: 65536,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         info!("Renderer initialized ({}x{})", config.width, config.height);
 
         Ok(Self {
@@ -119,6 +414,12 @@ impl<'a> Renderer<'a> {
                 a: clear_color[3],
             },
             _window_lifetime: PhantomData,
+            text_pipeline,
+            text_bind_layout,
+            font_atlas,
+            vertex_buffer,
+            index_buffer,
+            index_count: 0,
         })
     }
 
@@ -147,10 +448,8 @@ impl<'a> Renderer<'a> {
         window.request_redraw();
     }
 
-    /// Render a single clear-pass frame.
-    ///
-    /// Uses the actual `CurrentSurfaceTexture` shape resolved in this workspace.
-    pub fn render(&mut self) -> Result<(), RenderError> {
+    /// Render a single frame using the provided AppState as the source of truth.
+    pub fn render(&mut self, app_state: &AppState) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
@@ -158,21 +457,118 @@ impl<'a> Renderer<'a> {
         // Acquire the current surface texture (CurrentSurfaceTexture).
         let current = self.surface.get_current_texture();
 
-        // Match on the CurrentSurfaceTexture variants supported by the resolved wgpu.
+        // Build draw lists from app_state into vertex/index buffers.
+        // For simplicity we only render textual labels and simple colored quads
+        // representing panels. Text is rendered via the glyph atlas.
+
+        // Example layout metrics
+        let width = self.config.width as f32;
+        let height = self.config.height as f32;
+
+        // Build a simple vertex list
+        let mut verts: Vec<Vertex> = Vec::new();
+        let mut indices: Vec<u16> = Vec::new();
+
+        // Helper to push a colored quad (background) - here we use white texture uv = 0
+        let mut push_colored_quad = |x: f32, y: f32, w: f32, h: f32, color: [f32;4]| {
+            let base = verts.len() as u16;
+            let v0 = Vertex { pos: [x, y], uv: [0.0, 0.0], color };
+            let v1 = Vertex { pos: [x+w, y], uv: [0.0, 0.0], color };
+            let v2 = Vertex { pos: [x+w, y+h], uv: [0.0, 0.0], color };
+            let v3 = Vertex { pos: [x, y+h], uv: [0.0, 0.0], color };
+            verts.push(v0); verts.push(v1); verts.push(v2); verts.push(v3);
+            indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+        };
+
+        // Top bar: 48 px height
+        push_colored_quad(0.0, 0.0, width, 48.0, [0.08, 0.09, 0.12, 1.0]);
+
+        // Left sidebar: 260px width
+        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, [0.09, 0.10, 0.14, 1.0]);
+
+        // Right assistant panel: 320px width
+        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, [0.10, 0.10, 0.14, 1.0]);
+
+        // Bottom panel: 200px height anchored above status bar
+        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, [0.08, 0.09, 0.11, 1.0]);
+
+        // Editor area: center
+        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, [0.06, 0.07, 0.09, 1.0]);
+
+        // Bottom status bar: 24 px height
+        push_colored_quad(0.0, height - 24.0, width, 24.0, [0.07, 0.08, 0.10, 1.0]);
+
+        // Text: render a few labels from app_state
+
+        // Helper to emit glyphs for a given string at (x,y) in pixels (top-left origin).
+        let mut cursor_y = 12.0;
+        let origin_y = 0.0;
+
+        // Title in top bar
+        let title = &app_state.config.title;
+        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, [0.9, 0.9, 0.9, 1.0], width, height)?;
+
+        // Tabs header - simple
+        let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
+        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, [0.8, 0.8, 0.8, 1.0], width, height)?;
+
+        // Sidebar title
+        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", [0.85, 0.85, 0.85, 1.0], width, height)?;
+
+        // List some workspace items
+        for (i, item) in app_state.workspace.items.iter().enumerate() {
+            let y = 96.0 + i as f32 * 20.0;
+            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, [0.8, 0.8, 0.8, 1.0], width, height)?;
+        }
+
+        // Editor sample: render first few lines of active document
+        if let Some(doc) = app_state.editor.active_document().cloned() {
+            // render document title in editor header
+            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, [0.95, 0.95, 0.95, 1.0], width, height)?;
+
+            // split lines and render first 20 lines
+            for (i, line) in doc.text.lines().take(20).enumerate() {
+                let y = 86.0 + i as f32 * 18.0;
+                // line numbers
+                let ln = format!("{:>3} ", i+1);
+                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, [0.5, 0.5, 0.6, 1.0], width, height)?;
+                self.emit_text(&mut verts, &mut indices, 300.0, y, line, [0.9, 0.9, 0.9, 1.0], width, height)?;
+            }
+        }
+
+        // Assistant header
+        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", [0.95, 0.95, 0.95, 1.0], width, height)?;
+        // Assistant messages
+        for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
+            let y = 96.0 + i as f32 * 18.0;
+            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, [0.85, 0.85, 0.85, 1.0], width, height)?;
+        }
+
+        // Status bar text
+        let status = &app_state.status.message;
+        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, [0.8, 0.8, 0.8, 1.0], width, height)?;
+
+        // Upload vertex/index data
+        let vb_bytes = bytemuck::cast_slice(&verts);
+        self.queue.write_buffer(&self.vertex_buffer, 0, vb_bytes);
+
+        let ib_bytes = bytemuck::cast_slice(&indices);
+        self.queue.write_buffer(&self.index_buffer, 0, ib_bytes);
+
+        // Acquire frame and render
         match current {
-            // Successful acquisition
             CurrentSurfaceTexture::Success(frame) => {
                 let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
                 let mut encoder =
                     self.device
                         .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("zaroxi-clear-encoder"),
+                            label: Some("zaroxi-render-encoder"),
                         });
 
                 {
-                    let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("clear-pass"),
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("main-pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             resolve_target: None,
@@ -185,6 +581,12 @@ impl<'a> Renderer<'a> {
                         depth_stencil_attachment: None,
                         ..Default::default()
                     });
+
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
 
                 self.queue.submit(Some(encoder.finish()));
@@ -192,19 +594,19 @@ impl<'a> Renderer<'a> {
                 Ok(())
             }
 
-            // Suboptimal: present but signal runtime to reconfigure afterwards.
             CurrentSurfaceTexture::Suboptimal(frame) => {
+                // try to present anyway and signal runtime to reconfigure
                 let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
                 let mut encoder =
                     self.device
                         .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("zaroxi-clear-encoder"),
+                            label: Some("zaroxi-render-encoder"),
                         });
 
                 {
-                    let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("clear-pass"),
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("main-pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             resolve_target: None,
@@ -217,16 +619,19 @@ impl<'a> Renderer<'a> {
                         depth_stencil_attachment: None,
                         ..Default::default()
                     });
+
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
                 }
 
                 self.queue.submit(Some(encoder.finish()));
                 frame.present();
-
-                // Tell runtime to reconfigure surface
                 Err(RenderError::SurfaceOutdated)
             }
 
-            // Non-fatal: skip frame
             CurrentSurfaceTexture::Timeout => {
                 debug!("Surface timeout; skipping frame");
                 Err(RenderError::SurfaceTimeout)
@@ -237,7 +642,6 @@ impl<'a> Renderer<'a> {
                 Err(RenderError::SurfaceOccluded)
             }
 
-            // Need reconfigure
             CurrentSurfaceTexture::Outdated => {
                 debug!("Surface outdated; reconfigure required");
                 Err(RenderError::SurfaceOutdated)
@@ -248,11 +652,49 @@ impl<'a> Renderer<'a> {
                 Err(RenderError::SurfaceLost)
             }
 
-            // Validation/fatal
             CurrentSurfaceTexture::Validation => {
                 debug!("Surface validation variant encountered");
                 Err(RenderError::SurfaceValidation("validation error".to_string()))
             }
         }
+    }
+
+    /// Emit text into the provided vertex/index arrays using the font atlas.
+    fn emit_text(&self, verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, mut x: f32, y: f32, text: &str, color: [f32;4], _screen_w: f32, _screen_h: f32) -> Result<(), RenderError> {
+        let base_index = verts.len() as u16;
+        for ch in text.chars() {
+            let glyph = self.font_atlas.glyphs.get(&ch);
+            if glyph.is_none() {
+                // skip unknown glyphs
+                continue;
+            }
+            let g = glyph.unwrap();
+            if g.width == 0 || g.height == 0 {
+                x += g.advance;
+                continue;
+            }
+            // positions: top-left origin; atlas uv coordinates map into glyph
+            let x0 = x as f32 + g.xoffset as f32;
+            let y0 = y as f32 + g.yoffset as f32;
+            let x1 = x0 + g.width as f32;
+            let y1 = y0 + g.height as f32;
+            // UVs
+            let u0 = g.u0;
+            let v0 = g.v0;
+            let u1 = g.u1;
+            let v1 = g.v1;
+
+            let a = Vertex { pos: [x0, y0], uv: [u0, v0], color };
+            let b = Vertex { pos: [x1, y0], uv: [u1, v0], color };
+            let c = Vertex { pos: [x1, y1], uv: [u1, v1], color };
+            let d = Vertex { pos: [x0, y1], uv: [u0, v1], color };
+
+            verts.push(a); verts.push(b); verts.push(c); verts.push(d);
+            let i0 = base_index + (verts.len() as u16 - 4);
+            indices.extend_from_slice(&[i0, i0+1, i0+2, i0, i0+2, i0+3]);
+
+            x += g.advance;
+        }
+        Ok(())
     }
 }

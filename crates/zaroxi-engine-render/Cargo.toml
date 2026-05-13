@@ -12,3 +12,9 @@ winit = { workspace = true }
 pollster = "0.3"
 log = "0.4"
 raw-window-handle = "0.5"
+
+# Low-level text rasterization (font rasterizer). We use fontdue to rasterize glyph bitmaps.
+fontdue = "0.7"
+
+# bytemuck for safe pod casts for vertex buffers
+bytemuck = "1.13"

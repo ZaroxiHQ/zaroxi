@@ -1,6 +1,6 @@
 use anyhow::Result;
 use log::info;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -9,6 +9,7 @@ use winit::window::{Window, WindowId};
 use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
 use zaroxi_engine_render::renderer::Renderer;
+use zaroxi_app::AppState;
 
 /// Minimal engine application that implements the winit 0.30 ApplicationHandler
 /// lifecycle. This keeps the runtime small and focused on window + renderer.
@@ -24,10 +25,12 @@ pub struct App {
     fatal_error: Option<anyhow::Error>,
 
     continuous: bool,
+    /// Shared app state (read-only rendering & command dispatch).
+    app_state: Option<Arc<Mutex<AppState>>>,
 }
 
 impl App {
-    pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Self {
+    pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Self {
         Self {
             title,
             width,
@@ -38,6 +41,7 @@ impl App {
             window_state: None,
             fatal_error: None,
             continuous: true,
+            app_state: Some(app_state),
         }
     }
 }
@@ -62,7 +66,9 @@ impl ApplicationHandler for App {
                 // SAFETY: the Arc is kept in self.window so the pointer remains valid.
                 let window_ref: &'static Window = unsafe { &*(Arc::as_ptr(&win) as *const Window) };
 
-                match pollster::block_on(Renderer::new(window_ref, self.clear_color)) {
+                let app_state = self.app_state.as_ref().expect("app_state missing").clone();
+
+                match pollster::block_on(Renderer::new(window_ref, self.clear_color, app_state.clone())) {
                     Ok(renderer) => {
                         self.renderer = Some(renderer);
                         // Request an initial redraw.
@@ -109,8 +115,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    match renderer.render() {
+                if let (Some(renderer), Some(app_state)) = (self.renderer.as_mut(), self.app_state.as_ref()) {
+                    // Lock app state for reading.
+                    let state = app_state.lock().unwrap();
+                    match renderer.render(&*state) {
                         Ok(_) => {
                             if self.continuous {
                                 if let Some(win) = &self.window {
@@ -134,7 +142,7 @@ impl ApplicationHandler for App {
 }
 
 /// Run the application using winit 0.30 Application API.
-pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Result<()> {
+pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Result<()> {
     // Initialize logging
     let _ = env_logger::try_init();
     info!("Starting runtime (application API) with title '{}'", title);
@@ -145,7 +153,7 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Res
     event_loop.set_control_flow(ControlFlow::Poll);
 
     // Create the app and run it using the event loop's run_app method.
-    let mut app = App::new(title, width, height, clear_color);
+    let mut app = App::new(title, width, height, clear_color, app_state);
 
     event_loop
         .run_app(&mut app)
