@@ -78,18 +78,28 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                         // Continuous redraw: request another frame.
                         renderer.request_redraw(&*window);
                     }
-                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                    Err(zaroxi_engine_render::RenderError::SurfaceLost)
+                    | Err(zaroxi_engine_render::RenderError::SurfaceOutdated) => {
                         log::warn!("Surface lost/outdated, reconfiguring surface.");
                         if let Err(e) = renderer.reconfigure() {
                             error!("Failed to reconfigure surface after lost/outdated: {:?}", e);
                         }
                     }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                    Err(zaroxi_engine_render::RenderError::SurfaceValidation(msg)) => {
+                        error!("Surface validation error: {:?}; exiting.", msg);
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    Err(zaroxi_engine_render::RenderError::SurfaceOutOfMemory) => {
                         error!("Out of memory while rendering; exiting.");
                         *control_flow = ControlFlow::Exit;
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        log::warn!("Surface timeout; skipping frame.");
+                    Err(zaroxi_engine_render::RenderError::SurfaceTimeout)
+                    | Err(zaroxi_engine_render::RenderError::SurfaceOccluded) => {
+                        log::warn!("Surface timeout/occluded; skipping frame.");
+                    }
+                    Err(e) => {
+                        error!("Renderer fatal error: {:?}", e);
+                        *control_flow = ControlFlow::Exit;
                     }
                 }
             }

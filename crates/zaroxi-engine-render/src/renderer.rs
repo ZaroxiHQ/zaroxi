@@ -1,5 +1,5 @@
 use crate::error::RenderError;
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::marker::PhantomData;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -7,15 +7,17 @@ use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
     TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
-    SurfaceTexture,
+    CurrentSurfaceTexture, SurfaceTexture,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// This implementation targets wgpu 29.0.3 and uses an explicit lifetime so
-/// the Surface can reference the window provided by the runtime. The runtime
-/// keeps the Arc<Window> and passes a borrow into Renderer::new; the Surface
-/// lifetime is therefore tied to the runtime-held window.
+/// This implementation targets the exact wgpu API resolved in this workspace:
+/// - `Surface<'a>` is used (lifetime tied to the window borrow)
+/// - `request_adapter(...).await` returns a Result which we map into RenderError
+/// - `get_current_texture()` returns a `CurrentSurfaceTexture` (enum-like)
+/// The renderer returns `RenderError` variants for fatal conditions and uses
+/// explicit surface-state variants so the runtime can react (reconfigure/exit).
 pub struct Renderer<'a> {
     instance: Instance,
     surface: Surface<'a>,
@@ -59,6 +61,7 @@ impl<'a> Renderer<'a> {
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
+        // NOTE: in this workspace adapter.request_device takes a single argument.
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
@@ -67,7 +70,6 @@ impl<'a> Renderer<'a> {
                     required_limits,
                     ..Default::default()
                 },
-                None,
             )
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
@@ -142,46 +144,110 @@ impl<'a> Renderer<'a> {
     }
 
     /// Render a single clear-pass frame.
-    /// This uses the exact API shape present in this workspace: `get_current_texture()`
-    /// returns a CurrentSurfaceTexture directly; we create a view, encode a clear pass,
-    /// submit the queue and present the frame.
+    ///
+    /// Uses the actual `CurrentSurfaceTexture` shape resolved in this workspace.
     pub fn render(&mut self) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
-        // Acquire the current surface texture (CurrentSurfaceTexture, not Result).
-        let frame: SurfaceTexture = self.surface.get_current_texture();
+        // Acquire the current surface texture (CurrentSurfaceTexture).
+        let current = self.surface.get_current_texture();
 
-        // Create a texture view for the render pass.
-        let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        // Match on the CurrentSurfaceTexture variants supported by the resolved wgpu.
+        match current {
+            // Successful acquisition
+            CurrentSurfaceTexture::Success(frame) => {
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        // Create encoder and record clear pass.
-        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("clear-encoder"),
-        });
+                let mut encoder =
+                    self.device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("zaroxi-clear-encoder"),
+                        });
 
-        {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("clear-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(self.clear_color),
-                        store: StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
+                {
+                    let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("clear-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: Operations {
+                                load: LoadOp::Clear(self.clear_color),
+                                store: StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        ..Default::default()
+                    });
+                }
+
+                self.queue.submit(Some(encoder.finish()));
+                frame.present();
+                Ok(())
+            }
+
+            // Suboptimal: present but signal runtime to reconfigure afterwards.
+            CurrentSurfaceTexture::Suboptimal(frame) => {
+                let view = frame.texture.create_view(&TextureViewDescriptor::default());
+
+                let mut encoder =
+                    self.device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("zaroxi-clear-encoder"),
+                        });
+
+                {
+                    let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("clear-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: Operations {
+                                load: LoadOp::Clear(self.clear_color),
+                                store: StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        ..Default::default()
+                    });
+                }
+
+                self.queue.submit(Some(encoder.finish()));
+                frame.present();
+
+                // Tell runtime to reconfigure surface
+                Err(RenderError::SurfaceOutdated)
+            }
+
+            // Non-fatal: skip frame
+            CurrentSurfaceTexture::Timeout => {
+                debug!("Surface timeout; skipping frame");
+                Err(RenderError::SurfaceTimeout)
+            }
+
+            CurrentSurfaceTexture::Occluded => {
+                debug!("Surface occluded; skipping frame");
+                Err(RenderError::SurfaceOccluded)
+            }
+
+            // Need reconfigure
+            CurrentSurfaceTexture::Outdated => {
+                debug!("Surface outdated; reconfigure required");
+                Err(RenderError::SurfaceOutdated)
+            }
+
+            CurrentSurfaceTexture::Lost => {
+                debug!("Surface lost; reconfigure required");
+                Err(RenderError::SurfaceLost)
+            }
+
+            // Validation/fatal
+            CurrentSurfaceTexture::Validation(err) => {
+                Err(RenderError::SurfaceValidation(format!("{:?}", err)))
+            }
         }
-
-        self.queue.submit(Some(encoder.finish()));
-        // Present the frame (CurrentSurfaceTexture exposes present()).
-        frame.present();
-
-        Ok(())
     }
 }
