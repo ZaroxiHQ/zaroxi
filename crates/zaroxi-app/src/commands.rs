@@ -1,3 +1,4 @@
+use crate::panels::BottomPanel;
 use zaroxi_foundation::DocumentId;
 
 /// High-level application commands used by UI and runtime.
@@ -6,11 +7,29 @@ use zaroxi_foundation::DocumentId;
 /// clear and maintainable.
 #[derive(Debug, Clone)]
 pub enum AppCommand {
+    // Workspace
     OpenFolder { path: String },
     OpenFile { path: String },
     SelectSidebarItem { index: Option<usize> },
-    SetStatusMessage { message: String },
-    ActivateDocument { doc_id: DocumentId },
+
+    // Tabs / Documents
+    OpenDocument { doc_id: DocumentId },
+    CloseTab { doc_id: DocumentId },
+    ActivateTab { doc_id: DocumentId },
+
+    // Editor
     InsertText { doc_id: DocumentId, offset: usize, text: String },
     SaveActiveDocument,
+
+    // Panels
+    ToggleBottomPanel,
+    SetBottomPanel { panel: BottomPanel },
+
+    // Assistant
+    SetAssistantInput { input: String },
+    SendAssistantPrompt,
+    InsertAssistantSuggestion { doc_id: DocumentId, text: String },
+
+    // Status
+    SetStatusMessage { message: String },
 }

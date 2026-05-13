@@ -9,3 +9,5 @@ log = "0.4"
 env_logger = "0.11"
 
 zaroxi-engine = { path = "../../crates/zaroxi-engine" }
+zaroxi-config = { path = "../../crates/zaroxi-config" }
+zaroxi-app = { path = "../../crates/zaroxi-app" }
