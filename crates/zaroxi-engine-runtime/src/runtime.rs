@@ -22,13 +22,16 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
     info!("Starting runtime with title '{}'", config.title);
 
     let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title(config.title)
-        .with_inner_size(PhysicalSize::new(config.width, config.height))
-        .build(&event_loop)?;
+    // Build the window and wrap it in an Arc so the renderer can own a handle safely.
+    let window = Arc::new(
+        WindowBuilder::new()
+            .with_title(config.title)
+            .with_inner_size(PhysicalSize::new(config.width, config.height))
+            .build(&event_loop)?,
+    );
 
     // Block on async GPU initialization.
-    let mut renderer = pollster::block_on(Renderer::new(&window, config.clear_color))?;
+    let mut renderer = pollster::block_on(Renderer::new(window.clone(), config.clear_color))?;
 
     let mut window_state = WindowState::new(window.inner_size());
 
@@ -69,31 +72,30 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             },
             Event::RedrawRequested(_) => {
                 match renderer.render() {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => {
-                        log::warn!("Surface lost, reconfiguring surface.");
+                    Ok(_) => {
+                        // Request continuous redraw (simple behaviour for v1).
+                        // If you prefer event-driven redraws, remove this.
+                        renderer.request_redraw();
+                    }
+                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                        log::warn!("Surface lost/outdated, reconfiguring surface.");
                         if let Err(e) = renderer.reconfigure() {
-                            error!("Failed to reconfigure surface after lost: {:?}", e);
+                            error!("Failed to reconfigure surface after lost/outdated: {:?}", e);
                         }
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
                         error!("Out of memory while rendering; exiting.");
                         *control_flow = ControlFlow::Exit;
                     }
-                    Err(e) => {
-                        // Outdated or Timeout; request a redraw so we can recover.
-                        log::warn!("Surface error: {:?}. Requesting redraw.", e);
-                        // Request a redraw on next loop iteration.
-                        // Note: acquiring the window is not necessary here.
+                    Err(wgpu::SurfaceError::Timeout) => {
+                        log::warn!("Surface timeout; skipping frame.");
                     }
                 }
             }
             Event::MainEventsCleared => {
                 // Trigger redraws at will for v1 (continuous redraw).
-                // In the future we can switch to event-driven and dirty regions.
-                // Request a redraw of the main window.
-                // Using window.request_redraw requires the Window; pass the Window reference here.
-                renderer.request_redraw(&window);
+                // Request a redraw of the main window via the renderer's internal window handle.
+                renderer.request_redraw();
             }
             _ => {}
         }
