@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-workspace"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+zaroxi-foundation = { path = "../zaroxi-foundation" }
+serde = { workspace = true }

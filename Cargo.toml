@@ -26,6 +26,14 @@ members = [
   "crates/zaroxi-engine-input",
   "crates/zaroxi-engine-text",
 
+  # New app & domain crates (Zaroxi v1 skeleton)
+  "crates/zaroxi-foundation",
+  "crates/zaroxi-config",
+  "crates/zaroxi-editor-buffer",
+  "crates/zaroxi-editor-core",
+  "crates/zaroxi-workspace",
+  "crates/zaroxi-app",
+
   # Application binaries
   "apps/desktop",
   "apps/ai-daemon",
@@ -93,3 +101,11 @@ zaroxi-engine-runtime = { path = "crates/zaroxi-engine-runtime" }
 zaroxi-engine-render = { path = "crates/zaroxi-engine-render" }
 zaroxi-engine-input = { path = "crates/zaroxi-engine-input" }
 zaroxi-engine-text = { path = "crates/zaroxi-engine-text" }
+
+# New workspace crate entries (Zaroxi v1 skeleton)
+zaroxi-foundation = { path = "crates/zaroxi-foundation" }
+zaroxi-config = { path = "crates/zaroxi-config" }
+zaroxi-editor-buffer = { path = "crates/zaroxi-editor-buffer" }
+zaroxi-editor-core = { path = "crates/zaroxi-editor-core" }
+zaroxi-workspace = { path = "crates/zaroxi-workspace" }
+zaroxi-app = { path = "crates/zaroxi-app" }
