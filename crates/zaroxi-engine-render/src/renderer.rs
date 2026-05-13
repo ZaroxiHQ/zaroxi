@@ -33,9 +33,14 @@ impl<'a> Renderer<'a> {
     pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
         // Create instance with all native backends enabled using the simple, stable form.
         // Use InstanceDescriptor with backends set and let Default fill the rest.
+        // Construct an explicit InstanceDescriptor compatible with wgpu 29.x.
+        // Avoid relying on Default for InstanceDescriptor which is not implemented.
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
-            ..Default::default()
+            flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::disabled(),
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
         });
 
         // SAFETY: winit guarantees the window handle is valid while the Window is alive.
@@ -43,13 +48,11 @@ impl<'a> Renderer<'a> {
             .map_err(|e| RenderError::Other(format!("Failed to create surface: {:?}", e)))?;
 
         // Request an adapter compatible with the surface (returns Option in current API).
+        // Prefer a synchronous enumeration approach for adapter selection to avoid
+        // dealing with subtle async/Option/Result API differences across wgpu versions.
         let adapter = instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
+            .enumerate_adapters(Backends::all())
+            .find(|a| !surface.get_capabilities(a).formats.is_empty())
             .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
 
         // Minimal device requirements for v1.
@@ -145,15 +148,13 @@ impl<'a> Renderer<'a> {
     pub fn render(&mut self) -> Result<(), RenderError> {
         // Acquire the next surface texture. Map any surface error into our RenderError.
         // Acquire the current surface texture (returns Result in current API).
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(e) => {
-                return Err(RenderError::Other(format!(
-                    "get_current_texture failed: {:?}",
-                    e
-                )))
-            }
-        };
+        // Acquire the current surface texture and convert any surface error
+        // into our crate-level RenderError. This uses the Result-returning form
+        // of get_current_texture where available.
+        let surface_texture = self
+            .surface
+            .get_current_texture()
+            .map_err(|e| RenderError::Other(format!("get_current_texture failed: {:?}", e)))?;
 
         // Create a texture view for the render pass.
         let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
