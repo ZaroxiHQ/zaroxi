@@ -547,53 +547,77 @@ impl<'a> Renderer<'a> {
         push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, color_to_rgba(&sem.editor_background));
         push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, color_to_rgba(&sem.status_bar_background));
 
-        // Text: render a few labels from app_state
+        // DEBUG: minimal visibility test & diagnostics
+        //
+        // Instead of relying on the full text/atlas path, draw a single obvious
+        // solid rectangle so we can determine whether the geometry pipeline is
+        // functioning and whether the layout coordinates are reasonable.
+        //
+        // Also log resolved layout rectangles and current vertex/index counts.
 
-        // Helper to emit glyphs for a given string at (x,y) in pixels (top-left origin).
+        // Log resolved layout rects for quick inspection
+        info!(
+            "[renderer] layout: title_bar={:?}, sidebar={:?}, editor={:?}, right_panel={:?}, bottom_panel={:?}, status_bar={:?}",
+            layout.title_bar, layout.sidebar, layout.editor, layout.right_panel, layout.bottom_panel, layout.status_bar
+        );
 
-        // Title in top bar
-        let title = &app_state.config.title;
-        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, color_to_rgba(&sem.text_primary), width, height)?;
+        // Debug-only mode: draw a bright rectangle near top-left to validate draw path.
+        // Set to `false` to re-enable normal text rendering.
+        let debug_only = true;
 
-        // Tabs header - simple
-        let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
-        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, color_to_rgba(&sem.text_muted), width, height)?;
+        if debug_only {
+            // Large red debug rectangle
+            push_colored_quad(20.0, layout.title_bar.h + 20.0, 300.0, 200.0, [1.0, 0.0, 0.0, 1.0]);
 
-        // Sidebar title
-        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", color_to_rgba(&sem.text_primary), width, height)?;
+            // Log vertex/index counts after building geometry
+            info!("[renderer] verts={}, indices={}", verts.len(), indices.len());
+        } else {
+            // Text rendering path (production). Emit labels and document lines.
+            // Title in top bar
+            let title = &app_state.config.title;
+            self.emit_text(&mut verts, &mut indices, layout.title_bar.x + 12.0, layout.title_bar.y + 12.0, title, color_to_rgba(&sem.text_primary), width, height)?;
 
-        // List some workspace items
-        for (i, item) in app_state.workspace.items.iter().enumerate() {
-            let y = 96.0 + i as f32 * 20.0;
-            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, color_to_rgba(&sem.text_muted), width, height)?;
-        }
+            // Tabs header - simple
+            let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
+            self.emit_text(&mut verts, &mut indices, layout.title_bar.x + 200.0, layout.title_bar.y + 12.0, &tabs, color_to_rgba(&sem.text_muted), width, height)?;
 
-        // Editor sample: render first few lines of active document
-        if let Some(doc) = app_state.editor.active_document().cloned() {
-            // render document title in editor header
-            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, color_to_rgba(&sem.text_primary), width, height)?;
+            // Sidebar title
+            self.emit_text(&mut verts, &mut indices, layout.sidebar.x + 12.0, layout.sidebar.y + 16.0, "Workspace", color_to_rgba(&sem.text_primary), width, height)?;
 
-            // split lines and render first 20 lines
-            for (i, line) in doc.text.lines().take(20).enumerate() {
-                let y = 86.0 + i as f32 * 18.0;
-                // line numbers
-                let ln = format!("{:>3} ", i+1);
-                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, color_to_rgba(&sem.text_muted), width, height)?;
-                self.emit_text(&mut verts, &mut indices, 300.0, y, line, color_to_rgba(&sem.text_primary), width, height)?;
+            // List some workspace items
+            for (i, item) in app_state.workspace.items.iter().enumerate() {
+                let y = layout.sidebar.y + 56.0 + i as f32 * 20.0;
+                self.emit_text(&mut verts, &mut indices, layout.sidebar.x + 12.0, y, &item.name, color_to_rgba(&sem.text_muted), width, height)?;
             }
-        }
 
-        // Assistant header
-        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", color_to_rgba(&sem.text_primary), width, height)?;
-        // Assistant messages
-        for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
-            let y = 96.0 + i as f32 * 18.0;
-            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, color_to_rgba(&sem.text_muted), width, height)?;
-        }
+            // Editor sample: render first few lines of active document
+            if let Some(doc) = app_state.editor.active_document().cloned() {
+                // render document title in editor header
+                self.emit_text(&mut verts, &mut indices, layout.editor.x + 20.0, layout.editor.y + 8.0, &doc.display_name, color_to_rgba(&sem.text_primary), width, height)?;
 
-        // Status bar text
-        let status = &app_state.status.message;
-        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, color_to_rgba(&sem.text_muted), width, height)?;
+                // split lines and render first 20 lines
+                for (i, line) in doc.text.lines().take(20).enumerate() {
+                    let y = layout.editor.y + 38.0 + i as f32 * 18.0;
+                    // line numbers
+                    let ln = format!("{:>3} ", i+1);
+                    self.emit_text(&mut verts, &mut indices, layout.editor.x + 8.0, y, &ln, color_to_rgba(&sem.text_muted), width, height)?;
+                    self.emit_text(&mut verts, &mut indices, layout.editor.x + 48.0, y, line, color_to_rgba(&sem.text_primary), width, height)?;
+                }
+            }
+
+            // Assistant header & messages
+            self.emit_text(&mut verts, &mut indices, layout.right_panel.x + 12.0, layout.right_panel.y + 16.0, "AI Assistant", color_to_rgba(&sem.text_primary), width, height)?;
+            for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
+                let y = layout.right_panel.y + 48.0 + i as f32 * 18.0;
+                self.emit_text(&mut verts, &mut indices, layout.right_panel.x + 12.0, y, m, color_to_rgba(&sem.text_muted), width, height)?;
+            }
+
+            // Status bar text
+            let status = &app_state.status.message;
+            self.emit_text(&mut verts, &mut indices, layout.status_bar.x + 8.0, layout.status_bar.y + 6.0, status, color_to_rgba(&sem.text_muted), width, height)?;
+
+            info!("[renderer] verts={}, indices={}", verts.len(), indices.len());
+        }
 
         // Upload vertex/index data
         let vb_bytes = bytemuck::cast_slice(&verts);
