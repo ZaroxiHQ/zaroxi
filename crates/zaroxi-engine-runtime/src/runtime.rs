@@ -127,6 +127,15 @@ impl ApplicationHandler for App {
                     let width = sz.width as f32;
                     let height = sz.height as f32;
 
+                    // Log app state summary before layout resolution for traceability.
+                    info!(
+                        "[runtime] app_state summary: title='{}', assistant_visible={}, panels_visible={}, open_docs={}",
+                        state.config.title,
+                        state.assistant.visible,
+                        state.panels.visible,
+                        state.editor.open_documents.len()
+                    );
+
                     // Layout metrics (tunable by app/layout later)
                     let title_h = 48.0f32;
                     let status_h = 24.0f32;
@@ -157,6 +166,9 @@ impl ApplicationHandler for App {
                         status_bar,
                         colors: sem,
                     };
+
+                    // Log resolved layout for debugging first frame rendering.
+                    info!("[runtime] resolved layout: {:?}", layout);
 
                     match renderer.render_with_layout(&*state, &layout) {
                         Ok(_) => {

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
+use log::info;
 
 /// Thin desktop entrypoint for Zaroxi Studio.
 ///
@@ -21,6 +22,18 @@ fn main() -> Result<()> {
     // document and placeholder workspace items. The state is purely in-memory
     // and intentionally small for v1.
     let app_state = zaroxi_app::AppState::new(&app_config);
+
+    // Log initial app state summary for debugging startup path.
+    info!(
+        "[desktop] initial AppState: title='{}', workspace_items={}, open_docs={}, assistant_visible={}, panels_visible={}, status='{}'",
+        app_state.config.title,
+        app_state.workspace.items.len(),
+        app_state.editor.open_documents.len(),
+        app_state.assistant.visible,
+        app_state.panels.visible,
+        app_state.status.message
+    );
+
     let app_state = Arc::new(Mutex::new(app_state));
 
     // Compose engine config (engine crate already provides EngineConfig used
