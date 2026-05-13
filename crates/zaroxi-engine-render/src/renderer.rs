@@ -1,20 +1,21 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use std::marker::PhantomData;
+use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
-    self, Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
+    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations,
+    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// This implementation targets wgpu 29.0.3. The renderer ties the surface's
-/// lifetime to the provided `&Window` reference using a lifetime parameter
-/// to avoid awkward ownership of window handles.
-pub struct Renderer<'a> {
+/// Implemented for wgpu = 29.0.3 and designed to avoid lifetime problems by
+/// owning an Arc<Window> if the runtime prefers. The runtime in this repo
+/// constructs the renderer with an Arc<Window> and therefore this renderer
+/// also provides a simple request_redraw() method that uses the stored Arc.
+pub struct Renderer {
     instance: Instance,
     surface: Surface,
     adapter: wgpu::Adapter,
@@ -23,14 +24,13 @@ pub struct Renderer<'a> {
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
-    // The surface lifetime is tied to the window reference provided at creation.
-    _window: PhantomData<&'a Window>,
+    window: Arc<Window>,
 }
 
-impl<'a> Renderer<'a> {
-    /// Create a new renderer. `window` must outlive the returned `Renderer`.
-    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
-        // Build Instance using explicit fields compatible with wgpu 29.0.3
+impl Renderer {
+    /// Initialize the renderer. Accepts an Arc<Window> to keep the window alive
+    /// for the surface lifetime without tying the renderer to a borrow.
+    pub async fn new(window: Arc<Window>, clear_color: [f64; 4]) -> Result<Self, RenderError> {
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -39,12 +39,10 @@ impl<'a> Renderer<'a> {
             display: None,
         });
 
-        // SAFETY: winit guarantees the window handle is valid while the Window is alive.
         let surface = instance
-            .create_surface(window)
+            .create_surface(&*window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
-        // Request an adapter compatible with the surface.
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -54,11 +52,9 @@ impl<'a> Renderer<'a> {
             .await
             .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
 
-        // Minimal device requirements.
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
-        // Request device and queue.
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
@@ -72,7 +68,6 @@ impl<'a> Renderer<'a> {
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
-        // Surface configuration
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
 
@@ -113,7 +108,7 @@ impl<'a> Renderer<'a> {
                 b: clear_color[2],
                 a: clear_color[3],
             },
-            _window: PhantomData,
+            window,
         })
     }
 
@@ -130,38 +125,31 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Reconfigure the surface (used after Lost/Outdated).
+    /// Reconfigure on Lost/Outdated.
     pub fn reconfigure(&mut self) -> Result<(), RenderError> {
         self.surface.configure(&self.device, &self.config);
         Ok(())
     }
 
-    /// Request a redraw by calling `window.request_redraw()`.
-    /// The runtime should call this and pass its window reference.
-    pub fn request_redraw(&self, window: &Window) {
-        window.request_redraw();
+    /// Request a redraw using the owned window.
+    pub fn request_redraw(&self) {
+        self.window.request_redraw();
     }
 
-    /// Render a single clear-pass frame.
-    ///
-    /// Returns wgpu::SurfaceError to allow the runtime to react appropriately.
+    /// Render a single clear pass. Propagates wgpu::SurfaceError to caller.
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
-        // Acquire the next frame (propagate SurfaceError to caller).
         let frame = self.surface.get_current_texture()?;
+        let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        // Create a texture view for the frame.
-        let view = frame
-            .texture
-            .create_view(&TextureViewDescriptor::default());
-
-        // Create encoder and record a clear pass.
-        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("zaroxi-clear-encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("zaroxi-clear-encoder"),
+            });
 
         {
             let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -171,7 +159,7 @@ impl<'a> Renderer<'a> {
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(self.clear_color),
-                        store: true,
+                        store: StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
@@ -179,7 +167,6 @@ impl<'a> Renderer<'a> {
             });
         }
 
-        // Submit and present.
         self.queue.submit(Some(encoder.finish()));
         frame.present();
 
