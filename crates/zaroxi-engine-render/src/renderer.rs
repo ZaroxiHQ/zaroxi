@@ -10,7 +10,7 @@ use wgpu::{
     util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
     DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
     Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
-    LoadOp, Operations, StoreOp, Origin3d, ImageCopyBuffer, ImageCopyTexture, ImageDataLayout, Extent3d,
+    LoadOp, Operations, StoreOp, Origin3d, ImageCopyTexture, ImageDataLayout, Extent3d,
     TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
 };
 
@@ -182,36 +182,24 @@ impl FontAtlas {
             row_h = row_h.max(h);
         }
 
-        // Upload atlas to GPU using a staging buffer + copy_buffer_to_texture (wgpu 29 exact API).
-        let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("font-atlas-staging"),
-            contents: &atlas_buf,
-            usage: wgpu::BufferUsages::COPY_SRC,
-        });
-
-        let mut upload_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("font-atlas-upload-encoder"),
-        });
-
-        upload_encoder.copy_buffer_to_texture(
-            wgpu::ImageCopyBuffer {
-                buffer: &staging,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: NonZeroU32::new(atlas_w),
-                    rows_per_image: None,
-                },
-            },
+        // Upload atlas to GPU using queue.write_texture (direct write).
+        // This is the simpler, preferred path for small-to-moderate uploads and
+        // keeps the renderer implementation compact.
+        queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
+            &atlas_buf,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(atlas_w),
+                rows_per_image: None,
+            },
             atlas_size,
         );
-
-        queue.submit(Some(upload_encoder.finish()));
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
