@@ -70,11 +70,11 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                     }
                 }
             },
-            Event::RedrawRequested(_) => {
+            Event::RedrawRequested(window_id) => {
+                // Only render for our single window (safe for v1 single-window).
                 match renderer.render() {
                     Ok(_) => {
-                        // Request continuous redraw (simple behaviour for v1).
-                        // If you prefer event-driven redraws, remove this.
+                        // Continuous redraw: schedule another frame.
                         renderer.request_redraw();
                     }
                     Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
@@ -94,7 +94,6 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             }
             Event::MainEventsCleared => {
                 // Trigger redraws at will for v1 (continuous redraw).
-                // Request a redraw of the main window via the renderer's internal window handle.
                 renderer.request_redraw();
             }
             _ => {}
