@@ -21,3 +21,6 @@ bytemuck = "1.13"
 
 # Reference to app state so renderer can accept AppState for read-only rendering.
 zaroxi-app = { path = "../zaroxi-app" }
+
+# Theme tokens (semantic colors) are owned by the theme crate; renderer consumes them.
+zaroxi-theme = { path = "../zaroxi-theme" }

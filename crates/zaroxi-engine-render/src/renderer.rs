@@ -18,6 +18,7 @@ use fontdue::Font;
 use std::collections::HashMap;
 
 use zaroxi_app::AppState;
+use zaroxi_theme::Theme;
 
 /// Simple glyph metadata stored in the atlas.
 struct GlyphInfo {
@@ -261,6 +262,8 @@ pub struct Renderer<'a> {
     size: PhysicalSize<u32>,
     clear_color: Color,
     _window_lifetime: PhantomData<&'a Window>,
+    /// Resolved theme tokens supplied by the theme crate (semantic colors).
+    theme: Theme,
 
     // pipelines / bind groups
     text_pipeline: wgpu::RenderPipeline,
@@ -446,6 +449,7 @@ impl<'a> Renderer<'a> {
             font_atlas,
             vertex_buffer,
             index_buffer,
+            theme: Theme::default(),
             index_count: 0,
         })
     }
@@ -491,6 +495,7 @@ impl<'a> Renderer<'a> {
         // Example layout metrics
         let width = self.config.width as f32;
         let height = self.config.height as f32;
+        let theme = &self.theme;
 
         // Build a simple vertex list
         let mut verts: Vec<Vertex> = Vec::new();
@@ -508,22 +513,22 @@ impl<'a> Renderer<'a> {
         };
 
         // Top bar: 48 px height
-        push_colored_quad(0.0, 0.0, width, 48.0, [0.08, 0.09, 0.12, 1.0]);
+        push_colored_quad(0.0, 0.0, width, 48.0, theme.top_bar);
 
         // Left sidebar: 260px width
-        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, [0.09, 0.10, 0.14, 1.0]);
+        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, theme.sidebar_bg);
 
         // Right assistant panel: 320px width
-        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, [0.10, 0.10, 0.14, 1.0]);
+        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, theme.assistant_bg);
 
         // Bottom panel: 200px height anchored above status bar
-        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, [0.08, 0.09, 0.11, 1.0]);
+        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, theme.bottom_panel);
 
         // Editor area: center
-        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, [0.06, 0.07, 0.09, 1.0]);
+        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, theme.editor_bg);
 
         // Bottom status bar: 24 px height
-        push_colored_quad(0.0, height - 24.0, width, 24.0, [0.07, 0.08, 0.10, 1.0]);
+        push_colored_quad(0.0, height - 24.0, width, 24.0, theme.status_bar);
 
         // Text: render a few labels from app_state
 
@@ -533,47 +538,47 @@ impl<'a> Renderer<'a> {
 
         // Title in top bar
         let title = &app_state.config.title;
-        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, [0.9, 0.9, 0.9, 1.0], width, height)?;
+        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, theme.text_primary, width, height)?;
 
         // Tabs header - simple
         let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
-        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, [0.8, 0.8, 0.8, 1.0], width, height)?;
+        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, theme.text_muted, width, height)?;
 
         // Sidebar title
-        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", [0.85, 0.85, 0.85, 1.0], width, height)?;
+        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", theme.text_primary, width, height)?;
 
         // List some workspace items
         for (i, item) in app_state.workspace.items.iter().enumerate() {
             let y = 96.0 + i as f32 * 20.0;
-            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, [0.8, 0.8, 0.8, 1.0], width, height)?;
+            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, theme.text_muted, width, height)?;
         }
 
         // Editor sample: render first few lines of active document
         if let Some(doc) = app_state.editor.active_document().cloned() {
             // render document title in editor header
-            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, [0.95, 0.95, 0.95, 1.0], width, height)?;
+            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, theme.text_primary, width, height)?;
 
             // split lines and render first 20 lines
             for (i, line) in doc.text.lines().take(20).enumerate() {
                 let y = 86.0 + i as f32 * 18.0;
                 // line numbers
                 let ln = format!("{:>3} ", i+1);
-                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, [0.5, 0.5, 0.6, 1.0], width, height)?;
-                self.emit_text(&mut verts, &mut indices, 300.0, y, line, [0.9, 0.9, 0.9, 1.0], width, height)?;
+                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, theme.text_muted, width, height)?;
+                self.emit_text(&mut verts, &mut indices, 300.0, y, line, theme.text_primary, width, height)?;
             }
         }
 
         // Assistant header
-        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", [0.95, 0.95, 0.95, 1.0], width, height)?;
+        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", theme.text_primary, width, height)?;
         // Assistant messages
         for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
             let y = 96.0 + i as f32 * 18.0;
-            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, [0.85, 0.85, 0.85, 1.0], width, height)?;
+            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, theme.text_muted, width, height)?;
         }
 
         // Status bar text
         let status = &app_state.status.message;
-        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, [0.8, 0.8, 0.8, 1.0], width, height)?;
+        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, theme.text_muted, width, height)?;
 
         // Upload vertex/index data
         let vb_bytes = bytemuck::cast_slice(&verts);
