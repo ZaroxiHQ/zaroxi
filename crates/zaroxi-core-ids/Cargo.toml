@@ -3,7 +3,7 @@ name = "zaroxi-core-ids"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Strongly-typed identifiers for Zaroxi Studio"
+description = "Strongly-typed identifiers for Zaroxi Studio (deprecated wrapper)"
 authors = ["Zaroxi Team"]
 repository = "https://github.com/zaroxi/zaroxi"
 readme = "README.md"
@@ -14,9 +14,8 @@ name = "zaroxi_core_ids"
 path = "src/lib.rs"
 
 [dependencies]
-uuid = { workspace = true, features = ["v4", "serde"] }
+zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true }
 
 [features]
 default = []

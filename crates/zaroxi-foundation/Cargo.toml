@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 uuid = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
