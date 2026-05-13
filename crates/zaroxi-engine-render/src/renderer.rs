@@ -10,19 +10,19 @@ use wgpu::{
     util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
     DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
     Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
-    LoadOp, Operations, StoreOp, Origin3d, ImageCopyTexture, ImageDataLayout, Extent3d,
-    TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
+    LoadOp, Operations, StoreOp, Origin3d, Extent3d, TextureDescriptor, TextureDimension, TextureView,
+    SamplerDescriptor,
 };
 
 use fontdue::Font;
 use std::collections::HashMap;
 
 use zaroxi_app::AppState;
-use zaroxi_theme::{SemanticColors as Theme, Color as ThemeColor};
+use zaroxi_theme::{SemanticColors, Color};
 
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &Color) -> [f32; 4] {
-    [c.r, c.g, c.b, c.a]
+    [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
 }
 
 /// Simple rectangle used by the resolved layout.
@@ -425,7 +425,7 @@ impl<'a> Renderer<'a> {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 buffers: &[Vertex::desc()],
-                compilation_options: None,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -435,7 +435,7 @@ impl<'a> Renderer<'a> {
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: None,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -628,8 +628,7 @@ impl<'a> Renderer<'a> {
                                 load: wgpu::LoadOp::Clear(self.clear_color),
                                 store: wgpu::StoreOp::Store,
                             },
-                            // no depth/stencil in this pass
-                            // depth_slice is not used here
+                            depth_slice: None,
                         })],
                         ..Default::default()
                     });
@@ -663,6 +662,7 @@ impl<'a> Renderer<'a> {
                                 load: wgpu::LoadOp::Clear(self.clear_color),
                                 store: wgpu::StoreOp::Store,
                             },
+                            depth_slice: None,
                         })],
                         ..Default::default()
                     });
