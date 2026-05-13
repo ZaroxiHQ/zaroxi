@@ -30,8 +30,8 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             .build(&event_loop)?,
     );
 
-    // Block on async GPU initialization.
-    let mut renderer = pollster::block_on(Renderer::new(window.clone(), config.clear_color))?;
+    // Block on async GPU initialization. Pass a window reference for the surface lifetime.
+    let mut renderer = pollster::block_on(Renderer::new(&*window, config.clear_color))?;
 
     let mut window_state = WindowState::new(window.inner_size());
 
@@ -75,7 +75,7 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                 match renderer.render() {
                     Ok(_) => {
                         // Continuous redraw: schedule another frame.
-                        renderer.request_redraw();
+                        renderer.request_redraw(&*window);
                     }
                     Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
                         log::warn!("Surface lost/outdated, reconfiguring surface.");
