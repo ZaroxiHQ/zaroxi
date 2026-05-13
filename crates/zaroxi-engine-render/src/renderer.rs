@@ -105,9 +105,9 @@ impl<'a> Renderer<'a> {
         info!("Renderer initialized ({}x{})", config.width, config.height);
 
         Ok(Self {
-            instance,
+            _instance: instance,
             surface,
-            adapter,
+            _adapter: adapter,
             device,
             queue,
             config,
