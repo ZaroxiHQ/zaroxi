@@ -66,7 +66,7 @@ impl ApplicationHandler for App {
                 // SAFETY: the Arc is kept in self.window so the pointer remains valid.
                 let window_ref: &'static Window = unsafe { &*(Arc::as_ptr(&win) as *const Window) };
 
-                let app_state = self.app_state.as_ref().expect("app_state missing").clone();
+                let _app_state = self.app_state.as_ref().expect("app_state missing").clone();
 
                 match pollster::block_on(Renderer::new(window_ref, self.clear_color)) {
                     Ok(renderer) => {

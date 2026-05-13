@@ -2,7 +2,6 @@ use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::num::NonZeroU32;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{

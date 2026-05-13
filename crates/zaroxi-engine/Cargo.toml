@@ -10,3 +10,4 @@ zaroxi-engine-runtime = { path = "../zaroxi-engine-runtime" }
 zaroxi-engine-render = { path = "../zaroxi-engine-render" }
 zaroxi-engine-input = { path = "../zaroxi-engine-input" }
 zaroxi-engine-text = { path = "../zaroxi-engine-text" }
+zaroxi-app = { path = "../zaroxi-app" }
