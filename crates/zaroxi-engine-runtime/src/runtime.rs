@@ -8,7 +8,7 @@ use winit::window::{Window, WindowId};
 
 use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
-use zaroxi_engine_render::renderer::Renderer;
+use zaroxi_engine_render::{Renderer, RenderLayout, Rect};
 use zaroxi_app::AppState;
 
 /// Minimal engine application that implements the winit 0.30 ApplicationHandler
@@ -118,7 +118,42 @@ impl ApplicationHandler for App {
                 if let (Some(renderer), Some(app_state)) = (self.renderer.as_mut(), self.app_state.as_ref()) {
                     // Lock app state for reading.
                     let state = app_state.lock().unwrap();
-                    match renderer.render(&*state) {
+                    // Resolve a simple layout model from app_state and window size.
+                    // The app/layout layer owns these rules; runtime here performs a
+                    // minimal mapping to pixel rects for the renderer.
+                    let ws = self.window_state.as_ref().unwrap();
+                    let sz = ws.size;
+                    let width = sz.width as f32;
+                    let height = sz.height as f32;
+
+                    // Layout metrics (tunable by app/layout later)
+                    let title_h = 48.0f32;
+                    let status_h = 24.0f32;
+                    let sidebar_w = 260.0f32;
+                    let right_w = 320.0f32;
+                    let bottom_h = 200.0f32;
+
+                    let title_bar = Rect { x: 0.0, y: 0.0, w: width, h: title_h };
+                    let sidebar = Rect { x: 0.0, y: title_h, w: sidebar_w, h: height - title_h - status_h };
+                    let right_panel = Rect { x: width - right_w, y: title_h, w: right_w, h: height - title_h - status_h };
+                    let bottom_panel = Rect { x: sidebar_w, y: height - status_h - bottom_h, w: width - sidebar_w - right_w, h: bottom_h };
+                    let editor = Rect { x: sidebar_w, y: title_h, w: width - sidebar_w - right_w, h: height - title_h - status_h - bottom_h };
+                    let status_bar = Rect { x: 0.0, y: height - status_h, w: width, h: status_h };
+
+                    // Resolve semantic colors from app state
+                    let sem = state.theme_mode.colors(false);
+
+                    let layout = RenderLayout {
+                        title_bar,
+                        sidebar,
+                        editor,
+                        right_panel,
+                        bottom_panel,
+                        status_bar,
+                        colors: sem,
+                    };
+
+                    match renderer.render_with_layout(&*state, &layout) {
                         Ok(_) => {
                             if self.continuous {
                                 if let Some(win) = &self.window {

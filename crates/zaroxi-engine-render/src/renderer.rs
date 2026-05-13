@@ -21,8 +21,30 @@ use zaroxi_app::AppState;
 use zaroxi_theme::{SemanticColors as Theme, Color as ThemeColor};
 
 /// Helper to convert theme Color -> renderer [f32;4]
-fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
+fn color_to_rgba(c: &Color) -> [f32; 4] {
     [c.r, c.g, c.b, c.a]
+}
+
+/// Simple rectangle used by the resolved layout.
+#[derive(Debug, Clone, Copy)]
+pub struct Rect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// Resolved layout passed into the renderer. Layout is owned by the app
+/// / layout layer; the renderer simply consumes it.
+#[derive(Debug, Clone)]
+pub struct RenderLayout {
+    pub title_bar: Rect,
+    pub sidebar: Rect,
+    pub editor: Rect,
+    pub right_panel: Rect,
+    pub bottom_panel: Rect,
+    pub status_bar: Rect,
+    pub colors: SemanticColors,
 }
 
 /// Simple glyph metadata stored in the atlas.
@@ -501,21 +523,21 @@ impl<'a> Renderer<'a> {
         window.request_redraw();
     }
 
-    /// Render a single frame using the provided AppState as the source of truth.
-    pub fn render(&mut self, app_state: &AppState) -> Result<(), RenderError> {
+    /// Render a single frame using the provided resolved layout and AppState.
+    ///
+    /// Important: layout (panel geometry + resolved colors) is owned by the
+    /// application/layout layer. The renderer only draws the provided layout.
+    pub fn render_with_layout(&mut self, app_state: &AppState, layout: &RenderLayout) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
         // Build draw lists from app_state into vertex/index buffers.
-        // For simplicity we only render textual labels and simple colored quads
-        // representing panels. Text is rendered via the glyph atlas.
-
-        // Example layout metrics
+        // The renderer consumes the resolved layout (rects + colors).
         let width = self.config.width as f32;
         let height = self.config.height as f32;
-        // Resolve semantic colors from app state theme mode
-        let sem = app_state.theme_mode.colors(false);
+        // Use colors supplied by the resolved layout (owned by app/layout).
+        let sem = &layout.colors;
 
         // Build a simple vertex list
         let mut verts: Vec<Vertex> = Vec::new();
@@ -532,24 +554,13 @@ impl<'a> Renderer<'a> {
             indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
         };
 
-        // Top bar: 48 px height
-        push_colored_quad(0.0, 0.0, width, 48.0, color_to_rgba(&sem.title_bar_background));
-
-        // Left sidebar: 260px width
-        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, color_to_rgba(&sem.sidebar_background));
-
-        // Right assistant panel: 320px width
-        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, color_to_rgba(&sem.assistant_panel_background));
-
-        // Bottom panel: 200px height anchored above status bar
-        // Use elevated panel background for bottom area to give subtle separation.
-        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, color_to_rgba(&sem.elevated_panel_background));
-
-        // Editor area: center
-        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, color_to_rgba(&sem.editor_background));
-
-        // Bottom status bar: 24 px height
-        push_colored_quad(0.0, height - 24.0, width, 24.0, color_to_rgba(&sem.status_bar_background));
+        // Use the resolved layout rects supplied by the app/layout layer.
+        push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, color_to_rgba(&sem.title_bar_background));
+        push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, color_to_rgba(&sem.sidebar_background));
+        push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, color_to_rgba(&sem.assistant_panel_background));
+        push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, color_to_rgba(&sem.elevated_panel_background));
+        push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, color_to_rgba(&sem.editor_background));
+        push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, color_to_rgba(&sem.status_bar_background));
 
         // Text: render a few labels from app_state
 
