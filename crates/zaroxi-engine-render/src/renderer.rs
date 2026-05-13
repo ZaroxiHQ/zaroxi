@@ -149,11 +149,11 @@ impl<'a> Renderer<'a> {
     /// For v1 we return our crate RenderError on failure so the runtime
     /// can decide how to react without depending on wgpu's exact error type.
     pub fn render(&mut self) -> Result<(), RenderError> {
-        // Acquire the current surface texture (returns a CurrentSurfaceTexture in this wgpu build).
+        // Acquire the current surface texture (returns a SurfaceTexture-like handle).
         let surface_texture = self.surface.get_current_texture();
 
         // Create a texture view for the render pass.
-        let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
+        let view = surface_texture.texture().create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("clear-encoder"),
@@ -179,8 +179,8 @@ impl<'a> Renderer<'a> {
 
         self.queue.submit(Some(encoder.finish()));
 
-        // Present the frame.
-        surface_texture.present();
+        // Present the frame by dropping the surface texture (present occurs on drop in this wgpu build).
+        drop(surface_texture);
 
         Ok(())
     }
