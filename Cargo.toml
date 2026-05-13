@@ -19,6 +19,13 @@ members = [
   "crates/zaroxi-service-workspace",
   "crates/zaroxi-theme",
 
+  # Engine crates (new)
+  "crates/zaroxi-engine",
+  "crates/zaroxi-engine-runtime",
+  "crates/zaroxi-engine-render",
+  "crates/zaroxi-engine-input",
+  "crates/zaroxi-engine-text",
+
   # Application binaries
   "apps/desktop/src-tauri",
   "apps/ai-daemon",
@@ -80,3 +87,10 @@ zaroxi-service-ai = { path = "crates/zaroxi-service-ai" }
 zaroxi-service-workspace = { path = "crates/zaroxi-service-workspace" }
 zaroxi-lang-lsp = { path = "crates/zaroxi-lang-lsp" }
 zaroxi-core-ids = { path = "crates/zaroxi-core-ids" }
+
+# New workspace crate entries (engine)
+zaroxi-engine = { path = "crates/zaroxi-engine" }
+zaroxi-engine-runtime = { path = "crates/zaroxi-engine-runtime" }
+zaroxi-engine-render = { path = "crates/zaroxi-engine-render" }
+zaroxi-engine-input = { path = "crates/zaroxi-engine-input" }
+zaroxi-engine-text = { path = "crates/zaroxi-engine-text" }
