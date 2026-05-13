@@ -18,7 +18,7 @@ use fontdue::Font;
 use std::collections::HashMap;
 
 use zaroxi_app::AppState;
-use zaroxi_theme::Theme;
+use zaroxi_theme::SemanticColors as Theme;
 
 /// Simple glyph metadata stored in the atlas.
 struct GlyphInfo {
@@ -55,7 +55,7 @@ impl FontAtlas {
 
         // fontdue::Font::from_bytes returns a Font in the versions we depend on.
         // If this returns a Result in future versions, handle it similarly.
-        let font = Font::from_bytes(font_data, fontdue::FontSettings::default());
+        let font = Font::from_bytes(&font_data, fontdue::FontSettings::default());
 
         // Rasterize ASCII range 32..=126
         let padding = 2;
@@ -165,7 +165,7 @@ impl FontAtlas {
             &atlas_buf,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(NonZeroU32::new(atlas_w).ok_or_else(|| RenderError::Other("invalid atlas width".to_string()))?),
+                bytes_per_row: NonZeroU32::new(atlas_w),
                 rows_per_image: None,
             },
             atlas_size,
