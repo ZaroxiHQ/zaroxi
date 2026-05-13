@@ -7,7 +7,6 @@ use zaroxi_config::AppConfig;
 use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
 use zaroxi_workspace::{WorkspaceState, WorkspaceItem};
-use zaroxi_foundation::DocumentId;
 
 /// Top-level app state assembled from domain parts.
 ///

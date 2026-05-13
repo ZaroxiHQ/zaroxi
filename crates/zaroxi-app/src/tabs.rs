@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use zaroxi_foundation::DocumentId;
+use zaroxi_editor_buffer::Document;
 
 /// Tab representing an open document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +21,7 @@ impl TabState {
         Self { tabs: Vec::new(), active: None }
     }
 
-    pub fn open_tab_for_document(&mut self, doc: &crate::crate::zaroxi_editor_buffer::Document) {
+    pub fn open_tab_for_document(&mut self, doc: &Document) {
         // avoid duplicate tabs for the same document
         if self.tabs.iter().any(|t| t.doc_id == doc.id) {
             self.activate_by_doc_id(doc.id);
