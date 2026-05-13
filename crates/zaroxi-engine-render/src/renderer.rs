@@ -44,7 +44,7 @@ impl<'a> Renderer<'a> {
         });
 
         // SAFETY: winit guarantees the window handle is valid while the Window is alive.
-        let surface = unsafe { instance.create_surface(window) }
+        let surface = instance.create_surface(window)
             .map_err(|e| RenderError::Other(format!("Failed to create surface: {:?}", e)))?;
 
         // Request an adapter compatible with the surface.
@@ -149,19 +149,8 @@ impl<'a> Renderer<'a> {
     /// For v1 we return our crate RenderError on failure so the runtime
     /// can decide how to react without depending on wgpu's exact error type.
     pub fn render(&mut self) -> Result<(), RenderError> {
-        // Acquire the next surface texture. Map any surface error into our RenderError.
-        // Acquire the current surface texture (returns Result in current API).
-        // Acquire the current surface texture and convert any surface error
-        // into our crate-level RenderError.
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(e) => {
-                return Err(RenderError::Other(format!(
-                    "get_current_texture failed: {:?}",
-                    e
-                )))
-            }
-        };
+        // Acquire the current surface texture (returns a CurrentSurfaceTexture in this wgpu build).
+        let surface_texture = self.surface.get_current_texture();
 
         // Create a texture view for the render pass.
         let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
