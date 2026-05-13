@@ -33,6 +33,11 @@ impl Default for EngineConfig {
 /// Run the engine with the provided configuration.
 /// This is the public entrypoint used by apps/desktop.
 pub fn run(config: EngineConfig) -> Result<()> {
-    // Delegate to the runtime which owns the event loop.
-    zaroxi_engine_runtime::run(config)
+    // Forward primitive fields to the runtime to avoid a cyclic dependency.
+    zaroxi_engine_runtime::run(
+        config.title,
+        config.width,
+        config.height,
+        config.clear_color,
+    )
 }

@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-winit = "0.29"
+winit = { workspace = true }
 pollster = "0.3"
 log = "0.4"
 env_logger = "0.11"

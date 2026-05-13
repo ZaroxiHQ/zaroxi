@@ -15,24 +15,24 @@ use zaroxi_engine_render::renderer::Renderer;
 /// Start the engine runtime: create a window, initialize the renderer, and run the winit event loop.
 ///
 /// This function blocks the current thread and returns when the window closes.
-pub fn run(config: crate::super::EngineConfig) -> Result<()> {
+pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Result<()> {
     // Initialize logging for the desktop binary path (safe to call multiple times).
     let _ = env_logger::try_init();
 
-    info!("Starting runtime with title '{}'", config.title);
+    info!("Starting runtime with title '{}'", title);
 
     let event_loop = EventLoop::new();
     // Build the window and wrap it in an Arc so we can keep ownership locally while
     // passing a temporary borrow to the renderer (which ties its surface lifetime).
     let window = Arc::new(
         WindowBuilder::new()
-            .with_title(config.title)
-            .with_inner_size(PhysicalSize::new(config.width, config.height))
+            .with_title(title)
+            .with_inner_size(PhysicalSize::new(width, height))
             .build(&event_loop)?,
     );
 
     // Block on async GPU initialization. Pass a window borrow for the renderer lifetime.
-    let mut renderer = pollster::block_on(Renderer::new(&*window, config.clear_color))?;
+    let mut renderer = pollster::block_on(Renderer::new(&*window, clear_color))?;
 
     let mut window_state = WindowState::new(window.inner_size());
 
