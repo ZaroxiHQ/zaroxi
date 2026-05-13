@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 thiserror = "2"
-wgpu = "0.29.3"
+wgpu = "29.0.3"
 winit = "0.29"
 pollster = "0.3"
 log = "0.4"
