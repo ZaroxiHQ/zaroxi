@@ -149,41 +149,18 @@ impl<'a> Renderer<'a> {
     /// For v1 we return our crate RenderError on failure so the runtime
     /// can decide how to react without depending on wgpu's exact error type.
     pub fn render(&mut self) -> Result<(), RenderError> {
-        // Acquire the current surface texture (returns a SurfaceTexture-like handle).
-        // Some wgpu builds expose different SurfaceTexture APIs. To avoid fragile
-        // access to private fields across versions, present the acquired surface
-        // texture by dropping it and skip a render pass for now. This keeps the
-        // scaffold compiling and the window responsive; we'll add a proper clear
-        // pass once we standardize on the concrete SurfaceTexture API.
-        let surface_texture = self.surface.get_current_texture();
-        drop(surface_texture);
-
-        // Nothing to draw in this early scaffold; return success.
-        return Ok(());
-
-        {
-            // Begin a simple render pass that clears the frame.
-            let _rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("clear-pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(self.clear_color),
-                        store: StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-        } // rpass dropped here
-
-        self.queue.submit(Some(encoder.finish()));
-
-        // Present the frame by dropping the surface texture (present occurs on drop in this wgpu build).
-        drop(surface_texture);
-
-        Ok(())
+        // Try to acquire the next surface texture. On success, drop it immediately
+        // (no drawing performed in this scaffold). On error, map into RenderError
+        // so the runtime can decide whether to reconfigure, retry, or exit.
+        match self.surface.get_current_texture() {
+            Ok(surface_texture) => {
+                drop(surface_texture);
+                Ok(())
+            }
+            Err(e) => Err(RenderError::Other(format!(
+                "failed to acquire surface texture: {:?}",
+                e
+            ))),
+        }
     }
 }
