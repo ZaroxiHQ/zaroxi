@@ -31,8 +31,8 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             .build(&event_loop)?,
     );
 
-    // Block on async GPU initialization. Pass a borrow of the Arc's window for the renderer lifetime.
-    let mut renderer = pollster::block_on(Renderer::new(&*window, config.clear_color))?;
+    // Block on async GPU initialization. Pass the Arc<Window> so the renderer can own it.
+    let mut renderer = pollster::block_on(Renderer::new(window.clone(), config.clear_color))?;
 
     let mut window_state = WindowState::new(window.inner_size());
 
@@ -76,7 +76,7 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                 match renderer.render() {
                     Ok(_) => {
                         // Continuous redraw: request another frame.
-                        renderer.request_redraw(&*window);
+                        renderer.request_redraw();
                     }
                     Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
                         log::warn!("Surface lost/outdated, reconfiguring surface.");
@@ -95,7 +95,7 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             }
             Event::MainEventsCleared => {
                 // Trigger redraws at will for v1 (continuous redraw).
-                renderer.request_redraw(&*window);
+                renderer.request_redraw();
             }
             _ => {}
         }

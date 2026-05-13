@@ -1,21 +1,21 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use std::marker::PhantomData;
+use std::sync::Arc;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
     TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations,
-    StoreOp, SurfaceTexture, SurfaceError,
+    StoreOp,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// This implementation targets wgpu 29.0.3 and ties the surface lifetime to
-/// the provided Window reference. The runtime should pass a `&Window` that
-/// outlives the renderer instance.
-pub struct Renderer<'a> {
+/// This implementation targets wgpu 29.0.3 and owns an Arc<Window> while
+/// retaining a single persistent Surface created from that Window.
+/// This provides a stable long-term ownership model suitable for a desktop engine.
+pub struct Renderer {
     instance: Instance,
     surface: Surface,
     adapter: wgpu::Adapter,
@@ -24,13 +24,14 @@ pub struct Renderer<'a> {
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
-    _window_lifetime: PhantomData<&'a Window>,
+    window: Arc<Window>,
 }
 
-impl<'a> Renderer<'a> {
-    /// Create a new renderer. `window` must outlive the returned Renderer.
-    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
-        // Build an instance for desktop backends.
+impl Renderer {
+    /// Create a new renderer. `window` is stored as Arc to ensure the surface
+    /// remains valid for the lifetime of the renderer.
+    pub async fn new(window: Arc<Window>, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+        // Build instance
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -39,24 +40,22 @@ impl<'a> Renderer<'a> {
             display: None,
         });
 
-        // Create surface tied to `window`.
+        // Create surface once from the Arc<Window>.
         let surface = instance
-            .create_surface(window)
+            .create_surface(&*window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
         // Request an adapter compatible with the surface.
-        let adapter_opt = instance.request_adapter(&RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }).await;
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
 
-        let adapter = match adapter_opt {
-            Some(a) => a,
-            None => return Err(RenderError::Other("No compatible GPU adapter found".to_string())),
-        };
-
-        // Device/queue
+        // Device and queue
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
@@ -114,7 +113,7 @@ impl<'a> Renderer<'a> {
                 b: clear_color[2],
                 a: clear_color[3],
             },
-            _window_lifetime: PhantomData,
+            window,
         })
     }
 
@@ -137,29 +136,24 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    /// Request a redraw via the provided window reference.
-    pub fn request_redraw(&self, window: &Window) {
-        window.request_redraw();
+    /// Request redraw via the owned Arc<Window>.
+    pub fn request_redraw(&self) {
+        self.window.request_redraw();
     }
 
-    /// Render a single clear-pass frame.
-    ///
-    /// Returns wgpu SurfaceError so the runtime can handle it specifically.
+    /// Render a single clear-pass frame. Propagates wgpu SurfaceError to caller.
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
-        // Acquire the next frame; propagate SurfaceError.
-        let frame: SurfaceTexture = match self.surface.get_current_texture() {
-            Ok(f) => f,
-            Err(e) => return Err(e),
-        };
+        // Acquire the next surface texture (propagate error).
+        let frame = self.surface.get_current_texture()?;
 
-        // Create a texture view for the frame.
+        // Create view
         let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        // Encode a clear pass.
+        // Encoder + render pass
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("zaroxi-clear-encoder"),
         });
@@ -174,13 +168,13 @@ impl<'a> Renderer<'a> {
                         load: LoadOp::Clear(self.clear_color),
                         store: StoreOp::Store,
                     },
-                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
         }
 
+        // Submit and present
         self.queue.submit(Some(encoder.finish()));
         frame.present();
 
