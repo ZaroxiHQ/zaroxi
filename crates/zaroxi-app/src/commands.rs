@@ -1,5 +1,6 @@
 use crate::panels::BottomPanel;
 use zaroxi_foundation::DocumentId;
+use zaroxi_theme::ZaroxiTheme;
 
 /// High-level application commands used by UI and runtime.
 ///
@@ -32,4 +33,7 @@ pub enum AppCommand {
 
     // Status
     SetStatusMessage { message: String },
+
+    // Settings / Theme
+    SetThemeMode { mode: ZaroxiTheme },
 }

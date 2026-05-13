@@ -7,6 +7,7 @@ use zaroxi_config::AppConfig;
 use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
 use zaroxi_workspace::{WorkspaceState, WorkspaceItem};
+use zaroxi_theme::ZaroxiTheme;
 
 /// Top-level app state assembled from domain parts.
 ///
@@ -22,8 +23,8 @@ pub struct AppState {
     pub assistant: AssistantState,
     pub panels: BottomPanelState,
     pub tabs: TabState,
-    /// Simple theme placeholder (e.g., "dark" / "light").
-    pub theme: String,
+    /// User-selected theme mode (Light/Dark/System).
+    pub theme_mode: ZaroxiTheme,
 }
 
 impl AppState {
@@ -57,7 +58,7 @@ impl AppState {
             assistant,
             panels,
             tabs,
-            theme: "dark".to_string(),
+            theme_mode: ZaroxiTheme::Dark,
         }
     }
 
@@ -169,6 +170,11 @@ impl AppState {
 
             AppCommand::SetStatusMessage { message } => {
                 self.status.message = message;
+            }
+
+            AppCommand::SetThemeMode { mode } => {
+                self.theme_mode = mode;
+                self.status.message = format!("Theme set to {:?}", mode);
             }
         }
     }
