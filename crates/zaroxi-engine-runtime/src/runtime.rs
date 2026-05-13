@@ -92,8 +92,8 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                 // Trigger redraws at will for v1 (continuous redraw).
                 // In the future we can switch to event-driven and dirty regions.
                 // Request a redraw of the main window.
-                // Using window.request_redraw requires the Window; we can safely acquire it from renderer.
-                renderer.request_redraw();
+                // Using window.request_redraw requires the Window; pass the Window reference here.
+                renderer.request_redraw(&window);
             }
             _ => {}
         }
