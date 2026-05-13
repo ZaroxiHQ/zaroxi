@@ -434,7 +434,10 @@ impl<'a> Renderer<'a> {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState::default(),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             // wgpu 29 uses multiview_mask & cache fields
@@ -652,11 +655,22 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
+                    // Ensure pipeline and buffers are bound
                     rpass.set_pipeline(&self.text_pipeline);
                     rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+
+                    // Debug: choose non-indexed draw for the visibility test.
+                    if verts.len() > 0 && indices.is_empty() {
+                        // Log debug draw
+                        info!("issuing debug non-indexed draw: verts={}", verts.len());
+                        // Draw vertices directly (no indices). Each vertex is a triangle list vertex.
+                        rpass.draw(0..(verts.len() as u32), 0..1);
+                    } else {
+                        // Normal path: indexed draw
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                    }
                 }
 
                 self.queue.submit(Some(encoder.finish()));
