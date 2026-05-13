@@ -18,3 +18,6 @@ fontdue = "0.7"
 
 # bytemuck for safe pod casts for vertex buffers
 bytemuck = "1.13"
+
+# Reference to app state so renderer can accept AppState for read-only rendering.
+zaroxi-app = { path = "../zaroxi-app" }

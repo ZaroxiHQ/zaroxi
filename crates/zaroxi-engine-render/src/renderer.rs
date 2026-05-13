@@ -3,13 +3,15 @@ use log::{debug, info};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::num::NonZeroU32;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
     util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
     DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
     Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color, LoadOp, Operations,
-    StoreOp, CurrentSurfaceTexture, TextureDescriptor, Extent3d, TextureDimension, TextureView,
+    StoreOp, SurfaceError, Origin3d, TextureDescriptor, Extent3d, TextureDimension, TextureView, Sampler,
+    SamplerDescriptor,
 };
 
 use fontdue::Font;
@@ -50,6 +52,8 @@ impl FontAtlas {
         let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
         let font_data = std::fs::read(&font_path).map_err(|e| RenderError::Other(format!("failed to read font: {:?}", e)))?;
 
+        // fontdue::Font::from_bytes returns a Font in the versions we depend on.
+        // If this returns a Result in future versions, handle it similarly.
         let font = Font::from_bytes(font_data, fontdue::FontSettings::default());
 
         // Rasterize ASCII range 32..=126
@@ -85,7 +89,7 @@ impl FontAtlas {
             atlas_h = atlas_h.max(y + row_h + padding);
         }
 
-        // Create atlas RGBA8 texture
+        // Create atlas R8 texture
         let atlas_size = Extent3d {
             width: atlas_w,
             height: atlas_h,
@@ -154,13 +158,13 @@ impl FontAtlas {
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &atlas_buf,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(std::num::NonZeroU32::new(atlas_w).unwrap()),
+                bytes_per_row: Some(NonZeroU32::new(atlas_w).ok_or_else(|| RenderError::Other("invalid atlas width".to_string()))?),
                 rows_per_image: None,
             },
             atlas_size,
@@ -168,13 +172,29 @@ impl FontAtlas {
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Create a simple sampler for the atlas
+        let sampler = device.create_sampler(&SamplerDescriptor {
+            label: Some("font-atlas-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&texture_view),
-                }
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
             label: Some("font-atlas-bind-group"),
         });
@@ -325,7 +345,7 @@ impl<'a> Renderer<'a> {
 
         surface.configure(&device, &config);
 
-        // Create bind group layout for font atlas (simple texture)
+        // Create bind group layout for font atlas (texture + sampler)
         let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 // sampled texture (R8)
@@ -337,6 +357,13 @@ impl<'a> Renderer<'a> {
                         view_dimension: wgpu::TextureViewDimension::D2,
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     },
+                    count: None,
+                },
+                // sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
