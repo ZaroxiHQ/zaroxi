@@ -94,7 +94,7 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             }
             Event::MainEventsCleared => {
                 // Trigger redraws at will for v1 (continuous redraw).
-                renderer.request_redraw();
+                renderer.request_redraw(&*window);
             }
             _ => {}
         }
