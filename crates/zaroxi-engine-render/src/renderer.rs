@@ -152,10 +152,9 @@ impl<'a> Renderer<'a> {
         // Acquire the current surface texture (returns a SurfaceTexture-like handle).
         let surface_texture = self.surface.get_current_texture();
 
-        // Create a texture view for the render pass. Some wgpu backends expose
-        // a direct `create_view` on the surface texture wrapper; use that here
-        // to remain compatible with the 0.29 surface abstraction.
-        let view = surface_texture.create_view(&TextureViewDescriptor::default());
+        // Create a texture view for the render pass by using the inner texture's create_view.
+        // The SurfaceTexture wrapper exposes the inner texture as `.texture` in this wgpu build.
+        let view = surface_texture.texture.create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("clear-encoder"),
