@@ -1,17 +1,20 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use std::num::NonZeroU32;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
-    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
+    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Dx12Compiler, Features, Instance,
     InstanceDescriptor, Limits, LoadOp, Operations, PresentMode, RequestAdapterOptions,
     RenderPassColorAttachment, RenderPassDescriptor, Surface, SurfaceConfiguration, StoreOp,
     TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue,
 };
 
 /// GPU renderer owning the device, queue, and surface.
-pub struct Renderer {
+///
+/// The surface is tied to the window lifetime; the renderer therefore
+/// carries the same lifetime parameter. The runtime creates the renderer
+/// with the window reference that outlives the renderer for v1.
+pub struct Renderer<'a> {
     instance: Instance,
     surface: Surface,
     device: Device,
@@ -19,15 +22,19 @@ pub struct Renderer {
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
+    // Note: we intentionally do NOT store Window in the renderer to avoid
+    // clone/ownership problems. Requesting redraws uses a Window reference
+    // passed from the runtime.
+    _marker: std::marker::PhantomData<&'a Window>,
 }
 
-impl Renderer {
+impl<'a> Renderer<'a> {
     /// Initialize the GPU renderer asynchronously.
-    pub async fn new(window: &Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
         // Create instance with all native backends enabled.
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
-            ..Default::default()
+            dx12_shader_compiler: Dx12Compiler::Fxc,
         });
 
         // SAFETY: winit guarantees the window handle is valid while the Window is alive.
@@ -52,9 +59,8 @@ impl Renderer {
             .request_device(
                 &DeviceDescriptor {
                     label: Some("zaroxi-engine-device"),
-                    required_features: required_features,
-                    required_limits: required_limits,
-                    ..Default::default()
+                    required_features,
+                    required_limits,
                 },
                 None,
             )
@@ -81,7 +87,7 @@ impl Renderer {
             present_mode: PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: None,
+            desired_maximum_frame_latency: 0u32,
         };
 
         surface.configure(&device, &config);
@@ -101,6 +107,7 @@ impl Renderer {
                 b: clear_color[2],
                 a: clear_color[3],
             },
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -132,7 +139,9 @@ impl Renderer {
 
     /// Perform a single clear-pass render. Returns SurfaceError for caller handling.
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+        // CurrentSurfaceTexture is returned by get_current_texture() in this wgpu version.
+        // Assign directly and operate on it.
+        let output = self.surface.get_current_texture();
         let view = output.texture.create_view(&TextureViewDescriptor::default());
 
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {

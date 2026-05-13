@@ -1,4 +1,4 @@
-use winit::event::{ElementState, KeyboardInput, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 
 /// A very small normalization layer for input events.
 /// This is intentionally minimal for v1 to provide a stable seam
@@ -31,7 +31,9 @@ impl Event {
     /// Returns None for events we don't normalize yet.
     pub fn from_winit(ev: &WindowEvent) -> Option<Event> {
         match ev {
-            WindowEvent::KeyboardInput { input, .. } => {
+            // WindowEvent::KeyboardInput is a tuple-variant in current winit.
+            // Match and extract the KeyboardInput value directly.
+            WindowEvent::KeyboardInput(input) => {
                 let sc = input.scancode;
                 Some(Event::Key {
                     scancode: sc,
