@@ -1,5 +1,5 @@
 use crate::error::RenderError;
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::marker::PhantomData;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -7,7 +7,7 @@ use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
     TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
-    CurrentSurfaceTexture, SurfaceTexture,
+    CurrentSurfaceTexture,
 };
 
 /// GPU renderer owning the device, queue, and surface.
@@ -245,8 +245,9 @@ impl<'a> Renderer<'a> {
             }
 
             // Validation/fatal
-            CurrentSurfaceTexture::Validation(err) => {
-                Err(RenderError::SurfaceValidation(format!("{:?}", err)))
+            CurrentSurfaceTexture::Validation => {
+                debug!("Surface validation variant encountered");
+                Err(RenderError::SurfaceValidation("validation error".to_string()))
             }
         }
     }
