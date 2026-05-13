@@ -2,16 +2,14 @@ use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::num::NonZeroU32;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
-    util::DeviceExt, Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device,
-    DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions,
-    Surface, SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
-    LoadOp, Operations, StoreOp, Origin3d, Extent3d, TextureDescriptor, TextureDimension, TextureView,
-    SamplerDescriptor,
+    Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device, DeviceDescriptor,
+    Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color, LoadOp, Operations,
+    StoreOp, Extent3d, TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
 };
 
 use fontdue::Font;
@@ -195,8 +193,8 @@ impl FontAtlas {
             &atlas_buf,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(atlas_w),
-                rows_per_image: None,
+                bytes_per_row: Some(atlas_w),
+                rows_per_image: Some(atlas_h),
             },
             atlas_size,
         );
@@ -553,8 +551,6 @@ impl<'a> Renderer<'a> {
         // Text: render a few labels from app_state
 
         // Helper to emit glyphs for a given string at (x,y) in pixels (top-left origin).
-        let mut cursor_y = 12.0;
-        let origin_y = 0.0;
 
         // Title in top bar
         let title = &app_state.config.title;
