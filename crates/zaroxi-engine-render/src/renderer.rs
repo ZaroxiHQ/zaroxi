@@ -6,15 +6,14 @@ use winit::window::Window;
 use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
+    SurfaceError, SurfaceTexture, TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue,
+    LoadOp, Operations, StoreOp,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// Implemented for wgpu = 29.0.3 and designed to avoid lifetime problems by
-/// owning an Arc<Window> if the runtime prefers. The runtime in this repo
-/// constructs the renderer with an Arc<Window> and therefore this renderer
-/// also provides a simple request_redraw() method that uses the stored Arc.
+/// Clear, concise implementation for wgpu = 29.0.3 that owns an Arc<Window>
+/// so the surface lifetime is stable and the runtime can always request redraws.
 pub struct Renderer {
     instance: Instance,
     surface: Surface,
@@ -28,9 +27,9 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Initialize the renderer. Accepts an Arc<Window> to keep the window alive
-    /// for the surface lifetime without tying the renderer to a borrow.
+    /// Initialize the GPU renderer.
     pub async fn new(window: Arc<Window>, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+        // Create instance with desktop backends.
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -39,10 +38,12 @@ impl Renderer {
             display: None,
         });
 
+        // Create surface for the window
         let surface = instance
             .create_surface(&*window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
+        // Select adapter compatible with the surface
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -55,6 +56,7 @@ impl Renderer {
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
+        // Request device and queue
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
@@ -68,6 +70,7 @@ impl Renderer {
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
+        // Surface configuration
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
 
@@ -112,7 +115,7 @@ impl Renderer {
         })
     }
 
-    /// Resize and reconfigure the surface.
+    /// Handle resize.
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) -> Result<(), RenderError> {
         if new_size.width == 0 || new_size.height == 0 {
             return Ok(());
@@ -125,31 +128,35 @@ impl Renderer {
         Ok(())
     }
 
-    /// Reconfigure on Lost/Outdated.
+    /// Reconfigure surface after Lost/Outdated.
     pub fn reconfigure(&mut self) -> Result<(), RenderError> {
         self.surface.configure(&self.device, &self.config);
         Ok(())
     }
 
-    /// Request a redraw using the owned window.
+    /// Request redraw via the owned window.
     pub fn request_redraw(&self) {
         self.window.request_redraw();
     }
 
-    /// Render a single clear pass. Propagates wgpu::SurfaceError to caller.
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Render a single clear-pass frame. Returns SurfaceError so the caller can handle it.
+    pub fn render(&mut self) -> Result<(), SurfaceError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
-        let frame = self.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        // Acquire the next frame; propagate SurfaceError.
+        let frame: SurfaceTexture = self.surface.get_current_texture()?;
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("zaroxi-clear-encoder"),
-            });
+        // Create view
+        let view = frame
+            .texture
+            .create_view(&TextureViewDescriptor::default());
+
+        // Encoder + render pass
+        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("clear-encoder"),
+        });
 
         {
             let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -167,6 +174,7 @@ impl Renderer {
             });
         }
 
+        // Submit and present
         self.queue.submit(Some(encoder.finish()));
         frame.present();
 
