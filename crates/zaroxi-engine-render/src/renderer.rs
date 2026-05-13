@@ -1,20 +1,21 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use std::sync::Arc;
+use std::marker::PhantomData;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    SurfaceError, SurfaceTexture, TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue,
-    LoadOp, Operations, StoreOp,
+    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations,
+    StoreOp, SurfaceTexture, SurfaceError,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// Clear, concise implementation for wgpu = 29.0.3 that owns an Arc<Window>
-/// so the surface lifetime is stable and the runtime can always request redraws.
-pub struct Renderer {
+/// This implementation targets wgpu 29.0.3 and ties the surface lifetime to
+/// the provided Window reference. The runtime should pass a `&Window` that
+/// outlives the renderer instance.
+pub struct Renderer<'a> {
     instance: Instance,
     surface: Surface,
     adapter: wgpu::Adapter,
@@ -23,13 +24,13 @@ pub struct Renderer {
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
-    window: Arc<Window>,
+    _window_lifetime: PhantomData<&'a Window>,
 }
 
-impl Renderer {
-    /// Initialize the GPU renderer.
-    pub async fn new(window: Arc<Window>, clear_color: [f64; 4]) -> Result<Self, RenderError> {
-        // Create instance with desktop backends.
+impl<'a> Renderer<'a> {
+    /// Create a new renderer. `window` must outlive the returned Renderer.
+    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+        // Build an instance for desktop backends.
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -38,25 +39,27 @@ impl Renderer {
             display: None,
         });
 
-        // Create surface for the window
+        // Create surface tied to `window`.
         let surface = instance
-            .create_surface(&*window)
+            .create_surface(window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
-        // Select adapter compatible with the surface
-        let adapter = instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
+        // Request an adapter compatible with the surface.
+        let adapter_opt = instance.request_adapter(&RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }).await;
 
+        let adapter = match adapter_opt {
+            Some(a) => a,
+            None => return Err(RenderError::Other("No compatible GPU adapter found".to_string())),
+        };
+
+        // Device/queue
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
-        // Request device and queue
         let (device, queue) = adapter
             .request_device(
                 &DeviceDescriptor {
@@ -111,11 +114,11 @@ impl Renderer {
                 b: clear_color[2],
                 a: clear_color[3],
             },
-            window,
+            _window_lifetime: PhantomData,
         })
     }
 
-    /// Handle resize.
+    /// Resize and reconfigure the surface.
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) -> Result<(), RenderError> {
         if new_size.width == 0 || new_size.height == 0 {
             return Ok(());
@@ -134,28 +137,31 @@ impl Renderer {
         Ok(())
     }
 
-    /// Request redraw via the owned window.
-    pub fn request_redraw(&self) {
-        self.window.request_redraw();
+    /// Request a redraw via the provided window reference.
+    pub fn request_redraw(&self, window: &Window) {
+        window.request_redraw();
     }
 
-    /// Render a single clear-pass frame. Returns SurfaceError so the caller can handle it.
-    pub fn render(&mut self) -> Result<(), SurfaceError> {
+    /// Render a single clear-pass frame.
+    ///
+    /// Returns wgpu SurfaceError so the runtime can handle it specifically.
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
         // Acquire the next frame; propagate SurfaceError.
-        let frame: SurfaceTexture = self.surface.get_current_texture()?;
+        let frame: SurfaceTexture = match self.surface.get_current_texture() {
+            Ok(f) => f,
+            Err(e) => return Err(e),
+        };
 
-        // Create view
-        let view = frame
-            .texture
-            .create_view(&TextureViewDescriptor::default());
+        // Create a texture view for the frame.
+        let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        // Encoder + render pass
+        // Encode a clear pass.
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("clear-encoder"),
+            label: Some("zaroxi-clear-encoder"),
         });
 
         {
@@ -168,13 +174,13 @@ impl Renderer {
                         load: LoadOp::Clear(self.clear_color),
                         store: StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
         }
 
-        // Submit and present
         self.queue.submit(Some(encoder.finish()));
         frame.present();
 

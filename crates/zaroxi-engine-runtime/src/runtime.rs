@@ -22,7 +22,8 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
     info!("Starting runtime with title '{}'", config.title);
 
     let event_loop = EventLoop::new();
-    // Build the window and wrap it in an Arc so the renderer can own a handle safely.
+    // Build the window and wrap it in an Arc so we can keep ownership locally while
+    // passing a temporary borrow to the renderer (which ties its surface lifetime).
     let window = Arc::new(
         WindowBuilder::new()
             .with_title(config.title)
@@ -30,8 +31,8 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             .build(&event_loop)?,
     );
 
-    // Block on async GPU initialization. Pass an Arc<Window> so the renderer can own it.
-    let mut renderer = pollster::block_on(Renderer::new(window.clone(), config.clear_color))?;
+    // Block on async GPU initialization. Pass a borrow of the Arc's window for the renderer lifetime.
+    let mut renderer = pollster::block_on(Renderer::new(&*window, config.clear_color))?;
 
     let mut window_state = WindowState::new(window.inner_size());
 
@@ -71,11 +72,11 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
                 }
             },
             Event::RedrawRequested(window_id) => {
-                // Only render for our single window (safe for v1 single-window).
+                // Render only for our window (single-window v1).
                 match renderer.render() {
                     Ok(_) => {
-                        // Continuous redraw: schedule another frame.
-                        renderer.request_redraw();
+                        // Continuous redraw: request another frame.
+                        renderer.request_redraw(&*window);
                     }
                     Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
                         log::warn!("Surface lost/outdated, reconfiguring surface.");
@@ -94,7 +95,7 @@ pub fn run(config: crate::super::EngineConfig) -> Result<()> {
             }
             Event::MainEventsCleared => {
                 // Trigger redraws at will for v1 (continuous redraw).
-                renderer.request_redraw();
+                renderer.request_redraw(&*window);
             }
             _ => {}
         }
