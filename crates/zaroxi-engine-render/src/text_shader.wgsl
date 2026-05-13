@@ -5,15 +5,15 @@ var font_tex: texture_2d<f32>;
 var font_sampler: sampler;
 
 struct VertexInput {
-    @location(0) pos: vec2<f32>;
-    @location(1) uv: vec2<f32>;
-    @location(2) color: vec4<f32>;
+    @location(0) pos: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) color: vec4<f32>,
 };
 
 struct VSOut {
-    @builtin(position) position: vec4<f32>;
-    @location(0) uv: vec2<f32>;
-    @location(1) color: vec4<f32>;
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
 };
 
 @vertex
