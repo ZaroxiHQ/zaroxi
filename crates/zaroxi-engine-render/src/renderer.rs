@@ -182,17 +182,18 @@ impl FontAtlas {
             row_h = row_h.max(h);
         }
 
-        // Upload atlas to GPU using queue.write_texture (direct write).
-        // Use wgpu_types explicitly for the copy types to match the pinned wgpu API.
+        // Upload atlas to GPU using queue.write_texture (direct write) with the
+        // wgpu 29.0.3 texel-copy types. This keeps the renderer implementation
+        // compact and avoids introducing a direct dependency on wgpu_types.
         queue.write_texture(
-            wgpu_types::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &atlas_buf,
-            wgpu_types::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: NonZeroU32::new(atlas_w),
                 rows_per_image: None,
