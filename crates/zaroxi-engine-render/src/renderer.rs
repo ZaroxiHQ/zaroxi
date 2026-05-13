@@ -18,7 +18,12 @@ use fontdue::Font;
 use std::collections::HashMap;
 
 use zaroxi_app::AppState;
-use zaroxi_theme::SemanticColors as Theme;
+use zaroxi_theme::{SemanticColors as Theme, Color as ThemeColor};
+
+/// Helper to convert theme Color -> renderer [f32;4]
+fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
+    [c.r, c.g, c.b, c.a]
+}
 
 /// Simple glyph metadata stored in the atlas.
 struct GlyphInfo {
@@ -55,7 +60,8 @@ impl FontAtlas {
 
         // fontdue::Font::from_bytes returns a Font in the versions we depend on.
         // If this returns a Result in future versions, handle it similarly.
-        let font = Font::from_bytes(&font_data, fontdue::FontSettings::default());
+        let font = Font::from_bytes(font_data.as_slice(), fontdue::FontSettings::default())
+            .map_err(|e| RenderError::Other(format!("fontdue load failed: {:?}", e)))?;
 
         // Rasterize ASCII range 32..=126
         let padding = 2;
@@ -510,22 +516,23 @@ impl<'a> Renderer<'a> {
         };
 
         // Top bar: 48 px height
-        push_colored_quad(0.0, 0.0, width, 48.0, theme.top_bar);
+        push_colored_quad(0.0, 0.0, width, 48.0, color_to_rgba(&theme.title_bar_background));
 
         // Left sidebar: 260px width
-        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, theme.sidebar_bg);
+        push_colored_quad(0.0, 48.0, 260.0, height - 48.0 - 24.0, color_to_rgba(&theme.sidebar_background));
 
         // Right assistant panel: 320px width
-        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, theme.assistant_bg);
+        push_colored_quad(width - 320.0, 48.0, 320.0, height - 48.0 - 24.0, color_to_rgba(&theme.assistant_panel_background));
 
         // Bottom panel: 200px height anchored above status bar
-        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, theme.bottom_panel);
+        // Use elevated panel background for bottom area to give subtle separation.
+        push_colored_quad(260.0, height - 24.0 - 200.0, width - 260.0 - 320.0, 200.0, color_to_rgba(&theme.elevated_panel_background));
 
         // Editor area: center
-        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, theme.editor_bg);
+        push_colored_quad(260.0, 48.0, width - 260.0 - 320.0, height - 48.0 - 24.0 - 200.0, color_to_rgba(&theme.editor_background));
 
         // Bottom status bar: 24 px height
-        push_colored_quad(0.0, height - 24.0, width, 24.0, theme.status_bar);
+        push_colored_quad(0.0, height - 24.0, width, 24.0, color_to_rgba(&theme.status_bar_background));
 
         // Text: render a few labels from app_state
 
@@ -535,47 +542,47 @@ impl<'a> Renderer<'a> {
 
         // Title in top bar
         let title = &app_state.config.title;
-        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, theme.text_primary, width, height)?;
+        self.emit_text(&mut verts, &mut indices, 12.0, 12.0, title, color_to_rgba(&theme.text_primary), width, height)?;
 
         // Tabs header - simple
         let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
-        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, theme.text_muted, width, height)?;
+        self.emit_text(&mut verts, &mut indices, 200.0, 12.0, &tabs, color_to_rgba(&theme.text_muted), width, height)?;
 
         // Sidebar title
-        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", theme.text_primary, width, height)?;
+        self.emit_text(&mut verts, &mut indices, 12.0, 64.0, "Workspace", color_to_rgba(&theme.text_primary), width, height)?;
 
         // List some workspace items
         for (i, item) in app_state.workspace.items.iter().enumerate() {
             let y = 96.0 + i as f32 * 20.0;
-            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, theme.text_muted, width, height)?;
+            self.emit_text(&mut verts, &mut indices, 12.0, y, &item.name, color_to_rgba(&theme.text_muted), width, height)?;
         }
 
         // Editor sample: render first few lines of active document
         if let Some(doc) = app_state.editor.active_document().cloned() {
             // render document title in editor header
-            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, theme.text_primary, width, height)?;
+            self.emit_text(&mut verts, &mut indices, 280.0, 56.0, &doc.display_name, color_to_rgba(&theme.text_primary), width, height)?;
 
             // split lines and render first 20 lines
             for (i, line) in doc.text.lines().take(20).enumerate() {
                 let y = 86.0 + i as f32 * 18.0;
                 // line numbers
                 let ln = format!("{:>3} ", i+1);
-                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, theme.text_muted, width, height)?;
-                self.emit_text(&mut verts, &mut indices, 300.0, y, line, theme.text_primary, width, height)?;
+                self.emit_text(&mut verts, &mut indices, 268.0, y, &ln, color_to_rgba(&theme.text_muted), width, height)?;
+                self.emit_text(&mut verts, &mut indices, 300.0, y, line, color_to_rgba(&theme.text_primary), width, height)?;
             }
         }
 
         // Assistant header
-        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", theme.text_primary, width, height)?;
+        self.emit_text(&mut verts, &mut indices, width - 300.0, 64.0, "AI Assistant", color_to_rgba(&theme.text_primary), width, height)?;
         // Assistant messages
         for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
             let y = 96.0 + i as f32 * 18.0;
-            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, theme.text_muted, width, height)?;
+            self.emit_text(&mut verts, &mut indices, width - 300.0, y, m, color_to_rgba(&theme.text_muted), width, height)?;
         }
 
         // Status bar text
         let status = &app_state.status.message;
-        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, theme.text_muted, width, height)?;
+        self.emit_text(&mut verts, &mut indices, 8.0, height - 18.0, status, color_to_rgba(&theme.text_muted), width, height)?;
 
         // Upload vertex/index data
         let vb_bytes = bytemuck::cast_slice(&verts);
