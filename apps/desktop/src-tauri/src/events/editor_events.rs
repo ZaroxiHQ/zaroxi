@@ -1,1 +1,0 @@
-// Editor event definitions
