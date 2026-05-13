@@ -1,35 +1,33 @@
 use anyhow::Result;
 use log::{error, info};
 use std::sync::Arc;
-use std::time::Instant;
-use winit::application::{Application, ApplicationExt, ActiveEventLoop, ApplicationId};
-use winit::window::{Window, WindowAttributes};
-use winit::event::{Event, WindowEvent};
-use winit::platform::run_return::EventLoopExtRunReturn;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::window::{Window, WindowId};
 
 use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
 use zaroxi_engine_render::renderer::Renderer;
 
-/// Runtime application struct used with winit 0.30 Application API.
-///
-/// This struct implements the Application lifecycle: create window in `resumed`,
-/// handle window events in `window_event`, and keep continuous redraw behavior.
-struct EngineApp {
+/// Minimal engine application that implements the winit 0.30 ApplicationHandler
+/// lifecycle. This keeps the runtime small and focused on window + renderer.
+pub struct App {
     title: String,
     width: u32,
     height: u32,
     clear_color: [f64; 4],
+
     window: Option<Arc<Window>>,
     renderer: Option<Renderer<'static>>,
     window_state: Option<WindowState>,
     fatal_error: Option<anyhow::Error>,
+
     continuous: bool,
-    last_frame: Instant,
 }
 
-impl EngineApp {
-    fn new(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Self {
+impl App {
+    pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Self {
         Self {
             title,
             width,
@@ -40,59 +38,72 @@ impl EngineApp {
             window_state: None,
             fatal_error: None,
             continuous: true,
-            last_frame: Instant::now(),
         }
     }
+}
 
-    /// Initialize window and renderer when application resumes.
-    fn resumed(&mut self, active_loop: &ActiveEventLoop) {
-        // Create window attributes and window via ActiveEventLoop.
-        let mut attrs = Window::default_attributes();
-        attrs.inner_size = Some(winit::dpi::PhysicalSize::new(self.width, self.height));
-        attrs.title = self.title.clone();
+impl ApplicationHandler for App {
+    /// Called when the application is resumed; create window and renderer here.
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Build window attributes using the builder style helpers.
+        let attrs = Window::default_attributes()
+            .with_title(self.title.clone())
+            .with_inner_size(winit::dpi::PhysicalSize::new(self.width, self.height));
 
-        match active_loop.create_window(attrs) {
+        match event_loop.create_window(attrs) {
             Ok(win) => {
-                let win = Arc::new(win);
-                // Initialize renderer (tie lifetime via 'static by leaking window reference
-                // into a static reference for the renderer lifetime required here).
-                // SAFETY: the Arc<Window> is stored in self.window so the window lives long enough.
+                let win: Arc<Window> = Arc::new(win);
+
+                // Store Arc so the window lives long enough.
+                self.window_state = Some(WindowState::new(win.inner_size()));
                 self.window = Some(win.clone());
+
+                // Create a 'static reference for the renderer by leveraging the Arc.
+                // SAFETY: the Arc is kept in self.window so the pointer remains valid.
                 let window_ref: &'static Window = unsafe { &*(Arc::as_ptr(&win) as *const Window) };
 
                 match pollster::block_on(Renderer::new(window_ref, self.clear_color)) {
-                    Ok(r) => {
-                        self.renderer = Some(r);
-                        self.window_state = Some(WindowState::new(win.inner_size()));
-                        // Request initial redraw.
+                    Ok(renderer) => {
+                        self.renderer = Some(renderer);
+                        // Request an initial redraw.
                         win.request_redraw();
                     }
                     Err(e) => {
                         self.fatal_error = Some(anyhow::anyhow!("renderer init failed: {:?}", e));
-                        // Exit the active event loop.
-                        active_loop.exit();
+                        event_loop.exit();
                     }
                 }
             }
             Err(e) => {
                 self.fatal_error = Some(anyhow::anyhow!("window create failed: {:?}", e));
-                active_loop.exit();
+                event_loop.exit();
             }
         }
     }
 
-    fn window_event(&mut self, event: &WindowEvent, active_loop: &ActiveEventLoop) {
+    /// Handle window-level events.
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        // Only handle events for our window.
+        let is_our = match (&self.window, &window_id) {
+            (Some(w), id) => *id == w.id(),
+            (None, _) => false,
+        };
+
+        if !is_our {
+            return;
+        }
+
         match event {
             WindowEvent::CloseRequested => {
-                active_loop.exit();
+                event_loop.exit();
             }
-            WindowEvent::Resized(size) => {
+            WindowEvent::Resized(new_size) => {
                 if let (Some(renderer), Some(ws)) = (self.renderer.as_mut(), self.window_state.as_mut()) {
-                    if size.width > 0 && size.height > 0 {
-                        ws.size = *size;
-                        if let Err(e) = renderer.resize(*size) {
+                    if new_size.width > 0 && new_size.height > 0 {
+                        ws.size = new_size;
+                        if let Err(e) = renderer.resize(new_size) {
                             self.fatal_error = Some(anyhow::anyhow!("resize failed: {:?}", e));
-                            active_loop.exit();
+                            event_loop.exit();
                         }
                     }
                 }
@@ -101,48 +112,45 @@ impl EngineApp {
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render() {
                         Ok(_) => {
-                            if let Some(win) = self.window.as_ref() {
-                                // continuous redraw
-                                if self.continuous {
+                            if self.continuous {
+                                if let Some(win) = &self.window {
                                     win.request_redraw();
                                 }
                             }
                         }
-                        Err(err) => {
-                            // Map renderer error into fatal or recoverable states.
-                            self.fatal_error = Some(anyhow::anyhow!("render error: {:?}", err));
-                            active_loop.exit();
+                        Err(e) => {
+                            self.fatal_error = Some(anyhow::anyhow!("render failed: {:?}", e));
+                            event_loop.exit();
                         }
                     }
                 }
             }
             other => {
-                // For future: translate input events
-                let _ = InputEvent::from_winit(other);
+                // Translate to normalized input event for future use.
+                let _ = InputEvent::from_winit(&other);
             }
         }
     }
 }
 
-/// Start the engine runtime using winit 0.30 Application API.
+/// Run the application using winit 0.30 Application API.
 pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Result<()> {
     // Initialize logging
     let _ = env_logger::try_init();
     info!("Starting runtime (application API) with title '{}'", title);
 
-    // Create a new EventLoop and activate it.
-    let event_loop = winit::event_loop::EventLoop::new()?;
+    // Create EventLoop and activate it.
+    let event_loop = EventLoop::new()?;
+    event_loop.set_control_flow(ControlFlow::Poll);
+
     let mut active = ActiveEventLoop::new(event_loop)?;
 
-    // Build the application instance.
-    let mut app = EngineApp::new(title, width, height, clear_color);
+    // Create the app and run it.
+    let mut app = App::new(title, width, height, clear_color);
 
-    // Run the application. `run_app` will call back into lifecycle methods;
-    // we implement resume/stop via the ActiveEventLoop API above.
-    // Note: `run_app` may return an error type from winit; map to anyhow::Error.
     active.run_app(&mut app).map_err(|e| anyhow::anyhow!("run_app failed: {:?}", e))?;
 
-    // If a fatal error was recorded, return it.
+    // Return fatal error if recorded.
     if let Some(err) = app.fatal_error {
         return Err(err);
     }
