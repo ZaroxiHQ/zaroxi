@@ -1,37 +1,37 @@
 use crate::error::RenderError;
 use log::{debug, info};
-use std::sync::Arc;
+use std::marker::PhantomData;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
     Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
     InstanceDescriptor, Limits, PresentMode, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations,
-    StoreOp,
+    TextureFormat, TextureUsages, TextureViewDescriptor, Color, Queue, LoadOp, Operations, StoreOp,
+    SurfaceTexture,
 };
 
 /// GPU renderer owning the device, queue, and surface.
 ///
-/// This implementation targets wgpu 29.0.3 and owns an Arc<Window> while
-/// retaining a single persistent Surface created from that Window.
-/// This provides a stable long-term ownership model suitable for a desktop engine.
-pub struct Renderer {
+/// This implementation targets wgpu 29.0.3 and uses an explicit lifetime so
+/// the Surface can reference the window provided by the runtime. The runtime
+/// keeps the Arc<Window> and passes a borrow into Renderer::new; the Surface
+/// lifetime is therefore tied to the runtime-held window.
+pub struct Renderer<'a> {
     instance: Instance,
-    surface: Surface,
+    surface: Surface<'a>,
     adapter: wgpu::Adapter,
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: Color,
-    window: Arc<Window>,
+    _window_lifetime: PhantomData<&'a Window>,
 }
 
-impl Renderer {
-    /// Create a new renderer. `window` is stored as Arc to ensure the surface
-    /// remains valid for the lifetime of the renderer.
-    pub async fn new(window: Arc<Window>, clear_color: [f64; 4]) -> Result<Self, RenderError> {
-        // Build instance
+impl<'a> Renderer<'a> {
+    /// Create a new renderer. `window` must outlive the returned Renderer.
+    pub async fn new(window: &'a Window, clear_color: [f64; 4]) -> Result<Self, RenderError> {
+        // Build Instance
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -40,12 +40,12 @@ impl Renderer {
             display: None,
         });
 
-        // Create surface once from the Arc<Window>.
+        // Create surface bound to the provided window reference.
         let surface = instance
-            .create_surface(&*window)
+            .create_surface(window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
-        // Request an adapter compatible with the surface.
+        // request_adapter returns a Result in this workspace; map errors explicitly.
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -53,9 +53,9 @@ impl Renderer {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| RenderError::Other("No compatible GPU adapter found".to_string()))?;
+            .map_err(|e| RenderError::Other(format!("request_adapter failed: {:?}", e)))?;
 
-        // Device and queue
+        // Minimal device requirements.
         let required_features = Features::empty();
         let required_limits = Limits::default();
 
@@ -72,7 +72,6 @@ impl Renderer {
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
-        // Surface configuration
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
 
@@ -113,7 +112,7 @@ impl Renderer {
                 b: clear_color[2],
                 a: clear_color[3],
             },
-            window,
+            _window_lifetime: PhantomData,
         })
     }
 
@@ -136,30 +135,34 @@ impl Renderer {
         Ok(())
     }
 
-    /// Request redraw via the owned Arc<Window>.
-    pub fn request_redraw(&self) {
-        self.window.request_redraw();
+    /// Request redraw. The runtime owns the Window and should call this method
+    /// with a Window reference (keeps renderer free of window ownership).
+    pub fn request_redraw(&self, window: &Window) {
+        window.request_redraw();
     }
 
-    /// Render a single clear-pass frame. Propagates wgpu SurfaceError to caller.
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    /// Render a single clear-pass frame.
+    /// This uses the exact API shape present in this workspace: `get_current_texture()`
+    /// returns a CurrentSurfaceTexture directly; we create a view, encode a clear pass,
+    /// submit the queue and present the frame.
+    pub fn render(&mut self) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
 
-        // Acquire the next surface texture (propagate error).
-        let frame = self.surface.get_current_texture()?;
+        // Acquire the current surface texture (CurrentSurfaceTexture, not Result).
+        let frame: SurfaceTexture = self.surface.get_current_texture();
 
-        // Create view
+        // Create a texture view for the render pass.
         let view = frame.texture.create_view(&TextureViewDescriptor::default());
 
-        // Encoder + render pass
+        // Create encoder and record clear pass.
         let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("zaroxi-clear-encoder"),
+            label: Some("clear-encoder"),
         });
 
         {
-            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("clear-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -168,14 +171,15 @@ impl Renderer {
                         load: LoadOp::Clear(self.clear_color),
                         store: StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
         }
 
-        // Submit and present
         self.queue.submit(Some(encoder.finish()));
+        // Present the frame (CurrentSurfaceTexture exposes present()).
         frame.present();
 
         Ok(())
