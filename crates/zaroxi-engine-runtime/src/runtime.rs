@@ -120,7 +120,8 @@ impl ApplicationHandler for App {
                     let state = app_state.lock().unwrap();
                     // Resolve a simple layout model from app_state and window size.
                     // The app/layout layer owns these rules; runtime here performs a
-                    // minimal mapping to pixel rects for the renderer.
+                    // minimal mapping to pixel rects for the renderer. Crucially,
+                    // visibility/size of panels comes from app state (panels/assistant).
                     let ws = self.window_state.as_ref().unwrap();
                     let sz = ws.size;
                     let width = sz.width as f32;
@@ -130,19 +131,23 @@ impl ApplicationHandler for App {
                     let title_h = 48.0f32;
                     let status_h = 24.0f32;
                     let sidebar_w = 260.0f32;
-                    let right_w = 320.0f32;
-                    let bottom_h = 200.0f32;
+                    // right panel width depends on assistant visibility
+                    let right_w = if state.assistant.visible { 320.0f32 } else { 0.0f32 };
+                    // bottom panel height depends on panels visible flag
+                    let bottom_h = if state.panels.visible { 200.0f32 } else { 0.0f32 };
 
+                    // Compute rects while honoring visibility (zero-size when hidden)
                     let title_bar = Rect { x: 0.0, y: 0.0, w: width, h: title_h };
-                    let sidebar = Rect { x: 0.0, y: title_h, w: sidebar_w, h: height - title_h - status_h };
-                    let right_panel = Rect { x: width - right_w, y: title_h, w: right_w, h: height - title_h - status_h };
+                    let sidebar = Rect { x: 0.0, y: title_h, w: sidebar_w, h: height - title_h - status_h.max(0.0) };
+                    let right_panel = Rect { x: width - right_w, y: title_h, w: right_w, h: height - title_h - status_h.max(0.0) };
                     let bottom_panel = Rect { x: sidebar_w, y: height - status_h - bottom_h, w: width - sidebar_w - right_w, h: bottom_h };
-                    let editor = Rect { x: sidebar_w, y: title_h, w: width - sidebar_w - right_w, h: height - title_h - status_h - bottom_h };
+                    let editor = Rect { x: sidebar_w, y: title_h, w: (width - sidebar_w - right_w).max(0.0), h: (height - title_h - status_h - bottom_h).max(0.0) };
                     let status_bar = Rect { x: 0.0, y: height - status_h, w: width, h: status_h };
 
-                    // Resolve semantic colors from app state
+                    // Resolve semantic colors from app state (system dark assumed false for now).
                     let sem = state.theme_mode.colors(false);
 
+                    // Build the resolved RenderLayout that will be consumed by the renderer.
                     let layout = RenderLayout {
                         title_bar,
                         sidebar,
