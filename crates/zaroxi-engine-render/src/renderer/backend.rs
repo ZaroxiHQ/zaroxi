@@ -365,7 +365,7 @@ impl TextBackend for CosmicTextBackend {
                     };
 
                     // Resolve glyph color (respect possible per-glyph override)
-                    let glyph_color = g.color_opt.map_or(color, |c| color_to_rgba(c));
+                    let glyph_color = g.color_opt.map_or(color, |c| color_to_rgba(&c));
 
                     if let Some(existing_ginfo) = existing {
                         // Use existing atlas entry to produce placed glyph immediately.
