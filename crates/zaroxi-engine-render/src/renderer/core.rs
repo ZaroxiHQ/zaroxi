@@ -116,7 +116,6 @@ pub struct Renderer<'a> {
     // Solid-shape pipeline used for all non-text UI quads (panels / borders).
     shape_pipeline: wgpu::RenderPipeline,
     // font atlas
-    font_atlas: FontAtlas,
     text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync>,
 
     // vertex/index buffers reused each frame
@@ -180,15 +179,13 @@ impl<'a> Renderer<'a> {
         let (text_bind_layout, text_pipeline, debug_pipeline, shape_pipeline) =
             crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
-        // Build font atlas now
-        let font_size = 14.0;
-        let font_atlas = FontAtlas::new(&device, &queue, &text_bind_layout, font_size)?;
         // Initialize the text backend abstraction. The backend performs shaping,
-        // layout and rasterization. Use the CosmicText backend as the primary
-        // source of truth for glyph placement so cosmic-text layout results are
-        // used for UI titles (no fallback to homemade placement in the title path).
+        // layout and rasterization. The backend will own and manage the font atlas
+        // and rasterization cache (cosmic-text / swash-backed). Pass required GPU
+        // resources so the backend can create/upload its atlas internally.
+        let font_size = 14.0f32;
         let text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync> =
-            Box::new(crate::renderer::backend::CosmicTextBackend::new()?);
+            Box::new(crate::renderer::backend::CosmicTextBackend::new(&device, &queue, &text_bind_layout, font_size)?);
 
         // Create a simple shader for textured text (WGSL).
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -592,8 +589,12 @@ impl<'a> Renderer<'a> {
             // Layout title text into glyph placements and convert to vertices/indices.
             // Use the pluggable text backend so shaping/layout logic is isolated from
             // the renderer. The backend may consult the font atlas internally.
+            // Ask the text backend to lay out and ensure glyphs are rasterized/available
+            // in the backend-managed atlas. The backend may use the provided queue to
+            // upload missing glyph bitmaps into its internal atlas before returning
+            // placed glyphs with valid UVs.
             let placed = self.text_backend.layout_text_clipped(
-                &self.font_atlas,
+                &mut self.queue,
                 title_x,
                 title_y,
                 &block.title,
@@ -833,7 +834,7 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, &self.font_atlas, &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_backend.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
                 }
@@ -934,7 +935,7 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, &self.font_atlas, &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_backend.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
                 }
