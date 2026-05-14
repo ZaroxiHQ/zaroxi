@@ -184,10 +184,11 @@ impl<'a> Renderer<'a> {
         let font_size = 14.0;
         let font_atlas = FontAtlas::new(&device, &queue, &text_bind_layout, font_size)?;
         // Initialize the text backend abstraction. The backend performs shaping,
-        // layout and rasterization; the default backend adapts the existing atlas
-        // implementation so we can migrate incrementally.
+        // layout and rasterization. Use the CosmicText backend as the primary
+        // source of truth for glyph placement so cosmic-text layout results are
+        // used for UI titles (no fallback to homemade placement in the title path).
         let text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync> =
-            Box::new(crate::renderer::backend::DefaultTextBackend::new());
+            Box::new(crate::renderer::backend::CosmicTextBackend::new()?);
 
         // Create a simple shader for textured text (WGSL).
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
