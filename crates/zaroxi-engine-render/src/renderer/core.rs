@@ -613,51 +613,14 @@ impl<'a> Renderer<'a> {
             info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
 
             // Body/content text emission:
-            // - Only emit real content supplied by the app (block.content).
-            // - Do not render generic/demo placeholder strings that may have been
-            //   injected by higher-level sample/demo flows.
-            // - Titlebar and status_bar have dedicated rendering behaviors and
-            //   should not receive generic body text here.
+            // - The renderer is intentionally domain-agnostic. It renders whatever
+            //   `block.content` the application supplies. Decisions about filtering,
+            //   placeholder text, or app-specific suppression belong in the app layer.
+            // - The renderer will only skip emission when there is no content to draw.
             let content = block.content.trim();
-            let is_titlebar = block.id == "title_bar" || block.id == "titlebar" || block.id == "title-bar";
-            let is_statusbar = block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
-            // Right panel / assistant area should not be populated by renderer-owned demo text.
-            let is_right_panel = block.id == "right_panel" || block.id.contains("assistant") || block.id.contains("right");
 
-            // Detect obvious demo/fallback strings and treat them as "no content".
-            let is_placeholder = content.is_empty()
-                || content == "Welcome"
-                || content == "Workspace"
-                || content.eq_ignore_ascii_case("terminal placeholder")
-                || content.to_lowercase().contains("placeholder")
-                || content.to_lowercase().contains("demo");
-
-            // Additional conservative guard for the right_panel: treat short or title-duplicated
-            // strings as placeholders to avoid rendering injected demo content. Only emit body
-            // for right_panel when the app explicitly provides substantial content distinct from title.
-            let is_right_panel_placeholder = is_right_panel && (
-                content == block.title.trim() ||
-                content.len() < 12 ||
-                is_placeholder
-            );
-
-            if is_titlebar {
-                // Titlebar: do not emit body content here.
-                if RENDER_DEBUG && !content.is_empty() {
-                    debug!("emit_text: skipping body content for titlebar block='{}'", block.id);
-                }
-            } else if is_statusbar {
-                // Status bar: skip generic body rendering; status rendering uses its own path.
-                if RENDER_DEBUG && !content.is_empty() {
-                    debug!("emit_text: skipping body content for status bar block='{}'", block.id);
-                }
-            } else if is_right_panel_placeholder {
-                // Suppress renderer-owned or short/demo content in the right panel (assistant).
-                if RENDER_DEBUG {
-                    debug!("emit_text: suppressed right_panel placeholder content for block='{}' content='{}'", block.id, content);
-                }
-            } else if !is_placeholder {
-                // Only emit when we have non-placeholder content and not suppressed for right_panel.
+            if !content.is_empty() {
+                // Emit content into the block's content area using the provided rect.
                 let content_x = target.x + content_padding;
                 let content_y = target.y + hh + content_padding;
                 let content_w = (target.w - content_padding * 2.0).max(0.0);
@@ -678,15 +641,11 @@ impl<'a> Renderer<'a> {
                     )?;
                     crate::renderer::text::placed_glyphs_to_vertices(&placed_content, &mut text_verts, &mut text_indices, width, height);
                     info!("emit_text: content emitted for block='{}' at y={:.1} (content_h={:.1})", block.id, content_y, content_h);
-                } else {
-                    if RENDER_DEBUG {
-                        info!("emit_text: content area too small for block='{}'", block.id);
-                    }
+                } else if RENDER_DEBUG {
+                    info!("emit_text: content area too small for block='{}'", block.id);
                 }
-            } else {
-                if RENDER_DEBUG {
-                    debug!("emit_text: suppressed placeholder/demo content for block='{}' content='{}'", block.id, content);
-                }
+            } else if RENDER_DEBUG {
+                debug!("emit_text: no content for block='{}'", block.id);
             }
 
             // Log counts per panel
