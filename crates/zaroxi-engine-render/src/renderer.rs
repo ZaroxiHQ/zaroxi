@@ -1202,13 +1202,13 @@ impl<'a> Renderer<'a> {
                             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                             if render_debug_enabled() {
-                                log::debug!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                                log::debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
                             }
                             rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
                         }
                     } else {
-                        if RENDER_DEBUG {
-                            debug!("DIAGNOSTIC_TEXT_ONLY enabled: skipping shape pass");
+                        if render_debug_enabled() {
+                            log::debug!("DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass");
                         }
                     }
 
