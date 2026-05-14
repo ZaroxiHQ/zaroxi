@@ -648,7 +648,16 @@ impl<'a> Renderer<'a> {
         // Diagnostic override: set FORCE_DIAGNOSTIC_COLORS = true to force highly
         // contrasting colors (red/green/blue/...) for quick visual verification.
         const FORCE_DIAGNOSTIC_COLORS: bool = false;
-        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}", DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS);
+        // DIAGNOSTIC_TEXT_ONLY: if true, skip the shape pass and render only text
+        // (useful to verify text/atlas/pipeline independently).
+        const DIAGNOSTIC_TEXT_ONLY: bool = false;
+        // When true, avoid any scissor operations (if present). Kept true by
+        // default for the isolated diagnostic run.
+        const DIAGNOSTIC_DISABLE_SCISSOR: bool = true;
+        // Optional forced text color when DIAGNOSTIC_TEXT_ONLY is enabled.
+        // Set to Some([r,g,b,a]) to force all text to a bright color for visibility.
+        const DIAGNOSTIC_FORCE_TEXT_COLOR: Option<[f32; 4]> = None;
+        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}", DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR);
 
         let sem = &layout.colors;
 
@@ -774,6 +783,8 @@ impl<'a> Renderer<'a> {
                     continue;
                 }
             };
+            // Log scissor/rect that would be used for this panel (diagnostic).
+            info!("panel '{}' scissor_rect = {:?}", panel.id, target);
 
             // Header strip at the top of the panel rect
             let hx = target.x;
@@ -844,13 +855,24 @@ impl<'a> Renderer<'a> {
             // Queue header/title text
             let title_x = hx + 8.0;
             let title_y = hy + 6.0;
-            let _ = self.emit_text(&mut text_verts, &mut text_indices, title_x, title_y, &panel.title, [0.95, 0.95, 0.95, 1.0], width, height);
+            // When running diagnostics we may force a single bright color for all text
+            let title_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
+                DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
+            } else {
+                [0.95, 0.95, 0.95, 1.0]
+            };
+            let _ = self.emit_text(&mut text_verts, &mut text_indices, title_x, title_y, &panel.title, title_color, width, height);
 
             // Queue body/content text (first line only, if any)
             if !panel.content.is_empty() {
                 let content_x = cx + 6.0;
                 let content_y = cy + 6.0;
-                let _ = self.emit_text(&mut text_verts, &mut text_indices, content_x, content_y, &panel.content, [0.8, 0.8, 0.8, 1.0], width, height);
+                let content_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
+                    DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
+                } else {
+                    [0.8, 0.8, 0.8, 1.0]
+                };
+                let _ = self.emit_text(&mut text_verts, &mut text_indices, content_x, content_y, &panel.content, content_color, width, height);
             }
 
             // Log counts per panel
@@ -958,17 +980,23 @@ impl<'a> Renderer<'a> {
                     let panel_indices_len = panel_indices.len() as u32;
                     let total_indices_len = indices.len() as u32;
 
-                    if panel_indices_len > 0 {
-                        rpass.set_pipeline(&self.shape_pipeline);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
-                        rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                    if !DIAGNOSTIC_TEXT_ONLY {
+                        if panel_indices_len > 0 {
+                            rpass.set_pipeline(&self.shape_pipeline);
+                            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            info!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                            rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                        }
+                    } else {
+                        info!("DIAGNOSTIC_TEXT_ONLY enabled: skipping shape pass");
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     if total_indices_len > panel_indices_len {
+                        info!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                         rpass.set_pipeline(&self.text_pipeline);
+                        // Rebind the font atlas bind group (must be set after switching pipeline).
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -1029,16 +1057,21 @@ impl<'a> Renderer<'a> {
                     let panel_indices_len = panel_indices.len() as u32;
                     let total_indices_len = indices.len() as u32;
 
-                    if panel_indices_len > 0 {
-                        rpass.set_pipeline(&self.shape_pipeline);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
-                        rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                    if !DIAGNOSTIC_TEXT_ONLY {
+                        if panel_indices_len > 0 {
+                            rpass.set_pipeline(&self.shape_pipeline);
+                            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            info!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                            rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                        }
+                    } else {
+                        info!("DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass");
                     }
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
+                        info!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                         rpass.set_pipeline(&self.text_pipeline);
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
