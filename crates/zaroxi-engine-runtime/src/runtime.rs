@@ -72,6 +72,7 @@ impl ApplicationHandler for App {
                     Ok(renderer) => {
                         self.renderer = Some(renderer);
                         // Request an initial redraw.
+                        info!("requesting initial redraw");
                         win.request_redraw();
                     }
                     Err(e) => {
@@ -118,6 +119,8 @@ impl ApplicationHandler for App {
                 if let (Some(renderer), Some(app_state)) = (self.renderer.as_mut(), self.app_state.as_ref()) {
                     // Lock app state for reading.
                     let state = app_state.lock().unwrap();
+                    info!("received RedrawRequested");
+                    info!("entering render_with_layout");
                     // Resolve a simple layout model from app_state and window size.
                     // The app/layout layer owns these rules; runtime here performs a
                     // minimal mapping to pixel rects for the renderer. Crucially,
@@ -172,6 +175,7 @@ impl ApplicationHandler for App {
 
                     match renderer.render_with_layout(&*state, &layout) {
                         Ok(_) => {
+                            info!("render_with_layout completed OK");
                             if self.continuous {
                                 if let Some(win) = &self.window {
                                     win.request_redraw();

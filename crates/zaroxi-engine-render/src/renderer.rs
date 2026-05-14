@@ -519,6 +519,7 @@ impl<'a> Renderer<'a> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
+        info!("entering render_with_layout (window {}x{})", self.config.width, self.config.height);
 
         // Build draw lists from app_state into vertex/index buffers.
         // The renderer consumes the resolved layout (rects + colors).
@@ -675,6 +676,7 @@ impl<'a> Renderer<'a> {
 
                 self.queue.submit(Some(encoder.finish()));
                 frame.present();
+                info!("submitted frame");
                 Ok(())
             }
 
