@@ -319,6 +319,9 @@ impl TextBackend for CosmicTextBackend {
         let mut atlas_insert_succeeded = 0usize;
         let mut produced_placed = 0usize;
         let mut layout_runs_count = 0usize;
+        let mut cache_hits_used = 0usize;
+        let mut fresh_insertions_used = 0usize;
+        let mut skipped_by_reason: HashMap<String, usize> = HashMap::new();
 
         // Acquire a mutable lock on the FontSystem for shaping/rasterization.
         let mut fs_guard = self.font_system.lock().unwrap();
@@ -381,6 +384,21 @@ impl TextBackend for CosmicTextBackend {
                         // Use existing atlas entry to produce placed glyph immediately.
                         if existing_ginfo.width == 0 || existing_ginfo.height == 0 {
                             // advance-only glyph; still count as layout glyph
+                            if should_log {
+                                info!(
+                                    "CosmicTextBackend: skip glyph reason=advance_only text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={} width={} height={}",
+                                    text,
+                                    gid,
+                                    g.start,
+                                    g.end,
+                                    gx_i,
+                                    gy_i,
+                                    key_u64,
+                                    existing_ginfo.width,
+                                    existing_ginfo.height
+                                );
+                            }
+                            *skipped_by_reason.entry("advance_only".to_string()).or_insert(0) += 1;
                             continue;
                         }
                         let x0_px = gx_i as f32 + existing_ginfo.xoffset as f32;
@@ -389,6 +407,27 @@ impl TextBackend for CosmicTextBackend {
                         let y1_px = y0_px + existing_ginfo.height as f32;
 
                         if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                            if should_log {
+                                info!(
+                                    "CosmicTextBackend: skip glyph reason=clip_reject text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1}) key={}",
+                                    text,
+                                    gid,
+                                    g.start,
+                                    g.end,
+                                    gx_i,
+                                    gy_i,
+                                    x0_px,
+                                    y0_px,
+                                    x1_px,
+                                    y1_px,
+                                    clip_x,
+                                    clip_y,
+                                    clip_x + clip_w,
+                                    clip_y + clip_h,
+                                    key_u64
+                                );
+                            }
+                            *skipped_by_reason.entry("clip_reject".to_string()).or_insert(0) += 1;
                             continue;
                         }
 
@@ -406,11 +445,34 @@ impl TextBackend for CosmicTextBackend {
 
                         rasterized_count += 1;
                         produced_placed += 1;
+                        cache_hits_used += 1;
+                        if should_log {
+                            info!(
+                                "CosmicTextBackend: cache_hit placed text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={} uv=({:.4},{:.4})-({:.4},{:.4})",
+                                text,
+                                gid,
+                                g.start,
+                                g.end,
+                                gx_i,
+                                gy_i,
+                                key_u64,
+                                existing_ginfo.u0,
+                                existing_ginfo.v0,
+                                existing_ginfo.u1,
+                                existing_ginfo.v1
+                            );
+                        }
                         continue;
                     }
 
                     // Missing in atlas -> enqueue a rasterization/upload job
                     // Capture necessary owned data to perform rasterization/upload later
+                    if should_log {
+                        info!(
+                            "CosmicTextBackend: enqueue_raster text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={}",
+                            text, gid, g.start, g.end, gx_i, gy_i, key_u64
+                        );
+                    }
                     jobs.push((physical.cache_key, key_u64, gx_i, gy_i, g.w, glyph_color));
                 }
             }
