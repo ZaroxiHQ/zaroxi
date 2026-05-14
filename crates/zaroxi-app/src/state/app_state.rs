@@ -64,7 +64,6 @@ impl AppState {
             editor,
             status,
             assistant,
-            panels,
             tabs,
             theme_mode: ZaroxiTheme::Dark,
             app_panels,
