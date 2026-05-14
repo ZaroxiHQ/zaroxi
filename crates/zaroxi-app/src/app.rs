@@ -222,11 +222,11 @@ impl AppState {
             }
 
             AppCommand::SetStatusMessage { message } => {
+                // Assign into status first, then derive panel content from it to avoid
+                // moved-value usage of `message`.
                 self.status.message = message;
-
-                // keep status panel in sync
                 if let Some(p) = self.app_panels.iter_mut().find(|p| p.id == "status_bar") {
-                    p.content = message.clone();
+                    p.content = self.status.message.clone();
                 }
             }
 

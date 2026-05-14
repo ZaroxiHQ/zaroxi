@@ -11,4 +11,5 @@ zaroxi-editor-core = { path = "../zaroxi-editor-core" }
 zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
 zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true }
+log = "0.4"
 zaroxi-theme = { path = "../zaroxi-theme" }
