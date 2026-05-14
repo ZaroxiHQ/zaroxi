@@ -25,6 +25,14 @@ const TEXT_SAMPLER_NEAREST: bool = false;
 /// Global single-shot flag to ensure we only emit the "first glyph" sample line once.
 static FIRST_GLYPH_LOGGED: AtomicBool = AtomicBool::new(false);
 
+/// One-shot flags to log CPU-side panel quad colors only once per panel at startup.
+static LOGGED_TITLEBAR: AtomicBool = AtomicBool::new(false);
+static LOGGED_SIDEBAR: AtomicBool = AtomicBool::new(false);
+static LOGGED_EDITOR: AtomicBool = AtomicBool::new(false);
+
+/// Validation scene toggle (disabled by default to avoid contaminating normal runs).
+const VALIDATION_SCENE: bool = false;
+
 /// Helper used to decide whether to show render-time diagnostics.
 /// Default is controlled by the compile-time `RENDER_DEBUG` constant, but
 /// an environment variable `RENDER_DEBUG=1` or `RENDER_DEBUG=true` can also
@@ -944,9 +952,17 @@ impl<'a> Renderer<'a> {
                 }
             };
 
-            if RENDER_DEBUG {
-                debug!("panel '{}' header_color = {:?}", panel.id, header_color);
+            if render_debug_enabled() {
+                log::debug!("panel '{}' header_color = {:?}", panel.id, header_color);
             }
+
+            // One-shot CPU-side logging of header quad color for the titlebar (startup only).
+            if panel.id.as_str() == "titlebar" {
+                if LOGGED_TITLEBAR.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                    info!("cpu quad sample (titlebar) header_color = {:?}", header_color);
+                }
+            }
+
             push_colored_quad(&mut panel_verts, &mut panel_indices, hx, hy, hw, hh, header_color, width, height);
 
             // Content inset: a smaller block inside the panel for visual differentiation
@@ -977,9 +993,25 @@ impl<'a> Renderer<'a> {
                 }
             };
 
-            if RENDER_DEBUG {
-                debug!("panel '{}' content_color = {:?}", panel.id, content_color);
+            if render_debug_enabled() {
+                log::debug!("panel '{}' content_color = {:?}", panel.id, content_color);
             }
+
+            // One-shot CPU-side logging of content quad color for sidebar/editor (startup only).
+            match panel.id.as_str() {
+                "sidebar" => {
+                    if LOGGED_SIDEBAR.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                        info!("cpu quad sample (sidebar) content_color = {:?}", content_color);
+                    }
+                }
+                "editor" => {
+                    if LOGGED_EDITOR.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                        info!("cpu quad sample (editor) content_color = {:?}", content_color);
+                    }
+                }
+                _ => {}
+            }
+
             if cw > 0.0 && ch > 0.0 {
                 push_colored_quad(&mut panel_verts, &mut panel_indices, cx, cy, cw, ch, content_color, width, height);
             }
