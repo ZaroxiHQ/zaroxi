@@ -55,20 +55,24 @@ impl CosmicTextBackend {
     /// for the primary UI font. The backend may register additional system
     /// fonts for fallback as needed by cosmic-text internals.
     pub fn new() -> Result<Self, RenderError> {
-        // Initialize FontSystem
+        // Initialize FontSystem (cosmic-text 0.19.0).
+        // We create the system and register the bundled UI font so shaping/layout
+        // resolves the same glyphs the legacy atlas expects. The backend keeps
+        // the FontSystem as the authoritative shaping/layout/fallback provider.
         let mut fs = cosmic_text::FontSystem::new();
 
-        // Load the bundled JetBrainsMonoNerdFont used by the FontAtlas so both
-        // systems resolve the same glyphs for common ASCII/UI characters.
-        // If the font cannot be loaded we return a RenderError so the caller
-        // can fall back or fail fast.
+        // Load the bundled font (shared workspace asset). If this fails we surface
+        // a RenderError so the caller can decide how to proceed.
         let manifest = env!("CARGO_MANIFEST_DIR");
         let font_path = std::path::PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
-        let font_bytes = std::fs::read(&font_path).map_err(|e| RenderError::Other(format!("cosmic-text: failed to read font: {:?}", e)))?;
+        let font_bytes = std::fs::read(&font_path).map_err(|e| {
+            RenderError::Other(format!("cosmic-text: failed to read font '{}': {:?}", font_path.display(), e))
+        })?;
 
-        // Register font bytes with cosmic-text's FontSystem. Use a stable family
-        // name so shaping can reference the font later (cosmic-text will pick a
-        // usable family when shaping).
+        // cosmic-text 0.19.0 exposes `add_font_bytes` which accepts the font bytes
+        // and returns an identifier. Register the bytes so FontSystem can use them
+        // for shaping and fallback. We ignore the returned id (consumer code may
+        // need it later for advanced font selection).
         let _ = fs.add_font_bytes(font_bytes);
 
         Ok(Self { font_system: fs })
