@@ -13,8 +13,30 @@ use env_logger::Env;
 /// The heavy lifting of application logic lives in `crates/zaroxi-app` and
 /// the domain crates. This binary acts as a thin composition root.
 fn main() -> Result<()> {
-    // Initialize logging early. Default to DEBUG if RUST_LOG is not set.
-    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+    // Initialize logging early.
+    // Default policy:
+    // - If RUST_LOG is explicitly set by the user, respect it.
+    // - Otherwise choose a conservative default:
+    //     - global default = warn
+    //     - noisy backends forced to warn (naga/wgpu)
+    //     - when RENDER_DEBUG=1 enable debug for our crates only
+    let env = Env::default();
+    if std::env::var("RUST_LOG").is_ok() {
+        // Respect an explicit RUST_LOG supplied by the environment.
+        env_logger::Builder::from_env(env).init();
+    } else {
+        let render_debug = std::env::var("RENDER_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let filter = if render_debug {
+            // Enable debug for our crates, keep noisy deps at warn.
+            "warn,zaroxi_engine_render=debug,zaroxi_engine_runtime=debug,zaroxi_app=debug,naga=warn,naga::front=warn,naga::valid=warn,wgpu=warn,wgpu_core=warn,wgpu_hal=warn"
+        } else {
+            // Conservative default: global warn, silence noisy dependencies.
+            "warn,naga=warn,naga::front=warn,naga::valid=warn,wgpu=warn,wgpu_core=warn,wgpu_hal=warn"
+        };
+        env_logger::Builder::from_env(env).parse_filters(filter).init();
+    }
 
     // Guaranteed visible startup marker so we can confirm the process started.
     println!("desktop main starting");
