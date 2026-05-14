@@ -570,20 +570,23 @@ impl<'a> Renderer<'a> {
             }
 
             // Queue header/title text
-            let title_x = target.x + 8.0;
-            let title_y = target.y + 6.0;
-            // When running diagnostics we may force a single bright color for all text
-            let title_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
-                DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
-            } else {
-                [0.95, 0.95, 0.95, 1.0]
-            };
             // Compute explicit header rect and emit title clipped to that region to ensure
             // ownership/clip correctness (Step 1: per-block text clipping).
             let hx = target.x;
             let hy = target.y;
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
+            // Title placement: left padding and vertical centering within header.
+            // Use a conservative default font size for centering to match backend font size (14px).
+            const DEFAULT_FONT_SIZE: f32 = 14.0;
+            let title_x = target.x + 8.0;
+            let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
+            // When running diagnostics we may force a single bright color for all text
+            let title_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
+                DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
+            } else {
+                [0.95, 0.95, 0.95, 1.0]
+            };
 
             // Layout title text into glyph placements and convert to vertices/indices.
             // Use the pluggable text backend so shaping/layout logic is isolated from
@@ -609,9 +612,31 @@ impl<'a> Renderer<'a> {
 
             info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
 
-            // Body/content text emission is currently disabled at render-time.
+            // Body/content text emission: emit content into the block's content area.
             if !block.content.is_empty() {
-                info!("emit_text: content suppressed for block='{}'", block.id);
+                let content_x = target.x + content_padding;
+                let content_y = target.y + hh + content_padding;
+                let content_w = (target.w - content_padding * 2.0).max(0.0);
+                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+                if content_w > 0.0 && content_h > 0.0 {
+                    let placed_content = self.text_backend.layout_text_clipped(
+                        &mut self.queue,
+                        content_x,
+                        content_y,
+                        &block.content,
+                        title_color,
+                        width,
+                        height,
+                        content_x,
+                        content_y,
+                        content_w,
+                        content_h,
+                    )?;
+                    crate::renderer::text::placed_glyphs_to_vertices(&placed_content, &mut text_verts, &mut text_indices, width, height);
+                    info!("emit_text: content emitted for block='{}' at y={:.1} (content_h={:.1})", block.id, content_y, content_h);
+                } else {
+                    info!("emit_text: content area too small for block='{}'", block.id);
+                }
             }
 
             // Log counts per panel
