@@ -32,19 +32,18 @@ pub(crate) struct GlyphInfo {
 pub(crate) struct FontAtlas {
     pub atlas_width: u32,
     pub atlas_height: u32,
-    // GPU texture view & bind group for sampling
+    // GPU texture & view & bind group for sampling
+    pub texture: wgpu::Texture,
     pub texture_view: TextureView,
     pub bind_group: BindGroup,
     // Mapping for codepoint -> glyphinfo (legacy keyed by char)
-    pub glyphs: HashMap<char, GlyphInfo>,
+    pub glyphs: Mutex<HashMap<char, GlyphInfo>>,
     // Mapping for backend cache keys -> glyphinfo (backend uses u64 keys)
-    pub glyph_id_map: HashMap<u64, GlyphInfo>,
+    pub glyph_id_map: Mutex<HashMap<u64, GlyphInfo>>,
 
-    // Simple shelf packer state
-    pack_next_x: u32,
-    pack_next_y: u32,
-    pack_row_h: u32,
-    padding: u32,
+    // Simple shelf packer state protected by a mutex so atlas can be mutated
+    // from &self (caller holds only &self in the backend path).
+    packer: Mutex<(u32, u32, u32, u32)>, // (pack_next_x, pack_next_y, pack_row_h, padding)
 
     pub font_size: f32,
 }
@@ -52,7 +51,7 @@ pub(crate) struct FontAtlas {
 impl FontAtlas {
     /// Create an empty atlas texture and bind group; atlas contents are zeroed.
     /// The backend will populate glyphs on demand via `insert_glyph_from_bitmap`.
-    pub(crate) fn new_empty(device: &Device, _queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
+    pub(crate) fn new_empty(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
         let padding = 2u32;
         let atlas_w = 2048u32;
         let atlas_h = 4096u32; // generous height to avoid reallocation in v1
@@ -76,7 +75,23 @@ impl FontAtlas {
 
         // zeroed initial contents (small allocation)
         let zero_buf = vec![0u8; (atlas_w * atlas_h) as usize];
-        // Upload zeroed texture once to initialize memory (caller may skip if not needed)
+        // Initialize texture memory with zeros
+        let bytes_per_row = std::num::NonZeroU32::new(atlas_w).unwrap();
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zero_buf,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+            atlas_size,
+        );
 
         // Create view & sampler & bind_group
         let texture_view = texture.create_view(&TextureViewDescriptor::default());
@@ -109,14 +124,12 @@ impl FontAtlas {
         Ok(Self {
             atlas_width: atlas_w,
             atlas_height: atlas_h,
+            texture,
             texture_view,
             bind_group,
-            glyphs: HashMap::new(),
-            glyph_id_map: HashMap::new(),
-            pack_next_x: padding,
-            pack_next_y: padding,
-            pack_row_h: 0,
-            padding,
+            glyphs: Mutex::new(HashMap::new()),
+            glyph_id_map: Mutex::new(HashMap::new()),
+            packer: Mutex::new((padding, padding, 0, padding)),
             font_size,
         })
     }
@@ -128,20 +141,92 @@ impl FontAtlas {
     /// the atlas and performs a GPU write using the provided queue.
     pub(crate) fn insert_glyph_from_bitmap(
         &self,
-        _queue: &mut Queue,
-        _key: u64,
-        _bitmap: &[u8],
-        _width: u32,
-        _height: u32,
-        _advance: f32,
-        _xoffset: i32,
-        _yoffset: i32,
+        queue: &mut Queue,
+        key: u64,
+        bitmap: &[u8],
+        width: u32,
+        height: u32,
+        advance: f32,
+        xoffset: i32,
+        yoffset: i32,
     ) -> Result<(f32,f32,f32,f32), RenderError> {
-        // Atlas upload is not implemented in this migration step.
-        // The backend is expected to provide a working atlas insertion implementation
-        // at runtime. Returning an explicit error keeps the compile-time path clear
-        // and ensures callers handle missing atlas entries gracefully.
-        Err(RenderError::Other("insert_glyph_from_bitmap not implemented".into()))
+        // Pack the glyph into the atlas using a simple shelf allocator.
+        let mut packer = self.packer.lock().unwrap();
+        let (ref mut nx, ref mut ny, ref mut row_h, ref padding) = (*packer);
+
+        // New row if needed
+        if *nx + width + *padding > self.atlas_width {
+            *nx = *padding;
+            *ny += *row_h + *padding;
+            *row_h = 0;
+        }
+
+        if *ny + height + *padding > self.atlas_height {
+            return Err(RenderError::Other("Atlas full".into()));
+        }
+
+        // Target position in atlas
+        let x = *nx;
+        let y = *ny;
+
+        // Write bitmap into the texture at (x,y)
+        let extent = Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let bytes_per_row = std::num::NonZeroU32::new(width).ok_or_else(|| RenderError::Other("zero width".into()))?;
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bitmap,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: None,
+            },
+            extent,
+        );
+
+        // Compute UVs
+        let u0 = x as f32 / self.atlas_width as f32;
+        let v0 = y as f32 / self.atlas_height as f32;
+        let u1 = (x + width) as f32 / self.atlas_width as f32;
+        let v1 = (y + height) as f32 / self.atlas_height as f32;
+
+        // Update shelf state
+        *nx += width + *padding;
+        if height > *row_h {
+            *row_h = height;
+        }
+
+        // Store GlyphInfo in both maps
+        let ginfo = GlyphInfo {
+            u0,
+            v0,
+            u1,
+            v1,
+            width,
+            height,
+            advance,
+            xoffset,
+            yoffset,
+        };
+
+        {
+            let mut id_map = self.glyph_id_map.lock().unwrap();
+            id_map.insert(key, ginfo.clone());
+        }
+
+        // We don't have a codepoint here to insert into the char map; callers
+        // may also insert into glyphs keyed by char if desired.
+        Ok((u0, v0, u1, v1))
     }
 }
 
@@ -262,12 +347,12 @@ pub(crate) fn emit_text(
     let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
 
     for ch in text.chars() {
-        let glyph = atlas.glyphs.get(&ch);
-        if glyph.is_none() {
+        let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
+        if glyph_opt.is_none() {
             // skip unknown glyphs
             continue;
         }
-        let g = glyph.unwrap();
+        let g = glyph_opt.unwrap();
         if g.width == 0 || g.height == 0 {
             x += g.advance;
             glyph_count += 1;
@@ -373,12 +458,12 @@ pub(crate) fn emit_text_clipped(
     let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
 
     for ch in text.chars() {
-        let glyph = atlas.glyphs.get(&ch);
-        if glyph.is_none() {
+        let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
+        if glyph_opt.is_none() {
             // skip unknown glyphs (still advance if needed)
             continue;
         }
-        let g = glyph.unwrap();
+        let g = glyph_opt.unwrap();
         if g.width == 0 || g.height == 0 {
             x += g.advance;
             glyph_count += 1;

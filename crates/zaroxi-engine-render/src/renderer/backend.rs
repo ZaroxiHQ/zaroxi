@@ -294,45 +294,166 @@ impl TextBackend for CosmicTextBackend {
         let mut layout_glyphs: usize = 0usize;
         let mut missing_glyphs: usize = 0usize;
 
-        for ch in text.chars() {
-            layout_glyphs += 1;
-            if let Some(g) = self.atlas.glyphs.get(&ch) {
-                // Advance-only glyphs move the pen
-                if g.width == 0 || g.height == 0 {
-                    pen_x += g.advance;
+        // Active cosmic-text layout/rasterization path:
+        // - Use Buffer to shape/layout the string into layout runs
+        // - Iterate runs/glyphs, request swash raster images
+        // - Insert raster into backend atlas (upload) and produce placed glyphs
+        //
+        // This path is gated by the diagnostic counter to avoid spam but will run
+        // for all calls — the logging itself is gated.
+        let mut swash_images_obtained = 0usize;
+        let mut atlas_insert_attempts = 0usize;
+        let mut atlas_insert_succeeded = 0usize;
+        let mut produced_placed = 0usize;
+        let mut layout_runs_count = 0usize;
+
+        // Create a buffer and set attributes that favor the resolved bundled family.
+        let mut buf = Buffer::new();
+
+        // Build attributes: prefer resolved_family if present, else fall back to default.
+        // We construct minimal Attrs via the public API; if the resolved family is known,
+        // include it so shaping uses the bundled JetBrainsMono Nerd Font when available.
+        let mut attrs = cosmic_text::Attrs::new();
+        if let Some(ref fam) = self.resolved_family {
+            attrs = attrs.family(fam);
+        }
+        attrs = attrs.size(self.atlas.font_size as f32);
+
+        // Apply text and shape using the FontSystem (cosmic-text 0.19 flow).
+        buf.set_text(text, attrs);
+        // shape the buffer using the font system (this will populate layout runs/glyphs)
+        buf.shape(&mut self.font_system, None);
+
+        // Iterate layout runs produced by the buffer.
+        let runs: Vec<_> = buf.layout_runs().collect();
+        layout_runs_count = runs.len();
+        if should_log {
+            info!("CosmicTextBackend: layout_runs={}", layout_runs_count);
+        }
+
+        // For each run gather glyphs and rasterize via swash_cache
+        for run in runs.iter() {
+            // run.glyphs is the shaped glyph sequence for this run.
+            let glyphs = &run.glyphs;
+            layout_glyphs += glyphs.len();
+            for g in glyphs.iter() {
+                // Extract shaper-provided glyph id and position (cluster coordinates)
+                let gid = g.glyph_id;
+                let gx = g.x as f32 + pen_x;
+                let gy = y + g.y as f32;
+
+                // Build a stable cache key for this glyph id at the current font size.
+                let subpixel_y = ((gy.fract() * 64.0).round() as i32) as i32;
+                let key = Self::glyph_cache_key(gid, self.atlas.font_size, subpixel_y);
+
+                // First check if the glyph is already present in the atlas (by key).
+                let existing = {
+                    let map = self.atlas.glyph_id_map.lock().unwrap();
+                    map.get(&key).cloned()
+                };
+
+                if let Some(existing_ginfo) = existing {
+                    // Use existing atlas entry to produce placed glyph.
+                    // Clip-test similar to previous path.
+                    if existing_ginfo.width == 0 || existing_ginfo.height == 0 {
+                        pen_x += existing_ginfo.advance;
+                        continue;
+                    }
+                    let x0_px = gx + existing_ginfo.xoffset as f32;
+                    let y0_px = gy + existing_ginfo.yoffset as f32;
+                    let x1_px = x0_px + existing_ginfo.width as f32;
+                    let y1_px = y0_px + existing_ginfo.height as f32;
+
+                    if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                        pen_x += existing_ginfo.advance;
+                        continue;
+                    }
+
+                    out.push(PlacedGlyph {
+                        x0_px,
+                        y0_px,
+                        x1_px,
+                        y1_px,
+                        u0: existing_ginfo.u0,
+                        v0: existing_ginfo.v0,
+                        u1: existing_ginfo.u1,
+                        v1: existing_ginfo.v1,
+                        color,
+                    });
+
+                    pen_x += existing_ginfo.advance;
+                    rasterized_count += 1;
+                    produced_placed += 1;
                     continue;
                 }
 
-                let x0_px = pen_x + g.xoffset as f32;
-                let y0_px = y + g.yoffset as f32;
-                let x1_px = x0_px + g.width as f32;
-                let y1_px = y0_px + g.height as f32;
+                // Rasterize glyph via swash_cache. This will produce an R8 bitmap.
+                // The swash cache API returns an image-like structure with bitmap bytes.
+                if let Some(img) = self.swash_cache.raster_glyph(&mut self.font_system, gid, self.atlas.font_size as f32) {
+                    swash_images_obtained += 1;
+                    atlas_insert_attempts += 1;
 
-                // Clip-test
-                if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                    pen_x += g.advance;
-                    continue;
+                    // Attempt to insert/upload the glyph bitmap into the atlas.
+                    match self.atlas.insert_glyph_from_bitmap(
+                        _queue,
+                        key,
+                        &img.bytes,
+                        img.width,
+                        img.height,
+                        img.advance,
+                        img.xoffset,
+                        img.yoffset,
+                    ) {
+                        Ok((u0, v0, u1, v1)) => {
+                            atlas_insert_succeeded += 1;
+
+                            let x0_px = gx + img.xoffset as f32;
+                            let y0_px = gy + img.yoffset as f32;
+                            let x1_px = x0_px + img.width as f32;
+                            let y1_px = y0_px + img.height as f32;
+
+                            // Clip-test
+                            if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                                pen_x += img.advance;
+                                continue;
+                            }
+
+                            out.push(PlacedGlyph {
+                                x0_px,
+                                y0_px,
+                                x1_px,
+                                y1_px,
+                                u0,
+                                v0,
+                                u1,
+                                v1,
+                                color,
+                            });
+
+                            pen_x += img.advance;
+                            rasterized_count += 1;
+                            produced_placed += 1;
+                        }
+                        Err(e) => {
+                            // Insertion failed; advance conservatively.
+                            debug!("CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}", key, e);
+                            pen_x += self.atlas.font_size * 0.5;
+                            missing_glyphs += 1;
+                        }
+                    }
+                } else {
+                    // No swash image produced for this glyph; advance conservatively.
+                    missing_glyphs += 1;
+                    pen_x += self.atlas.font_size * 0.5;
                 }
-
-                out.push(PlacedGlyph {
-                    x0_px,
-                    y0_px,
-                    x1_px,
-                    y1_px,
-                    u0: g.u0,
-                    v0: g.v0,
-                    u1: g.u1,
-                    v1: g.v1,
-                    color,
-                });
-
-                pen_x += g.advance;
-                rasterized_count += 1;
-            } else {
-                // Missing glyph: advance conservatively and continue.
-                pen_x += self.atlas.font_size * 0.5;
-                missing_glyphs += 1;
             }
+        }
+
+        // Summary diagnostics (gated)
+        if should_log {
+            info!("CosmicTextBackend: layout_runs={} layout_glyphs={}", layout_runs_count, layout_glyphs);
+            info!("CosmicTextBackend: swash_images_obtained={} atlas_insert_attempts={} atlas_insert_succeeded={}", swash_images_obtained, atlas_insert_attempts, atlas_insert_succeeded);
+            info!("CosmicTextBackend: produced_placed_glyphs={}", produced_placed);
         }
 
         debug!(
@@ -341,14 +462,6 @@ impl TextBackend for CosmicTextBackend {
             rasterized_count,
             missing_glyphs
         );
-
-        // Additional diagnostic summary (gated)
-        if LAYOUT_LOG_COUNTER.load(Ordering::SeqCst) < 64 {
-            info!("CosmicTextBackend: swash_cache_available={}", true);
-            info!("CosmicTextBackend: swash images obtained=0 (not attempted by current atlas-only path)");
-            info!("CosmicTextBackend: atlas insertions_attempted=0 atlas_insertions_succeeded=0");
-            info!("CosmicTextBackend: produced_placed_glyphs={}", out.len());
-        }
 
         Ok(out)
     }
