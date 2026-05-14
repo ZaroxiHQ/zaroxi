@@ -484,58 +484,83 @@ impl TextBackend for CosmicTextBackend {
         let mut swash = self.swash_cache.lock().unwrap();
         for (cache_key, key_u64, gx_i, gy_i, advance, glyph_color) in jobs.into_iter() {
             // Request raster image from SwashCache (may be cached).
-            if let Some(img_opt) = swash.get_image(&mut *fs_guard, cache_key).as_ref() {
-                let img = img_opt;
-                swash_images_obtained += 1;
-                atlas_insert_attempts += 1;
+            match swash.get_image(&mut *fs_guard, cache_key) {
+                Some(img) => {
+                    swash_images_obtained += 1;
+                    atlas_insert_attempts += 1;
 
-                // Attempt to insert/upload the glyph bitmap into the atlas.
-                match self.atlas.insert_glyph_from_bitmap(
-                    _queue,
-                    key_u64,
-                    &img.data,
-                    img.placement.width,
-                    img.placement.height,
-                    advance,
-                    img.placement.left,
-                    -img.placement.top,
-                ) {
-                    Ok((u0, v0, u1, v1)) => {
-                        atlas_insert_succeeded += 1;
+                    // Attempt to insert/upload the glyph bitmap into the atlas.
+                    match self.atlas.insert_glyph_from_bitmap(
+                        _queue,
+                        key_u64,
+                        &img.data,
+                        img.placement.width,
+                        img.placement.height,
+                        advance,
+                        img.placement.left,
+                        -img.placement.top,
+                    ) {
+                        Ok((u0, v0, u1, v1)) => {
+                            atlas_insert_succeeded += 1;
+                            fresh_insertions_used += 1;
 
-                        let x0_px = gx_i as f32 + img.placement.left as f32;
-                        let y0_px = gy_i as f32 - img.placement.top as f32;
-                        let x1_px = x0_px + img.placement.width as f32;
-                        let y1_px = y0_px + img.placement.height as f32;
+                            let x0_px = gx_i as f32 + img.placement.left as f32;
+                            let y0_px = gy_i as f32 - img.placement.top as f32;
+                            let x1_px = x0_px + img.placement.width as f32;
+                            let y1_px = y0_px + img.placement.height as f32;
 
-                        // Clip-test
-                        if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                            continue;
+                            // Clip-test
+                            if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                                if should_log {
+                                    info!(
+                                        "CosmicTextBackend: skip after_insert reason=clip_reject text=\"{}\" cache_key={} key_u64={} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                                        text, cache_key, key_u64, gx_i, gy_i, x0_px, y0_px, x1_px, y1_px, clip_x, clip_y, clip_x + clip_w, clip_y + clip_h
+                                    );
+                                }
+                                *skipped_by_reason.entry("clip_reject_after_insert".to_string()).or_insert(0) += 1;
+                                continue;
+                            }
+
+                            out.push(PlacedGlyph {
+                                x0_px,
+                                y0_px,
+                                x1_px,
+                                y1_px,
+                                u0,
+                                v0,
+                                u1,
+                                v1,
+                                color: glyph_color,
+                            });
+
+                            if should_log {
+                                info!(
+                                    "CosmicTextBackend: inserted_and_placed text=\"{}\" cache_key={} key_u64={} phys=({}, {}) uv=({:.4},{:.4})-({:.4},{:.4})",
+                                    text, cache_key, key_u64, gx_i, gy_i, u0, v0, u1, v1
+                                );
+                            }
+
+                            rasterized_count += 1;
+                            produced_placed += 1;
                         }
-
-                        out.push(PlacedGlyph {
-                            x0_px,
-                            y0_px,
-                            x1_px,
-                            y1_px,
-                            u0,
-                            v0,
-                            u1,
-                            v1,
-                            color: glyph_color,
-                        });
-
-                        rasterized_count += 1;
-                        produced_placed += 1;
-                    }
-                    Err(e) => {
-                        debug!("CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}", key_u64, e);
-                        missing_glyphs += 1;
+                        Err(e) => {
+                            // Insertion failed; count as missing and continue.
+                            debug!("CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}", key_u64, e);
+                            *skipped_by_reason.entry("atlas_insert_failed".to_string()).or_insert(0) += 1;
+                            missing_glyphs += 1;
+                        }
                     }
                 }
-            } else {
-                // No swash image produced for this glyph.
-                missing_glyphs += 1;
+                None => {
+                    if should_log {
+                        info!(
+                            "CosmicTextBackend: no_swash_image text=\"{}\" cache_key={} key_u64={} phys=({}, {})",
+                            text, cache_key, key_u64, gx_i, gy_i
+                        );
+                    }
+                    *skipped_by_reason.entry("no_swash_image".to_string()).or_insert(0) += 1;
+                    missing_glyphs += 1;
+                }
             }
         }
 
