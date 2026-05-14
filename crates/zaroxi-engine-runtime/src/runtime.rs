@@ -170,13 +170,16 @@ impl ApplicationHandler for App {
                         colors: sem,
                     };
 
-                    if std::env::var("ZAROXI_HIGH_CONTRAST").is_ok() {
-                        info!("[runtime] high-contrast requested; handled in app/layout");
-                    }
+                    // Convert app-owned panels into renderer-facing descriptors and log.
+                    let render_panels = zaroxi_app::view_model::to_render_panels(&*state);
+                    info!("[runtime] render_panels count = {}", render_panels.len());
 
                     // Log resolved layout for debugging first frame rendering.
                     info!("[runtime] resolved layout: {:?}", layout);
 
+                    // Pass both layout and the render_panels via layout.colors or other
+                    // mechanism as needed. For now we only log the receipt; renderer
+                    // consumes layout (panels are logged and visible in render logs).
                     match renderer.render_with_layout(&*state, &layout) {
                         Ok(_) => {
                             info!("render_with_layout completed OK");
