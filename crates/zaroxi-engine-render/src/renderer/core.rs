@@ -688,6 +688,20 @@ impl<'a> Renderer<'a> {
         // append text verts
         verts.extend(text_verts.into_iter());
 
+        // Temporary diagnostics: log geometry counts to help diagnose missing text.
+        // These logs are intentionally concise and should be safe in normal runs.
+        let panel_indices_len = panel_indices.len() as u32;
+        let total_indices_len = indices.len() as u32;
+        info!(
+            "render geometry counts: panel_verts={} text_verts={} panel_indices={} text_indices={} total_verts={} total_indices={}",
+            panel_vertex_count as usize,
+            verts.len().saturating_sub(panel_vertex_count as usize),
+            panel_indices_len,
+            total_indices_len.saturating_sub(panel_indices_len),
+            verts.len(),
+            total_indices_len
+        );
+
         // Log final totals (debug only to avoid frame spam)
         if RENDER_DEBUG {
             debug!("[renderer] final verts={}, indices={}", verts.len(), indices.len());

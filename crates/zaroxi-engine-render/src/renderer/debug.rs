@@ -25,8 +25,9 @@ pub(crate) const FORCE_MAGENTA_SIDEBAR: bool = false;
 pub(crate) const DISABLE_TEXT_PASS: bool = false;
 
 /// Validation scene toggle (disabled by default to avoid contaminating normal runs).
-/// Set to `true` temporarily to run the forced RGB quad validation scene.
-pub(crate) const VALIDATION_SCENE: bool = true;
+/// NOTE: previously this was enabled (true) causing the RGB validation bands that
+/// overpainted normal UI panels. Restore to `false` for production-like rendering.
+pub(crate) const VALIDATION_SCENE: bool = false;
 
 /// Helper used to decide whether to show render-time diagnostics.
 /// Default is controlled by the compile-time `RENDER_DEBUG` constant, but

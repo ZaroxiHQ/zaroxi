@@ -331,8 +331,20 @@ pub(crate) fn emit_text(
         let d = Vertex { pos: [ndc_d[0], ndc_d[1]], uv: [u0, v1], color };
 
         verts.push(a); verts.push(b); verts.push(c); verts.push(d);
-        let i0 = base_index + (verts.len() as u16 - 4);
+        // base_index is the index of the first vertex we just pushed.
+        // Previously the index computation used `base_index + (verts.len() - 4)` which
+        // produced incorrect indices. Use base_index directly.
+        let i0 = base_index;
         indices.extend_from_slice(&[i0, i0+1, i0+2, i0, i0+2, i0+3]);
+
+        // Temporary diagnostic: log the first glyph placement for visibility.
+        if !first_glyph_logged {
+            info!(
+                "emit_text first glyph '{}' base_index={} ndc_rect=({:.3},{:.3})-({:.3},{:.3}) uv=({:.4},{:.4})-({:.4},{:.4}) verts_total={} indices_total={}",
+                ch, base_index, ndc_a[0], ndc_a[1], ndc_c[0], ndc_c[1], u0, v0, u1, v1, verts.len(), indices.len()
+            );
+            first_glyph_logged = true;
+        }
 
         x += g.advance;
         glyph_count += 1;
