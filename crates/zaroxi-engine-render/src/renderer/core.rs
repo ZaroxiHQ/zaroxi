@@ -25,6 +25,49 @@ use crate::renderer::debug::{
 };
 use crate::renderer::geometry::{Vertex, push_colored_quad, pixel_to_ndc};
 
+/// Internal context that groups per-frame geometry buffers and screen size.
+/// Introduced to reduce the responsibility surface of core.rs and to provide
+/// a single place to extend frame-related helpers in subsequent refactors.
+///
+/// This is a move-free, behavior-preserving helper: it does not change any
+/// public API or rendering logic.
+struct FrameContext<'a> {
+    pub screen_w: f32,
+    pub screen_h: f32,
+    pub panel_verts: &'a mut Vec<Vertex>,
+    pub panel_indices: &'a mut Vec<u16>,
+    pub text_verts: &'a mut Vec<Vertex>,
+    pub text_indices: &'a mut Vec<u16>,
+}
+
+impl<'a> FrameContext<'a> {
+    pub fn new(
+        screen_w: f32,
+        screen_h: f32,
+        panel_verts: &'a mut Vec<Vertex>,
+        panel_indices: &'a mut Vec<u16>,
+        text_verts: &'a mut Vec<Vertex>,
+        text_indices: &'a mut Vec<u16>,
+    ) -> Self {
+        Self { screen_w, screen_h, panel_verts, panel_indices, text_verts, text_indices }
+    }
+
+    /// Convenience wrapper delegating to the shared geometry helper.
+    pub fn push_colored_quad(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+        crate::renderer::geometry::push_colored_quad(
+            self.panel_verts,
+            self.panel_indices,
+            x,
+            y,
+            w,
+            h,
+            color,
+            self.screen_w,
+            self.screen_h,
+        );
+    }
+}
+
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
     [c.r, c.g, c.b, c.a]
