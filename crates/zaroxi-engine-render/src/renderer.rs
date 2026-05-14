@@ -29,6 +29,14 @@ static FIRST_GLYPH_LOGGED: AtomicBool = AtomicBool::new(false);
 static LOGGED_TITLEBAR: AtomicBool = AtomicBool::new(false);
 static LOGGED_SIDEBAR: AtomicBool = AtomicBool::new(false);
 static LOGGED_EDITOR: AtomicBool = AtomicBool::new(false);
+/// One-shot flag to dump packed panel vertex values for the sidebar (packed GPU upload values).
+static LOGGED_SIDEBAR_PACKED: AtomicBool = AtomicBool::new(false);
+
+/// Experiment flags:
+/// When true, force the sidebar content quad to magenta for quick visual verification.
+const FORCE_MAGENTA_SIDEBAR: bool = false;
+/// When true, skip the text pass entirely (draw shapes only).
+const DISABLE_TEXT_PASS: bool = false;
 
 /// Validation scene toggle (disabled by default to avoid contaminating normal runs).
 /// Set to `true` temporarily to run the forced RGB quad validation scene.
@@ -1056,8 +1064,45 @@ impl<'a> Renderer<'a> {
                 _ => {}
             }
 
+            // Support a forced-magenta experiment for the sidebar only.
+            let effective_color: [f32; 4] = if FORCE_MAGENTA_SIDEBAR && panel.id.as_str() == "titlebar" {
+                // user may want titlebar test; keep pattern flexible (change id as needed)
+                [1.0, 0.0, 1.0, 1.0]
+            } else if FORCE_MAGENTA_SIDEBAR && panel.id.as_str() == "sidebar" {
+                [1.0, 0.0, 1.0, 1.0]
+            } else {
+                content_color
+            };
+
+            if FORCE_MAGENTA_SIDEBAR && panel.id.as_str() == "sidebar" {
+                info!("FORCE_MAGENTA_SIDEBAR enabled: overriding sidebar content_color -> {:?}", effective_color);
+            }
+
             if cw > 0.0 && ch > 0.0 {
-                push_colored_quad(&mut panel_verts, &mut panel_indices, cx, cy, cw, ch, content_color, width, height);
+                // remember base index so we can dump the four packed vertices for the sidebar
+                let base_idx = panel_verts.len();
+                push_colored_quad(&mut panel_verts, &mut panel_indices, cx, cy, cw, ch, effective_color, width, height);
+
+                // One-shot packed-vertex dump for the sidebar (shows final pos/uv/color pushed to the buffer).
+                if panel.id.as_str() == "sidebar" && LOGGED_SIDEBAR_PACKED.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                    if panel_verts.len() >= base_idx + 4 {
+                        let v0 = panel_verts[base_idx];
+                        let v1 = panel_verts[base_idx + 1];
+                        let v2 = panel_verts[base_idx + 2];
+                        let v3 = panel_verts[base_idx + 3];
+                        info!(
+                            "packed sidebar verts: \
+                             v0 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                             v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                             v2 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                             v3 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3})",
+                            v0.pos[0], v0.pos[1], v0.uv[0], v0.uv[1], v0.color[0], v0.color[1], v0.color[2], v0.color[3],
+                            v1.pos[0], v1.pos[1], v1.uv[0], v1.uv[1], v1.color[0], v1.color[1], v1.color[2], v1.color[3],
+                            v2.pos[0], v2.pos[1], v2.uv[0], v2.uv[1], v2.color[0], v2.color[1], v2.color[2], v2.color[3],
+                            v3.pos[0], v3.pos[1], v3.uv[0], v3.uv[1], v3.color[0], v3.color[1], v3.color[2], v3.color[3],
+                        );
+                    }
+                }
             }
 
             // Queue header/title text
@@ -1290,18 +1335,24 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     if total_indices_len > panel_indices_len {
-                        if render_debug_enabled() {
-                            log::debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if DISABLE_TEXT_PASS {
+                            if render_debug_enabled() {
+                                log::debug!("DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)", total_indices_len - panel_indices_len);
+                            }
+                        } else {
+                            if render_debug_enabled() {
+                                log::debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                            }
+                            rpass.set_pipeline(&self.text_pipeline);
+                            // Rebind the font atlas bind group (must be set after switching pipeline).
+                            rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            if render_debug_enabled() {
+                                log::debug!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                            }
+                            rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                         }
-                        rpass.set_pipeline(&self.text_pipeline);
-                        // Rebind the font atlas bind group (must be set after switching pipeline).
-                        rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        if render_debug_enabled() {
-                            log::debug!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
-                        }
-                        rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
                 }
 
@@ -1375,18 +1426,25 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
-                        if render_debug_enabled() {
-                            log::debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if DISABLE_TEXT_PASS {
+                            if render_debug_enabled() {
+                                log::debug!("DISABLE_TEXT_PASS enabled (suboptimal path): skipping text pass (would draw {} indices)", total_indices_len - panel_indices_len);
+                            }
+                        } else {
+                            if render_debug_enabled() {
+                                log::debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                            }
+                            rpass.set_pipeline(&self.text_pipeline);
+                            rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            if render_debug_enabled() {
+                                log::debug!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                            }
+                            rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                         }
-                        rpass.set_pipeline(&self.text_pipeline);
-                        rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        if render_debug_enabled() {
-                            log::debug!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
-                        }
-                        rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
+                }
                 }
 
                 self.queue.submit(Some(encoder.finish()));
