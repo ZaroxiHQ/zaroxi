@@ -786,20 +786,39 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    // DEBUG: use the minimal solid-color pipeline and draw ONLY the first
-                    // 12 indices (first two debug quads). Do NOT bind the font atlas.
+                    // STAGE A (DEBUG): draw the FULL queued vertex/index buffers using the
+                    // minimal solid-color pipeline. This verifies geometry + layout end-to-end
+                    // without any texture sampling or bind groups.
                     rpass.set_pipeline(&self.debug_pipeline);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
                     if indices.is_empty() {
                         // Fallback: non-indexed draw if indices are unexpectedly empty.
                         let verts_to_draw = verts.len() as u32;
-                        info!("debug non-indexed draw: verts={}", verts_to_draw);
+                        info!("debug non-indexed draw (full): verts={}", verts_to_draw);
                         rpass.draw(0..verts_to_draw, 0..1);
                     } else {
-                        let indices_to_draw = std::cmp::min(12usize, indices.len()) as u32;
+                        let indices_to_draw = indices.len() as u32;
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("debug indexed draw: indices_drawn={}", indices_to_draw);
+                        info!("debug indexed draw (full): indices_drawn={}", indices_to_draw);
+                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                    }
+
+                    // STAGE B (NORMAL): now bind the normal text/UI pipeline and draw the
+                    // full scene. This reproduces the intended rendering path and will show
+                    // whether the normal pipeline/shaders are responsible for any disappearance.
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+                    if indices.is_empty() {
+                        let verts_to_draw = verts.len() as u32;
+                        info!("normal non-indexed draw: verts={}", verts_to_draw);
+                        rpass.draw(0..verts_to_draw, 0..1);
+                    } else {
+                        let indices_to_draw = indices.len() as u32;
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        info!("normal indexed draw: indices_drawn={}", indices_to_draw);
                         rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
                     }
                 }
@@ -832,17 +851,36 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    // DEBUG: use the minimal solid-color pipeline (no bind groups)
+                    // STAGE A (DEBUG): draw the FULL queued vertex/index buffers using the
+                    // minimal solid-color pipeline. This verifies geometry + layout end-to-end
+                    // without any texture sampling or bind groups.
                     rpass.set_pipeline(&self.debug_pipeline);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                     if indices.is_empty() {
                         let verts_to_draw = verts.len() as u32;
-                        info!("debug non-indexed draw (suboptimal): verts={}", verts_to_draw);
+                        info!("debug non-indexed draw (full, suboptimal path): verts={}", verts_to_draw);
                         rpass.draw(0..verts_to_draw, 0..1);
                     } else {
-                        let indices_to_draw = std::cmp::min(12usize, indices.len()) as u32;
+                        let indices_to_draw = indices.len() as u32;
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("debug indexed draw (suboptimal): indices_drawn={}", indices_to_draw);
+                        info!("debug indexed draw (full, suboptimal path): indices_drawn={}", indices_to_draw);
+                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                    }
+
+                    // STAGE B (NORMAL): now bind the normal text/UI pipeline and draw the
+                    // full scene. This reproduces the intended rendering path and will show
+                    // whether the normal pipeline/shaders are responsible for any disappearance.
+                    rpass.set_pipeline(&self.text_pipeline);
+                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    if indices.is_empty() {
+                        let verts_to_draw = verts.len() as u32;
+                        info!("normal non-indexed draw (suboptimal path): verts={}", verts_to_draw);
+                        rpass.draw(0..verts_to_draw, 0..1);
+                    } else {
+                        let indices_to_draw = indices.len() as u32;
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        info!("normal indexed draw (suboptimal path): indices_drawn={}", indices_to_draw);
                         rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
                     }
                 }
