@@ -262,7 +262,6 @@ pub(crate) fn emit_text(
     screen_w: f32,
     screen_h: f32,
 ) -> Result<(), RenderError> {
-    let base_index = verts.len() as u16;
     let mut glyph_count = 0usize;
     let mut first_glyph_logged = false;
     let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
@@ -330,17 +329,15 @@ pub(crate) fn emit_text(
         let c = Vertex { pos: [ndc_c[0], ndc_c[1]], uv: [u1, v1], color };
         let d = Vertex { pos: [ndc_d[0], ndc_d[1]], uv: [u0, v1], color };
 
+        // base_index is the index where the first vertex for this glyph will be placed.
+        let base_index = verts.len() as u16;
         verts.push(a); verts.push(b); verts.push(c); verts.push(d);
-        // base_index is the index of the first vertex we just pushed.
-        // Previously the index computation used `base_index + (verts.len() - 4)` which
-        // produced incorrect indices. Use base_index directly.
-        let i0 = base_index;
-        indices.extend_from_slice(&[i0, i0+1, i0+2, i0, i0+2, i0+3]);
+        indices.extend_from_slice(&[base_index, base_index+1, base_index+2, base_index, base_index+2, base_index+3]);
 
         // Temporary diagnostic: log the first glyph placement for visibility.
         if !first_glyph_logged {
             info!(
-                "emit_text first glyph '{}' base_index={} ndc_rect=({:.3},{:.3})-({:.3},{:.3}) uv=({:.4},{:.4})-({:.4},{:.4}) verts_total={} indices_total={}",
+                "emit_text glyph '{}' base_index={} ndc_rect=({:.3},{:.3})-({:.3},{:.3}) uv=({:.4},{:.4})-({:.4},{:.4}) verts_total={} indices_total={}",
                 ch, base_index, ndc_a[0], ndc_a[1], ndc_c[0], ndc_c[1], u0, v0, u1, v1, verts.len(), indices.len()
             );
             first_glyph_logged = true;
@@ -371,5 +368,16 @@ pub(crate) fn submit_text_pass<'a>(
     rpass.set_bind_group(0, &font_atlas.bind_group, &[]);
     rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
     rpass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+    // Diagnostic: log the exact text draw parameters to validate index ranges.
+    info!(
+        "submit_text_pass: draw_indexed start={} end={} count={} (panel_indices_len={} total_indices_len={})",
+        panel_indices_len,
+        total_indices_len,
+        total_indices_len.saturating_sub(panel_indices_len),
+        panel_indices_len,
+        total_indices_len
+    );
+
     rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
 }

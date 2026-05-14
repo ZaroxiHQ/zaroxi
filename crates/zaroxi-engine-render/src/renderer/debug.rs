@@ -25,9 +25,9 @@ pub(crate) const FORCE_MAGENTA_SIDEBAR: bool = false;
 pub(crate) const DISABLE_TEXT_PASS: bool = false;
 
 /// Validation scene toggle (disabled by default to avoid contaminating normal runs).
-/// NOTE: previously this was enabled (true) causing the RGB validation bands that
-/// overpainted normal UI panels. Restore to `false` for production-like rendering.
-pub(crate) const VALIDATION_SCENE: bool = false;
+/// Re-enable validation scene by default so GPU/shape/text validation geometry
+/// runs during development and surfaces regressions in the renderer.
+pub(crate) const VALIDATION_SCENE: bool = true;
 
 /// Helper used to decide whether to show render-time diagnostics.
 /// Default is controlled by the compile-time `RENDER_DEBUG` constant, but

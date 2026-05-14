@@ -809,11 +809,22 @@ impl<'a> Renderer<'a> {
                     let panel_indices_len = panel_indices.len() as u32;
                     let total_indices_len = indices.len() as u32;
 
+                    // Diagnostic: log shape/text split info
+                    info!(
+                        "render passes: panel_indices_len={} total_indices_len={} panel_verts={} text_verts={}",
+                        panel_indices_len,
+                        total_indices_len,
+                        panel_vertex_count as usize,
+                        verts.len().saturating_sub(panel_vertex_count as usize)
+                    );
+
                     if !DIAGNOSTIC_TEXT_ONLY {
                         if panel_indices_len > 0 {
                             if render_debug_enabled() {
                                 log::debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
                             }
+                            // Diagnostic: explicit draw parameters for shape pass
+                            info!("shape pass draw_indexed: start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
                             crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
                         }
                     } else {
@@ -832,6 +843,17 @@ impl<'a> Renderer<'a> {
                             if render_debug_enabled() {
                                 log::debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                             }
+
+                            // Diagnostic: explicit draw parameters for text pass
+                            info!(
+                                "text pass draw_indexed: start={} end={} count={} (panel_indices_len={} total_indices_len={})",
+                                panel_indices_len,
+                                total_indices_len,
+                                total_indices_len.saturating_sub(panel_indices_len),
+                                panel_indices_len,
+                                total_indices_len
+                            );
+
                             crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, &self.font_atlas, &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
@@ -890,11 +912,22 @@ impl<'a> Renderer<'a> {
                     let panel_indices_len = panel_indices.len() as u32;
                     let total_indices_len = indices.len() as u32;
 
+                    // Diagnostic: log shape/text split info (suboptimal path)
+                    info!(
+                        "render passes (suboptimal): panel_indices_len={} total_indices_len={} panel_verts={} text_verts={}",
+                        panel_indices_len,
+                        total_indices_len,
+                        panel_vertex_count as usize,
+                        verts.len().saturating_sub(panel_vertex_count as usize)
+                    );
+
                     if !DIAGNOSTIC_TEXT_ONLY {
                         if panel_indices_len > 0 {
                             if RENDER_DEBUG {
                                 debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
                             }
+                            // Diagnostic: explicit draw parameters for shape pass
+                            info!("shape pass draw_indexed (suboptimal): start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
                             crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
                         }
                     } else {
@@ -911,6 +944,17 @@ impl<'a> Renderer<'a> {
                             if render_debug_enabled() {
                                 log::debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                             }
+
+                            // Diagnostic: explicit draw parameters for text pass (suboptimal)
+                            info!(
+                                "text pass draw_indexed (suboptimal): start={} end={} count={} (panel_indices_len={} total_indices_len={})",
+                                panel_indices_len,
+                                total_indices_len,
+                                total_indices_len.saturating_sub(panel_indices_len),
+                                panel_indices_len,
+                                total_indices_len
+                            );
+
                             crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, &self.font_atlas, &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
