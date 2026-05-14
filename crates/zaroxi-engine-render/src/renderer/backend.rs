@@ -172,7 +172,10 @@ impl CosmicTextBackend {
         // Build a default font policy. This captures preferred family names and
         // a symbol/nerd-font fallback chain. The policy is purely a configuration
         // object; the FontSystem remains the authoritative shaping/fallback engine.
-        let font_policy = FontPolicy::default_with_assets(manifest);
+        // Embedded/workspace font loading was removed in this migration step, so
+        // we fall back to a manifest-free default. This allows the backend to
+        // use system-font discovery or explicit registration later.
+        let font_policy = FontPolicy::default_with_assets(".");
 
         // Initialize swash cache (cosmic-text wrapper that exposes swash rasterization).
         let swash_cache = cosmic_text::SwashCache::new();
