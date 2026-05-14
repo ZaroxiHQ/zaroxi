@@ -612,8 +612,36 @@ impl<'a> Renderer<'a> {
 
             info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
 
-            // Body/content text emission: emit content into the block's content area.
-            if !block.content.is_empty() {
+            // Body/content text emission:
+            // - Only emit real content supplied by the app (block.content).
+            // - Do not render generic/demo placeholder strings that may have been
+            //   injected by higher-level sample/demo flows.
+            // - Titlebar and status_bar have dedicated rendering behaviors and
+            //   should not receive generic body text here.
+            let content = block.content.trim();
+            let is_titlebar = block.id == "title_bar" || block.id == "titlebar" || block.id == "title-bar";
+            let is_statusbar = block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
+
+            // Detect obvious demo/fallback strings and treat them as "no content".
+            let is_placeholder = content.is_empty()
+                || content == "Welcome"
+                || content == "Workspace"
+                || content.eq_ignore_ascii_case("terminal placeholder")
+                || content.to_lowercase().contains("placeholder")
+                || content.to_lowercase().contains("demo");
+
+            if is_titlebar {
+                // Titlebar: do not emit body content here.
+                if RENDER_DEBUG && !content.is_empty() {
+                    debug!("emit_text: skipping body content for titlebar block='{}'", block.id);
+                }
+            } else if is_statusbar {
+                // Status bar: skip generic body rendering; status rendering uses its own path.
+                if RENDER_DEBUG && !content.is_empty() {
+                    debug!("emit_text: skipping body content for status bar block='{}'", block.id);
+                }
+            } else if !is_placeholder {
+                // Only emit when we have non-placeholder content.
                 let content_x = target.x + content_padding;
                 let content_y = target.y + hh + content_padding;
                 let content_w = (target.w - content_padding * 2.0).max(0.0);
@@ -635,7 +663,13 @@ impl<'a> Renderer<'a> {
                     crate::renderer::text::placed_glyphs_to_vertices(&placed_content, &mut text_verts, &mut text_indices, width, height);
                     info!("emit_text: content emitted for block='{}' at y={:.1} (content_h={:.1})", block.id, content_y, content_h);
                 } else {
-                    info!("emit_text: content area too small for block='{}'", block.id);
+                    if RENDER_DEBUG {
+                        info!("emit_text: content area too small for block='{}'", block.id);
+                    }
+                }
+            } else {
+                if RENDER_DEBUG {
+                    debug!("emit_text: suppressed placeholder/demo content for block='{}' content='{}'", block.id, content);
                 }
             }
 
