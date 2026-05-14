@@ -91,7 +91,6 @@ pub struct RenderLayout {
     pub colors: SemanticColors,
 }
 
-use crate::renderer::text::FontAtlas;
 
 /* Vertex type and vertex-layout helpers moved to renderer/geometry.rs */
 
@@ -348,7 +347,7 @@ impl<'a> Renderer<'a> {
 
         // Log received render panels for traceability (debug only).
         if RENDER_DEBUG {
-            for p in render_panels {
+            for p in render_blocks.iter() {
                 debug!("renderer received render_panel id='{}' title='{}' visible={}", p.id, p.title, p.visible);
             }
         }
