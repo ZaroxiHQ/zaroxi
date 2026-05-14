@@ -59,6 +59,7 @@ pub trait TextBackend: Send + Sync {
 // single implicit font for everything.
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 /// Roles used by the renderer to request different font fallbacks.
 #[derive(Debug, Clone, Copy)]
@@ -144,7 +145,9 @@ static LAYOUT_LOG_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 pub struct CosmicTextBackend {
     // cosmic-text's FontSystem is the shaping/layout/fallback engine.
-    font_system: cosmic_text::FontSystem,
+    // Wrapped in a Mutex so the TextBackend can borrow it mutably while
+    // `layout_text_clipped` is called through an `&self` reference.
+    font_system: Mutex<cosmic_text::FontSystem>,
     // swash-backed raster cache from cosmic-text (used to rasterize glyph bitmaps)
     swash_cache: cosmic_text::SwashCache,
     // GPU atlas and associated metadata (managed by the backend)
@@ -236,7 +239,7 @@ impl CosmicTextBackend {
         let atlas = FontAtlas::new_empty(device, queue, layout, font_size)?;
 
         Ok(Self {
-            font_system: fs,
+            font_system: Mutex::new(fs),
             swash_cache,
             atlas,
             glyph_cache_keys: Mutex::new(HashMap::new()),
@@ -307,22 +310,27 @@ impl TextBackend for CosmicTextBackend {
         let mut produced_placed = 0usize;
         let mut layout_runs_count = 0usize;
 
-        // Create a buffer and set attributes that favor the resolved bundled family.
-        let mut buf = Buffer::new();
+        // Acquire a mutable lock on the FontSystem for shaping/rasterization.
+        let mut fs_guard = self.font_system.lock().unwrap();
+
+        // Create Metrics for the buffer (font size belongs in Metrics in cosmic-text 0.19).
+        let metrics = cosmic_text::Metrics::new(self.atlas.font_size as f32);
+
+        // Create a new buffer using the FontSystem & Metrics.
+        let mut buf = Buffer::new(&mut *fs_guard, metrics);
 
         // Build attributes: prefer resolved_family if present, else fall back to default.
-        // We construct minimal Attrs via the public API; if the resolved family is known,
-        // include it so shaping uses the bundled JetBrainsMono Nerd Font when available.
+        // Use Family::Name to pass an owned name into Attrs.
         let mut attrs = cosmic_text::Attrs::new();
         if let Some(ref fam) = self.resolved_family {
-            attrs = attrs.family(fam);
+            attrs = attrs.family(cosmic_text::Family::Name(fam.as_str()));
         }
-        attrs = attrs.size(self.atlas.font_size as f32);
 
         // Apply text and shape using the FontSystem (cosmic-text 0.19 flow).
-        buf.set_text(text, attrs);
-        // shape the buffer using the font system (this will populate layout runs/glyphs)
-        buf.shape(&mut self.font_system, None);
+        // set_text requires an &Attrs, a Shaping policy and an optional Align.
+        buf.set_text(text, &attrs, cosmic_text::Shaping::Complex, None);
+        // Perform line shaping (fills layout_runs)
+        buf.line_shape(&mut *fs_guard, None);
 
         // Iterate layout runs produced by the buffer.
         let runs: Vec<_> = buf.layout_runs().collect();
@@ -344,7 +352,7 @@ impl TextBackend for CosmicTextBackend {
 
                 // Build a stable cache key for this glyph id at the current font size.
                 let subpixel_y = ((gy.fract() * 64.0).round() as i32) as i32;
-                let key = Self::glyph_cache_key(gid, self.atlas.font_size, subpixel_y);
+                let key = Self::glyph_cache_key(gid.into(), self.atlas.font_size, subpixel_y);
 
                 // First check if the glyph is already present in the atlas (by key).
                 let existing = {
