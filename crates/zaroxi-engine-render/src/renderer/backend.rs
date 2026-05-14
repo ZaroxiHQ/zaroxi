@@ -1,5 +1,6 @@
 use crate::error::RenderError;
 use crate::renderer::text::{PlacedGlyph, FontAtlas, GlyphInfo};
+use crate::renderer::geometry::color_to_rgba;
 use log::{debug, info};
 use std::collections::HashMap;
 use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
@@ -364,7 +365,7 @@ impl TextBackend for CosmicTextBackend {
                     };
 
                     // Resolve glyph color (respect possible per-glyph override)
-                    let glyph_color = g.color_opt.map_or(color, |c| c);
+                    let glyph_color = g.color_opt.map_or(color, |c| color_to_rgba(c));
 
                     if let Some(existing_ginfo) = existing {
                         // Use existing atlas entry to produce placed glyph immediately.
