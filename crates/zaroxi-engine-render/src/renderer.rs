@@ -490,7 +490,27 @@ impl<'a> Renderer<'a> {
 
         // Diagnostic: log text pipeline target format and blend usage so we can
         // correlate shader behavior with pipeline state.
-        info!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
+        {
+            use std::mem;
+            let vertex_size = mem::size_of::<Vertex>();
+            let expected_vertex_size = 32usize; // vec2 + vec2 + vec4 -> (2+2+4)*4 = 32 bytes
+
+            info!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
+            info!("Vertex struct: size_of::<Vertex>() = {}", vertex_size);
+            info!("Vertex buffer layout (Rust -> WGSL):");
+            info!("  - @location(0) pos : Float32x2  @ offset 0");
+            info!("  - @location(1) uv  : Float32x2  @ offset 8");
+            info!("  - @location(2) color: Float32x4 @ offset 16");
+            info!("  - array_stride = {} (bytes)", vertex_size);
+
+            // Sanity check: ensure Rust Vertex size matches expected WGSL layout size.
+            if vertex_size != expected_vertex_size {
+                return Err(RenderError::Other(format!(
+                    "Vertex size mismatch: expected {} bytes (vec2+vec2+vec4), got {}",
+                    expected_vertex_size, vertex_size
+                )));
+            }
+        }
 
         // Create a minimal solid-color pipeline for debug-only draws.
         // This pipeline does not sample any textures or use bind groups.
