@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 use log::info;
+use env_logger::Env;
 
 /// Thin desktop entrypoint for Zaroxi Studio.
 ///
@@ -12,8 +13,12 @@ use log::info;
 /// The heavy lifting of application logic lives in `crates/zaroxi-app` and
 /// the domain crates. This binary acts as a thin composition root.
 fn main() -> Result<()> {
-    // Initialize logging early.
-    env_logger::init();
+    // Initialize logging early. Default to DEBUG if RUST_LOG is not set.
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
+
+    // Guaranteed visible startup marker so we can confirm the process started.
+    println!("desktop main starting");
+    info!("desktop main starting");
 
     // Build configuration for the app (defaults provided by the config crate).
     let app_config = zaroxi_config::AppConfig::default();
