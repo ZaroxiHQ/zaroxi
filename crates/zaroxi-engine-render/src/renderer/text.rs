@@ -247,6 +247,103 @@ impl FontAtlas {
     }
 }
 
+/// PlacedGlyph describes a single laid-out glyph in pixel coordinates along
+/// with its atlas UV rectangle and color. The layout stage computes these
+/// entries using font metrics; the draw stage converts them into vertex data.
+pub struct PlacedGlyph {
+    pub x0_px: f32,
+    pub y0_px: f32,
+    pub x1_px: f32,
+    pub y1_px: f32,
+    pub u0: f32,
+    pub v0: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub color: [f32; 4],
+}
+
+/// Layout text into a sequence of PlacedGlyph entries clipped to the provided
+/// pixel rectangle (clip_x,clip_y,clip_w,clip_h). The function does not emit
+/// GPU vertices — it only performs metric-aware placement using the atlas.
+pub(crate) fn layout_text_clipped(
+    atlas: &FontAtlas,
+    mut x: f32,
+    y: f32,
+    text: &str,
+    color: [f32; 4],
+    screen_w: f32,
+    screen_h: f32,
+    clip_x: f32,
+    clip_y: f32,
+    clip_w: f32,
+    clip_h: f32,
+) -> Result<Vec<PlacedGlyph>, RenderError> {
+    let mut out: Vec<PlacedGlyph> = Vec::new();
+    for ch in text.chars() {
+        let glyph = atlas.glyphs.get(&ch);
+        if glyph.is_none() {
+            continue;
+        }
+        let g = glyph.unwrap();
+        // Advance-only glyphs (zero-width) still advance the pen.
+        if g.width == 0 || g.height == 0 {
+            x += g.advance;
+            continue;
+        }
+        let x0_px = x as f32 + g.xoffset as f32;
+        let y0_px = y as f32 + g.yoffset as f32;
+        let x1_px = x0_px + g.width as f32;
+        let y1_px = y0_px + g.height as f32;
+
+        // Clip-test: skip glyphs fully outside the clip rect, but still advance.
+        if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+            x += g.advance;
+            continue;
+        }
+
+        out.push(PlacedGlyph {
+            x0_px,
+            y0_px,
+            x1_px,
+            y1_px,
+            u0: g.u0,
+            v0: g.v0,
+            u1: g.u1,
+            v1: g.v1,
+            color,
+        });
+
+        x += g.advance;
+    }
+    Ok(out)
+}
+
+/// Convert placed glyphs (pixel-space) into renderer vertices/indices (NDC).
+/// This is the draw-stage that turns layout results into GPU consumer buffers.
+pub(crate) fn placed_glyphs_to_vertices(
+    placed: &[PlacedGlyph],
+    verts: &mut Vec<Vertex>,
+    indices: &mut Vec<u16>,
+    screen_w: f32,
+    screen_h: f32,
+) {
+    for pg in placed.iter() {
+        let ndc_a = pixel_to_ndc(pg.x0_px, pg.y0_px, screen_w, screen_h);
+        let ndc_b = pixel_to_ndc(pg.x1_px, pg.y0_px, screen_w, screen_h);
+        let ndc_c = pixel_to_ndc(pg.x1_px, pg.y1_px, screen_w, screen_h);
+        let ndc_d = pixel_to_ndc(pg.x0_px, pg.y1_px, screen_w, screen_h);
+
+        let a = Vertex { pos: [ndc_a[0], ndc_a[1]], uv: [pg.u0, pg.v0], color: pg.color };
+        let b = Vertex { pos: [ndc_b[0], ndc_b[1]], uv: [pg.u1, pg.v0], color: pg.color };
+        let c = Vertex { pos: [ndc_c[0], ndc_c[1]], uv: [pg.u1, pg.v1], color: pg.color };
+        let d = Vertex { pos: [ndc_d[0], ndc_d[1]], uv: [pg.u0, pg.v1], color: pg.color };
+
+        let base_index = verts.len() as u16;
+        verts.push(a); verts.push(b); verts.push(c); verts.push(d);
+        indices.extend_from_slice(&[base_index, base_index+1, base_index+2, base_index, base_index+2, base_index+3]);
+    }
+}
+
 /// Emit text into the provided vertex/index arrays using the font atlas.
 ///
 /// This function mirrors the previous Renderer::emit_text method but operates
