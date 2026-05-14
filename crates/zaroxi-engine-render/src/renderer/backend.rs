@@ -513,7 +513,7 @@ impl TextBackend for CosmicTextBackend {
                             if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
                                 if should_log {
                                     info!(
-                                        "CosmicTextBackend: skip after_insert reason=clip_reject text=\"{}\" cache_key={} key_u64={} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                                        "CosmicTextBackend: skip after_insert reason=clip_reject text=\"{}\" cache_key={:?} key_u64={} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1})",
                                         text, cache_key, key_u64, gx_i, gy_i, x0_px, y0_px, x1_px, y1_px, clip_x, clip_y, clip_x + clip_w, clip_y + clip_h
                                     );
                                 }
@@ -535,7 +535,7 @@ impl TextBackend for CosmicTextBackend {
 
                             if should_log {
                                 info!(
-                                    "CosmicTextBackend: inserted_and_placed text=\"{}\" cache_key={} key_u64={} phys=({}, {}) uv=({:.4},{:.4})-({:.4},{:.4})",
+                                    "CosmicTextBackend: inserted_and_placed text=\"{}\" cache_key={:?} key_u64={} phys=({}, {}) uv=({:.4},{:.4})-({:.4},{:.4})",
                                     text, cache_key, key_u64, gx_i, gy_i, u0, v0, u1, v1
                                 );
                             }
@@ -554,7 +554,7 @@ impl TextBackend for CosmicTextBackend {
                 None => {
                     if should_log {
                         info!(
-                            "CosmicTextBackend: no_swash_image text=\"{}\" cache_key={} key_u64={} phys=({}, {})",
+                            "CosmicTextBackend: no_swash_image text=\"{}\" cache_key={:?} key_u64={} phys=({}, {})",
                             text, cache_key, key_u64, gx_i, gy_i
                         );
                     }
