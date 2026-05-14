@@ -623,28 +623,12 @@ impl<'a> Renderer<'a> {
                 }
             }
 
-            // Queue body/content text (first line only, if any)
+            // Body/content text emission is currently disabled.
+            // We intentionally only render panel header titles to avoid duplicate
+            // or placeholder body text appearing in the UI while focus is on
+            // header/title rendering. Keep a concise log per-panel for traceability.
             if !panel.content.is_empty() {
-                // Avoid emitting duplicate text when the panel.content is identical
-                // to the panel.title (this was causing each title to be emitted twice:
-                // once for the header and again as the content). Only emit content
-                // when it differs from the title.
-                if panel.content != panel.title {
-                    let hh = header_h.min(target.h.max(0.0));
-                    let cx = target.x + content_padding;
-                    let cy = target.y + hh + content_padding;
-                    let content_x = cx + 6.0;
-                    let content_y = cy + 6.0;
-                    let content_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
-                        DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
-                    } else {
-                        [0.8, 0.8, 0.8, 1.0]
-                    };
-                    let _ = self.emit_text(&mut text_verts, &mut text_indices, content_x, content_y, &panel.content, content_color, width, height);
-                } else {
-                    // Temporary diagnostic to confirm we intentionally skipped a duplicate emission.
-                    info!("emit_text: skipped duplicate content for panel='{}' (content == title)", panel.id);
-                }
+                info!("emit_text: content suppressed for panel='{}'", panel.id);
             }
 
             // Log counts per panel
