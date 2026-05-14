@@ -362,7 +362,15 @@ impl TextBackend for CosmicTextBackend {
                 let glyphs = &run.glyphs;
                 layout_glyphs += glyphs.len();
                 for g in glyphs.iter() {
-                    let physical = g.physical((x, run.line_y), 1.0);
+                    // Compute physical glyph coordinates in absolute pixel space.
+                    // The LayoutGlyph::physical(...) expects an (x,y) offset that is
+                    // added to the glyph-local coordinates. We must include the caller-
+                    // supplied `y` origin (the block/text origin) in the Y offset so
+                    // the resulting physical.y is in the same pixel space as the clip
+                    // rectangle passed to this function. Previously we passed only
+                    // run.line_y which produced coordinates relative to the buffer,
+                    // causing the clip test to incorrectly reject glyphs.
+                    let physical = g.physical((x, y + run.line_y), 1.0);
                     let gid = g.glyph_id;
                     // integer pixel coords
                     let gx_i = physical.x;
