@@ -2,7 +2,6 @@ use crate::error::RenderError;
 use crate::renderer::text::{PlacedGlyph, FontAtlas, GlyphInfo};
 use log::{debug, info};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
 
 /* explicit re-exports expected by the backend code; cosmic-text crate is
@@ -149,7 +148,7 @@ pub struct CosmicTextBackend {
     // `layout_text_clipped` is called through an `&self` reference.
     font_system: Mutex<cosmic_text::FontSystem>,
     // swash-backed raster cache from cosmic-text (used to rasterize glyph bitmaps)
-    swash_cache: cosmic_text::SwashCache,
+    swash_cache: Mutex<cosmic_text::SwashCache>,
     // GPU atlas and associated metadata (managed by the backend)
     atlas: FontAtlas,
     // Mapping from a stable cache key -> glyph placement/meta in the atlas.
@@ -206,7 +205,7 @@ impl CosmicTextBackend {
         let font_policy = FontPolicy::default_with_assets(".");
 
         // Initialize swash cache (cosmic-text wrapper that exposes swash rasterization).
-        let swash_cache = cosmic_text::SwashCache::new();
+        let swash_cache = Mutex::new(cosmic_text::SwashCache::new());
 
         // Determine the exact family name that will be used for the bundled font.
         // Prefer "JetBrainsMono Nerd Font" but query the attached font database to
@@ -314,7 +313,8 @@ impl TextBackend for CosmicTextBackend {
         let mut fs_guard = self.font_system.lock().unwrap();
 
         // Create Metrics for the buffer (font size belongs in Metrics in cosmic-text 0.19).
-        let metrics = cosmic_text::Metrics::new(self.atlas.font_size as f32);
+        // Provide an explicit line_height (1.2x font size) to satisfy Metrics::new(font_size, line_height)
+        let metrics = cosmic_text::Metrics::new(self.atlas.font_size as f32, self.atlas.font_size as f32 * 1.2);
 
         // Create a new buffer using the FontSystem & Metrics.
         let mut buf = Buffer::new(&mut *fs_guard, metrics);
@@ -326,14 +326,16 @@ impl TextBackend for CosmicTextBackend {
             attrs = attrs.family(cosmic_text::Family::Name(fam.as_str()));
         }
 
-        // Apply text and shape using the FontSystem (cosmic-text 0.19 flow).
-        // set_text requires an &Attrs, a Shaping policy and an optional Align.
-        buf.set_text(text, &attrs, cosmic_text::Shaping::Complex, None);
-        // Perform line shaping (fills layout_runs)
-        buf.line_shape(&mut *fs_guard, None);
+        // Apply text using the real cosmic-text 0.19 API: provide &Attrs, a Shaping strategy,
+        // and an optional alignment. Use Advanced shaping (full fallback + shaping).
+        buf.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
 
-        // Iterate layout runs produced by the buffer.
-        let runs: Vec<_> = buf.layout_runs().collect();
+        // Borrow the buffer together with the FontSystem to run layout/shape helpers.
+        // This mirrors the intended 0.19 flow: use BorrowedWithFontSystem to obtain layout runs.
+        let mut borrowed = buf.borrow_with(&mut *fs_guard);
+
+        // Iterate layout runs produced by the borrowed buffer (this triggers shaping).
+        let runs: Vec<_> = borrowed.layout_runs().collect();
         layout_runs_count = runs.len();
         if should_log {
             info!("CosmicTextBackend: layout_runs={}", layout_runs_count);
@@ -345,13 +347,15 @@ impl TextBackend for CosmicTextBackend {
             let glyphs = &run.glyphs;
             layout_glyphs += glyphs.len();
             for g in glyphs.iter() {
-                // Extract shaper-provided glyph id and position (cluster coordinates)
+                // Compute a physical glyph (cache key + integer pixel coordinates).
+                // Include the incoming `x` as buffer offset so coordinates are absolute.
+                let physical = g.physical((x, run.line_y), 1.0);
                 let gid = g.glyph_id;
-                let gx = g.x as f32 + pen_x;
-                let gy = y + g.y as f32;
+                let gx = physical.x as f32;
+                let gy = physical.y as f32;
 
                 // Build a stable cache key for this glyph id at the current font size.
-                let subpixel_y = ((gy.fract() * 64.0).round() as i32) as i32;
+                let subpixel_y = physical.y;
                 let key = Self::glyph_cache_key(gid.into(), self.atlas.font_size, subpixel_y);
 
                 // First check if the glyph is already present in the atlas (by key).
@@ -362,9 +366,7 @@ impl TextBackend for CosmicTextBackend {
 
                 if let Some(existing_ginfo) = existing {
                     // Use existing atlas entry to produce placed glyph.
-                    // Clip-test similar to previous path.
                     if existing_ginfo.width == 0 || existing_ginfo.height == 0 {
-                        pen_x += existing_ginfo.advance;
                         continue;
                     }
                     let x0_px = gx + existing_ginfo.xoffset as f32;
@@ -373,7 +375,6 @@ impl TextBackend for CosmicTextBackend {
                     let y1_px = y0_px + existing_ginfo.height as f32;
 
                     if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                        pen_x += existing_ginfo.advance;
                         continue;
                     }
 
@@ -389,15 +390,16 @@ impl TextBackend for CosmicTextBackend {
                         color,
                     });
 
-                    pen_x += existing_ginfo.advance;
                     rasterized_count += 1;
                     produced_placed += 1;
                     continue;
                 }
 
-                // Rasterize glyph via swash_cache. This will produce an R8 bitmap.
-                // The swash cache API returns an image-like structure with bitmap bytes.
-                if let Some(img) = self.swash_cache.raster_glyph(&mut self.font_system, gid, self.atlas.font_size as f32) {
+                // Rasterize glyph via SwashCache (cosmic-text 0.19 API).
+                let mut swash = self.swash_cache.lock().unwrap();
+                if let Some(img_opt) = swash.get_image(&mut *fs_guard, physical.cache_key).as_ref() {
+                    // img_opt is a reference to the cached SwashImage
+                    let img = img_opt;
                     swash_images_obtained += 1;
                     atlas_insert_attempts += 1;
 
@@ -405,24 +407,23 @@ impl TextBackend for CosmicTextBackend {
                     match self.atlas.insert_glyph_from_bitmap(
                         _queue,
                         key,
-                        &img.bytes,
-                        img.width,
-                        img.height,
-                        img.advance,
-                        img.xoffset,
-                        img.yoffset,
+                        &img.data,
+                        img.placement.width,
+                        img.placement.height,
+                        g.w,
+                        img.placement.left,
+                        -img.placement.top,
                     ) {
                         Ok((u0, v0, u1, v1)) => {
                             atlas_insert_succeeded += 1;
 
-                            let x0_px = gx + img.xoffset as f32;
-                            let y0_px = gy + img.yoffset as f32;
-                            let x1_px = x0_px + img.width as f32;
-                            let y1_px = y0_px + img.height as f32;
+                            let x0_px = gx + img.placement.left as f32;
+                            let y0_px = gy - img.placement.top as f32;
+                            let x1_px = x0_px + img.placement.width as f32;
+                            let y1_px = y0_px + img.placement.height as f32;
 
                             // Clip-test
                             if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                                pen_x += img.advance;
                                 continue;
                             }
 
@@ -438,21 +439,18 @@ impl TextBackend for CosmicTextBackend {
                                 color,
                             });
 
-                            pen_x += img.advance;
                             rasterized_count += 1;
                             produced_placed += 1;
                         }
                         Err(e) => {
-                            // Insertion failed; advance conservatively.
+                            // Insertion failed; count as missing and continue.
                             debug!("CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}", key, e);
-                            pen_x += self.atlas.font_size * 0.5;
                             missing_glyphs += 1;
                         }
                     }
                 } else {
-                    // No swash image produced for this glyph; advance conservatively.
+                    // No swash image produced for this glyph.
                     missing_glyphs += 1;
-                    pen_x += self.atlas.font_size * 0.5;
                 }
             }
         }

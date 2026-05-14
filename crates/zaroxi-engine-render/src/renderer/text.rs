@@ -79,12 +79,7 @@ impl FontAtlas {
         // Initialize texture memory with zeros
         let bytes_per_row = std::num::NonZeroU32::new(atlas_w).unwrap();
         queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
+            texture.as_image_copy(),
             &zero_buf,
             wgpu::ImageDataLayout {
                 offset: 0,
@@ -180,12 +175,7 @@ impl FontAtlas {
         let bytes_per_row = std::num::NonZeroU32::new(width).ok_or_else(|| RenderError::Other("zero width".into()))?;
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x, y, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
+            self.texture.as_image_copy(),
             bitmap,
             wgpu::ImageDataLayout {
                 offset: 0,
