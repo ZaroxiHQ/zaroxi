@@ -7,8 +7,8 @@ use winit::window::Window;
 use wgpu::{
     Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device, DeviceDescriptor,
     Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color, LoadOp, Operations,
-    StoreOp, Extent3d, TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
+    SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
+    Extent3d, TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
 };
 
 use fontdue::Font;
@@ -526,6 +526,7 @@ impl<'a> Renderer<'a> {
             _window_lifetime: PhantomData,
             text_pipeline,
             text_bind_layout,
+            debug_pipeline,
             font_atlas,
             vertex_buffer,
             index_buffer,
@@ -562,7 +563,7 @@ impl<'a> Renderer<'a> {
     ///
     /// Important: layout (panel geometry + resolved colors) is owned by the
     /// application/layout layer. The renderer only draws the provided layout.
-    pub fn render_with_layout(&mut self, app_state: &AppState, layout: &RenderLayout, render_panels: &[zaroxi_app::view_model::RenderPanel]) -> Result<(), RenderError> {
+    pub fn render_with_layout(&mut self, _app_state: &AppState, layout: &RenderLayout, render_panels: &[zaroxi_app::view_model::RenderPanel]) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
@@ -583,7 +584,7 @@ impl<'a> Renderer<'a> {
         let width = self.config.width as f32;
         let height = self.config.height as f32;
         // Use colors supplied by the resolved layout (owned by app/layout).
-        let sem = &layout.colors;
+        let _sem = &layout.colors;
 
         // Build a simple vertex list
         let mut verts: Vec<Vertex> = Vec::new();
