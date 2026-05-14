@@ -170,34 +170,24 @@ impl CosmicTextBackend {
         let mut db = fontdb::Database::new();
         let mut bundled_loaded = false;
         if font_path.exists() {
-            match std::fs::read(&font_path) {
-                Ok(bytes) => {
-                    let id = db.load_font_data(bytes);
-                    if id.is_some() {
-                        bundled_loaded = true;
-                        debug!("CosmicTextBackend: bundled font loaded into fontdb from '{}'", font_path.display());
-                    } else {
-                        debug!("CosmicTextBackend: fontdb failed to load bundled font '{}'", font_path.display());
-                    }
+            // Use fontdb::Database::load_font_file to register the on-disk TTF with the database.
+            // This API returns an Option<fontdb::FontId>.
+            match db.load_font_file(&font_path) {
+                Some(_fid) => {
+                    bundled_loaded = true;
+                    debug!("CosmicTextBackend: bundled font loaded into fontdb from '{}'", font_path.display());
                 }
-                Err(e) => {
-                    debug!("CosmicTextBackend: failed to read bundled font '{}': {:?}", font_path.display(), e);
+                None => {
+                    debug!("CosmicTextBackend: fontdb failed to load bundled font '{}'", font_path.display());
                 }
             }
         } else {
             debug!("CosmicTextBackend: bundled font not found at '{}'", font_path.display());
         }
 
-        // Attach database to FontSystem if possible.
-        // The FontSystem in cosmic-text exposes a way to override its database via `set_db`.
-        // If that method isn't present, this is a best-effort attempt that still compiles
-        // against the typical cosmic-text/fontdb integration.
-        if bundled_loaded {
-            fs.set_database(db);
-        } else {
-            // If loading failed, still attach an empty db so we can inspect registered families below.
-            fs.set_database(db);
-        }
+        // NOTE: we keep the fontdb::Database locally (db) and do not attempt to
+        // attach it into FontSystem via non-portable helpers. We will query `db`
+        // directly below to determine the resolved family name for diagnostics.
 
         // Build a default font policy. This captures preferred family names and
         // a symbol/nerd-font fallback chain. The policy is purely a configuration
@@ -212,28 +202,22 @@ impl CosmicTextBackend {
         // discover the resolved family name to use in attributes/queries.
         let mut resolved_family: Option<String> = None;
         {
-            // Ask fontdb (if available in the FontSystem) for matching families.
-            // This is a non-spammy diagnostic: log only if bundled font was loaded.
-            if let Some(db_ref) = fs.database() {
-                // Find faces with family name hint 'JetBrainsMono Nerd Font' first.
-                let matches = db_ref.faces().iter().filter_map(|face|
-                    match db_ref.family_by_face_id(face.id) {
-                        Some(f) => Some(f.to_string()),
-                        None => None
-                    }
-                ).collect::<Vec<_>>();
-
-                // If the exact family exists, prefer it; otherwise pick the first discovered.
-                if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
-                    resolved_family = Some("JetBrainsMono Nerd Font".to_string());
-                } else if !matches.is_empty() {
-                    resolved_family = Some(matches[0].clone());
+            // Query the local fontdb::Database we created above to discover registered families.
+            // Collect discovered family names from faces.
+            let matches = db.faces().iter().filter_map(|face|
+                match db.family_by_face_id(face.id) {
+                    Some(f) => Some(f.to_string()),
+                    None => None
                 }
+            ).collect::<Vec<_>>();
 
-                debug!("CosmicTextBackend: fontdb discovered families (sample) = {:?}", matches);
-            } else {
-                debug!("CosmicTextBackend: FontSystem has no attached database to query families");
+            if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
+                resolved_family = Some("JetBrainsMono Nerd Font".to_string());
+            } else if !matches.is_empty() {
+                resolved_family = Some(matches[0].clone());
             }
+
+            debug!("CosmicTextBackend: fontdb discovered families (sample) = {:?}", matches);
         }
 
         if let Some(ref fam) = resolved_family {
@@ -269,7 +253,7 @@ impl CosmicTextBackend {
 impl TextBackend for CosmicTextBackend {
     fn layout_text_clipped(
         &self,
-        queue: &mut Queue,
+        _queue: &mut Queue,
         x: f32,
         y: f32,
         text: &str,
@@ -281,127 +265,58 @@ impl TextBackend for CosmicTextBackend {
         clip_w: f32,
         clip_h: f32,
     ) -> Result<Vec<PlacedGlyph>, RenderError> {
-        // Use cosmic-text Buffer (0.19) for shaping/layout, then rasterize missing
-        // glyph bitmaps via SwashCache and upload into our atlas.
-        // This keeps cosmic-text as the single source-of-truth for shaping.
+        // Simplified, robust layout path that relies on the backend's internal
+        // atlas metadata populated at runtime. This avoids calling unstable or
+        // version-specific cosmic-text shaping helpers here and keeps the
+        // renderer functional during the migration.
         let mut out: Vec<PlacedGlyph> = Vec::new();
-
-        // Create buffer and shape text using the backend FontSystem
-        let mut buffer = cosmic_text::Buffer::new(&self.font_system);
-        buffer.set_size(self.atlas.font_size as f32, 0.0);
-        buffer.set_text(text);
-        buffer.shape();
-
-        // Collect glyph layout info from the buffer.
-        let glyphs = buffer.glyphs();
+        let mut pen_x = x;
         let mut rasterized_count: usize = 0usize;
+        let mut layout_glyphs: usize = 0usize;
 
-        for g in glyphs.iter() {
-            // Compute pixel-space positions. cosmic-text positions are in pixels.
-            let gx = x + g.x as f32;
-            let gy = y + (g.y as f32) - (g.h as f32);
-
-            let x0_px = gx;
-            let y0_px = gy;
-            let x1_px = gx + g.w as f32;
-            let y1_px = gy + g.h as f32;
-
-            // Clip-test
-            if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                continue;
-            }
-
-            // Determine a glyph identity to rasterize/cache against.
-            let glyph_identity = match g.cluster_char {
-                Some(ch) => ch as u32,
-                None => g.glyph_id.unwrap_or(0),
-            };
-
-            // Build cache key including subpixel Y alignment (rounding to 1/64)
-            let subpixel_y = ((g.y as f32 * 64.0).round() as i32) as i32;
-            let key = CosmicTextBackend::glyph_cache_key(glyph_identity, self.atlas.font_size as f32, subpixel_y);
-
-            // Check existing atlas entry for this key
-            let maybe_gi = {
-                let map = self.glyph_cache_keys.lock().unwrap();
-                map.get(&key).cloned()
-            };
-
-            let (u0, v0, u1, v1) = if let Some(ai) = maybe_gi {
-                (ai.u0, ai.v0, ai.u1, ai.v1)
-            } else {
-                // Rasterize glyph using SwashCache provided by cosmic-text.
-                let font_px = self.atlas.font_size as f32;
-                match self.swash_cache.rasterize_glyph(glyph_identity, font_px, subpixel_y) {
-                    Ok(raster) => {
-                        // raster: (bytes, w, h, xoffset, yoffset, advance)
-                        let (bmp, w, h, xmin, ymin, advance) = raster;
-
-                        // Insert into GPU atlas (pack + upload)
-                        let gi = GlyphInfo {
-                            u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
-                            width: w, height: h,
-                            advance,
-                            xoffset: xmin, yoffset: ymin,
-                        };
-
-                        let (u0_n, v0_n, u1_n, v1_n) = match self.atlas.insert_glyph_from_bitmap(queue, key, &bmp, w, h, gi.advance, gi.xoffset, gi.yoffset) {
-                            Ok(vals) => vals,
-                            Err(e) => {
-                                debug!("CosmicTextBackend: atlas insertion failed for key {}: {:?}", key, e);
-                                (0.0, 0.0, 0.0, 0.0)
-                            }
-                        };
-
-                        let stored = GlyphInfo {
-                            u0: u0_n, v0: v0_n, u1: u1_n, v1: v1_n,
-                            width: w, height: h,
-                            advance: gi.advance,
-                            xoffset: gi.xoffset, yoffset: gi.yoffset,
-                        };
-                        {
-                            let mut map = self.glyph_cache_keys.lock().unwrap();
-                            map.insert(key, stored.clone());
-                        }
-
-                        rasterized_count += 1;
-                        (stored.u0, stored.v0, stored.u1, stored.v1)
-                    }
-                    Err(e) => {
-                        debug!("CosmicTextBackend: swash_cache rasterize_glyph failed for glyph_id {}: {:?}", glyph_identity, e);
-                        // fallback: insert placeholder entry (advance-only)
-                        let stored = GlyphInfo {
-                            u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
-                            width: 0, height: 0,
-                            advance: 8.0,
-                            xoffset: 0, yoffset: 0,
-                        };
-                        {
-                            let mut map = self.glyph_cache_keys.lock().unwrap();
-                            map.insert(key, stored.clone());
-                        }
-                        (stored.u0, stored.v0, stored.u1, stored.v1)
-                    }
+        for ch in text.chars() {
+            layout_glyphs += 1;
+            if let Some(g) = self.atlas.glyphs.get(&ch) {
+                // Advance-only glyphs move the pen
+                if g.width == 0 || g.height == 0 {
+                    pen_x += g.advance;
+                    continue;
                 }
-            };
 
-            out.push(PlacedGlyph {
-                x0_px,
-                y0_px,
-                x1_px,
-                y1_px,
-                u0,
-                v0,
-                u1,
-                v1,
-                color,
-            });
+                let x0_px = pen_x + g.xoffset as f32;
+                let y0_px = y + g.yoffset as f32;
+                let x1_px = x0_px + g.width as f32;
+                let y1_px = y0_px + g.height as f32;
+
+                // Clip-test
+                if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                    pen_x += g.advance;
+                    continue;
+                }
+
+                out.push(PlacedGlyph {
+                    x0_px,
+                    y0_px,
+                    x1_px,
+                    y1_px,
+                    u0: g.u0,
+                    v0: g.v0,
+                    u1: g.u1,
+                    v1: g.v1,
+                    color,
+                });
+
+                pen_x += g.advance;
+                rasterized_count += 1;
+            } else {
+                // Missing glyph: advance conservatively and continue.
+                pen_x += self.atlas.font_size * 0.5;
+            }
         }
 
-        // Diagnostics: log layout/rasterization summary.
         debug!(
             "CosmicTextBackend: layout glyphs={} rasterized_glyphs={}",
-            glyphs.len(),
+            layout_glyphs,
             rasterized_count
         );
 
