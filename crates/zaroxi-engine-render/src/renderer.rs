@@ -553,115 +553,70 @@ impl<'a> Renderer<'a> {
             indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
         };
 
-        // Use the resolved layout rects supplied by the app/layout layer.
-        // If the environment variable `ZAROXI_HIGH_CONTRAST` is set, force
-        // unmistakable high-contrast debug colors here (renderer-local only).
-        if std::env::var("ZAROXI_HIGH_CONTRAST").is_ok() {
-            info!("[renderer] high-contrast mode active: forcing debug colors");
+        // Convert render panels into visible content quads and text.
+        info!("[renderer] render_panels count = {}", render_panels.len());
 
-            // Title bar = red
-            push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, [1.0, 0.0, 0.0, 1.0]);
-            info!("[renderer] title_bar color = {:?}", [1.0f32, 0.0, 0.0, 1.0]);
-
-            // Sidebar = green
-            push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, [0.0, 1.0, 0.0, 1.0]);
-            info!("[renderer] sidebar color = {:?}", [0.0f32, 1.0, 0.0, 1.0]);
-
-            // Right assistant panel = yellow
-            push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, [1.0, 1.0, 0.0, 1.0]);
-            info!("[renderer] right_panel color = {:?}", [1.0f32, 1.0, 0.0, 1.0]);
-
-            // Bottom panel = magenta
-            push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, [1.0, 0.0, 1.0, 1.0]);
-            info!("[renderer] bottom_panel color = {:?}", [1.0f32, 0.0, 1.0, 1.0]);
-
-            // Editor = blue
-            push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, [0.0, 0.0, 1.0, 1.0]);
-            info!("[renderer] editor color = {:?}", [0.0f32, 0.0, 1.0, 1.0]);
-
-            // Status bar = cyan
-            push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, [0.0, 1.0, 1.0, 1.0]);
-            info!("[renderer] status_bar color = {:?}", [0.0f32, 1.0, 1.0, 1.0]);
-        } else {
-            push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, color_to_rgba(&sem.title_bar_background));
-            push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, color_to_rgba(&sem.sidebar_background));
-            push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, color_to_rgba(&sem.assistant_panel_background));
-            push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, color_to_rgba(&sem.elevated_panel_background));
-            push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, color_to_rgba(&sem.editor_background));
-            push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, color_to_rgba(&sem.status_bar_background));
-        }
-
-        // DEBUG: minimal visibility test & diagnostics
-        //
-        // Instead of relying on the full text/atlas path, draw a single obvious
-        // solid rectangle so we can determine whether the geometry pipeline is
-        // functioning and whether the layout coordinates are reasonable.
-        //
-        // Also log resolved layout rectangles and current vertex/index counts.
-
-        // Log resolved layout rects for quick inspection
-        info!(
-            "[renderer] layout: title_bar={:?}, sidebar={:?}, editor={:?}, right_panel={:?}, bottom_panel={:?}, status_bar={:?}",
-            layout.title_bar, layout.sidebar, layout.editor, layout.right_panel, layout.bottom_panel, layout.status_bar
-        );
-
-        // Debug-only mode: draw a bright rectangle near top-left to validate draw path.
-        // Set to `false` to re-enable normal text rendering.
-        let debug_only = true;
-
-        if debug_only {
-            // Large red debug rectangle
-            push_colored_quad(20.0, layout.title_bar.h + 20.0, 300.0, 200.0, [1.0, 0.0, 0.0, 1.0]);
-
-            // Log vertex/index counts after building geometry
-            info!("[renderer] verts={}, indices={}", verts.len(), indices.len());
-        } else {
-            // Text rendering path (production). Emit labels and document lines.
-            // Title in top bar
-            let title = &app_state.config.title;
-            self.emit_text(&mut verts, &mut indices, layout.title_bar.x + 12.0, layout.title_bar.y + 12.0, title, color_to_rgba(&sem.text_primary), width, height)?;
-
-            // Tabs header - simple
-            let tabs = app_state.tabs.tabs.iter().map(|t| t.title.clone()).collect::<Vec<_>>().join("  ");
-            self.emit_text(&mut verts, &mut indices, layout.title_bar.x + 200.0, layout.title_bar.y + 12.0, &tabs, color_to_rgba(&sem.text_muted), width, height)?;
-
-            // Sidebar title
-            self.emit_text(&mut verts, &mut indices, layout.sidebar.x + 12.0, layout.sidebar.y + 16.0, "Workspace", color_to_rgba(&sem.text_primary), width, height)?;
-
-            // List some workspace items
-            for (i, item) in app_state.workspace.items.iter().enumerate() {
-                let y = layout.sidebar.y + 56.0 + i as f32 * 20.0;
-                self.emit_text(&mut verts, &mut indices, layout.sidebar.x + 12.0, y, &item.name, color_to_rgba(&sem.text_muted), width, height)?;
+        // For each panel supplied by the app, create a header and content block and queue title/content text.
+        let header_h = 28.0f32;
+        let content_padding = 8.0f32;
+        for panel in render_panels.iter() {
+            info!("drawing panel id='{}' title='{}' visible={}", panel.id, panel.title, panel.visible);
+            if !panel.visible {
+                info!("panel '{}' is hidden; skipping", panel.id);
+                continue;
             }
 
-            // Editor sample: render first few lines of active document
-            if let Some(doc) = app_state.editor.active_document().cloned() {
-                // render document title in editor header
-                self.emit_text(&mut verts, &mut indices, layout.editor.x + 20.0, layout.editor.y + 8.0, &doc.display_name, color_to_rgba(&sem.text_primary), width, height)?;
-
-                // split lines and render first 20 lines
-                for (i, line) in doc.text.lines().take(20).enumerate() {
-                    let y = layout.editor.y + 38.0 + i as f32 * 18.0;
-                    // line numbers
-                    let ln = format!("{:>3} ", i+1);
-                    self.emit_text(&mut verts, &mut indices, layout.editor.x + 8.0, y, &ln, color_to_rgba(&sem.text_muted), width, height)?;
-                    self.emit_text(&mut verts, &mut indices, layout.editor.x + 48.0, y, line, color_to_rgba(&sem.text_primary), width, height)?;
+            // Map panel id -> rect
+            let target = match panel.id.as_str() {
+                "titlebar" => layout.title_bar,
+                "sidebar" => layout.sidebar,
+                "editor" => layout.editor,
+                "right_panel" => layout.right_panel,
+                "bottom_panel" => layout.bottom_panel,
+                "status_bar" => layout.status_bar,
+                other => {
+                    info!("unknown panel id '{}', skipping", other);
+                    continue;
                 }
+            };
+
+            // Header strip at the top of the panel rect
+            let hx = target.x;
+            let hy = target.y;
+            let hw = target.w;
+            let hh = header_h.min(target.h.max(0.0));
+            let header_color = [0.12, 0.13, 0.16, 1.0];
+            push_colored_quad(hx, hy, hw, hh, header_color);
+
+            // Content inset: a smaller block inside the panel for visual differentiation
+            let cx = target.x + content_padding;
+            let cy = target.y + hh + content_padding;
+            let cw = (target.w - content_padding * 2.0).max(0.0);
+            let ch = (target.h - hh - content_padding * 2.0).max(0.0);
+            let content_color = [0.08, 0.09, 0.11, 1.0];
+            if cw > 0.0 && ch > 0.0 {
+                push_colored_quad(cx, cy, cw, ch, content_color);
             }
 
-            // Assistant header & messages
-            self.emit_text(&mut verts, &mut indices, layout.right_panel.x + 12.0, layout.right_panel.y + 16.0, "AI Assistant", color_to_rgba(&sem.text_primary), width, height)?;
-            for (i, m) in app_state.assistant.messages.iter().enumerate().take(6) {
-                let y = layout.right_panel.y + 48.0 + i as f32 * 18.0;
-                self.emit_text(&mut verts, &mut indices, layout.right_panel.x + 12.0, y, m, color_to_rgba(&sem.text_muted), width, height)?;
+            // Queue header/title text
+            let title_x = hx + 8.0;
+            let title_y = hy + 6.0;
+            let _ = self.emit_text(&mut verts, &mut indices, title_x, title_y, &panel.title, [0.95, 0.95, 0.95, 1.0], width, height);
+
+            // Queue body/content text (first line only, if any)
+            if !panel.content.is_empty() {
+                let content_x = cx + 6.0;
+                let content_y = cy + 6.0;
+                let _ = self.emit_text(&mut verts, &mut indices, content_x, content_y, &panel.content, [0.8, 0.8, 0.8, 1.0], width, height);
             }
 
-            // Status bar text
-            let status = &app_state.status.message;
-            self.emit_text(&mut verts, &mut indices, layout.status_bar.x + 8.0, layout.status_bar.y + 6.0, status, color_to_rgba(&sem.text_muted), width, height)?;
-
-            info!("[renderer] verts={}, indices={}", verts.len(), indices.len());
+            // Log counts per panel
+            let quad_count = (verts.len() / 4) as usize;
+            info!("panel '{}' queued: quads_total={} verts_total={} indices_total={}", panel.id, quad_count, verts.len(), indices.len());
         }
+
+        // Log final totals
+        info!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
 
         // Upload vertex/index data
         let vb_bytes = bytemuck::cast_slice(&verts);
