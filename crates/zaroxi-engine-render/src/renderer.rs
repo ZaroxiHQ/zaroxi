@@ -544,12 +544,42 @@ impl<'a> Renderer<'a> {
         };
 
         // Use the resolved layout rects supplied by the app/layout layer.
-        push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, color_to_rgba(&sem.title_bar_background));
-        push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, color_to_rgba(&sem.sidebar_background));
-        push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, color_to_rgba(&sem.assistant_panel_background));
-        push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, color_to_rgba(&sem.elevated_panel_background));
-        push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, color_to_rgba(&sem.editor_background));
-        push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, color_to_rgba(&sem.status_bar_background));
+        // If the environment variable `ZAROXI_HIGH_CONTRAST` is set, force
+        // unmistakable high-contrast debug colors here (renderer-local only).
+        if std::env::var("ZAROXI_HIGH_CONTRAST").is_ok() {
+            info!("[renderer] high-contrast mode active: forcing debug colors");
+
+            // Title bar = red
+            push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, [1.0, 0.0, 0.0, 1.0]);
+            info!("[renderer] title_bar color = {:?}", [1.0f32, 0.0, 0.0, 1.0]);
+
+            // Sidebar = green
+            push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, [0.0, 1.0, 0.0, 1.0]);
+            info!("[renderer] sidebar color = {:?}", [0.0f32, 1.0, 0.0, 1.0]);
+
+            // Right assistant panel = yellow
+            push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, [1.0, 1.0, 0.0, 1.0]);
+            info!("[renderer] right_panel color = {:?}", [1.0f32, 1.0, 0.0, 1.0]);
+
+            // Bottom panel = magenta
+            push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, [1.0, 0.0, 1.0, 1.0]);
+            info!("[renderer] bottom_panel color = {:?}", [1.0f32, 0.0, 1.0, 1.0]);
+
+            // Editor = blue
+            push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, [0.0, 0.0, 1.0, 1.0]);
+            info!("[renderer] editor color = {:?}", [0.0f32, 0.0, 1.0, 1.0]);
+
+            // Status bar = cyan
+            push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, [0.0, 1.0, 1.0, 1.0]);
+            info!("[renderer] status_bar color = {:?}", [0.0f32, 1.0, 1.0, 1.0]);
+        } else {
+            push_colored_quad(layout.title_bar.x, layout.title_bar.y, layout.title_bar.w, layout.title_bar.h, color_to_rgba(&sem.title_bar_background));
+            push_colored_quad(layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h, color_to_rgba(&sem.sidebar_background));
+            push_colored_quad(layout.right_panel.x, layout.right_panel.y, layout.right_panel.w, layout.right_panel.h, color_to_rgba(&sem.assistant_panel_background));
+            push_colored_quad(layout.bottom_panel.x, layout.bottom_panel.y, layout.bottom_panel.w, layout.bottom_panel.h, color_to_rgba(&sem.elevated_panel_background));
+            push_colored_quad(layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h, color_to_rgba(&sem.editor_background));
+            push_colored_quad(layout.status_bar.x, layout.status_bar.y, layout.status_bar.w, layout.status_bar.h, color_to_rgba(&sem.status_bar_background));
+        }
 
         // DEBUG: minimal visibility test & diagnostics
         //
