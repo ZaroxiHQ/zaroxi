@@ -27,8 +27,10 @@ fn vs_main(in: VertexInput) -> VSOut {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-    // FORCE opaque red output for one-frame diagnostic:
-    // ignore atlas sampling and coverage so we can determine whether text
-    // geometry + pipeline are visible at all.
-    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    // Text rendering: sample the single-channel font atlas (R8Unorm). The atlas
+    // encodes coverage in the red channel. Use sampled coverage as the fragment
+    // alpha and keep the vertex color RGB as the output color.
+    let coverage = textureSample(font_tex, font_sampler, in.uv).r;
+    let alpha = in.color.a * coverage;
+    return vec4<f32>(in.color.rgb, alpha);
 }

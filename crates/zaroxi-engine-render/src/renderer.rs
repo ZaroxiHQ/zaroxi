@@ -722,18 +722,19 @@ impl<'a> Renderer<'a> {
         // DIAGNOSTIC_TEXT_ONLY: if true, skip the shape pass and render only text
         // (useful to verify text/atlas/pipeline independently).
         const DIAGNOSTIC_TEXT_ONLY: bool = false;
-        // When true, avoid any scissor operations (if present). Kept true by
-        // default for the isolated diagnostic run.
-        const DIAGNOSTIC_DISABLE_SCISSOR: bool = true;
+        // When true, avoid any scissor operations (if present). Disabled by default.
+        const DIAGNOSTIC_DISABLE_SCISSOR: bool = false;
         // Optional forced text color when DIAGNOSTIC_TEXT_ONLY is enabled.
         // Set to Some([r,g,b,a]) to force all text to a bright color for visibility.
         const DIAGNOSTIC_FORCE_TEXT_COLOR: Option<[f32; 4]> = None;
         // DIAGNOSTIC_FULLSCREEN_QUAD: inject a full-screen solid quad into the
         // shape (panel) vertex list to validate render-pass / pipeline state.
-        const DIAGNOSTIC_FULLSCREEN_QUAD: bool = true;
+        // Disabled by default to avoid contaminating normal rendering.
+        const DIAGNOSTIC_FULLSCREEN_QUAD: bool = false;
         // DIAGNOSTIC_INJECT_CENTER_TEXT: inject a single small diagnostic quad
         // into the text vertex list, centered on screen (NDC) to validate text path.
-        const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = true;
+        // Disabled by default to avoid contaminating normal rendering.
+        const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = false;
         info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
             DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR, DIAGNOSTIC_FULLSCREEN_QUAD, DIAGNOSTIC_INJECT_CENTER_TEXT);
 
@@ -957,6 +958,32 @@ impl<'a> Renderer<'a> {
                 [0.95, 0.95, 0.95, 1.0]
             };
             let _ = self.emit_text(&mut text_verts, &mut text_indices, title_x, title_y, &panel.title, title_color, width, height);
+
+            // Emit a single diagnostic log for the first non-space glyph in the titlebar.
+            // This does not alter geometry - it only logs placement/UV for quick verification.
+            if panel.id.as_str() == "titlebar" {
+                if let Some(ch) = panel.title.chars().find(|c| !c.is_whitespace()) {
+                    if let Some(g) = self.font_atlas.glyphs.get(&ch) {
+                        let x0_px = title_x + g.xoffset as f32;
+                        let y0_px = title_y + g.yoffset as f32;
+                        let x1_px = x0_px + g.width as f32;
+                        let y1_px = y0_px + g.height as f32;
+                        let u0 = g.u0;
+                        let v0 = g.v0;
+                        let u1 = g.u1;
+                        let v1 = g.v1;
+                        // convert to NDC for quick validation
+                        let ndc_x0 = (x0_px / width) * 2.0 - 1.0;
+                        let ndc_y0 = 1.0 - (y0_px / height) * 2.0;
+                        let ndc_x1 = (x1_px / width) * 2.0 - 1.0;
+                        let ndc_y1 = 1.0 - (y1_px / height) * 2.0;
+                        info!(
+                            "sample glyph debug: char='{}' screen_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) uv=({:.4},{:.4})-({:.4},{:.4}) advance={:.3}",
+                            ch, x0_px, y0_px, x1_px, y1_px, ndc_x0, ndc_y0, ndc_x1, ndc_y1, u0, v0, u1, v1, g.advance
+                        );
+                    }
+                }
+            }
 
             // Queue body/content text (first line only, if any)
             if !panel.content.is_empty() {
