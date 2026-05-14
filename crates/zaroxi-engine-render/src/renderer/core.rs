@@ -299,7 +299,7 @@ impl<'a> Renderer<'a> {
             text_bind_layout,
             debug_pipeline,
             shape_pipeline,
-            font_atlas,
+            text_backend,
             vertex_buffer,
             index_buffer,
             index_count: 0,
