@@ -295,6 +295,8 @@ pub struct Renderer<'a> {
     text_bind_layout: BindGroupLayout,
     // Minimal debug pipeline that draws solid vertex colors (no texture/sampler).
     debug_pipeline: wgpu::RenderPipeline,
+    // Solid-shape pipeline used for all non-text UI quads (panels / borders).
+    shape_pipeline: wgpu::RenderPipeline,
     // font atlas
     font_atlas: FontAtlas,
 
@@ -492,6 +494,52 @@ impl<'a> Renderer<'a> {
             cache: None,
         });
 
+        // Shape pipeline: dedicated minimal solid-color pipeline used for all
+        // non-text UI geometry (panels, borders, dividers). This avoids sampling
+        // the font atlas or relying on text bind groups for simple colored quads.
+        let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shape-color-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shape_shader.wgsl").into()),
+        });
+
+        let shape_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shape-pipeline-layout"),
+            bind_group_layouts: &[],
+            ..Default::default()
+        });
+
+        let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shape-pipeline"),
+            layout: Some(&shape_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shape_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shape_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    // No blending: replace output directly for shape fills.
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         // create empty vertex/index buffers sized for moderate content; we'll recreate if needed
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vb"),
@@ -527,6 +575,7 @@ impl<'a> Renderer<'a> {
             text_pipeline,
             text_bind_layout,
             debug_pipeline,
+            shape_pipeline,
             font_atlas,
             vertex_buffer,
             index_buffer,
@@ -603,9 +652,14 @@ impl<'a> Renderer<'a> {
 
         let sem = &layout.colors;
 
-        // Build a simple vertex list
-        let mut verts: Vec<Vertex> = Vec::new();
-        let mut indices: Vec<u16> = Vec::new();
+        // Build separate lists for shape (panel) geometry and text geometry so we
+        // can render them with different pipelines:
+        //  - panel_verts / panel_indices -> drawn with shape_pipeline
+        //  - text_verts  / text_indices  -> drawn with text_pipeline (font sampling)
+        let mut panel_verts: Vec<Vertex> = Vec::new();
+        let mut panel_indices: Vec<u16> = Vec::new();
+        let mut text_verts: Vec<Vertex> = Vec::new();
+        let mut text_indices: Vec<u16> = Vec::new();
 
         // Helper function to push a colored quad (background) into the provided
         // vertex/index vectors. Using a free function avoids keeping mutable borrows
@@ -676,14 +730,14 @@ impl<'a> Renderer<'a> {
                 let ry = inset;
                 let rw = (width as f32) - inset * 2.0;
                 let rh = (height as f32) - inset * 2.0;
-                push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
+                push_colored_quad(&mut panel_verts, &mut panel_indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
             }
 
             {
                 // top-left quarter green
                 let rw = width * 0.5;
                 let rh = height * 0.5;
-                push_colored_quad(&mut verts, &mut indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
+                push_colored_quad(&mut panel_verts, &mut panel_indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
             }
 
             {
@@ -692,7 +746,7 @@ impl<'a> Renderer<'a> {
                 let rh = height * 0.25;
                 let rx = (width - rw) * 0.5;
                 let ry = (height - rh) * 0.5;
-                push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
+                push_colored_quad(&mut panel_verts, &mut panel_indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
             }
             // --- end visual debug ---
         }
@@ -752,7 +806,7 @@ impl<'a> Renderer<'a> {
             };
 
             info!("panel '{}' header_color = {:?}", panel.id, header_color);
-            push_colored_quad(&mut verts, &mut indices, hx, hy, hw, hh, header_color, width, height);
+            push_colored_quad(&mut panel_verts, &mut panel_indices, hx, hy, hw, hh, header_color, width, height);
 
             // Content inset: a smaller block inside the panel for visual differentiation
             let cx = target.x + content_padding;
@@ -784,25 +838,46 @@ impl<'a> Renderer<'a> {
 
             info!("panel '{}' content_color = {:?}", panel.id, content_color);
             if cw > 0.0 && ch > 0.0 {
-                push_colored_quad(&mut verts, &mut indices, cx, cy, cw, ch, content_color, width, height);
+                push_colored_quad(&mut panel_verts, &mut panel_indices, cx, cy, cw, ch, content_color, width, height);
             }
 
             // Queue header/title text
             let title_x = hx + 8.0;
             let title_y = hy + 6.0;
-            let _ = self.emit_text(&mut verts, &mut indices, title_x, title_y, &panel.title, [0.95, 0.95, 0.95, 1.0], width, height);
+            let _ = self.emit_text(&mut text_verts, &mut text_indices, title_x, title_y, &panel.title, [0.95, 0.95, 0.95, 1.0], width, height);
 
             // Queue body/content text (first line only, if any)
             if !panel.content.is_empty() {
                 let content_x = cx + 6.0;
                 let content_y = cy + 6.0;
-                let _ = self.emit_text(&mut verts, &mut indices, content_x, content_y, &panel.content, [0.8, 0.8, 0.8, 1.0], width, height);
+                let _ = self.emit_text(&mut text_verts, &mut text_indices, content_x, content_y, &panel.content, [0.8, 0.8, 0.8, 1.0], width, height);
             }
 
             // Log counts per panel
-            let quad_count = (verts.len() / 4) as usize;
-            info!("panel '{}' queued: quads_total={} verts_total={} indices_total={}", panel.id, quad_count, verts.len(), indices.len());
+            let quad_count = (panel_verts.len() / 4) as usize;
+            info!(
+                "panel '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
+                panel.id,
+                quad_count,
+                panel_verts.len(),
+                panel_indices.len(),
+                text_verts.len(),
+                text_indices.len()
+            );
         }
+
+        // Merge panel + text geometry into final buffers. Text indices must be
+        // offset by the number of panel vertices.
+        let panel_vertex_count = panel_verts.len() as u16;
+        let mut verts: Vec<Vertex> = panel_verts;
+        // start with panel indices
+        let mut indices: Vec<u16> = panel_indices.clone();
+        // append adjusted text indices
+        for idx in text_indices.iter() {
+            indices.push(idx.wrapping_add(panel_vertex_count));
+        }
+        // append text verts
+        verts.extend(text_verts.into_iter());
 
         // Log final totals
         info!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
@@ -866,32 +941,39 @@ impl<'a> Renderer<'a> {
                         rpass.set_pipeline(&self.debug_pipeline);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
-                        if indices.is_empty() {
+                        let total_indices_len = indices.len() as u32;
+                        if total_indices_len == 0 {
                             let verts_to_draw = verts.len() as u32;
                             info!("debug non-indexed draw (full): verts={}", verts_to_draw);
                             rpass.draw(0..verts_to_draw, 0..1);
                         } else {
-                            let indices_to_draw = indices.len() as u32;
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            info!("debug indexed draw (full): indices_drawn={}", indices_to_draw);
-                            rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                            info!("debug indexed draw (full): indices_drawn={}", total_indices_len);
+                            rpass.draw_indexed(0..total_indices_len, 0, 0..1);
                         }
                     }
 
-                    // Normal UI pass: always run in production mode (draw full scene).
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    // SHAPE PASS: draw only the panel/background geometry using the
+                    // dedicated shape_pipeline (no font sampling).
+                    let panel_indices_len = panel_indices.len() as u32;
+                    let total_indices_len = indices.len() as u32;
 
-                    if indices.is_empty() {
-                        let verts_to_draw = verts.len() as u32;
-                        info!("normal non-indexed draw: verts={}", verts_to_draw);
-                        rpass.draw(0..verts_to_draw, 0..1);
-                    } else {
-                        let indices_to_draw = indices.len() as u32;
+                    if panel_indices_len > 0 {
+                        rpass.set_pipeline(&self.shape_pipeline);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("normal indexed draw: indices_drawn={}", indices_to_draw);
-                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                        info!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                        rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                    }
+
+                    // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
+                    if total_indices_len > panel_indices_len {
+                        rpass.set_pipeline(&self.text_pipeline);
+                        rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        info!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
                 }
 
@@ -930,31 +1012,39 @@ impl<'a> Renderer<'a> {
                     if DEBUG_RENDER {
                         rpass.set_pipeline(&self.debug_pipeline);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        if indices.is_empty() {
+                        let total_indices_len = indices.len() as u32;
+                        if total_indices_len == 0 {
                             let verts_to_draw = verts.len() as u32;
                             info!("debug non-indexed draw (full, suboptimal path): verts={}", verts_to_draw);
                             rpass.draw(0..verts_to_draw, 0..1);
                         } else {
-                            let indices_to_draw = indices.len() as u32;
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            info!("debug indexed draw (full, suboptimal path): indices_drawn={}", indices_to_draw);
-                            rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                            info!("debug indexed draw (full, suboptimal path): indices_drawn={}", total_indices_len);
+                            rpass.draw_indexed(0..total_indices_len, 0, 0..1);
                         }
                     }
 
-                    // Normal UI pass
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    if indices.is_empty() {
-                        let verts_to_draw = verts.len() as u32;
-                        info!("normal non-indexed draw (suboptimal path): verts={}", verts_to_draw);
-                        rpass.draw(0..verts_to_draw, 0..1);
-                    } else {
-                        let indices_to_draw = indices.len() as u32;
+                    // SHAPE PASS: draw only the panel/background geometry using the
+                    // dedicated shape_pipeline (no font sampling).
+                    let panel_indices_len = panel_indices.len() as u32;
+                    let total_indices_len = indices.len() as u32;
+
+                    if panel_indices_len > 0 {
+                        rpass.set_pipeline(&self.shape_pipeline);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("normal indexed draw (suboptimal path): indices_drawn={}", indices_to_draw);
-                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                        info!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                        rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
+                    }
+
+                    // TEXT PASS
+                    if total_indices_len > panel_indices_len {
+                        rpass.set_pipeline(&self.text_pipeline);
+                        rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        info!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
                 }
 
