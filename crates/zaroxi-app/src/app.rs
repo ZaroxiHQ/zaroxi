@@ -3,11 +3,37 @@ use crate::status::StatusState;
 use crate::assistant::AssistantState;
 use crate::panels::BottomPanelState;
 use crate::tabs::TabState;
+use log::info;
 use zaroxi_config::AppConfig;
 use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
 use zaroxi_workspace::{WorkspaceState, WorkspaceItem};
 use zaroxi_theme::ZaroxiTheme;
+
+/// A simple panel descriptor owned by the application layer.
+///
+/// Each panel has a stable id, a human-facing title, visibility, and a
+/// small placeholder content string. The renderer will consume these panel
+/// entries (via AppState) to render labels and content; the runtime/layout
+/// layer maps them to pixel rects.
+#[derive(Debug, Clone)]
+pub struct PanelEntry {
+    pub id: &'static str,
+    pub title: String,
+    pub visible: bool,
+    pub content: String,
+}
+
+impl PanelEntry {
+    pub fn new(id: &'static str, title: impl Into<String>, content: impl Into<String>, visible: bool) -> Self {
+        Self {
+            id,
+            title: title.into(),
+            visible,
+            content: content.into(),
+        }
+    }
+}
 
 /// Top-level app state assembled from domain parts.
 ///
@@ -25,6 +51,8 @@ pub struct AppState {
     pub tabs: TabState,
     /// User-selected theme mode (Light/Dark/System).
     pub theme_mode: ZaroxiTheme,
+    /// Application-owned panel descriptors (title/content/visibility).
+    pub app_panels: Vec<PanelEntry>,
 }
 
 impl AppState {
@@ -50,6 +78,20 @@ impl AppState {
         let assistant = AssistantState::default();
         let panels = BottomPanelState::default();
 
+        // Create explicit app-owned panel entries (owned by the app layer).
+        let mut app_panels = Vec::new();
+        app_panels.push(PanelEntry::new("titlebar", "Zaroxi Studio", config.title.clone(), true));
+        app_panels.push(PanelEntry::new("sidebar", "Explorer", "Workspace", true));
+        app_panels.push(PanelEntry::new("editor", "Editor", welcome.display_name.clone(), true));
+        app_panels.push(PanelEntry::new("right_panel", "Assistant", "AI Assistant (v1)", true));
+        app_panels.push(PanelEntry::new("bottom_panel", "Terminal", "Terminal (placeholder)", true));
+        app_panels.push(PanelEntry::new("status_bar", "Status", "Ready", true));
+
+        // Log created panels for visibility
+        for p in &app_panels {
+            info!("created panel: {} ({}) visible={}", p.id, p.title, p.visible);
+        }
+
         Self {
             config: config.clone(),
             workspace,
@@ -59,6 +101,7 @@ impl AppState {
             panels,
             tabs,
             theme_mode: ZaroxiTheme::Dark,
+            app_panels,
         }
     }
 
@@ -78,6 +121,11 @@ impl AppState {
                 self.editor.open_document(doc.clone());
                 self.tabs.open_tab_for_document(&doc);
                 self.status.message = format!("Opened {}", path);
+
+                // Reflect active editor title in the editor panel content if present
+                if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
+                    panel.content = doc.display_name.clone();
+                }
             }
 
             AppCommand::SelectSidebarItem { index } => {
@@ -91,6 +139,11 @@ impl AppState {
                             self.editor.open_document(doc.clone());
                             self.tabs.open_tab_for_document(&doc);
                             self.status.message = format!("Selected {}", path);
+
+                            // update editor panel content
+                            if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
+                                panel.content = doc.display_name.clone();
+                            }
                         }
                     }
                 }
@@ -170,6 +223,11 @@ impl AppState {
 
             AppCommand::SetStatusMessage { message } => {
                 self.status.message = message;
+
+                // keep status panel in sync
+                if let Some(p) = self.app_panels.iter_mut().find(|p| p.id == "status_bar") {
+                    p.content = message.clone();
+                }
             }
 
             AppCommand::SetThemeMode { mode } => {
