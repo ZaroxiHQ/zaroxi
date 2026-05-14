@@ -79,9 +79,14 @@ impl FontAtlas {
         // Initialize texture memory with zeros
         let bytes_per_row = std::num::NonZeroU32::new(atlas_w).unwrap();
         queue.write_texture(
-            texture.as_image_copy(),
+            &wgpu::TexelCopyTextureInfo {
+                texture: texture.as_image_copy(),
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
             &zero_buf,
-            wgpu::ImageDataLayout {
+            &wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
                 rows_per_image: None,
@@ -175,9 +180,14 @@ impl FontAtlas {
         let bytes_per_row = std::num::NonZeroU32::new(width).ok_or_else(|| RenderError::Other("zero width".into()))?;
 
         queue.write_texture(
-            self.texture.as_image_copy(),
+            &wgpu::TexelCopyTextureInfo {
+                texture: self.texture.as_image_copy(),
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
             bitmap,
-            wgpu::ImageDataLayout {
+            &wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
                 rows_per_image: None,
@@ -254,11 +264,11 @@ pub(crate) fn layout_text_clipped(
 ) -> Result<Vec<PlacedGlyph>, RenderError> {
     let mut out: Vec<PlacedGlyph> = Vec::new();
     for ch in text.chars() {
-        let glyph = atlas.glyphs.get(&ch);
-        if glyph.is_none() {
+        let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
+        if glyph_opt.is_none() {
             continue;
         }
-        let g = glyph.unwrap();
+        let g = glyph_opt.unwrap();
         // Advance-only glyphs (zero-width) still advance the pen.
         if g.width == 0 || g.height == 0 {
             x += g.advance;
