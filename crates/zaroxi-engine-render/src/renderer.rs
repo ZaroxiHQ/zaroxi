@@ -720,7 +720,14 @@ impl<'a> Renderer<'a> {
         // Optional forced text color when DIAGNOSTIC_TEXT_ONLY is enabled.
         // Set to Some([r,g,b,a]) to force all text to a bright color for visibility.
         const DIAGNOSTIC_FORCE_TEXT_COLOR: Option<[f32; 4]> = None;
-        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}", DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR);
+        // DIAGNOSTIC_FULLSCREEN_QUAD: inject a full-screen solid quad into the
+        // shape (panel) vertex list to validate render-pass / pipeline state.
+        const DIAGNOSTIC_FULLSCREEN_QUAD: bool = true;
+        // DIAGNOSTIC_INJECT_CENTER_TEXT: inject a single small diagnostic quad
+        // into the text vertex list, centered on screen (NDC) to validate text path.
+        const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = true;
+        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
+            DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR, DIAGNOSTIC_FULLSCREEN_QUAD, DIAGNOSTIC_INJECT_CENTER_TEXT);
 
         let sem = &layout.colors;
 
@@ -821,6 +828,23 @@ impl<'a> Renderer<'a> {
                 push_colored_quad(&mut panel_verts, &mut panel_indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
             }
             // --- end visual debug ---
+        }
+
+        // DIAGNOSTIC: optionally inject a fullscreen red quad into the panel (shape) list.
+        if DIAGNOSTIC_FULLSCREEN_QUAD {
+            info!("DIAGNOSTIC: injecting fullscreen red quad into panel_verts");
+            // push full-screen in pixel coords; push_colored_quad will convert to NDC.
+            push_colored_quad(
+                &mut panel_verts,
+                &mut panel_indices,
+                0.0,
+                0.0,
+                width as f32,
+                height as f32,
+                [1.0, 0.0, 0.0, 1.0],
+                width,
+                height,
+            );
         }
 
         // For each panel supplied by the app, create a header and content block and queue title/content text.
@@ -951,6 +975,31 @@ impl<'a> Renderer<'a> {
             );
         }
 
+        // Optional diagnostic: inject a small centered diagnostic text quad directly
+        // into the text geometry (NDC quad). This bypasses atlas sampling to verify
+        // text pipeline/vertex mapping independently.
+        if DIAGNOSTIC_INJECT_CENTER_TEXT {
+            info!("DIAGNOSTIC: injecting centered diagnostic text quad (NDC) into text_verts");
+            // small quad in NDC coordinates centered at (0,0)
+            let size_x = 0.25f32;
+            let size_y = 0.12f32;
+            let nx0 = -size_x * 0.5;
+            let ny0 = -size_y * 0.5;
+            let nx1 = size_x * 0.5;
+            let ny1 = size_y * 0.5;
+            // Use color red opaque and zero UVs (shader diagnostic)
+            let base = text_verts.len() as u16;
+            let a = Vertex { pos: [nx0, ny0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
+            let b = Vertex { pos: [nx1, ny0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
+            let c = Vertex { pos: [nx1, ny1], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
+            let d = Vertex { pos: [nx0, ny1], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
+            text_verts.push(a);
+            text_verts.push(b);
+            text_verts.push(c);
+            text_verts.push(d);
+            text_indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+        }
+
         // Merge panel + text geometry into final buffers. Text indices must be
         // offset by the number of panel vertices.
         let panel_vertex_count = panel_verts.len() as u16;
@@ -966,6 +1015,24 @@ impl<'a> Renderer<'a> {
 
         // Log final totals
         info!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
+
+        // Warn if vertex positions appear to be outside expected NDC range.
+        // Many vertices should already be in NDC (shape quads converted on CPU),
+        // while some text verts may still be in pixel coordinates — use a loose
+        // detection to highlight clearly out-of-bounds values.
+        let mut oob_count = 0usize;
+        for (i, v) in verts.iter().enumerate() {
+            if v.pos[0].abs() > 1.05 || v.pos[1].abs() > 1.05 {
+                oob_count += 1;
+                info!("OOB_VERTEX i={} pos=({:.4},{:.4}) uv=({:.4},{:.4}) color=({:.4},{:.4},{:.4},{:.4})",
+                    i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]);
+            }
+        }
+        if oob_count > 0 {
+            info!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
+        } else {
+            info!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
+        }
 
         // Dump first few vertices so we can inspect coordinate space (pos, uv, color).
         let max_log = std::cmp::min(8usize, verts.len());
