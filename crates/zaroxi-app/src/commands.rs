@@ -1,4 +1,4 @@
-use crate::panels::BottomPanel;
+use crate::panels::PanelId;
 use zaroxi_foundation::DocumentId;
 use zaroxi_theme::ZaroxiTheme;
 
@@ -22,9 +22,9 @@ pub enum AppCommand {
     InsertText { doc_id: DocumentId, offset: usize, text: String },
     SaveActiveDocument,
 
-    // Panels
+    // Panels (use PanelId instead of legacy BottomPanel type)
     ToggleBottomPanel,
-    SetBottomPanel { panel: BottomPanel },
+    SetBottomPanel { panel: PanelId },
 
     // Assistant
     SetAssistantInput { input: String },
