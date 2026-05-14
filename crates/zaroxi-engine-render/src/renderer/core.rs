@@ -616,10 +616,24 @@ impl<'a> Renderer<'a> {
             // - The renderer is intentionally domain-agnostic. It renders whatever
             //   `block.content` the application supplies. Decisions about filtering,
             //   placeholder text, or app-specific suppression belong in the app layer.
-            // - The renderer will only skip emission when there is no content to draw.
+            // - The renderer will only skip emission when there is no content to draw,
+            //   with one structural exception: the titlebar and status bar are header-only
+            //   regions in the UI and should not render generic body content supplied to
+            //   their block.content slots by mistake. Those two regions are considered
+            //   structurally header-only at the engine layer.
             let content = block.content.trim();
 
-            if !content.is_empty() {
+            // Structural-only suppression for well-known header regions:
+            // - titlebar and status_bar are header-only and must not render block.content.
+            // This is a renderer-level, structural rule (not application-domain logic).
+            let is_titlebar = block.id == "titlebar" || block.id == "title_bar" || block.id == "title-bar";
+            let is_statusbar = block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
+
+            if is_titlebar || is_statusbar {
+                if RENDER_DEBUG && !content.is_empty() {
+                    debug!("emit_text: skipping body content for structural header block='{}'", block.id);
+                }
+            } else if !content.is_empty() {
                 // Emit content into the block's content area using the provided rect.
                 let content_x = target.x + content_padding;
                 let content_y = target.y + hh + content_padding;
