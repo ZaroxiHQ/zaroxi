@@ -131,11 +131,13 @@ impl ApplicationHandler for App {
                     let height = sz.height as f32;
 
                     // Log app state summary before layout resolution for traceability.
+                    // Panels visibility is derived from the app-owned panel entries.
+                    let panels_visible = state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible);
                     info!(
                         "[runtime] app_state summary: title='{}', assistant_visible={}, panels_visible={}, open_docs={}",
                         state.config.title,
                         state.assistant.visible,
-                        state.panels.visible,
+                        panels_visible,
                         state.editor.open_documents.len()
                     );
 
@@ -145,8 +147,8 @@ impl ApplicationHandler for App {
                     let sidebar_w = 260.0f32;
                     // right panel width depends on assistant visibility
                     let right_w = if state.assistant.visible { 320.0f32 } else { 0.0f32 };
-                    // bottom panel height depends on panels visible flag
-                    let bottom_h = if state.panels.visible { 200.0f32 } else { 0.0f32 };
+                    // bottom panel height derived from the app-owned panel entries
+                    let bottom_h = if state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible) { 200.0f32 } else { 0.0f32 };
 
                     // Compute rects while honoring visibility (zero-size when hidden)
                     let title_bar = Rect { x: 0.0, y: 0.0, w: width, h: title_h };
