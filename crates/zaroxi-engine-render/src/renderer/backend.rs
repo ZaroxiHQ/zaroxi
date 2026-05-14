@@ -269,7 +269,7 @@ impl CosmicTextBackend {
 impl TextBackend for CosmicTextBackend {
     fn layout_text_clipped(
         &self,
-        _queue: &mut Queue,
+        queue: &mut Queue,
         x: f32,
         y: f32,
         text: &str,
@@ -281,62 +281,129 @@ impl TextBackend for CosmicTextBackend {
         clip_w: f32,
         clip_h: f32,
     ) -> Result<Vec<PlacedGlyph>, RenderError> {
-        // NOTE:
-        // To avoid depending on unstable pre-0.19 Buffer/shape APIs at compile-time,
-        // this implementation performs a conservative, atlas-driven layout pass:
-        // - If the backend atlas already contains glyph metadata for a character
-        //   (atlas.glyphs keyed by char), we use that metric to place a quad.
-        // - Missing glyphs are advanced by an estimated width and skipped.
-        //
-        // This keeps the backend as the single source-of-truth for atlas data while
-        // avoiding fragile calls into the older cosmic-text shaping API during
-        // this compile-time adaptation step.
+        // Use cosmic-text Buffer (0.19) for shaping/layout, then rasterize missing
+        // glyph bitmaps via SwashCache and upload into our atlas.
+        // This keeps cosmic-text as the single source-of-truth for shaping.
         let mut out: Vec<PlacedGlyph> = Vec::new();
-        let mut pen_x = x;
 
-        for ch in text.chars() {
-            if let Some(g) = self.atlas.glyphs.get(&ch) {
-                // Advance-only glyphs (zero-sized) still move the pen.
-                if g.width == 0 || g.height == 0 {
-                    pen_x += g.advance;
-                    continue;
-                }
+        // Create buffer and shape text using the backend FontSystem
+        let mut buffer = cosmic_text::Buffer::new(&self.font_system);
+        buffer.set_size(self.atlas.font_size as f32, 0.0);
+        buffer.set_text(text);
+        buffer.shape();
 
-                let x0_px = pen_x + g.xoffset as f32;
-                let y0_px = y + g.yoffset as f32;
-                let x1_px = x0_px + g.width as f32;
-                let y1_px = y0_px + g.height as f32;
+        // Collect glyph layout info from the buffer.
+        let glyphs = buffer.glyphs();
+        let mut rasterized_count: usize = 0usize;
 
-                // Clip-test
-                if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-                    pen_x += g.advance;
-                    continue;
-                }
+        for g in glyphs.iter() {
+            // Compute pixel-space positions. cosmic-text positions are in pixels.
+            let gx = x + g.x as f32;
+            let gy = y + (g.y as f32) - (g.h as f32);
 
-                out.push(PlacedGlyph {
-                    x0_px,
-                    y0_px,
-                    x1_px,
-                    y1_px,
-                    u0: g.u0,
-                    v0: g.v0,
-                    u1: g.u1,
-                    v1: g.v1,
-                    color,
-                });
+            let x0_px = gx;
+            let y0_px = gy;
+            let x1_px = gx + g.w as f32;
+            let y1_px = gy + g.h as f32;
 
-                pen_x += g.advance;
-            } else {
-                // Missing glyph: advance approximately one half font-size and continue.
-                // Real rasterization/atlas insertion is the backend's responsibility
-                // at runtime; here we keep layout conservative so compilation succeeds.
-                pen_x += self.atlas.font_size * 0.5;
+            // Clip-test
+            if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                continue;
             }
+
+            // Determine a glyph identity to rasterize/cache against.
+            let glyph_identity = match g.cluster_char {
+                Some(ch) => ch as u32,
+                None => g.glyph_id.unwrap_or(0),
+            };
+
+            // Build cache key including subpixel Y alignment (rounding to 1/64)
+            let subpixel_y = ((g.y as f32 * 64.0).round() as i32) as i32;
+            let key = CosmicTextBackend::glyph_cache_key(glyph_identity, self.atlas.font_size as f32, subpixel_y);
+
+            // Check existing atlas entry for this key
+            let maybe_gi = {
+                let map = self.glyph_cache_keys.lock().unwrap();
+                map.get(&key).cloned()
+            };
+
+            let (u0, v0, u1, v1) = if let Some(ai) = maybe_gi {
+                (ai.u0, ai.v0, ai.u1, ai.v1)
+            } else {
+                // Rasterize glyph using SwashCache provided by cosmic-text.
+                let font_px = self.atlas.font_size as f32;
+                match self.swash_cache.rasterize_glyph(glyph_identity, font_px, subpixel_y) {
+                    Ok(raster) => {
+                        // raster: (bytes, w, h, xoffset, yoffset, advance)
+                        let (bmp, w, h, xmin, ymin, advance) = raster;
+
+                        // Insert into GPU atlas (pack + upload)
+                        let gi = GlyphInfo {
+                            u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
+                            width: w, height: h,
+                            advance,
+                            xoffset: xmin, yoffset: ymin,
+                        };
+
+                        let (u0_n, v0_n, u1_n, v1_n) = match self.atlas.insert_glyph_from_bitmap(queue, key, &bmp, w, h, gi.advance, gi.xoffset, gi.yoffset) {
+                            Ok(vals) => vals,
+                            Err(e) => {
+                                debug!("CosmicTextBackend: atlas insertion failed for key {}: {:?}", key, e);
+                                (0.0, 0.0, 0.0, 0.0)
+                            }
+                        };
+
+                        let stored = GlyphInfo {
+                            u0: u0_n, v0: v0_n, u1: u1_n, v1: v1_n,
+                            width: w, height: h,
+                            advance: gi.advance,
+                            xoffset: gi.xoffset, yoffset: gi.yoffset,
+                        };
+                        {
+                            let mut map = self.glyph_cache_keys.lock().unwrap();
+                            map.insert(key, stored.clone());
+                        }
+
+                        rasterized_count += 1;
+                        (stored.u0, stored.v0, stored.u1, stored.v1)
+                    }
+                    Err(e) => {
+                        debug!("CosmicTextBackend: swash_cache rasterize_glyph failed for glyph_id {}: {:?}", glyph_identity, e);
+                        // fallback: insert placeholder entry (advance-only)
+                        let stored = GlyphInfo {
+                            u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
+                            width: 0, height: 0,
+                            advance: 8.0,
+                            xoffset: 0, yoffset: 0,
+                        };
+                        {
+                            let mut map = self.glyph_cache_keys.lock().unwrap();
+                            map.insert(key, stored.clone());
+                        }
+                        (stored.u0, stored.v0, stored.u1, stored.v1)
+                    }
+                }
+            };
+
+            out.push(PlacedGlyph {
+                x0_px,
+                y0_px,
+                x1_px,
+                y1_px,
+                u0,
+                v0,
+                u1,
+                v1,
+                color,
+            });
         }
 
-        if cfg!(debug_assertions) {
-            debug!("CosmicTextBackend: laid out {} placed glyphs for text '{}'", out.len(), text);
-        }
+        // Diagnostics: log layout/rasterization summary.
+        debug!(
+            "CosmicTextBackend: layout glyphs={} rasterized_glyphs={}",
+            glyphs.len(),
+            rasterized_count
+        );
 
         Ok(out)
     }
