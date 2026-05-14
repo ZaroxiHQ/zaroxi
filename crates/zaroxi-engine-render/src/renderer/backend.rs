@@ -203,10 +203,12 @@ impl CosmicTextBackend {
         let mut resolved_family: Option<String> = None;
         {
             // Query the local fontdb::Database we created above to discover registered families.
-            // Collect discovered family names from faces.
-            let matches = db.faces().filter_map(|face|
-                db.family_name(face.id).map(|s| s.to_string())
-            ).collect::<Vec<_>>();
+            // Collect discovered family names from faces. Use FaceInfo.family (converted to String)
+            // which is the correct way to read family names from fontdb 0.23.
+            let matches: Vec<String> = db.faces().filter_map(|face| {
+                // face.family implements ToString; convert to owned String for logging/selection.
+                Some(face.family.to_string())
+            }).collect();
 
             if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
                 resolved_family = Some("JetBrainsMono Nerd Font".to_string());
