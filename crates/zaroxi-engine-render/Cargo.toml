@@ -15,6 +15,7 @@ raw-window-handle = "0.5"
 
 # Low-level text rasterization (font rasterizer). We use fontdue to rasterize glyph bitmaps.
 fontdue = "0.7"
+unicode-segmentation = "1.11"
 
 # bytemuck for safe pod casts for vertex buffers
 bytemuck = "1.13"

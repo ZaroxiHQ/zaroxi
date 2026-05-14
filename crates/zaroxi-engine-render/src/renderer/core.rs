@@ -117,6 +117,7 @@ pub struct Renderer<'a> {
     shape_pipeline: wgpu::RenderPipeline,
     // font atlas
     font_atlas: FontAtlas,
+    text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync>,
 
     // vertex/index buffers reused each frame
     vertex_buffer: Buffer,
@@ -182,6 +183,11 @@ impl<'a> Renderer<'a> {
         // Build font atlas now
         let font_size = 14.0;
         let font_atlas = FontAtlas::new(&device, &queue, &text_bind_layout, font_size)?;
+        // Initialize the text backend abstraction. The backend performs shaping,
+        // layout and rasterization; the default backend adapts the existing atlas
+        // implementation so we can migrate incrementally.
+        let text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync> =
+            Box::new(crate::renderer::backend::DefaultTextBackend::new());
 
         // Create a simple shader for textured text (WGSL).
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -582,8 +588,10 @@ impl<'a> Renderer<'a> {
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
 
-            // Layout title text into glyph placements and convert to vertices/indices
-            let placed = crate::renderer::text::layout_text_clipped(
+            // Layout title text into glyph placements and convert to vertices/indices.
+            // Use the pluggable text backend so shaping/layout logic is isolated from
+            // the renderer. The backend may consult the font atlas internally.
+            let placed = self.text_backend.layout_text_clipped(
                 &self.font_atlas,
                 title_x,
                 title_y,

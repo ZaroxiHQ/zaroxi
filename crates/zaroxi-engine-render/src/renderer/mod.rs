@@ -4,6 +4,7 @@ mod geometry;
 mod surface;
 mod pipelines;
 mod text;
+mod backend;
 mod shapes;
 mod ui;
 
