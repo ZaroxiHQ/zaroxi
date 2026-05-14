@@ -22,19 +22,27 @@ fn main() -> Result<()> {
     //     - when RENDER_DEBUG=1 enable debug for our crates only
     let env = Env::default();
     if std::env::var("RUST_LOG").is_ok() {
-        // Respect an explicit RUST_LOG supplied by the environment.
+        // If the user explicitly set RUST_LOG, respect it verbatim.
         env_logger::Builder::from_env(env).init();
     } else {
+        // Default conservative policy:
+        // - global level = info (show startup/important messages)
+        // - silence/quiet noisy backends (naga) by setting them to off
+        // - keep wgpu-related crates at warn
+        // - set our engine/render crates to info by default
+        // If RENDER_DEBUG=1 is set in the environment, enable focused debug for our crates.
         let render_debug = std::env::var("RENDER_DEBUG")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
+
         let filter = if render_debug {
-            // Enable debug for our crates, keep noisy deps at warn.
-            "warn,zaroxi_engine_render=debug,zaroxi_engine_runtime=debug,zaroxi_app=debug,naga=warn,naga::front=warn,naga::valid=warn,wgpu=warn,wgpu_core=warn,wgpu_hal=warn"
+            // Render debug mode: enable debug for our runtime & renderer, keep noisy deps off/warn
+            "info,naga=off,naga::front=off,naga::valid=off,wgpu=warn,wgpu_core=warn,wgpu_hal=warn,zaroxi_engine_render=debug,zaroxi_engine_runtime=debug,zaroxi_app=debug,zaroxi_app::view_model::render_panels=off"
         } else {
-            // Conservative default: global warn, silence noisy dependencies.
-            "warn,naga=warn,naga::front=warn,naga::valid=warn,wgpu=warn,wgpu_core=warn,wgpu_hal=warn"
+            // Normal mode: global info, quiet naga, wgpu at warn, our crates at info
+            "info,naga=off,naga::front=off,naga::valid=off,wgpu=warn,wgpu_core=warn,wgpu_hal=warn,zaroxi_engine_render=info,zaroxi_engine_runtime=info,zaroxi_app=info,zaroxi_app::view_model::render_panels=off"
         };
+
         env_logger::Builder::from_env(env).parse_filters(filter).init();
     }
 
