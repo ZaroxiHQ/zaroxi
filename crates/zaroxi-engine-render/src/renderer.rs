@@ -31,7 +31,8 @@ static LOGGED_SIDEBAR: AtomicBool = AtomicBool::new(false);
 static LOGGED_EDITOR: AtomicBool = AtomicBool::new(false);
 
 /// Validation scene toggle (disabled by default to avoid contaminating normal runs).
-const VALIDATION_SCENE: bool = false;
+/// Set to `true` temporarily to run the forced RGB quad validation scene.
+const VALIDATION_SCENE: bool = true;
 
 /// Helper used to decide whether to show render-time diagnostics.
 /// Default is controlled by the compile-time `RENDER_DEBUG` constant, but
@@ -885,6 +886,49 @@ impl<'a> Renderer<'a> {
                 width as f32,
                 height as f32,
                 [1.0, 0.0, 0.0, 1.0],
+                width,
+                height,
+            );
+        }
+
+        // VALIDATION SCENE: when enabled inject three large horizontal bands (R/G/B)
+        // at the top of the shape list to validate the shape pipeline end-to-end.
+        if VALIDATION_SCENE {
+            // three equal-height horizontal bands covering the full width.
+            let band_h = (height as f32) / 3.0;
+            // Top band - red
+            push_colored_quad(
+                &mut panel_verts,
+                &mut panel_indices,
+                0.0,
+                0.0,
+                width as f32,
+                band_h,
+                [1.0, 0.0, 0.0, 1.0],
+                width,
+                height,
+            );
+            // Middle band - green
+            push_colored_quad(
+                &mut panel_verts,
+                &mut panel_indices,
+                0.0,
+                band_h,
+                width as f32,
+                band_h,
+                [0.0, 1.0, 0.0, 1.0],
+                width,
+                height,
+            );
+            // Bottom band - blue
+            push_colored_quad(
+                &mut panel_verts,
+                &mut panel_indices,
+                0.0,
+                band_h * 2.0,
+                width as f32,
+                band_h,
+                [0.0, 0.0, 1.0, 1.0],
                 width,
                 height,
             );
