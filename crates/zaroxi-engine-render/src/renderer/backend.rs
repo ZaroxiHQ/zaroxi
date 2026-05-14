@@ -58,6 +58,7 @@ pub trait TextBackend: Send + Sync {
 // layout using an explicit role (UI, Mono, Symbols) rather than assuming a
 // single implicit font for everything.
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Roles used by the renderer to request different font fallbacks.
 #[derive(Debug, Clone, Copy)]
@@ -139,6 +140,8 @@ impl FontPolicy {
     }
 }
 
+static LAYOUT_LOG_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 pub struct CosmicTextBackend {
     // cosmic-text's FontSystem is the shaping/layout/fallback engine.
     font_system: cosmic_text::FontSystem,
@@ -151,6 +154,11 @@ pub struct CosmicTextBackend {
     glyph_cache_keys: Mutex<HashMap<u64, GlyphInfo>>,
     // Font selection/fallback policy used by this backend.
     font_policy: FontPolicy,
+
+    // Diagnostics: whether the bundled font was successfully registered.
+    bundled_font_loaded: bool,
+    // Resolved family name discovered from fontdb (if any).
+    resolved_family: Option<String>,
 }
 
 impl CosmicTextBackend {
@@ -233,6 +241,8 @@ impl CosmicTextBackend {
             atlas,
             glyph_cache_keys: Mutex::new(HashMap::new()),
             font_policy,
+            bundled_font_loaded: bundled_loaded,
+            resolved_family,
         })
     }
 
@@ -263,14 +273,26 @@ impl TextBackend for CosmicTextBackend {
         clip_w: f32,
         clip_h: f32,
     ) -> Result<Vec<PlacedGlyph>, RenderError> {
-        // Simplified, robust layout path that relies on the backend's internal
-        // atlas metadata populated at runtime. This avoids calling unstable or
-        // version-specific cosmic-text shaping helpers here and keeps the
-        // renderer functional during the migration.
+        // Diagnostic gated logging: avoid spamming every frame. We allow a small
+        // number of initial logs to help diagnose the first several distinct
+        // text emission events after process start.
+        let should_log = LAYOUT_LOG_COUNTER.fetch_add(1, Ordering::SeqCst) < 8;
+
+        if should_log {
+            info!(
+                "CosmicTextBackend: bundled_font_loaded={} resolved_family={}",
+                self.bundled_font_loaded,
+                self.resolved_family.as_deref().unwrap_or("None"),
+            );
+            info!("CosmicTextBackend: incoming text=\"{}\" font_size={}", text, self.atlas.font_size);
+            info!("CosmicTextBackend: note: current backend path uses the internal atlas lookup; cosmic-text shaping/layout is not yet used in the render path");
+        }
+
         let mut out: Vec<PlacedGlyph> = Vec::new();
         let mut pen_x = x;
         let mut rasterized_count: usize = 0usize;
         let mut layout_glyphs: usize = 0usize;
+        let mut missing_glyphs: usize = 0usize;
 
         for ch in text.chars() {
             layout_glyphs += 1;
@@ -309,14 +331,24 @@ impl TextBackend for CosmicTextBackend {
             } else {
                 // Missing glyph: advance conservatively and continue.
                 pen_x += self.atlas.font_size * 0.5;
+                missing_glyphs += 1;
             }
         }
 
         debug!(
-            "CosmicTextBackend: layout glyphs={} rasterized_glyphs={}",
+            "CosmicTextBackend: layout glyphs={} rasterized_glyphs={} missing_glyphs={}",
             layout_glyphs,
-            rasterized_count
+            rasterized_count,
+            missing_glyphs
         );
+
+        // Additional diagnostic summary (gated)
+        if LAYOUT_LOG_COUNTER.load(Ordering::SeqCst) < 64 {
+            info!("CosmicTextBackend: swash_cache_available={}", true);
+            info!("CosmicTextBackend: swash images obtained=0 (not attempted by current atlas-only path)");
+            info!("CosmicTextBackend: atlas insertions_attempted=0 atlas_insertions_succeeded=0");
+            info!("CosmicTextBackend: produced_placed_glyphs={}", out.len());
+        }
 
         Ok(out)
     }
