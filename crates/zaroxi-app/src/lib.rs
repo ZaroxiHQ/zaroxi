@@ -17,7 +17,6 @@ pub mod view_model;
 
 pub use commands::AppCommand;
 pub use status::StatusState;
-pub use panels::BottomPanelState;
 pub use assistant::AssistantState;
 pub use tabs::TabState;
 

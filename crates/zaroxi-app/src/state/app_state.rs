@@ -1,7 +1,6 @@
 use crate::commands::AppCommand;
 use crate::status::StatusState;
 use crate::assistant::AssistantState;
-use crate::panels::BottomPanelState;
 use crate::tabs::TabState;
 use crate::panels::PanelEntry;
 use log::info;
@@ -22,7 +21,6 @@ pub struct AppState {
     pub editor: EditorState,
     pub status: StatusState,
     pub assistant: AssistantState,
-    pub panels: BottomPanelState,
     pub tabs: TabState,
     /// User-selected theme mode (Light/Dark/System).
     pub theme_mode: ZaroxiTheme,
@@ -51,7 +49,6 @@ impl AppState {
 
         let status = StatusState::default();
         let assistant = AssistantState::default();
-        let panels = BottomPanelState::default();
 
         // Build app-owned panels via the panels builder module.
         let app_panels = crate::panels::default_panels(config, &welcome);
@@ -156,12 +153,18 @@ impl AppState {
             }
 
             AppCommand::ToggleBottomPanel => {
-                self.panels.visible = !self.panels.visible;
+                // Toggle visibility of the bottom panel via the app-owned panel entries.
+                if let Some(p) = self.app_panels.iter_mut().find(|p| p.id == "bottom_panel") {
+                    p.visible = !p.visible;
+                }
             }
 
             AppCommand::SetBottomPanel { panel } => {
-                self.panels.active = panel;
-                self.panels.visible = true;
+                // Ensure the requested panel id is visible.
+                let id = panel.as_str();
+                if let Some(p) = self.app_panels.iter_mut().find(|p| p.id == id) {
+                    p.visible = true;
+                }
             }
 
             AppCommand::SetAssistantInput { input } => {

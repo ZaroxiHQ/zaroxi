@@ -29,13 +29,14 @@ fn main() -> Result<()> {
     let app_state = zaroxi_app::AppState::new(&app_config);
 
     // Log initial app state summary for debugging startup path.
+    let panels_visible = app_state.app_panels.iter().any(|p| p.visible);
     info!(
         "[desktop] initial AppState: title='{}', workspace_items={}, open_docs={}, assistant_visible={}, panels_visible={}, status='{}'",
         app_state.config.title,
         app_state.workspace.items.len(),
         app_state.editor.open_documents.len(),
         app_state.assistant.visible,
-        app_state.panels.visible,
+        panels_visible,
         app_state.status.message
     );
 
