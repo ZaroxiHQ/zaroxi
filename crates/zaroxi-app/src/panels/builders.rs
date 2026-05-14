@@ -12,7 +12,7 @@ pub fn default_panels(config: &AppConfig, welcome: &Document) -> Vec<PanelEntry>
     v.push(PanelEntry::new("titlebar", "Zaroxi Studio", config.title.clone(), true));
     v.push(PanelEntry::new("sidebar", "Explorer", "Workspace", true));
     v.push(PanelEntry::new("editor", "Editor", welcome.display_name.clone(), true));
-    v.push(PanelEntry::new("right_panel", "Assistant", "AI Assistant (v1)", true));
+    v.push(PanelEntry::new("right_panel", "Assistant", "", true));
     v.push(PanelEntry::new("bottom_panel", "Terminal", "Terminal (placeholder)", true));
     v.push(PanelEntry::new("status_bar", "Status", "Ready", true));
 
