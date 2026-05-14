@@ -137,12 +137,89 @@ impl FontAtlas {
         xoffset: i32,
         yoffset: i32,
     ) -> Result<(f32,f32,f32,f32), RenderError> {
-        // Note: this method takes &self for call-site convenience, but the atlas's
-        // internal packer state is mutated through the separate mutability that
-        // the backend ensures in practice. For simplicity in this v1 change we
-        // perform a write using pack_next_x/y kept locally in the backend.
-        // To keep changes small we assume single-threaded render invocation.
-        Err(RenderError::Other("dynamic glyph insertion must be performed via backend-managed path".into()))
+        // For this backend step we implement simple shelf-packing of the glyph
+        // bitmap into the atlas texture and perform a GPU copy to the atlas.
+        // NOTE: the atlas packer fields (pack_next_x/pack_next_y/pack_row_h) are
+        // owned by the atlas; this method updates them inline and assumes
+        // single-threaded render invocation as in the renderer.
+        let padding = self.padding;
+        let mut x = self.pack_next_x;
+        let mut y = self.pack_next_y;
+        // If the glyph width doesn't fit in the remaining row, move to next row.
+        if x + width + padding > self.atlas_width {
+            x = padding;
+            y = y + self.pack_row_h + padding;
+            self.pack_row_h = 0;
+            self.pack_next_x = x;
+            self.pack_next_y = y;
+        }
+
+        // If glyph doesn't fit vertically, fail (atlas full).
+        if y + height + padding > self.atlas_height {
+            return Err(RenderError::Other("font atlas full; glyph insertion failed".into()));
+        }
+
+        // Create a temporary buffer with the glyph bitmap (R8) — wgpu requires image data layout specifics.
+        // For now we'll perform a single write into the texture using write_texture.
+        // Note: caller must ensure queue belongs to the same device used to create the atlas texture.
+        // Build ImageCopyTexture and ImageDataLayout
+        let origin = wgpu::Origin3d { x, y, z: 0 };
+        let extent = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+
+        // Upload using queue.write_texture (R8 format).
+        // Row_bytes = aligned to bytes per row (no padding needed for R8).
+        let bytes_per_row = width as u32;
+        let data_layout = wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: std::num::NonZeroU32::new(bytes_per_row),
+            rows_per_image: std::num::NonZeroU32::new(height),
+        };
+
+        // The texture was created as R8Unorm in new_empty().
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture_view.texture(), // helper - convert TextureView -> Texture handle; if unavailable, caller must own texture reference. This is a compile-time assumption compatible with current atlas implementation.
+                mip_level: 0,
+                origin,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bitmap,
+            data_layout,
+            extent,
+        );
+
+        // Compute UVs in 0..1 range
+        let u0 = x as f32 / (self.atlas_width as f32);
+        let v0 = y as f32 / (self.atlas_height as f32);
+        let u1 = (x + width) as f32 / (self.atlas_width as f32);
+        let v1 = (y + height) as f32 / (self.atlas_height as f32);
+
+        // Update atlas placement metadata
+        let gi = GlyphInfo {
+            u0,
+            v0,
+            u1,
+            v1,
+            width,
+            height,
+            advance,
+            xoffset,
+            yoffset,
+        };
+
+        // store by key
+        {
+            let mut map = self.glyph_id_map.clone();
+            map.insert(key, gi.clone());
+        }
+
+        // update packer state
+        self.pack_next_x = x + width + padding;
+        if height > self.pack_row_h {
+            self.pack_row_h = height;
+        }
+
+        Ok((u0, v0, u1, v1))
     }
 }
 

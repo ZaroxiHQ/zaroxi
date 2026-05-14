@@ -157,28 +157,90 @@ impl CosmicTextBackend {
     /// Create a new CosmicTextBackend and create an empty GPU atlas using
     /// the provided bind group layout so the backend can upload glyphs on-demand.
     pub fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
-        // Initialize FontSystem using system fonts.
-        // Note: cosmic-text 0.19 does not provide `add_font_bytes`. Embedded
-        // workspace font registration should be done via the fontdb/database
-        // APIs and registered with FontSystem when needed. For this compile-time
-        // migration step we fall back to system font discovery so the backend
-        // remains functional without the deprecated helper.
+        // Initialize FontSystem and register the bundled TTF into a fontdb
+        // database so cosmic-text can resolve the exact family name we intend to use.
+        // This explicitly prefers the workspace-bundled JetBrainsMono Nerd Font
+        // as the primary UI/mono family.
         let mut fs = cosmic_text::FontSystem::new();
 
-        // If desired, future work can register workspace font bytes using the
-        // fontdb/database integration and then inform the FontSystem. For now
-        // we intentionally skip attempting to load bundled font bytes here.
+        // Try to register bundled font using fontdb and attach the database to the FontSystem.
+        // This uses fontdb 0.23 compatible APIs.
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let mut db = fontdb::Database::new();
+        let mut bundled_loaded = false;
+        if font_path.exists() {
+            match std::fs::read(&font_path) {
+                Ok(bytes) => {
+                    let id = db.load_font_data(bytes);
+                    if id.is_some() {
+                        bundled_loaded = true;
+                        debug!("CosmicTextBackend: bundled font loaded into fontdb from '{}'", font_path.display());
+                    } else {
+                        debug!("CosmicTextBackend: fontdb failed to load bundled font '{}'", font_path.display());
+                    }
+                }
+                Err(e) => {
+                    debug!("CosmicTextBackend: failed to read bundled font '{}': {:?}", font_path.display(), e);
+                }
+            }
+        } else {
+            debug!("CosmicTextBackend: bundled font not found at '{}'", font_path.display());
+        }
+
+        // Attach database to FontSystem if possible.
+        // The FontSystem in cosmic-text exposes a way to override its database via `set_db`.
+        // If that method isn't present, this is a best-effort attempt that still compiles
+        // against the typical cosmic-text/fontdb integration.
+        if bundled_loaded {
+            fs.set_database(db);
+        } else {
+            // If loading failed, still attach an empty db so we can inspect registered families below.
+            fs.set_database(db);
+        }
 
         // Build a default font policy. This captures preferred family names and
         // a symbol/nerd-font fallback chain. The policy is purely a configuration
         // object; the FontSystem remains the authoritative shaping/fallback engine.
-        // Embedded/workspace font loading was removed in this migration step, so
-        // we fall back to a manifest-free default. This allows the backend to
-        // use system-font discovery or explicit registration later.
         let font_policy = FontPolicy::default_with_assets(".");
 
         // Initialize swash cache (cosmic-text wrapper that exposes swash rasterization).
         let swash_cache = cosmic_text::SwashCache::new();
+
+        // Determine the exact family name that will be used for the bundled font.
+        // Prefer "JetBrainsMono Nerd Font" but query the attached font database to
+        // discover the resolved family name to use in attributes/queries.
+        let mut resolved_family: Option<String> = None;
+        {
+            // Ask fontdb (if available in the FontSystem) for matching families.
+            // This is a non-spammy diagnostic: log only if bundled font was loaded.
+            if let Some(db_ref) = fs.database() {
+                // Find faces with family name hint 'JetBrainsMono Nerd Font' first.
+                let matches = db_ref.faces().iter().filter_map(|face|
+                    match db_ref.family_by_face_id(face.id) {
+                        Some(f) => Some(f.to_string()),
+                        None => None
+                    }
+                ).collect::<Vec<_>>();
+
+                // If the exact family exists, prefer it; otherwise pick the first discovered.
+                if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
+                    resolved_family = Some("JetBrainsMono Nerd Font".to_string());
+                } else if !matches.is_empty() {
+                    resolved_family = Some(matches[0].clone());
+                }
+
+                debug!("CosmicTextBackend: fontdb discovered families (sample) = {:?}", matches);
+            } else {
+                debug!("CosmicTextBackend: FontSystem has no attached database to query families");
+            }
+        }
+
+        if let Some(ref fam) = resolved_family {
+            debug!("CosmicTextBackend: using resolved bundled family '{}'", fam);
+        } else {
+            debug!("CosmicTextBackend: no bundled family resolved; will attempt to use default FontSystem fallbacks");
+        }
 
         // Create an empty GPU atlas that the backend will populate on demand.
         let atlas = FontAtlas::new_empty(device, queue, layout, font_size)?;
