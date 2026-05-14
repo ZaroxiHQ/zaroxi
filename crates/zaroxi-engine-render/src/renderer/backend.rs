@@ -486,8 +486,8 @@ impl TextBackend for CosmicTextBackend {
                     // Missing in atlas -> enqueue a rasterization/upload job
                     // Capture necessary owned data to perform rasterization/upload later
                     if should_log {
-                        info!(
-                            "CosmicTextBackend: enqueue_raster text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={}",
+                        debug!(
+                            "CosmicTextBackend: enqueue_raster text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={:?}",
                             text, gid, g.start, g.end, gx_i, gy_i, key_u64
                         );
                     }
@@ -527,12 +527,12 @@ impl TextBackend for CosmicTextBackend {
                             let x1_px = x0_px + img.placement.width as f32;
                             let y1_px = y0_px + img.placement.height as f32;
 
-                            // Clip-test
-                            if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                            // Clip-test (use tolerant clip)
+                            if x1_px <= clip_x_e || x0_px >= (clip_x_e + clip_w_e) || y1_px <= clip_y_e || y0_px >= (clip_y_e + clip_h_e) {
                                 if should_log {
-                                    info!(
+                                    debug!(
                                         "CosmicTextBackend: skip after_insert reason=clip_reject text=\"{}\" cache_key={:?} key_u64={} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1})",
-                                        text, cache_key, key_u64, gx_i, gy_i, x0_px, y0_px, x1_px, y1_px, clip_x, clip_y, clip_x + clip_w, clip_y + clip_h
+                                        text, cache_key, key_u64, gx_i, gy_i, x0_px, y0_px, x1_px, y1_px, clip_x_e, clip_y_e, clip_x_e + clip_w_e, clip_y_e + clip_h_e
                                     );
                                 }
                                 *skipped_by_reason.entry("clip_reject_after_insert".to_string()).or_insert(0) += 1;
@@ -552,7 +552,7 @@ impl TextBackend for CosmicTextBackend {
                             });
 
                             if should_log {
-                                info!(
+                                debug!(
                                     "CosmicTextBackend: inserted_and_placed text=\"{}\" cache_key={:?} key_u64={} phys=({}, {}) uv=({:.4},{:.4})-({:.4},{:.4})",
                                     text, cache_key, key_u64, gx_i, gy_i, u0, v0, u1, v1
                                 );
