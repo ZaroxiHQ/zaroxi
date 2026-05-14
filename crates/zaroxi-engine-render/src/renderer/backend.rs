@@ -157,17 +157,17 @@ impl CosmicTextBackend {
     /// Create a new CosmicTextBackend and create an empty GPU atlas using
     /// the provided bind group layout so the backend can upload glyphs on-demand.
     pub fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
-        // Initialize FontSystem.
+        // Initialize FontSystem using system fonts.
+        // Note: cosmic-text 0.19 does not provide `add_font_bytes`. Embedded
+        // workspace font registration should be done via the fontdb/database
+        // APIs and registered with FontSystem when needed. For this compile-time
+        // migration step we fall back to system font discovery so the backend
+        // remains functional without the deprecated helper.
         let mut fs = cosmic_text::FontSystem::new();
 
-        // Load the bundled font (shared workspace asset).
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let font_path = std::path::PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
-        let font_bytes = std::fs::read(&font_path).map_err(|e| {
-            RenderError::Other(format!("cosmic-text: failed to read font '{}': {:?}", font_path.display(), e))
-        })?;
-        // cosmic-text 0.19 expects byte slice; keep ownership in this scope.
-        let _ = fs.add_font_bytes(&font_bytes);
+        // If desired, future work can register workspace font bytes using the
+        // fontdb/database integration and then inform the FontSystem. For now
+        // we intentionally skip attempting to load bundled font bytes here.
 
         // Build a default font policy. This captures preferred family names and
         // a symbol/nerd-font fallback chain. The policy is purely a configuration
