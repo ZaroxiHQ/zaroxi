@@ -25,6 +25,19 @@ const TEXT_SAMPLER_NEAREST: bool = false;
 /// Global single-shot flag to ensure we only emit the "first glyph" sample line once.
 static FIRST_GLYPH_LOGGED: AtomicBool = AtomicBool::new(false);
 
+/// Helper used to decide whether to show render-time diagnostics.
+/// Default is controlled by the compile-time `RENDER_DEBUG` constant, but
+/// an environment variable `RENDER_DEBUG=1` or `RENDER_DEBUG=true` can also
+/// enable debug logging at runtime without rebuilding.
+fn render_debug_enabled() -> bool {
+    if RENDER_DEBUG {
+        return true;
+    }
+    std::env::var("RENDER_DEBUG")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
     [c.r, c.g, c.b, c.a]
@@ -742,8 +755,10 @@ impl<'a> Renderer<'a> {
         // into the text vertex list, centered on screen (NDC) to validate text path.
         // Disabled by default to avoid contaminating normal rendering.
         const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = false;
-        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
-            DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR, DIAGNOSTIC_FULLSCREEN_QUAD, DIAGNOSTIC_INJECT_CENTER_TEXT);
+        if render_debug_enabled() {
+            log::debug!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
+                DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR, DIAGNOSTIC_FULLSCREEN_QUAD, DIAGNOSTIC_INJECT_CENTER_TEXT);
+        }
 
         let sem = &layout.colors;
 
@@ -804,12 +819,16 @@ impl<'a> Renderer<'a> {
         }
 
         // Convert render panels into visible content quads and text.
-        info!("[renderer] render_panels count = {}", render_panels.len());
+        if render_debug_enabled() {
+            log::debug!("[renderer] render_panels count = {}", render_panels.len());
+        }
 
         // Debug injection flag: keeps visual debug geometry and debug pass off by default.
         // Set to `true` when you need to re-enable the quick NDC/vertex layout checks.
         const DEBUG_RENDER: bool = false;
-        info!("debug geometry injection enabled={}", DEBUG_RENDER);
+        if render_debug_enabled() {
+            log::debug!("debug geometry injection enabled={}", DEBUG_RENDER);
+        }
 
         if DEBUG_RENDER {
             // --- VISUAL DEBUG: guaranteed visible debug quads (solid colors, no alpha) ---
@@ -891,7 +910,9 @@ impl<'a> Renderer<'a> {
                 }
             };
             // Log scissor/rect that would be used for this panel (diagnostic).
-            info!("panel '{}' scissor_rect = {:?}", panel.id, target);
+            if render_debug_enabled() {
+                log::debug!("panel '{}' scissor_rect = {:?}", panel.id, target);
+            }
 
             // Header strip at the top of the panel rect
             let hx = target.x;
@@ -992,10 +1013,13 @@ impl<'a> Renderer<'a> {
                         let ndc_y0 = 1.0 - (y0_px / height) * 2.0;
                         let ndc_x1 = (x1_px / width) * 2.0 - 1.0;
                         let ndc_y1 = 1.0 - (y1_px / height) * 2.0;
-                        info!(
-                            "sample glyph debug: char='{}' screen_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) uv=({:.4},{:.4})-({:.4},{:.4}) advance={:.3}",
-                            ch, x0_px, y0_px, x1_px, y1_px, ndc_x0, ndc_y0, ndc_x1, ndc_y1, u0, v0, u1, v1, g.advance
-                        );
+                        // Emit this sample glyph debug line only once to avoid per-frame spam.
+                        if FIRST_GLYPH_LOGGED.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() && render_debug_enabled() {
+                            log::debug!(
+                                "sample glyph debug: char='{}' screen_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) uv=({:.4},{:.4})-({:.4},{:.4}) advance={:.3}",
+                                ch, x0_px, y0_px, x1_px, y1_px, ndc_x0, ndc_y0, ndc_x1, ndc_y1, u0, v0, u1, v1, g.advance
+                            );
+                        }
                     }
                 }
             }
@@ -1080,21 +1104,21 @@ impl<'a> Renderer<'a> {
                 oob_count += 1;
             }
         }
-        if RENDER_DEBUG {
+        if render_debug_enabled() {
             if oob_count > 0 {
-                info!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
+                log::debug!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
             } else {
-                info!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
+                log::debug!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
             }
         }
 
         // Dump first few vertices so we can inspect coordinate space (pos, uv, color).
-        if RENDER_DEBUG {
+        if render_debug_enabled() {
             let max_log = std::cmp::min(8usize, verts.len());
-            info!("vertex[0..{}] dump:", max_log);
+            log::debug!("vertex[0..{}] dump:", max_log);
             for i in 0..max_log {
                 let v = verts[i];
-                info!(
+                log::debug!(
                     "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
                     i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]
                 );
@@ -1106,11 +1130,11 @@ impl<'a> Renderer<'a> {
         self.queue.write_buffer(&self.vertex_buffer, 0, vb_bytes);
 
         // Log first few indices to validate index buffer contents & format.
-        if RENDER_DEBUG {
+        if render_debug_enabled() {
             let max_idx_log = std::cmp::min(12usize, indices.len());
-            info!("index[0..{}] dump:", max_idx_log);
+            log::debug!("index[0..{}] dump:", max_idx_log);
             for i in 0..max_idx_log {
-                info!("i[{}] = {}", i, indices[i]);
+                log::debug!("i[{}] = {}", i, indices[i]);
             }
         }
 
@@ -1143,7 +1167,9 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    info!("debug pass enabled={}", DEBUG_RENDER);
+                    if render_debug_enabled() {
+                        log::debug!("debug pass enabled={}", DEBUG_RENDER);
+                    }
 
                     // If DEBUG_RENDER is enabled, draw the full scene with the debug
                     // solid-color pipeline (no textures/samplers) to validate geometry.
@@ -1175,8 +1201,8 @@ impl<'a> Renderer<'a> {
                             rpass.set_pipeline(&self.shape_pipeline);
                             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            if RENDER_DEBUG {
-                                debug!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                            if render_debug_enabled() {
+                                log::debug!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
                             }
                             rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
                         }
@@ -1188,16 +1214,16 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     if total_indices_len > panel_indices_len {
-                        if RENDER_DEBUG {
-                            debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if render_debug_enabled() {
+                            log::debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                         }
                         rpass.set_pipeline(&self.text_pipeline);
                         // Rebind the font atlas bind group (must be set after switching pipeline).
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        if RENDER_DEBUG {
-                            debug!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        if render_debug_enabled() {
+                            log::debug!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
                         }
                         rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
@@ -1205,8 +1231,8 @@ impl<'a> Renderer<'a> {
 
                 self.queue.submit(Some(encoder.finish()));
                 frame.present();
-                if RENDER_DEBUG {
-                    debug!("submitted frame");
+                if render_debug_enabled() {
+                    log::debug!("submitted frame");
                 }
                 Ok(())
             }
@@ -1273,15 +1299,15 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
-                        if RENDER_DEBUG {
-                            debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if render_debug_enabled() {
+                            log::debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
                         }
                         rpass.set_pipeline(&self.text_pipeline);
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        if RENDER_DEBUG {
-                            debug!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        if render_debug_enabled() {
+                            log::debug!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
                         }
                         rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
