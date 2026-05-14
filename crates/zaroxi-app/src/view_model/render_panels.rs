@@ -1,4 +1,3 @@
-use log::info;
 use crate::state::AppState;
 
 /// A renderer-facing, minimal panel descriptor used to prove handoff.
@@ -30,9 +29,9 @@ impl From<&crate::panels::panel_entry::PanelEntry> for RenderPanel {
 pub fn to_render_panels(state: &AppState) -> Vec<RenderPanel> {
     let mut out = Vec::new();
     for p in &state.app_panels {
-        debug!("converting panel -> render_panel: id='{}' title='{}' visible={}", p.id, p.title, p.visible);
+        log::debug!("converting panel -> render_panel: id='{}' title='{}' visible={}", p.id, p.title, p.visible);
         out.push(RenderPanel::from(p));
     }
-    debug!("converted {} panels to render_panels", out.len());
+    log::debug!("converted {} panels to render_panels", out.len());
     out
 }

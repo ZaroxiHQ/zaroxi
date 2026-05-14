@@ -3,7 +3,6 @@ use crate::status::StatusState;
 use crate::assistant::AssistantState;
 use crate::tabs::TabState;
 use crate::panels::PanelEntry;
-use log::info;
 use zaroxi_config::AppConfig;
 use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
@@ -55,7 +54,7 @@ impl AppState {
 
         // Log created panels for visibility
         for p in &app_panels {
-            debug!("created panel: {} ({}) visible={}", p.id, p.title, p.visible);
+            log::debug!("created panel: {} ({}) visible={}", p.id, p.title, p.visible);
         }
 
         Self {
