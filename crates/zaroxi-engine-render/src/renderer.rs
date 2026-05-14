@@ -640,38 +640,45 @@ impl<'a> Renderer<'a> {
         // Convert render panels into visible content quads and text.
         info!("[renderer] render_panels count = {}", render_panels.len());
 
-        // --- VISUAL DEBUG: guaranteed visible debug quads (solid colors, no alpha) ---
-        // If the window still renders clear/gray, vertex coordinates or shader mapping
-        // are wrong. These three rectangles should be unmissable:
-        //  - inset fullscreen magenta
-        //  - top-left green quarter
-        //  - centered blue rectangle
-        {
-            // inset magenta fullscreen
-            let inset = 8.0f32;
-            let rx = inset;
-            let ry = inset;
-            let rw = (width as f32) - inset * 2.0;
-            let rh = (height as f32) - inset * 2.0;
-            push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
-        }
+        // Debug injection flag: keeps visual debug geometry and debug pass off by default.
+        // Set to `true` when you need to re-enable the quick NDC/vertex layout checks.
+        const DEBUG_RENDER: bool = false;
+        info!("debug geometry injection enabled={}", DEBUG_RENDER);
 
-        {
-            // top-left quarter green
-            let rw = width * 0.5;
-            let rh = height * 0.5;
-            push_colored_quad(&mut verts, &mut indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
-        }
+        if DEBUG_RENDER {
+            // --- VISUAL DEBUG: guaranteed visible debug quads (solid colors, no alpha) ---
+            // If the window still renders clear/gray, vertex coordinates or shader mapping
+            // are wrong. These three rectangles should be unmissable:
+            //  - inset fullscreen magenta
+            //  - top-left green quarter
+            //  - centered blue rectangle
+            {
+                // inset magenta fullscreen
+                let inset = 8.0f32;
+                let rx = inset;
+                let ry = inset;
+                let rw = (width as f32) - inset * 2.0;
+                let rh = (height as f32) - inset * 2.0;
+                push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
+            }
 
-        {
-            // centered blue
-            let rw = width * 0.25;
-            let rh = height * 0.25;
-            let rx = (width - rw) * 0.5;
-            let ry = (height - rh) * 0.5;
-            push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
+            {
+                // top-left quarter green
+                let rw = width * 0.5;
+                let rh = height * 0.5;
+                push_colored_quad(&mut verts, &mut indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
+            }
+
+            {
+                // centered blue
+                let rw = width * 0.25;
+                let rh = height * 0.25;
+                let rx = (width - rw) * 0.5;
+                let ry = (height - rh) * 0.5;
+                push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
+            }
+            // --- end visual debug ---
         }
-        // --- end visual debug ---
 
         // For each panel supplied by the app, create a header and content block and queue title/content text.
         let header_h = 28.0f32;
@@ -786,27 +793,27 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    // STAGE A (DEBUG): draw the FULL queued vertex/index buffers using the
-                    // minimal solid-color pipeline. This verifies geometry + layout end-to-end
-                    // without any texture sampling or bind groups.
-                    rpass.set_pipeline(&self.debug_pipeline);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                    info!("debug pass enabled={}", DEBUG_RENDER);
 
-                    if indices.is_empty() {
-                        // Fallback: non-indexed draw if indices are unexpectedly empty.
-                        let verts_to_draw = verts.len() as u32;
-                        info!("debug non-indexed draw (full): verts={}", verts_to_draw);
-                        rpass.draw(0..verts_to_draw, 0..1);
-                    } else {
-                        let indices_to_draw = indices.len() as u32;
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("debug indexed draw (full): indices_drawn={}", indices_to_draw);
-                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                    // If DEBUG_RENDER is enabled, draw the full scene with the debug
+                    // solid-color pipeline (no textures/samplers) to validate geometry.
+                    if DEBUG_RENDER {
+                        rpass.set_pipeline(&self.debug_pipeline);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+                        if indices.is_empty() {
+                            let verts_to_draw = verts.len() as u32;
+                            info!("debug non-indexed draw (full): verts={}", verts_to_draw);
+                            rpass.draw(0..verts_to_draw, 0..1);
+                        } else {
+                            let indices_to_draw = indices.len() as u32;
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            info!("debug indexed draw (full): indices_drawn={}", indices_to_draw);
+                            rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                        }
                     }
 
-                    // STAGE B (NORMAL): now bind the normal text/UI pipeline and draw the
-                    // full scene. This reproduces the intended rendering path and will show
-                    // whether the normal pipeline/shaders are responsible for any disappearance.
+                    // Normal UI pass: always run in production mode (draw full scene).
                     rpass.set_pipeline(&self.text_pipeline);
                     rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -851,25 +858,26 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    // STAGE A (DEBUG): draw the FULL queued vertex/index buffers using the
-                    // minimal solid-color pipeline. This verifies geometry + layout end-to-end
-                    // without any texture sampling or bind groups.
-                    rpass.set_pipeline(&self.debug_pipeline);
-                    rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    if indices.is_empty() {
-                        let verts_to_draw = verts.len() as u32;
-                        info!("debug non-indexed draw (full, suboptimal path): verts={}", verts_to_draw);
-                        rpass.draw(0..verts_to_draw, 0..1);
-                    } else {
-                        let indices_to_draw = indices.len() as u32;
-                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("debug indexed draw (full, suboptimal path): indices_drawn={}", indices_to_draw);
-                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                    info!("debug pass enabled={}", DEBUG_RENDER);
+
+                    // If DEBUG_RENDER is enabled, draw the full scene with the debug
+                    // solid-color pipeline (no textures/samplers) to validate geometry.
+                    if DEBUG_RENDER {
+                        rpass.set_pipeline(&self.debug_pipeline);
+                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        if indices.is_empty() {
+                            let verts_to_draw = verts.len() as u32;
+                            info!("debug non-indexed draw (full, suboptimal path): verts={}", verts_to_draw);
+                            rpass.draw(0..verts_to_draw, 0..1);
+                        } else {
+                            let indices_to_draw = indices.len() as u32;
+                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            info!("debug indexed draw (full, suboptimal path): indices_drawn={}", indices_to_draw);
+                            rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                        }
                     }
 
-                    // STAGE B (NORMAL): now bind the normal text/UI pipeline and draw the
-                    // full scene. This reproduces the intended rendering path and will show
-                    // whether the normal pipeline/shaders are responsible for any disappearance.
+                    // Normal UI pass
                     rpass.set_pipeline(&self.text_pipeline);
                     rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
