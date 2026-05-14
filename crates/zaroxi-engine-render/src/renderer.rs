@@ -186,8 +186,30 @@ impl FontAtlas {
             "font atlas upload: format=R8Unorm size={}x{} bytes_per_row={}",
             atlas_w, atlas_h, atlas_w
         );
+
+        // Detailed atlas diagnostics: total bytes, non-zero bytes, max value,
+        // and first non-zero index (if any). These help detect an entirely
+        // blank atlas (glyph rasterization failure).
+        let total_bytes = atlas_buf.len();
+        let non_zero = atlas_buf.iter().filter(|&&b| b != 0u8).count();
+        let max_val = *atlas_buf.iter().max().unwrap_or(&0u8);
+        let first_non_zero = atlas_buf.iter().position(|&b| b != 0u8);
+        info!(
+            "font atlas stats bytes={} non_zero={} max={} first_non_zero={:?}",
+            total_bytes, non_zero, max_val, first_non_zero
+        );
+
         let first_n = std::cmp::min(8usize, atlas_buf.len());
         info!("font atlas first {} bytes: {:?}", first_n, &atlas_buf[..first_n]);
+
+        // Fail fast if the atlas is entirely blank; this indicates glyph rasterization
+        // produced no coverage and must be investigated on the CPU side.
+        if non_zero == 0 {
+            return Err(RenderError::Other(
+                "font atlas is entirely zero; glyph rasterization/upload source is blank"
+                    .to_string(),
+            ));
+        }
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -1135,8 +1157,19 @@ impl<'a> Renderer<'a> {
     }
 
     /// Emit text into the provided vertex/index arrays using the font atlas.
-    fn emit_text(&self, verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, mut x: f32, y: f32, text: &str, color: [f32;4], _screen_w: f32, _screen_h: f32) -> Result<(), RenderError> {
+    fn emit_text(&self, verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, mut x: f32, y: f32, text: &str, color: [f32;4], screen_w: f32, screen_h: f32) -> Result<(), RenderError> {
+        // Helper to convert pixel coords to NDC for logging (vertex shader expects NDC).
+        fn pixel_to_ndc(px: f32, py: f32, sw: f32, sh: f32) -> [f32; 2] {
+            let nx = (px / sw) * 2.0 - 1.0;
+            let ny = 1.0 - (py / sh) * 2.0;
+            [nx, ny]
+        }
+
         let base_index = verts.len() as u16;
+        let mut glyph_count = 0usize;
+        let mut first_glyph_logged = false;
+        let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
+
         for ch in text.chars() {
             let glyph = self.font_atlas.glyphs.get(&ch);
             if glyph.is_none() {
@@ -1146,6 +1179,7 @@ impl<'a> Renderer<'a> {
             let g = glyph.unwrap();
             if g.width == 0 || g.height == 0 {
                 x += g.advance;
+                glyph_count += 1;
                 continue;
             }
             // positions: top-left origin; atlas uv coordinates map into glyph
@@ -1159,6 +1193,39 @@ impl<'a> Renderer<'a> {
             let u1 = g.u1;
             let v1 = g.v1;
 
+            // For the very first glyph of the first call that produced text vertices,
+            // log the pre-NDC and computed NDC coords for the four quad vertices.
+            if !first_glyph_logged {
+                let ndc_a = pixel_to_ndc(x0, y0, screen_w, screen_h);
+                let ndc_b = pixel_to_ndc(x1, y0, screen_w, screen_h);
+                let ndc_c = pixel_to_ndc(x1, y1, screen_w, screen_h);
+                let ndc_d = pixel_to_ndc(x0, y1, screen_w, screen_h);
+                info!("emit_text first glyph '{}' quad pixels = [({},{}), ({},{}), ({},{}), ({},{})]", ch, x0, y0, x1, y0, x1, y1, x0, y1);
+                info!("emit_text first glyph '{}' quad NDC    = [({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4})]", ch, ndc_a[0], ndc_a[1], ndc_b[0], ndc_b[1], ndc_c[0], ndc_c[1], ndc_d[0], ndc_d[1]);
+                info!("emit_text first glyph '{}' uv = [({},{}), ({},{})]", ch, u0, v0, u1, v1);
+                info!("emit_text first glyph '{}' color rgba = {:?}", ch, color);
+                first_glyph_logged = true;
+            }
+
+            // If this call is for one of the interesting strings, log placement for the first few glyphs.
+            if log_interesting_string && glyph_count < 6 {
+                info!(
+                    "glyph debug: text='{}' char='{}' idx={} uv_rect=({:.4},{:.4})-({:.4},{:.4}) screen_rect=({:.1},{:.1})-({:.1},{:.1}) advance={:.3}",
+                    text,
+                    ch,
+                    glyph_count,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    g.advance
+                );
+            }
+
             let a = Vertex { pos: [x0, y0], uv: [u0, v0], color };
             let b = Vertex { pos: [x1, y0], uv: [u1, v0], color };
             let c = Vertex { pos: [x1, y1], uv: [u1, v1], color };
@@ -1169,6 +1236,7 @@ impl<'a> Renderer<'a> {
             indices.extend_from_slice(&[i0, i0+1, i0+2, i0, i0+2, i0+3]);
 
             x += g.advance;
+            glyph_count += 1;
         }
         Ok(())
     }
