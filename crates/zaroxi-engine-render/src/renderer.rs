@@ -546,18 +546,84 @@ impl<'a> Renderer<'a> {
         // vertex/index vectors. Using a free function avoids keeping mutable borrows
         // alive across the render function scope which would conflict with other
         // mutable operations (like emitting text).
-        fn push_colored_quad(verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, x: f32, y: f32, w: f32, h: f32, color: [f32;4]) {
+        //
+        // NOTE: The WGSL vertex shader expects clip-space coordinates in the
+        // range [-1.0, 1.0] (NDC). The application layer provides positions in
+        // pixel coordinates (top-left origin). Convert pixels -> NDC here and
+        // flip Y so UI top-left maps correctly into NDC space.
+        fn push_colored_quad(
+            verts: &mut Vec<Vertex>,
+            indices: &mut Vec<u16>,
+            x: f32,
+            y: f32,
+            w: f32,
+            h: f32,
+            color: [f32; 4],
+            screen_w: f32,
+            screen_h: f32,
+        ) {
+            // Convert pixel coordinates (top-left origin) -> NDC clip space used by the shader.
+            // NDC x: -1..1 left->right, NDC y: -1..1 bottom->top. We want top-left origin for UI,
+            // so map y accordingly by flipping.
+            fn pixel_to_ndc(px: f32, py: f32, sw: f32, sh: f32) -> [f32; 2] {
+                let nx = (px / sw) * 2.0 - 1.0;
+                let ny = 1.0 - (py / sh) * 2.0;
+                [nx, ny]
+            }
+
             let base = verts.len() as u16;
-            let v0 = Vertex { pos: [x, y], uv: [0.0, 0.0], color };
-            let v1 = Vertex { pos: [x+w, y], uv: [0.0, 0.0], color };
-            let v2 = Vertex { pos: [x+w, y+h], uv: [0.0, 0.0], color };
-            let v3 = Vertex { pos: [x, y+h], uv: [0.0, 0.0], color };
-            verts.push(v0); verts.push(v1); verts.push(v2); verts.push(v3);
-            indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+            let a = pixel_to_ndc(x, y, screen_w, screen_h);
+            let b = pixel_to_ndc(x + w, y, screen_w, screen_h);
+            let c = pixel_to_ndc(x + w, y + h, screen_w, screen_h);
+            let d = pixel_to_ndc(x, y + h, screen_w, screen_h);
+
+            let v0 = Vertex { pos: a, uv: [0.0, 0.0], color };
+            let v1 = Vertex { pos: b, uv: [0.0, 0.0], color };
+            let v2 = Vertex { pos: c, uv: [0.0, 0.0], color };
+            let v3 = Vertex { pos: d, uv: [0.0, 0.0], color };
+
+            verts.push(v0);
+            verts.push(v1);
+            verts.push(v2);
+            verts.push(v3);
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
 
         // Convert render panels into visible content quads and text.
         info!("[renderer] render_panels count = {}", render_panels.len());
+
+        // --- VISUAL DEBUG: guaranteed visible debug quads (solid colors, no alpha) ---
+        // If the window still renders clear/gray, vertex coordinates or shader mapping
+        // are wrong. These three rectangles should be unmissable:
+        //  - inset fullscreen magenta
+        //  - top-left green quarter
+        //  - centered blue rectangle
+        {
+            // inset magenta fullscreen
+            let inset = 8.0f32;
+            let rx = inset;
+            let ry = inset;
+            let rw = (width as f32) - inset * 2.0;
+            let rh = (height as f32) - inset * 2.0;
+            push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
+        }
+
+        {
+            // top-left quarter green
+            let rw = width * 0.5;
+            let rh = height * 0.5;
+            push_colored_quad(&mut verts, &mut indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
+        }
+
+        {
+            // centered blue
+            let rw = width * 0.25;
+            let rh = height * 0.25;
+            let rx = (width - rw) * 0.5;
+            let ry = (height - rh) * 0.5;
+            push_colored_quad(&mut verts, &mut indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
+        }
+        // --- end visual debug ---
 
         // For each panel supplied by the app, create a header and content block and queue title/content text.
         let header_h = 28.0f32;
@@ -589,7 +655,7 @@ impl<'a> Renderer<'a> {
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
             let header_color = [0.12, 0.13, 0.16, 1.0];
-            push_colored_quad(&mut verts, &mut indices, hx, hy, hw, hh, header_color);
+            push_colored_quad(&mut verts, &mut indices, hx, hy, hw, hh, header_color, width, height);
 
             // Content inset: a smaller block inside the panel for visual differentiation
             let cx = target.x + content_padding;
@@ -598,7 +664,7 @@ impl<'a> Renderer<'a> {
             let ch = (target.h - hh - content_padding * 2.0).max(0.0);
             let content_color = [0.08, 0.09, 0.11, 1.0];
             if cw > 0.0 && ch > 0.0 {
-                push_colored_quad(&mut verts, &mut indices, cx, cy, cw, ch, content_color);
+                push_colored_quad(&mut verts, &mut indices, cx, cy, cw, ch, content_color, width, height);
             }
 
             // Queue header/title text
@@ -620,6 +686,17 @@ impl<'a> Renderer<'a> {
 
         // Log final totals
         info!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
+
+        // Dump first few vertices so we can inspect coordinate space (pos, uv, color).
+        let max_log = std::cmp::min(8usize, verts.len());
+        info!("vertex[0..{}] dump:", max_log);
+        for i in 0..max_log {
+            let v = verts[i];
+            info!(
+                "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
+                i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]
+            );
+        }
 
         // Upload vertex/index data
         let vb_bytes = bytemuck::cast_slice(&verts);
