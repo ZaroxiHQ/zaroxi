@@ -156,30 +156,9 @@ impl<'a> Renderer<'a> {
 
         surface.configure(&device, &config);
 
-        // Create bind group layout for font atlas (texture + sampler)
-        let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // sampled texture (R8)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                // sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("text_bind_layout"),
-        });
+        // Create pipelines & bind group layouts (moved to renderer::pipelines).
+        let (text_bind_layout, text_pipeline, debug_pipeline, shape_pipeline) =
+            crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
         // Build font atlas now
         let font_size = 14.0;
@@ -254,94 +233,12 @@ impl<'a> Renderer<'a> {
 
         // Create a minimal solid-color pipeline for debug-only draws.
         // This pipeline does not sample any textures or use bind groups.
-        let debug_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("debug-color-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../debug_color_shader.wgsl").into()),
-        });
-
-        let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("debug-pipeline-layout"),
-            bind_group_layouts: &[],
-            ..Default::default()
-        });
-
-        let debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("debug-pipeline"),
-            layout: Some(&debug_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &debug_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &debug_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    // No blending: replace output directly.
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Debug pipeline creation moved to renderer::pipelines
 
         // Shape pipeline: dedicated minimal solid-color pipeline used for all
         // non-text UI geometry (panels, borders, dividers). This avoids sampling
         // the font atlas or relying on text bind groups for simple colored quads.
-        let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shape-color-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shape_shader.wgsl").into()),
-        });
-
-        let shape_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("shape-pipeline-layout"),
-            bind_group_layouts: &[],
-            ..Default::default()
-        });
-
-        let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shape-pipeline"),
-            layout: Some(&shape_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shape_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shape_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    // No blending: replace output directly for shape fills.
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                front_face: wgpu::FrontFace::Ccw,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Shape pipeline creation moved to renderer::pipelines
 
         // create empty vertex/index buffers sized for moderate content; we'll recreate if needed
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
