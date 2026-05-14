@@ -515,11 +515,21 @@ impl<'a> Renderer<'a> {
     ///
     /// Important: layout (panel geometry + resolved colors) is owned by the
     /// application/layout layer. The renderer only draws the provided layout.
-    pub fn render_with_layout(&mut self, app_state: &AppState, layout: &RenderLayout) -> Result<(), RenderError> {
+    pub fn render_with_layout(&mut self, app_state: &AppState, layout: &RenderLayout, render_panels: &[zaroxi_app::view_model::RenderPanel]) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
-        info!("entering render_with_layout (window {}x{})", self.config.width, self.config.height);
+        info!(
+            "entering render_with_layout (window {}x{}), render_panels={}",
+            self.config.width,
+            self.config.height,
+            render_panels.len()
+        );
+
+        // Log received render panels for traceability.
+        for p in render_panels {
+            info!("renderer received render_panel id='{}' title='{}' visible={}", p.id, p.title, p.visible);
+        }
 
         // Build draw lists from app_state into vertex/index buffers.
         // The renderer consumes the resolved layout (rects + colors).

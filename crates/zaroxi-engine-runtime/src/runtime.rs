@@ -182,7 +182,7 @@ impl ApplicationHandler for App {
                     // Pass both layout and the render_panels via layout.colors or other
                     // mechanism as needed. For now we only log the receipt; renderer
                     // consumes layout (panels are logged and visible in render logs).
-                    match renderer.render_with_layout(&*state, &layout) {
+                    match renderer.render_with_layout(&*state, &layout, &render_panels) {
                         Ok(_) => {
                             info!("render_with_layout completed OK");
                             // Only request redraw when continuous mode is explicitly enabled.
