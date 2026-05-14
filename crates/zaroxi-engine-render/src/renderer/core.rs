@@ -13,47 +13,16 @@ use wgpu::{
 
 use fontdue::Font;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
 use zaroxi_app::AppState;
 use zaroxi_theme::{SemanticColors, Color as ThemeColor};
 
-const RENDER_DEBUG: bool = false;
-/// If true, use nearest sampling for the font atlas (diagnostic).
-const TEXT_SAMPLER_NEAREST: bool = false;
-
-/// Global single-shot flag to ensure we only emit the "first glyph" sample line once.
-static FIRST_GLYPH_LOGGED: AtomicBool = AtomicBool::new(false);
-
-/// One-shot flags to log CPU-side panel quad colors only once per panel at startup.
-static LOGGED_TITLEBAR: AtomicBool = AtomicBool::new(false);
-static LOGGED_SIDEBAR: AtomicBool = AtomicBool::new(false);
-static LOGGED_EDITOR: AtomicBool = AtomicBool::new(false);
-/// One-shot flag to dump packed panel vertex values for the sidebar (packed GPU upload values).
-static LOGGED_SIDEBAR_PACKED: AtomicBool = AtomicBool::new(false);
-
-/// Experiment flags:
-/// When true, force the sidebar content quad to magenta for quick visual verification.
-const FORCE_MAGENTA_SIDEBAR: bool = false;
-/// When true, skip the text pass entirely (draw shapes only).
-const DISABLE_TEXT_PASS: bool = false;
-
-/// Validation scene toggle (disabled by default to avoid contaminating normal runs).
-/// Set to `true` temporarily to run the forced RGB quad validation scene.
-const VALIDATION_SCENE: bool = true;
-
-/// Helper used to decide whether to show render-time diagnostics.
-/// Default is controlled by the compile-time `RENDER_DEBUG` constant, but
-/// an environment variable `RENDER_DEBUG=1` or `RENDER_DEBUG=true` can also
-/// enable debug logging at runtime without rebuilding.
-fn render_debug_enabled() -> bool {
-    if RENDER_DEBUG {
-        return true;
-    }
-    std::env::var("RENDER_DEBUG")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
+use crate::renderer::debug::{
+    render_debug_enabled, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, FIRST_GLYPH_LOGGED,
+    LOGGED_TITLEBAR, LOGGED_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED,
+    FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
+};
 
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
