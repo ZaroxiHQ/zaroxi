@@ -143,6 +143,16 @@ impl FontPolicy {
 
 static LAYOUT_LOG_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+fn cosmic_color_to_rgba(c: cosmic_text::Color) -> [f32; 4] {
+    // cosmic_text::Color is a newtype over u32 with packed RGBA.
+    let rgba = c.0;
+    let r = ((rgba >> 24) & 0xff) as f32 / 255.0;
+    let g = ((rgba >> 16) & 0xff) as f32 / 255.0;
+    let b = ((rgba >> 8) & 0xff) as f32 / 255.0;
+    let a = (rgba & 0xff) as f32 / 255.0;
+    [r, g, b, a]
+}
+
 pub struct CosmicTextBackend {
     // cosmic-text's FontSystem is the shaping/layout/fallback engine.
     // Wrapped in a Mutex so the TextBackend can borrow it mutably while
@@ -365,7 +375,7 @@ impl TextBackend for CosmicTextBackend {
                     };
 
                     // Resolve glyph color (respect possible per-glyph override)
-                    let glyph_color = g.color_opt.map_or(color, |c| color_to_rgba(&c));
+                    let glyph_color = g.color_opt.map_or(color, cosmic_color_to_rgba);
 
                     if let Some(existing_ginfo) = existing {
                         // Use existing atlas entry to produce placed glyph immediately.
