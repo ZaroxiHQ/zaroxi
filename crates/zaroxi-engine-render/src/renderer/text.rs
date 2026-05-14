@@ -77,16 +77,16 @@ impl FontAtlas {
         // zeroed initial contents (small allocation)
         let zero_buf = vec![0u8; (atlas_w * atlas_h) as usize];
         // Initialize texture memory with zeros
-        let bytes_per_row = std::num::NonZeroU32::new(atlas_w).unwrap();
+        let bytes_per_row = atlas_w;
         queue.write_texture(
-            &wgpu::TexelCopyTextureInfo {
-                texture: texture.as_image_copy(),
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
             &zero_buf,
-            &wgpu::TexelCopyBufferLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
                 rows_per_image: None,
@@ -177,17 +177,16 @@ impl FontAtlas {
             depth_or_array_layers: 1,
         };
 
-        let bytes_per_row = std::num::NonZeroU32::new(width).ok_or_else(|| RenderError::Other("zero width".into()))?;
-
+        let bytes_per_row = width;
         queue.write_texture(
-            &wgpu::TexelCopyTextureInfo {
-                texture: self.texture.as_image_copy(),
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
             bitmap,
-            &wgpu::TexelCopyBufferLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
                 rows_per_image: None,
