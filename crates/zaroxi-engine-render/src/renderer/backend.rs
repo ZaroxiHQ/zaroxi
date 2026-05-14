@@ -298,14 +298,24 @@ impl TextBackend for CosmicTextBackend {
                 self.resolved_family.as_deref().unwrap_or("None"),
             );
             info!("CosmicTextBackend: incoming text=\"{}\" font_size={}", text, self.atlas.font_size);
-            info!("CosmicTextBackend: note: current backend path uses the internal atlas lookup; cosmic-text shaping/layout is not yet used in the render path");
+            debug!("CosmicTextBackend: note: using cosmic-text layout + swash rasterization for rendering");
         }
 
+        // Output glyphs and counters
         let mut out: Vec<PlacedGlyph> = Vec::new();
         let mut pen_x = x;
         let mut rasterized_count: usize = 0usize;
         let mut layout_glyphs: usize = 0usize;
         let mut missing_glyphs: usize = 0usize;
+
+        // Small clip tolerance to avoid accidental rejection due to 1px rounding/hinting.
+        // This is a renderer-level, conservative tolerance to make placement robust across
+        // minor rounding differences between layout and atlas placement.
+        let clip_epsilon: f32 = 1.0;
+        let clip_x_e = clip_x - clip_epsilon;
+        let clip_y_e = clip_y - clip_epsilon;
+        let clip_w_e = clip_w + clip_epsilon * 2.0;
+        let clip_h_e = clip_h + clip_epsilon * 2.0;
 
         // Active cosmic-text layout/rasterization path:
         // - Use Buffer to shape/layout the string into layout runs
@@ -393,7 +403,7 @@ impl TextBackend for CosmicTextBackend {
                         if existing_ginfo.width == 0 || existing_ginfo.height == 0 {
                             // advance-only glyph; still count as layout glyph
                             if should_log {
-                                info!(
+                                debug!(
                                     "CosmicTextBackend: skip glyph reason=advance_only text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) key={} width={} height={}",
                                     text,
                                     gid,
@@ -414,10 +424,10 @@ impl TextBackend for CosmicTextBackend {
                         let x1_px = x0_px + existing_ginfo.width as f32;
                         let y1_px = y0_px + existing_ginfo.height as f32;
 
-                        if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+                        if x1_px <= clip_x_e || x0_px >= (clip_x_e + clip_w_e) || y1_px <= clip_y_e || y0_px >= (clip_y_e + clip_h_e) {
                             if should_log {
-                                info!(
-                                    "CosmicTextBackend: skip glyph reason=clip_reject text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1}) key={}",
+                                debug!(
+                                    "CosmicTextBackend: skip glyph reason=clip_reject text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1}) key={:?}",
                                     text,
                                     gid,
                                     g.start,
@@ -428,10 +438,10 @@ impl TextBackend for CosmicTextBackend {
                                     y0_px,
                                     x1_px,
                                     y1_px,
-                                    clip_x,
-                                    clip_y,
-                                    clip_x + clip_w,
-                                    clip_y + clip_h,
+                                    clip_x_e,
+                                    clip_y_e,
+                                    clip_x_e + clip_w_e,
+                                    clip_y_e + clip_h_e,
                                     key_u64
                                 );
                             }
