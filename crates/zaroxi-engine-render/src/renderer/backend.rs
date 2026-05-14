@@ -5,6 +5,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
 
+/* explicit re-exports expected by the backend code; cosmic-text crate is
+   provided as "cosmic-text" in Cargo.toml but the Rust module path is
+   `cosmic_text`. Import the commonly used types here so the file uses them
+   directly. */
+use cosmic_text::{FontSystem, SwashCache, Buffer};
+
 /// A minimal backend boundary trait for text shaping/layout/rasterization.
 ///
 /// Implementations are responsible for:
