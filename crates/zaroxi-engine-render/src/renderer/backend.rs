@@ -171,14 +171,14 @@ impl CosmicTextBackend {
         let mut bundled_loaded = false;
         if font_path.exists() {
             // Use fontdb::Database::load_font_file to register the on-disk TTF with the database.
-            // This API returns an Option<fontdb::FontId>.
+            // This API returns Result<(), std::io::Error>.
             match db.load_font_file(&font_path) {
-                Some(_fid) => {
+                Ok(()) => {
                     bundled_loaded = true;
                     debug!("CosmicTextBackend: bundled font loaded into fontdb from '{}'", font_path.display());
                 }
-                None => {
-                    debug!("CosmicTextBackend: fontdb failed to load bundled font '{}'", font_path.display());
+                Err(e) => {
+                    debug!("CosmicTextBackend: fontdb failed to load bundled font '{}': {:?}", font_path.display(), e);
                 }
             }
         } else {
@@ -204,11 +204,8 @@ impl CosmicTextBackend {
         {
             // Query the local fontdb::Database we created above to discover registered families.
             // Collect discovered family names from faces.
-            let matches = db.faces().iter().filter_map(|face|
-                match db.family_by_face_id(face.id) {
-                    Some(f) => Some(f.to_string()),
-                    None => None
-                }
+            let matches = db.faces().filter_map(|face|
+                db.family_name(face.id).map(|s| s.to_string())
             ).collect::<Vec<_>>();
 
             if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
