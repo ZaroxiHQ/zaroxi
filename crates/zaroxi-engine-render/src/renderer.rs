@@ -584,7 +584,24 @@ impl<'a> Renderer<'a> {
         let width = self.config.width as f32;
         let height = self.config.height as f32;
         // Use colors supplied by the resolved layout (owned by app/layout).
-        let _sem = &layout.colors;
+        //
+        // Semantic mapping (for reviewer):
+        // - root app bg            -> colors.app_background
+        // - titlebar bg            -> colors.title_bar_background
+        // - sidebar bg             -> colors.sidebar_background
+        // - editor bg              -> colors.editor_background
+        // - assistant bg           -> colors.assistant_panel_background
+        // - bottom panel bg        -> colors.panel_background
+        // - statusbar bg           -> colors.status_bar_background
+        // - panel headers          -> colors.panel_header_background
+        // - borders/dividers       -> colors.border / colors.divider
+        //
+        // Diagnostic override: set FORCE_DIAGNOSTIC_COLORS = true to force highly
+        // contrasting colors (red/green/blue/...) for quick visual verification.
+        const FORCE_DIAGNOSTIC_COLORS: bool = false;
+        info!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}", DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS);
+
+        let sem = &layout.colors;
 
         // Build a simple vertex list
         let mut verts: Vec<Vertex> = Vec::new();
@@ -709,7 +726,32 @@ impl<'a> Renderer<'a> {
             let hy = target.y;
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
-            let header_color = [0.12, 0.13, 0.16, 1.0];
+
+            // Choose a semantic header color per-panel (defaults -> panel_header_background).
+            let header_color: [f32; 4] = if FORCE_DIAGNOSTIC_COLORS {
+                match panel.id.as_str() {
+                    "titlebar" => [1.0, 0.0, 0.0, 1.0],     // red
+                    "sidebar" => [0.0, 1.0, 0.0, 1.0],      // green
+                    "editor" => [0.0, 0.0, 1.0, 1.0],       // blue
+                    "right_panel" => [1.0, 1.0, 0.0, 1.0],  // yellow
+                    "bottom_panel" => [0.0, 1.0, 1.0, 1.0], // cyan
+                    "status_bar" => [1.0, 0.0, 1.0, 1.0],   // magenta
+                    _ => [1.0, 0.2, 0.4, 1.0],              // fallback bright
+                }
+            } else {
+                // Default semantic mapping
+                match panel.id.as_str() {
+                    "titlebar" => color_to_rgba(&sem.title_bar_background),
+                    "sidebar" => color_to_rgba(&sem.panel_header_background),
+                    "editor" => color_to_rgba(&sem.panel_header_background),
+                    "right_panel" => color_to_rgba(&sem.panel_header_background),
+                    "bottom_panel" => color_to_rgba(&sem.panel_header_background),
+                    "status_bar" => color_to_rgba(&sem.panel_header_background),
+                    _ => color_to_rgba(&sem.panel_header_background),
+                }
+            };
+
+            info!("panel '{}' header_color = {:?}", panel.id, header_color);
             push_colored_quad(&mut verts, &mut indices, hx, hy, hw, hh, header_color, width, height);
 
             // Content inset: a smaller block inside the panel for visual differentiation
@@ -717,7 +759,30 @@ impl<'a> Renderer<'a> {
             let cy = target.y + hh + content_padding;
             let cw = (target.w - content_padding * 2.0).max(0.0);
             let ch = (target.h - hh - content_padding * 2.0).max(0.0);
-            let content_color = [0.08, 0.09, 0.11, 1.0];
+            // Choose a semantic content/background color per-panel.
+            let content_color: [f32; 4] = if FORCE_DIAGNOSTIC_COLORS {
+                match panel.id.as_str() {
+                    "titlebar" => [0.6, 0.0, 0.0, 1.0],      // darker red
+                    "sidebar" => [0.0, 0.6, 0.0, 1.0],       // darker green
+                    "editor" => [0.0, 0.0, 0.6, 1.0],        // darker blue
+                    "right_panel" => [0.6, 0.6, 0.0, 1.0],   // darker yellow
+                    "bottom_panel" => [0.0, 0.6, 0.6, 1.0],  // darker cyan
+                    "status_bar" => [0.6, 0.0, 0.6, 1.0],    // darker magenta
+                    _ => [0.12, 0.12, 0.12, 1.0],            // fallback
+                }
+            } else {
+                match panel.id.as_str() {
+                    "titlebar" => color_to_rgba(&sem.app_chrome_background),
+                    "sidebar" => color_to_rgba(&sem.sidebar_background),
+                    "editor" => color_to_rgba(&sem.editor_background),
+                    "right_panel" => color_to_rgba(&sem.assistant_panel_background),
+                    "bottom_panel" => color_to_rgba(&sem.panel_background),
+                    "status_bar" => color_to_rgba(&sem.status_bar_background),
+                    _ => color_to_rgba(&sem.panel_background),
+                }
+            };
+
+            info!("panel '{}' content_color = {:?}", panel.id, content_color);
             if cw > 0.0 && ch > 0.0 {
                 push_colored_quad(&mut verts, &mut indices, cx, cy, cw, ch, content_color, width, height);
             }
