@@ -1445,7 +1445,6 @@ impl<'a> Renderer<'a> {
                         }
                     }
                 }
-                }
 
                 self.queue.submit(Some(encoder.finish()));
                 frame.present();
