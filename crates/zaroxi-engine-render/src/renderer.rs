@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use zaroxi_app::AppState;
 use zaroxi_theme::{SemanticColors, Color as ThemeColor};
 
+const RENDER_DEBUG: bool = false;
+
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
     [c.r, c.g, c.b, c.a]
@@ -182,28 +184,32 @@ impl FontAtlas {
         // Upload atlas to GPU using queue.write_texture (direct write) with the
         // wgpu 29.0.3 texel-copy types. This keeps the renderer implementation
         // compact and avoids introducing a direct dependency on wgpu_types.
-        info!(
-            "font atlas upload: format=R8Unorm size={}x{} bytes_per_row={}",
-            atlas_w, atlas_h, atlas_w
-        );
+        if RENDER_DEBUG {
+            info!(
+                "font atlas upload: format=R8Unorm size={}x{} bytes_per_row={}",
+                atlas_w, atlas_h, atlas_w
+            );
 
-        // Detailed atlas diagnostics: total bytes, non-zero bytes, max value,
-        // and first non-zero index (if any). These help detect an entirely
-        // blank atlas (glyph rasterization failure).
-        let total_bytes = atlas_buf.len();
-        let non_zero = atlas_buf.iter().filter(|&&b| b != 0u8).count();
-        let max_val = *atlas_buf.iter().max().unwrap_or(&0u8);
-        let first_non_zero = atlas_buf.iter().position(|&b| b != 0u8);
-        info!(
-            "font atlas stats bytes={} non_zero={} max={} first_non_zero={:?}",
-            total_bytes, non_zero, max_val, first_non_zero
-        );
+            // Detailed atlas diagnostics: total bytes, non-zero bytes, max value,
+            // and first non-zero index (if any). These help detect an entirely
+            // blank atlas (glyph rasterization failure).
+            let total_bytes = atlas_buf.len();
+            let non_zero = atlas_buf.iter().filter(|&&b| b != 0u8).count();
+            let max_val = *atlas_buf.iter().max().unwrap_or(&0u8);
+            let first_non_zero = atlas_buf.iter().position(|&b| b != 0u8);
+            info!(
+                "font atlas stats bytes={} non_zero={} max={} first_non_zero={:?}",
+                total_bytes, non_zero, max_val, first_non_zero
+            );
 
-        let first_n = std::cmp::min(8usize, atlas_buf.len());
-        info!("font atlas first {} bytes: {:?}", first_n, &atlas_buf[..first_n]);
+            let first_n = std::cmp::min(8usize, atlas_buf.len());
+            info!("font atlas first {} bytes: {:?}", first_n, &atlas_buf[..first_n]);
+        }
 
         // Fail fast if the atlas is entirely blank; this indicates glyph rasterization
         // produced no coverage and must be investigated on the CPU side.
+        let total_bytes = atlas_buf.len();
+        let non_zero = atlas_buf.iter().filter(|&&b| b != 0u8).count();
         if non_zero == 0 {
             return Err(RenderError::Other(
                 "font atlas is entirely zero; glyph rasterization/upload source is blank"
@@ -227,7 +233,9 @@ impl FontAtlas {
             atlas_size,
         );
 
-        info!("font atlas upload completed ({}x{})", atlas_w, atlas_h);
+        if RENDER_DEBUG {
+            info!("font atlas upload completed ({}x{})", atlas_w, atlas_h);
+        }
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1021,28 +1029,30 @@ impl<'a> Renderer<'a> {
         // while some text verts may still be in pixel coordinates — use a loose
         // detection to highlight clearly out-of-bounds values.
         let mut oob_count = 0usize;
-        for (i, v) in verts.iter().enumerate() {
+        for (_i, v) in verts.iter().enumerate() {
             if v.pos[0].abs() > 1.05 || v.pos[1].abs() > 1.05 {
                 oob_count += 1;
-                info!("OOB_VERTEX i={} pos=({:.4},{:.4}) uv=({:.4},{:.4}) color=({:.4},{:.4},{:.4},{:.4})",
-                    i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]);
             }
         }
-        if oob_count > 0 {
-            info!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
-        } else {
-            info!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
+        if RENDER_DEBUG {
+            if oob_count > 0 {
+                info!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
+            } else {
+                info!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
+            }
         }
 
         // Dump first few vertices so we can inspect coordinate space (pos, uv, color).
-        let max_log = std::cmp::min(8usize, verts.len());
-        info!("vertex[0..{}] dump:", max_log);
-        for i in 0..max_log {
-            let v = verts[i];
-            info!(
-                "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
-                i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]
-            );
+        if RENDER_DEBUG {
+            let max_log = std::cmp::min(8usize, verts.len());
+            info!("vertex[0..{}] dump:", max_log);
+            for i in 0..max_log {
+                let v = verts[i];
+                info!(
+                    "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
+                    i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]
+                );
+            }
         }
 
         // Upload vertex/index data
@@ -1050,10 +1060,12 @@ impl<'a> Renderer<'a> {
         self.queue.write_buffer(&self.vertex_buffer, 0, vb_bytes);
 
         // Log first few indices to validate index buffer contents & format.
-        let max_idx_log = std::cmp::min(12usize, indices.len());
-        info!("index[0..{}] dump:", max_idx_log);
-        for i in 0..max_idx_log {
-            info!("i[{}] = {}", i, indices[i]);
+        if RENDER_DEBUG {
+            let max_idx_log = std::cmp::min(12usize, indices.len());
+            info!("index[0..{}] dump:", max_idx_log);
+            for i in 0..max_idx_log {
+                info!("i[{}] = {}", i, indices[i]);
+            }
         }
 
         let ib_bytes = bytemuck::cast_slice(&indices);
@@ -1245,7 +1257,7 @@ impl<'a> Renderer<'a> {
 
     /// Emit text into the provided vertex/index arrays using the font atlas.
     fn emit_text(&self, verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, mut x: f32, y: f32, text: &str, color: [f32;4], screen_w: f32, screen_h: f32) -> Result<(), RenderError> {
-        // Helper to convert pixel coords to NDC for logging (vertex shader expects NDC).
+        // Helper to convert pixel coords to NDC for the vertex shader.
         fn pixel_to_ndc(px: f32, py: f32, sw: f32, sh: f32) -> [f32; 2] {
             let nx = (px / sw) * 2.0 - 1.0;
             let ny = 1.0 - (py / sh) * 2.0;
@@ -1269,33 +1281,34 @@ impl<'a> Renderer<'a> {
                 glyph_count += 1;
                 continue;
             }
-            // positions: top-left origin; atlas uv coordinates map into glyph
-            let x0 = x as f32 + g.xoffset as f32;
-            let y0 = y as f32 + g.yoffset as f32;
-            let x1 = x0 + g.width as f32;
-            let y1 = y0 + g.height as f32;
+            // positions: top-left origin in pixels; atlas uv coordinates map into glyph
+            let x0_px = x as f32 + g.xoffset as f32;
+            let y0_px = y as f32 + g.yoffset as f32;
+            let x1_px = x0_px + g.width as f32;
+            let y1_px = y0_px + g.height as f32;
             // UVs
             let u0 = g.u0;
             let v0 = g.v0;
             let u1 = g.u1;
             let v1 = g.v1;
 
-            // For the very first glyph of the first call that produced text vertices,
-            // log the pre-NDC and computed NDC coords for the four quad vertices.
-            if !first_glyph_logged {
-                let ndc_a = pixel_to_ndc(x0, y0, screen_w, screen_h);
-                let ndc_b = pixel_to_ndc(x1, y0, screen_w, screen_h);
-                let ndc_c = pixel_to_ndc(x1, y1, screen_w, screen_h);
-                let ndc_d = pixel_to_ndc(x0, y1, screen_w, screen_h);
-                info!("emit_text first glyph '{}' quad pixels = [({},{}), ({},{}), ({},{}), ({},{})]", ch, x0, y0, x1, y0, x1, y1, x0, y1);
+            // Convert pixel-space glyph quad corners to NDC so the shader receives
+            // a consistent coordinate space (same as panel quads).
+            let ndc_a = pixel_to_ndc(x0_px, y0_px, screen_w, screen_h);
+            let ndc_b = pixel_to_ndc(x1_px, y0_px, screen_w, screen_h);
+            let ndc_c = pixel_to_ndc(x1_px, y1_px, screen_w, screen_h);
+            let ndc_d = pixel_to_ndc(x0_px, y1_px, screen_w, screen_h);
+
+            // For diagnostics, log only when RENDER_DEBUG is enabled.
+            if RENDER_DEBUG && !first_glyph_logged {
+                info!("emit_text first glyph '{}' quad pixels = [({},{}), ({},{}), ({},{}), ({},{})]", ch, x0_px, y0_px, x1_px, y0_px, x1_px, y1_px, x0_px, y1_px);
                 info!("emit_text first glyph '{}' quad NDC    = [({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4})]", ch, ndc_a[0], ndc_a[1], ndc_b[0], ndc_b[1], ndc_c[0], ndc_c[1], ndc_d[0], ndc_d[1]);
                 info!("emit_text first glyph '{}' uv = [({},{}), ({},{})]", ch, u0, v0, u1, v1);
                 info!("emit_text first glyph '{}' color rgba = {:?}", ch, color);
                 first_glyph_logged = true;
             }
 
-            // If this call is for one of the interesting strings, log placement for the first few glyphs.
-            if log_interesting_string && glyph_count < 6 {
+            if RENDER_DEBUG && log_interesting_string && glyph_count < 6 {
                 info!(
                     "glyph debug: text='{}' char='{}' idx={} uv_rect=({:.4},{:.4})-({:.4},{:.4}) screen_rect=({:.1},{:.1})-({:.1},{:.1}) advance={:.3}",
                     text,
@@ -1305,18 +1318,19 @@ impl<'a> Renderer<'a> {
                     v0,
                     u1,
                     v1,
-                    x0,
-                    y0,
-                    x1,
-                    y1,
+                    x0_px,
+                    y0_px,
+                    x1_px,
+                    y1_px,
                     g.advance
                 );
             }
 
-            let a = Vertex { pos: [x0, y0], uv: [u0, v0], color };
-            let b = Vertex { pos: [x1, y0], uv: [u1, v0], color };
-            let c = Vertex { pos: [x1, y1], uv: [u1, v1], color };
-            let d = Vertex { pos: [x0, y1], uv: [u0, v1], color };
+            // Build vertices using NDC positions (shader expects clip-space).
+            let a = Vertex { pos: [ndc_a[0], ndc_a[1]], uv: [u0, v0], color };
+            let b = Vertex { pos: [ndc_b[0], ndc_b[1]], uv: [u1, v0], color };
+            let c = Vertex { pos: [ndc_c[0], ndc_c[1]], uv: [u1, v1], color };
+            let d = Vertex { pos: [ndc_d[0], ndc_d[1]], uv: [u0, v1], color };
 
             verts.push(a); verts.push(b); verts.push(c); verts.push(d);
             let i0 = base_index + (verts.len() as u16 - 4);
