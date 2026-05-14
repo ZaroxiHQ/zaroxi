@@ -172,17 +172,58 @@ impl ApplicationHandler for App {
                         colors: sem,
                     };
 
-                    // Convert app-owned panels into renderer-facing descriptors and log.
+                    // Convert app-owned panels into renderer-facing UiBlock descriptors.
+                    // Runtime/app are responsible for mapping stable panel ids to rects
+                    // and for selecting visual tokens (colors). This keeps the renderer
+                    // generic and free of application-specific logic.
                     let render_panels = zaroxi_app::view_model::to_render_panels(&*state);
-                    log::debug!("[runtime] render_panels count = {}", render_panels.len());
+                    let sem = state.theme_mode.colors(false);
+                    let mut render_blocks: Vec<zaroxi_engine_render::UiBlock> = Vec::new();
+                    for p in &render_panels {
+                        let target = match p.id.as_str() {
+                            "titlebar" => layout.title_bar,
+                            "sidebar" => layout.sidebar,
+                            "editor" => layout.editor,
+                            "right_panel" => layout.right_panel,
+                            "bottom_panel" => layout.bottom_panel,
+                            "status_bar" => layout.status_bar,
+                            other => {
+                                info!("unknown panel id '{}', skipping", other);
+                                continue;
+                            }
+                        };
+
+                        let header_color = match p.id.as_str() {
+                            "titlebar" => sem.title_bar_background,
+                            _ => sem.panel_header_background,
+                        };
+
+                        let content_color = match p.id.as_str() {
+                            "titlebar" => sem.app_chrome_background,
+                            "sidebar" => sem.sidebar_background,
+                            "editor" => sem.editor_background,
+                            "right_panel" => sem.assistant_panel_background,
+                            "bottom_panel" => sem.panel_background,
+                            "status_bar" => sem.status_bar_background,
+                            _ => sem.panel_background,
+                        };
+
+                        render_blocks.push(zaroxi_engine_render::UiBlock {
+                            id: p.id.clone(),
+                            title: p.title.clone(),
+                            content: p.content.clone(),
+                            visible: p.visible,
+                            rect: target,
+                            header_color: Some(header_color),
+                            content_color: Some(content_color),
+                        });
+                    }
+                    log::debug!("[runtime] render_blocks count = {}", render_blocks.len());
 
                     // Log resolved layout for debugging first frame rendering.
                     log::debug!("[runtime] resolved layout: {:?}", layout);
 
-                    // Pass both layout and the render_panels via layout.colors or other
-                    // mechanism as needed. For now we only log the receipt; renderer
-                    // consumes layout (panels are logged and visible in render logs).
-                    match renderer.render_with_layout(&*state, &layout, &render_panels) {
+                    match renderer.render_with_layout(&*state, &layout, &render_blocks) {
                         Ok(_) => {
                             info!("render_with_layout completed OK");
                             // Only request redraw when continuous mode is explicitly enabled.

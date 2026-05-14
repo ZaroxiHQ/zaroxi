@@ -5,6 +5,7 @@ mod surface;
 mod pipelines;
 mod text;
 mod shapes;
+mod ui;
 
 /// Public facade for the renderer module.
 ///
@@ -12,3 +13,4 @@ mod shapes;
 /// public API is re-exported here.
 pub use core::Renderer;
 pub use core::{RenderLayout, Rect};
+pub use ui::UiBlock;

@@ -329,15 +329,17 @@ impl<'a> Renderer<'a> {
     ///
     /// Important: layout (panel geometry + resolved colors) is owned by the
     /// application/layout layer. The renderer only draws the provided layout.
-    pub fn render_with_layout(&mut self, _app_state: &AppState, layout: &RenderLayout, render_panels: &[zaroxi_app::view_model::RenderPanel]) -> Result<(), RenderError> {
+    /// The renderer expects generic UiBlock descriptors (rect + visual hints)
+    /// rather than interpreting application-specific identifiers.
+    pub fn render_with_layout(&mut self, _app_state: &AppState, layout: &RenderLayout, render_blocks: &[crate::UiBlock]) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
         debug!(
-            "entering render_with_layout (window {}x{}), render_panels={}",
+            "entering render_with_layout (window {}x{}), render_blocks={}",
             self.config.width,
             self.config.height,
-            render_panels.len()
+            render_blocks.len()
         );
 
         // Log received render panels for traceability (debug only).
@@ -401,9 +403,9 @@ impl<'a> Renderer<'a> {
 
         // quad helper moved to renderer::geometry::push_colored_quad
 
-        // Convert render panels into visible content quads and text.
+        // Convert render blocks into visible content quads and text.
         if render_debug_enabled() {
-            log::debug!("[renderer] render_panels count = {}", render_panels.len());
+            log::debug!("[renderer] render_blocks count = {}", render_blocks.len());
         }
 
         // Debug injection flag: keeps visual debug geometry and debug pass off by default.
@@ -511,72 +513,56 @@ impl<'a> Renderer<'a> {
         // For each panel supplied by the app, create a header and content block and queue title/content text.
         let header_h = 28.0f32;
         let content_padding = 8.0f32;
-        for panel in render_panels.iter() {
+        for block in render_blocks.iter() {
             if RENDER_DEBUG {
-                debug!("drawing panel id='{}' title='{}' visible={}", panel.id, panel.title, panel.visible);
+                debug!("drawing block id='{}' title='{}' visible={}", block.id, block.title, block.visible);
             }
-            if !panel.visible {
+            if !block.visible {
                 if RENDER_DEBUG {
-                    debug!("panel '{}' is hidden; skipping", panel.id);
+                    debug!("block '{}' is hidden; skipping", block.id);
                 }
                 continue;
             }
 
-            // Map panel id -> rect
-            let target = match panel.id.as_str() {
-                "titlebar" => layout.title_bar,
-                "sidebar" => layout.sidebar,
-                "editor" => layout.editor,
-                "right_panel" => layout.right_panel,
-                "bottom_panel" => layout.bottom_panel,
-                "status_bar" => layout.status_bar,
-                other => {
-                    info!("unknown panel id '{}', skipping", other);
-                    continue;
-                }
-            };
-            // Log scissor/rect that would be used for this panel (diagnostic).
+            // Use block-provided target rect and visuals (app/runtime is responsible
+            // for mapping ids -> rects and selecting colors).
+            let target = block.rect;
+
+            // Log scissor/rect that would be used for this block (diagnostic).
             if render_debug_enabled() {
-                log::debug!("panel '{}' scissor_rect = {:?}", panel.id, target);
+                log::debug!("block '{}' scissor_rect = {:?}", block.id, target);
             }
 
             // Delegate header/content quad generation to the shapes module.
-            // The shapes::queue_panel_quads helper will compute header and content
-            // colors (using semantic colors), perform one-shot CPU logging for
-            // those colors and push the appropriate quads into the provided
-            // vertex/index vectors. It returns the base vertex index for the
-            // content quad (if any) so the caller can still emit the packed
-            // vertex dump that used to live here.
+            // The shapes::queue_panel_quads helper now accepts a generic UiBlock
+            // and uses the provided visual hints (header/content colors).
             let base_idx_opt = crate::renderer::shapes::queue_panel_quads(
                 &mut panel_verts,
                 &mut panel_indices,
-                panel,
-                target,
+                block,
                 &sem,
                 width,
                 height,
             );
 
-            // One-shot packed-vertex dump for the sidebar (shows final pos/uv/color pushed to the buffer).
+            // One-shot packed-vertex dump for the first content quad if present.
             if let Some(base_idx) = base_idx_opt {
-                if panel.id.as_str() == "sidebar" && LOGGED_SIDEBAR_PACKED.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                    if panel_verts.len() >= base_idx + 4 {
-                        let v0 = panel_verts[base_idx];
-                        let v1 = panel_verts[base_idx + 1];
-                        let v2 = panel_verts[base_idx + 2];
-                        let v3 = panel_verts[base_idx + 3];
-                        info!(
-                            "packed sidebar verts: \
-                             v0 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
-                             v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
-                             v2 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
-                             v3 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3})",
-                            v0.pos[0], v0.pos[1], v0.uv[0], v0.uv[1], v0.color[0], v0.color[1], v0.color[2], v0.color[3],
-                            v1.pos[0], v1.pos[1], v1.uv[0], v1.uv[1], v1.color[0], v1.color[1], v1.color[2], v1.color[3],
-                            v2.pos[0], v2.pos[1], v2.uv[0], v2.uv[1], v2.color[0], v2.color[1], v2.color[2], v2.color[3],
-                            v3.pos[0], v3.pos[1], v3.uv[0], v3.uv[1], v3.color[0], v3.color[1], v3.color[2], v3.color[3],
-                        );
-                    }
+                if panel_verts.len() >= base_idx + 4 {
+                    let v0 = panel_verts[base_idx];
+                    let v1 = panel_verts[base_idx + 1];
+                    let v2 = panel_verts[base_idx + 2];
+                    let v3 = panel_verts[base_idx + 3];
+                    info!(
+                        "packed block verts: \
+                         v0 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                         v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                         v2 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
+                         v3 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3})",
+                        v0.pos[0], v0.pos[1], v0.uv[0], v0.uv[1], v0.color[0], v0.color[1], v0.color[2], v0.color[3],
+                        v1.pos[0], v1.pos[1], v1.uv[0], v1.uv[1], v1.color[0], v1.color[1], v1.color[2], v1.color[3],
+                        v2.pos[0], v2.pos[1], v2.uv[0], v2.uv[1], v2.color[0], v2.color[1], v2.color[2], v2.color[3],
+                        v3.pos[0], v3.pos[1], v3.uv[0], v3.uv[1], v3.color[0], v3.color[1], v3.color[2], v3.color[3],
+                    );
                 }
             }
 
@@ -590,21 +576,18 @@ impl<'a> Renderer<'a> {
                 [0.95, 0.95, 0.95, 1.0]
             };
             // Compute explicit header rect and emit title clipped to that region to ensure
-            // ownership/clip correctness (Step 1: per-panel text clipping).
+            // ownership/clip correctness (Step 1: per-block text clipping).
             let hx = target.x;
             let hy = target.y;
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
-            // Use the clipped emitter so glyph quads that fall outside the header
-            // are not included in the global text batch (fixes header text appearing
-            // in the body area).
-            let _ = crate::renderer::text::emit_text_clipped(
+
+            // Layout title text into glyph placements and convert to vertices/indices
+            let placed = crate::renderer::text::layout_text_clipped(
                 &self.font_atlas,
-                &mut text_verts,
-                &mut text_indices,
                 title_x,
                 title_y,
-                &panel.title,
+                &block.title,
                 title_color,
                 width,
                 height,
@@ -612,52 +595,22 @@ impl<'a> Renderer<'a> {
                 hy,
                 hw,
                 hh,
-            );
-            info!("emit_text: panel='{}' title emitted at y={:.1} (header_h={:.1})", panel.id, title_y, hh);
+            )?;
+            crate::renderer::text::placed_glyphs_to_vertices(&placed, &mut text_verts, &mut text_indices, width, height);
 
-            // Emit a single diagnostic log for the first non-space glyph in the titlebar.
-            // This does not alter geometry - it only logs placement/UV for quick verification.
-            if panel.id.as_str() == "titlebar" {
-                if let Some(ch) = panel.title.chars().find(|c| !c.is_whitespace()) {
-                    if let Some(g) = self.font_atlas.glyphs.get(&ch) {
-                        let x0_px = title_x + g.xoffset as f32;
-                        let y0_px = title_y + g.yoffset as f32;
-                        let x1_px = x0_px + g.width as f32;
-                        let y1_px = y0_px + g.height as f32;
-                        let u0 = g.u0;
-                        let v0 = g.v0;
-                        let u1 = g.u1;
-                        let v1 = g.v1;
-                        // convert to NDC for quick validation
-                        let ndc_x0 = (x0_px / width) * 2.0 - 1.0;
-                        let ndc_y0 = 1.0 - (y0_px / height) * 2.0;
-                        let ndc_x1 = (x1_px / width) * 2.0 - 1.0;
-                        let ndc_y1 = 1.0 - (y1_px / height) * 2.0;
-                        // Emit this sample glyph debug line only once to avoid per-frame spam.
-                        if FIRST_GLYPH_LOGGED.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() && render_debug_enabled() {
-                            log::debug!(
-                                "sample glyph debug: char='{}' screen_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) uv=({:.4},{:.4})-({:.4},{:.4}) advance={:.3}",
-                                ch, x0_px, y0_px, x1_px, y1_px, ndc_x0, ndc_y0, ndc_x1, ndc_y1, u0, v0, u1, v1, g.advance
-                            );
-                        }
-                    }
-                }
-            }
+            info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
 
-            // Body/content text emission is currently disabled.
-            // We intentionally only render panel header titles to avoid duplicate
-            // or placeholder body text appearing in the UI while focus is on
-            // header/title rendering. Keep a concise log per-panel for traceability.
-            if !panel.content.is_empty() {
-                info!("emit_text: content suppressed for panel='{}'", panel.id);
+            // Body/content text emission is currently disabled at render-time.
+            if !block.content.is_empty() {
+                info!("emit_text: content suppressed for block='{}'", block.id);
             }
 
             // Log counts per panel
             if RENDER_DEBUG {
                 let quad_count = (panel_verts.len() / 4) as usize;
                 debug!(
-                    "panel '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
-                    panel.id,
+                    "block '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
+                    block.id,
                     quad_count,
                     panel_verts.len(),
                     panel_indices.len(),
@@ -1008,8 +961,4 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// Emit text into the provided vertex/index arrays using the font atlas.
-    fn emit_text(&self, verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, x: f32, y: f32, text: &str, color: [f32;4], screen_w: f32, screen_h: f32) -> Result<(), RenderError> {
-        crate::renderer::text::emit_text(&self.font_atlas, verts, indices, x, y, text, color, screen_w, screen_h)
-    }
 }
