@@ -213,7 +213,7 @@ impl<'a> Renderer<'a> {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -872,7 +872,7 @@ impl<'a> Renderer<'a> {
                             }
 
                             // Diagnostic: explicit draw parameters for text pass
-                            info!(
+                            debug!(
                                 "text pass draw_indexed: start={} end={} count={} (panel_indices_len={} total_indices_len={})",
                                 panel_indices_len,
                                 total_indices_len,
@@ -973,7 +973,7 @@ impl<'a> Renderer<'a> {
                             }
 
                             // Diagnostic: explicit draw parameters for text pass (suboptimal)
-                            info!(
+                            debug!(
                                 "text pass draw_indexed (suboptimal): start={} end={} count={} (panel_indices_len={} total_indices_len={})",
                                 panel_indices_len,
                                 total_indices_len,
