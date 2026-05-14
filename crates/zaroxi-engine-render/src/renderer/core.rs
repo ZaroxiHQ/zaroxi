@@ -133,28 +133,8 @@ impl<'a> Renderer<'a> {
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
         let size = window.inner_size();
-        let caps = surface.get_capabilities(&adapter);
-
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| matches!(f, TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb))
-            .or_else(|| caps.formats.get(0).copied())
-            .unwrap_or(TextureFormat::Bgra8UnormSrgb);
-
-        let config = SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: PresentMode::Fifo,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: Vec::new(),
-            desired_maximum_frame_latency: 0u32,
-        };
-
-        surface.configure(&device, &config);
+        // Configure the surface (moved to renderer::surface)
+        let config = crate::renderer::surface::configure_surface(&surface, &adapter, &device, size)?;
 
         // Create pipelines & bind group layouts (moved to renderer::pipelines).
         let (text_bind_layout, text_pipeline, debug_pipeline, shape_pipeline) =
@@ -289,17 +269,15 @@ impl<'a> Renderer<'a> {
             return Ok(());
         }
         self.size = new_size;
-        self.config.width = new_size.width.max(1);
-        self.config.height = new_size.height.max(1);
-        self.surface.configure(&self.device, &self.config);
+        // Delegate resize/reconfigure to renderer::surface (move-only refactor).
+        crate::renderer::surface::resize_surface(&self.surface, &self.device, &mut self.config, new_size)?;
         debug!("Reconfigured surface to {}x{}", self.config.width, self.config.height);
         Ok(())
     }
 
     /// Reconfigure surface after Lost/Outdated.
     pub fn reconfigure(&mut self) -> Result<(), RenderError> {
-        self.surface.configure(&self.device, &self.config);
-        Ok(())
+        crate::renderer::surface::reconfigure_surface(&self.surface, &self.device, &self.config)
     }
 
     /// Request redraw. The runtime owns the Window and should call this method
@@ -803,8 +781,7 @@ impl<'a> Renderer<'a> {
                     }
                 }
 
-                self.queue.submit(Some(encoder.finish()));
-                frame.present();
+                crate::renderer::surface::submit_and_present(&self.queue, encoder, frame);
                 if render_debug_enabled() {
                     log::debug!("submitted frame");
                 }
@@ -883,8 +860,7 @@ impl<'a> Renderer<'a> {
                     }
                 }
 
-                self.queue.submit(Some(encoder.finish()));
-                frame.present();
+                crate::renderer::surface::submit_and_present(&self.queue, encoder, frame);
                 Err(RenderError::SurfaceOutdated)
             }
 

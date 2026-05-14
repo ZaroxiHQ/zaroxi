@@ -1,6 +1,7 @@
 pub mod core;
 mod debug;
 mod geometry;
+mod surface;
 mod pipelines;
 mod text;
 mod shapes;
