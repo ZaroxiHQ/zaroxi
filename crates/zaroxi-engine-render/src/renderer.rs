@@ -13,11 +13,17 @@ use wgpu::{
 
 use fontdue::Font;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use zaroxi_app::AppState;
 use zaroxi_theme::{SemanticColors, Color as ThemeColor};
 
 const RENDER_DEBUG: bool = false;
+/// If true, use nearest sampling for the font atlas (diagnostic).
+const TEXT_SAMPLER_NEAREST: bool = false;
+
+/// Global single-shot flag to ensure we only emit the "first glyph" sample line once.
+static FIRST_GLYPH_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// Helper to convert theme Color -> renderer [f32;4]
 fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
@@ -240,22 +246,21 @@ impl FontAtlas {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create a simple sampler for the atlas
+        let filter = if TEXT_SAMPLER_NEAREST { wgpu::FilterMode::Nearest } else { wgpu::FilterMode::Linear };
         let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some("font-atlas-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: filter,
+            min_filter: filter,
             // use defaults for mipmap behavior to avoid version mismatches
             ..Default::default()
         });
 
-        info!(
-            "font atlas sampler: mag_filter={:?} min_filter={:?} address_mode=ClampToEdge",
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear
-        );
+        if RENDER_DEBUG {
+            info!("font atlas sampler: mag_filter={:?} min_filter={:?} address_mode=ClampToEdge", filter, filter);
+        }
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
@@ -687,16 +692,18 @@ impl<'a> Renderer<'a> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
-        info!(
+        debug!(
             "entering render_with_layout (window {}x{}), render_panels={}",
             self.config.width,
             self.config.height,
             render_panels.len()
         );
 
-        // Log received render panels for traceability.
-        for p in render_panels {
-            info!("renderer received render_panel id='{}' title='{}' visible={}", p.id, p.title, p.visible);
+        // Log received render panels for traceability (debug only).
+        if RENDER_DEBUG {
+            for p in render_panels {
+                debug!("renderer received render_panel id='{}' title='{}' visible={}", p.id, p.title, p.visible);
+            }
         }
 
         // Build draw lists from app_state into vertex/index buffers.
@@ -860,9 +867,13 @@ impl<'a> Renderer<'a> {
         let header_h = 28.0f32;
         let content_padding = 8.0f32;
         for panel in render_panels.iter() {
-            info!("drawing panel id='{}' title='{}' visible={}", panel.id, panel.title, panel.visible);
+            if RENDER_DEBUG {
+                debug!("drawing panel id='{}' title='{}' visible={}", panel.id, panel.title, panel.visible);
+            }
             if !panel.visible {
-                info!("panel '{}' is hidden; skipping", panel.id);
+                if RENDER_DEBUG {
+                    debug!("panel '{}' is hidden; skipping", panel.id);
+                }
                 continue;
             }
 
@@ -912,7 +923,9 @@ impl<'a> Renderer<'a> {
                 }
             };
 
-            info!("panel '{}' header_color = {:?}", panel.id, header_color);
+            if RENDER_DEBUG {
+                debug!("panel '{}' header_color = {:?}", panel.id, header_color);
+            }
             push_colored_quad(&mut panel_verts, &mut panel_indices, hx, hy, hw, hh, header_color, width, height);
 
             // Content inset: a smaller block inside the panel for visual differentiation
@@ -943,7 +956,9 @@ impl<'a> Renderer<'a> {
                 }
             };
 
-            info!("panel '{}' content_color = {:?}", panel.id, content_color);
+            if RENDER_DEBUG {
+                debug!("panel '{}' content_color = {:?}", panel.id, content_color);
+            }
             if cw > 0.0 && ch > 0.0 {
                 push_colored_quad(&mut panel_verts, &mut panel_indices, cx, cy, cw, ch, content_color, width, height);
             }
@@ -998,16 +1013,18 @@ impl<'a> Renderer<'a> {
             }
 
             // Log counts per panel
-            let quad_count = (panel_verts.len() / 4) as usize;
-            info!(
-                "panel '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
-                panel.id,
-                quad_count,
-                panel_verts.len(),
-                panel_indices.len(),
-                text_verts.len(),
-                text_indices.len()
-            );
+            if RENDER_DEBUG {
+                let quad_count = (panel_verts.len() / 4) as usize;
+                debug!(
+                    "panel '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
+                    panel.id,
+                    quad_count,
+                    panel_verts.len(),
+                    panel_indices.len(),
+                    text_verts.len(),
+                    text_indices.len()
+                );
+            }
         }
 
         // Optional diagnostic: inject a small centered diagnostic text quad directly
@@ -1048,8 +1065,10 @@ impl<'a> Renderer<'a> {
         // append text verts
         verts.extend(text_verts.into_iter());
 
-        // Log final totals
-        info!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
+        // Log final totals (debug only to avoid frame spam)
+        if RENDER_DEBUG {
+            debug!("[renderer] final verts={}, indices={}", verts.len(), indices.len());
+        }
 
         // Warn if vertex positions appear to be outside expected NDC range.
         // Many vertices should already be in NDC (shape quads converted on CPU),
@@ -1135,7 +1154,9 @@ impl<'a> Renderer<'a> {
                         let total_indices_len = indices.len() as u32;
                         if total_indices_len == 0 {
                             let verts_to_draw = verts.len() as u32;
-                            info!("debug non-indexed draw (full): verts={}", verts_to_draw);
+                            if RENDER_DEBUG {
+                                debug!("debug non-indexed draw (full): verts={}", verts_to_draw);
+                            }
                             rpass.draw(0..verts_to_draw, 0..1);
                         } else {
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -1154,29 +1175,39 @@ impl<'a> Renderer<'a> {
                             rpass.set_pipeline(&self.shape_pipeline);
                             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            info!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                            if RENDER_DEBUG {
+                                debug!("shape pass indexed draw: indices_drawn={}", panel_indices_len);
+                            }
                             rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
                         }
                     } else {
-                        info!("DIAGNOSTIC_TEXT_ONLY enabled: skipping shape pass");
+                        if RENDER_DEBUG {
+                            debug!("DIAGNOSTIC_TEXT_ONLY enabled: skipping shape pass");
+                        }
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     if total_indices_len > panel_indices_len {
-                        info!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if RENDER_DEBUG {
+                            debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        }
                         rpass.set_pipeline(&self.text_pipeline);
                         // Rebind the font atlas bind group (must be set after switching pipeline).
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        if RENDER_DEBUG {
+                            debug!("text pass indexed draw: indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        }
                         rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
                 }
 
                 self.queue.submit(Some(encoder.finish()));
                 frame.present();
-                info!("submitted frame");
+                if RENDER_DEBUG {
+                    debug!("submitted frame");
+                }
                 Ok(())
             }
 
@@ -1231,7 +1262,9 @@ impl<'a> Renderer<'a> {
                             rpass.set_pipeline(&self.shape_pipeline);
                             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            info!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                            if RENDER_DEBUG {
+                                debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                            }
                             rpass.draw_indexed(0..panel_indices_len, 0, 0..1);
                         }
                     } else {
@@ -1240,12 +1273,16 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
-                        info!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        if RENDER_DEBUG {
+                            debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                        }
                         rpass.set_pipeline(&self.text_pipeline);
                         rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        info!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        if RENDER_DEBUG {
+                            debug!("text pass indexed draw (suboptimal path): indices_drawn={} (offset {})", total_indices_len - panel_indices_len, panel_indices_len);
+                        }
                         rpass.draw_indexed(panel_indices_len..total_indices_len, 0, 0..1);
                     }
                 }

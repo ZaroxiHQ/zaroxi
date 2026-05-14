@@ -55,7 +55,7 @@ impl AppState {
 
         // Log created panels for visibility
         for p in &app_panels {
-            info!("created panel: {} ({}) visible={}", p.id, p.title, p.visible);
+            debug!("created panel: {} ({}) visible={}", p.id, p.title, p.visible);
         }
 
         Self {
