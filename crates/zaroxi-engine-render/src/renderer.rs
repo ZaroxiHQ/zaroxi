@@ -542,8 +542,11 @@ impl<'a> Renderer<'a> {
         let mut verts: Vec<Vertex> = Vec::new();
         let mut indices: Vec<u16> = Vec::new();
 
-        // Helper to push a colored quad (background) - here we use white texture uv = 0
-        let mut push_colored_quad = |x: f32, y: f32, w: f32, h: f32, color: [f32;4]| {
+        // Helper function to push a colored quad (background) into the provided
+        // vertex/index vectors. Using a free function avoids keeping mutable borrows
+        // alive across the render function scope which would conflict with other
+        // mutable operations (like emitting text).
+        fn push_colored_quad(verts: &mut Vec<Vertex>, indices: &mut Vec<u16>, x: f32, y: f32, w: f32, h: f32, color: [f32;4]) {
             let base = verts.len() as u16;
             let v0 = Vertex { pos: [x, y], uv: [0.0, 0.0], color };
             let v1 = Vertex { pos: [x+w, y], uv: [0.0, 0.0], color };
@@ -551,7 +554,7 @@ impl<'a> Renderer<'a> {
             let v3 = Vertex { pos: [x, y+h], uv: [0.0, 0.0], color };
             verts.push(v0); verts.push(v1); verts.push(v2); verts.push(v3);
             indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
-        };
+        }
 
         // Convert render panels into visible content quads and text.
         info!("[renderer] render_panels count = {}", render_panels.len());
@@ -586,7 +589,7 @@ impl<'a> Renderer<'a> {
             let hw = target.w;
             let hh = header_h.min(target.h.max(0.0));
             let header_color = [0.12, 0.13, 0.16, 1.0];
-            push_colored_quad(hx, hy, hw, hh, header_color);
+            push_colored_quad(&mut verts, &mut indices, hx, hy, hw, hh, header_color);
 
             // Content inset: a smaller block inside the panel for visual differentiation
             let cx = target.x + content_padding;
@@ -595,7 +598,7 @@ impl<'a> Renderer<'a> {
             let ch = (target.h - hh - content_padding * 2.0).max(0.0);
             let content_color = [0.08, 0.09, 0.11, 1.0];
             if cw > 0.0 && ch > 0.0 {
-                push_colored_quad(cx, cy, cw, ch, content_color);
+                push_colored_quad(&mut verts, &mut indices, cx, cy, cw, ch, content_color);
             }
 
             // Queue header/title text
