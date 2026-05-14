@@ -9,28 +9,6 @@ use wgpu::{
 /* Required geometry helpers used by the text draw-stage. */
 use crate::renderer::geometry::{Vertex, pixel_to_ndc};
 
-/*
-Files changed:
-- crates/zaroxi-engine-render/src/renderer/text.rs
-
-Cargo check result:
-$ cargo check -p zaroxi-engine-render
-    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
-    Checking zaroxi-engine-render v0.1.0 (/path/to/repo/crates/zaroxi-engine-render)
-    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
-
-Duplicate symbols removed:
-- PlacedGlyph
-- placed_glyphs_to_vertices
-- emit_text
-- emit_text_clipped
-- submit_text_pass
-(removed the older/duplicate definitions; kept the backend-driven variants)
-
-Pre-backend FontAtlas path remaining:
-- FontAtlas struct remains (the backend still owns/uses it). The submit_text_pass API was adjusted to accept an optional bind group so the renderer uses the backend-provided bind group rather than requiring a FontAtlas reference.
-*/
-
 /// Simple glyph metadata stored in the atlas.
 #[derive(Clone)]
 pub(crate) struct GlyphInfo {
