@@ -1,5 +1,6 @@
 use crate::error::RenderError;
 use log::{debug, info};
+use crate::renderer::debug::RENDER_DEBUG;
 use std::collections::HashMap;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, Queue, Extent3d, TextureDescriptor, TextureDimension, TextureFormat,

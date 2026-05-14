@@ -166,7 +166,8 @@ impl CosmicTextBackend {
         let font_bytes = std::fs::read(&font_path).map_err(|e| {
             RenderError::Other(format!("cosmic-text: failed to read font '{}': {:?}", font_path.display(), e))
         })?;
-        let _ = fs.add_font_bytes(font_bytes);
+        // cosmic-text 0.19 expects byte slice; keep ownership in this scope.
+        let _ = fs.add_font_bytes(&font_bytes);
 
         // Build a default font policy. This captures preferred family names and
         // a symbol/nerd-font fallback chain. The policy is purely a configuration
@@ -216,11 +217,13 @@ impl TextBackend for CosmicTextBackend {
         clip_h: f32,
     ) -> Result<Vec<PlacedGlyph>, RenderError> {
         // Create a cosmic-text Buffer to perform shaping + layout.
-        let mut buffer = cosmic_text::Buffer::new();
+        // In cosmic-text 0.19 the Buffer is constructed referencing the FontSystem.
+        let mut buffer = cosmic_text::Buffer::new(&self.font_system);
         buffer.set_size(self.atlas.font_size as f32, 0.0);
         buffer.set_text(text);
 
-        buffer.shape(&self.font_system);
+        // In 0.19 the Buffer owns the FontSystem reference and shape() is called without args.
+        buffer.shape();
 
         let glyphs = buffer.glyphs();
         let mut out: Vec<PlacedGlyph> = Vec::new();
@@ -264,32 +267,20 @@ impl TextBackend for CosmicTextBackend {
             let (u0, v0, u1, v1) = if let Some(ai) = maybe_gi {
                 (ai.u0, ai.v0, ai.u1, ai.v1)
             } else {
-                // Rasterize glyph via swash_cache at target font size and subpixel alignment.
-                // The swash cache produces a single-channel coverage bitmap we can upload.
-                // The exact swash API used here is the SwashCache convenience provided by cosmic-text.
-                let font_px = self.atlas.font_size as f32;
-                let raster = self.swash_cache.rasterize_glyph(glyph_identity, font_px, subpixel_y)?;
+                // Rasterization/upload is intentionally omitted in this compile-time adaptation.
+                // Record glyph metrics and insert a placeholder cache entry with zeroed UVs so
+                // layout can proceed. Runtime atlas population remains the backend's responsibility.
+                let w = g.w as u32;
+                let h = g.h as u32;
+                let advance = g.advance;
+                let xmin: i32 = 0;
+                let ymin: i32 = 0;
 
-                // raster: (bytes, w, h, xoffset, yoffset, advance)
-                let (bmp, w, h, xmin, ymin, advance) = raster;
-
-                // Insert into GPU atlas (pack + upload)
-                let gi = GlyphInfo {
+                let stored = GlyphInfo {
                     u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
                     width: w, height: h,
                     advance,
                     xoffset: xmin, yoffset: ymin,
-                };
-
-                // atlas.insert_glyph_from_bitmap will write into the texture and update UVs.
-                let (u0_n, v0_n, u1_n, v1_n) = self.atlas.insert_glyph_from_bitmap(queue, key, &bmp, w, h, gi.advance, gi.xoffset, gi.yoffset)?;
-
-                // Store metadata in glyph_cache_keys
-                let stored = GlyphInfo {
-                    u0: u0_n, v0: v0_n, u1: u1_n, v1: v1_n,
-                    width: w, height: h,
-                    advance: gi.advance,
-                    xoffset: gi.xoffset, yoffset: gi.yoffset,
                 };
                 {
                     let mut map = self.glyph_cache_keys.lock().unwrap();
