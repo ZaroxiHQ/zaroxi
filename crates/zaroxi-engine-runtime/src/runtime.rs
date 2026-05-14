@@ -10,7 +10,6 @@ use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
 use zaroxi_engine_render::{Renderer, RenderLayout, Rect};
 use zaroxi_app::AppState;
-use zaroxi_theme::Color;
 
 /// Minimal engine application that implements the winit 0.30 ApplicationHandler
 /// lifecycle. This keeps the runtime small and focused on window + renderer.
@@ -171,18 +170,8 @@ impl ApplicationHandler for App {
                         colors: sem,
                     };
 
-                    // If high-contrast debug is enabled, override a few semantic roles
-                    // so drawn panels become visually obvious for debugging.
                     if std::env::var("ZAROXI_HIGH_CONTRAST").is_ok() {
-                        info!("[runtime] high-contrast debug enabled");
-                        let mut c = layout.colors;
-                        c.title_bar_background = Color::from_rgb(1.0, 0.0, 0.0); // red
-                        c.sidebar_background = Color::from_rgb(0.0, 1.0, 0.0);   // green
-                        c.editor_background = Color::from_rgb(0.0, 0.0, 1.0);    // blue
-                        c.assistant_panel_background = Color::from_rgb(1.0, 1.0, 0.0); // yellow
-                        c.elevated_panel_background = Color::from_rgb(1.0, 0.0, 1.0); // magenta (bottom)
-                        c.status_bar_background = Color::from_rgb(0.0, 1.0, 1.0); // cyan
-                        layout.colors = c;
+                        info!("[runtime] high-contrast requested; handled in app/layout");
                     }
 
                     // Log resolved layout for debugging first frame rendering.
