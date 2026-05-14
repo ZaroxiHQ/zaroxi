@@ -343,6 +343,126 @@ pub(crate) fn emit_text(
             first_glyph_logged = true;
         }
 
+        // Check glyph pixel rectangle against optional clip region; if the glyph
+        // lies fully outside the clip rect, skip emitting its vertices/indices.
+        // The non-clipped emit_text behavior is preserved by calling this function
+        // with a clip that covers the entire screen.
+        x += g.advance;
+        glyph_count += 1;
+    }
+    Ok(())
+}
+
+/// Emit text clipped to a pixel rectangle [clip_x,clip_y,clip_w,clip_h].
+/// This mirrors `emit_text` but tests each glyph's pixel rectangle against the
+/// provided clip box. Glyphs fully outside the clip are skipped (advance is
+/// still applied). This avoids emitting body/header text into the wrong
+/// region when text is batched globally.
+pub(crate) fn emit_text_clipped(
+    atlas: &FontAtlas,
+    verts: &mut Vec<Vertex>,
+    indices: &mut Vec<u16>,
+    mut x: f32,
+    y: f32,
+    text: &str,
+    color: [f32; 4],
+    screen_w: f32,
+    screen_h: f32,
+    clip_x: f32,
+    clip_y: f32,
+    clip_w: f32,
+    clip_h: f32,
+) -> Result<(), RenderError> {
+    let mut glyph_count = 0usize;
+    let mut first_glyph_logged = false;
+    let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
+
+    for ch in text.chars() {
+        let glyph = atlas.glyphs.get(&ch);
+        if glyph.is_none() {
+            // skip unknown glyphs (still advance if needed)
+            continue;
+        }
+        let g = glyph.unwrap();
+        if g.width == 0 || g.height == 0 {
+            x += g.advance;
+            glyph_count += 1;
+            continue;
+        }
+        // positions: top-left origin in pixels; atlas uv coordinates map into glyph
+        let x0_px = x as f32 + g.xoffset as f32;
+        let y0_px = y as f32 + g.yoffset as f32;
+        let x1_px = x0_px + g.width as f32;
+        let y1_px = y0_px + g.height as f32;
+
+        // Clip-test: if glyph rect entirely outside clip rect, skip emitting it.
+        if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+            // Still advance x and count glyph but do not push vertices.
+            x += g.advance;
+            glyph_count += 1;
+            continue;
+        }
+
+        // UVs
+        let u0 = g.u0;
+        let v0 = g.v0;
+        let u1 = g.u1;
+        let v1 = g.v1;
+
+        // Convert pixel-space glyph quad corners to NDC so the shader receives
+        // a consistent coordinate space (same as panel quads).
+        let ndc_a = pixel_to_ndc(x0_px, y0_px, screen_w, screen_h);
+        let ndc_b = pixel_to_ndc(x1_px, y0_px, screen_w, screen_h);
+        let ndc_c = pixel_to_ndc(x1_px, y1_px, screen_w, screen_h);
+        let ndc_d = pixel_to_ndc(x0_px, y1_px, screen_w, screen_h);
+
+        // For diagnostics, log only when RENDER_DEBUG is enabled.
+        if RENDER_DEBUG && !first_glyph_logged {
+            info!("emit_text first glyph '{}' quad pixels = [({},{}), ({},{}), ({},{}), ({},{})]", ch, x0_px, y0_px, x1_px, y0_px, x1_px, y1_px, x0_px, y1_px);
+            info!("emit_text first glyph '{}' quad NDC    = [({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4}), ({:.4},{:.4})]", ch, ndc_a[0], ndc_a[1], ndc_b[0], ndc_b[1], ndc_c[0], ndc_c[1], ndc_d[0], ndc_d[1]);
+            info!("emit_text first glyph '{}' uv = [({},{}), ({},{})]", ch, u0, v0, u1, v1);
+            info!("emit_text first glyph '{}' color rgba = {:?}", ch, color);
+            first_glyph_logged = true;
+        }
+
+        if RENDER_DEBUG && log_interesting_string && glyph_count < 6 {
+            info!(
+                "glyph debug: text='{}' char='{}' idx={} uv_rect=({:.4},{:.4})-({:.4},{:.4}) screen_rect=({:.1},{:.1})-({:.1},{:.1}) advance={:.3}",
+                text,
+                ch,
+                glyph_count,
+                u0,
+                v0,
+                u1,
+                v1,
+                x0_px,
+                y0_px,
+                x1_px,
+                y1_px,
+                g.advance
+            );
+        }
+
+        // Build vertices using NDC positions (shader expects clip-space).
+        let a = Vertex { pos: [ndc_a[0], ndc_a[1]], uv: [u0, v0], color };
+        let b = Vertex { pos: [ndc_b[0], ndc_b[1]], uv: [u1, v0], color };
+        let c = Vertex { pos: [ndc_c[0], ndc_c[1]], uv: [u1, v1], color };
+        let d = Vertex { pos: [ndc_d[0], ndc_d[1]], uv: [u0, v1], color };
+
+        // base_index is the index where the first vertex for this glyph will be placed.
+        let base_index = verts.len() as u16;
+        verts.push(a); verts.push(b); verts.push(c); verts.push(d);
+        indices.extend_from_slice(&[base_index, base_index+1, base_index+2, base_index, base_index+2, base_index+3]);
+
+        // Temporary diagnostic: log the first glyph placement for visibility.
+        if !first_glyph_logged {
+            info!(
+                "emit_text glyph '{}' base_index={} ndc_rect=({:.3},{:.3})-({:.3},{:.3}) uv=({:.4},{:.4})-({:.4},{:.4}) verts_total={} indices_total={}",
+                ch, base_index, ndc_a[0], ndc_a[1], ndc_c[0], ndc_c[1], u0, v0, u1, v1, verts.len(), indices.len()
+            );
+            first_glyph_logged = true;
+        }
+
         x += g.advance;
         glyph_count += 1;
     }

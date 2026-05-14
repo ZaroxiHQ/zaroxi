@@ -589,10 +589,31 @@ impl<'a> Renderer<'a> {
             } else {
                 [0.95, 0.95, 0.95, 1.0]
             };
-            // Emit the panel title once (header). We add a concise info() log so we
-            // can confirm per-panel that title emission occurs exactly once.
-            let _ = self.emit_text(&mut text_verts, &mut text_indices, title_x, title_y, &panel.title, title_color, width, height);
-            info!("emit_text: panel='{}' title emitted at y={:.1}", panel.id, title_y);
+            // Compute explicit header rect and emit title clipped to that region to ensure
+            // ownership/clip correctness (Step 1: per-panel text clipping).
+            let hx = target.x;
+            let hy = target.y;
+            let hw = target.w;
+            let hh = header_h.min(target.h.max(0.0));
+            // Use the clipped emitter so glyph quads that fall outside the header
+            // are not included in the global text batch (fixes header text appearing
+            // in the body area).
+            let _ = crate::renderer::text::emit_text_clipped(
+                &self.font_atlas,
+                &mut text_verts,
+                &mut text_indices,
+                title_x,
+                title_y,
+                &panel.title,
+                title_color,
+                width,
+                height,
+                hx,
+                hy,
+                hw,
+                hh,
+            );
+            info!("emit_text: panel='{}' title emitted at y={:.1} (header_h={:.1})", panel.id, title_y, hh);
 
             // Emit a single diagnostic log for the first non-space glyph in the titlebar.
             // This does not alter geometry - it only logs placement/UV for quick verification.
