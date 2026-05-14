@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 use wgpu;
 use log::{debug, info};
-use crate::renderer::geometry::{push_colored_quad, Vertex};
+use crate::renderer::geometry::{push_colored_quad, Vertex, color_to_rgba};
 use crate::renderer::debug::{
     render_debug_enabled, RENDER_DEBUG, FIRST_GLYPH_LOGGED, LOGGED_TITLEBAR, LOGGED_SIDEBAR,
     LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED, FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
@@ -39,13 +39,13 @@ pub(crate) fn queue_panel_quads(
 
     // Choose a semantic header color per-panel (defaults -> panel_header_background).
     let header_color: [f32; 4] = match panel.id.as_str() {
-        "titlebar" => crate::renderer::core::color_to_rgba(&sem.title_bar_background),
-        "sidebar" => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
-        "editor" => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
-        "right_panel" => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
-        "bottom_panel" => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
-        "status_bar" => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
-        _ => crate::renderer::core::color_to_rgba(&sem.panel_header_background),
+        "titlebar" => color_to_rgba(&sem.title_bar_background),
+        "sidebar" => color_to_rgba(&sem.panel_header_background),
+        "editor" => color_to_rgba(&sem.panel_header_background),
+        "right_panel" => color_to_rgba(&sem.panel_header_background),
+        "bottom_panel" => color_to_rgba(&sem.panel_header_background),
+        "status_bar" => color_to_rgba(&sem.panel_header_background),
+        _ => color_to_rgba(&sem.panel_header_background),
     };
 
     if render_debug_enabled() {
@@ -69,13 +69,13 @@ pub(crate) fn queue_panel_quads(
 
     // Choose a semantic content/background color per-panel.
     let content_color: [f32; 4] = match panel.id.as_str() {
-        "titlebar" => crate::renderer::core::color_to_rgba(&sem.app_chrome_background),
-        "sidebar" => crate::renderer::core::color_to_rgba(&sem.sidebar_background),
-        "editor" => crate::renderer::core::color_to_rgba(&sem.editor_background),
-        "right_panel" => crate::renderer::core::color_to_rgba(&sem.assistant_panel_background),
-        "bottom_panel" => crate::renderer::core::color_to_rgba(&sem.panel_background),
-        "status_bar" => crate::renderer::core::color_to_rgba(&sem.status_bar_background),
-        _ => crate::renderer::core::color_to_rgba(&sem.panel_background),
+        "titlebar" => color_to_rgba(&sem.app_chrome_background),
+        "sidebar" => color_to_rgba(&sem.sidebar_background),
+        "editor" => color_to_rgba(&sem.editor_background),
+        "right_panel" => color_to_rgba(&sem.assistant_panel_background),
+        "bottom_panel" => color_to_rgba(&sem.panel_background),
+        "status_bar" => color_to_rgba(&sem.status_bar_background),
+        _ => color_to_rgba(&sem.panel_background),
     };
 
     if render_debug_enabled() {

@@ -47,6 +47,11 @@ impl Vertex {
     }
 }
 
+/// Convert theme Color -> renderer [f32;4]
+pub(crate) fn color_to_rgba(c: &zaroxi_theme::Color) -> [f32; 4] {
+    [c.r, c.g, c.b, c.a]
+}
+
 /// Convert pixel coordinates (top-left origin) -> NDC clip space used by the shader.
 /// NDC x: -1..1 left->right, NDC y: -1..1 bottom->top. We map UI top-left into NDC by flipping Y.
 pub(crate) fn pixel_to_ndc(px: f32, py: f32, sw: f32, sh: f32) -> [f32; 2] {

@@ -23,7 +23,7 @@ use crate::renderer::debug::{
     LOGGED_TITLEBAR, LOGGED_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED,
     FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
 };
-use crate::renderer::geometry::{Vertex, push_colored_quad, pixel_to_ndc};
+use crate::renderer::geometry::{Vertex, push_colored_quad, color_to_rgba};
 
 /// Internal context that groups per-frame geometry buffers and screen size.
 /// Introduced to reduce the responsibility surface of core.rs and to provide
@@ -68,10 +68,6 @@ impl<'a> FrameContext<'a> {
     }
 }
 
-/// Helper to convert theme Color -> renderer [f32;4]
-fn color_to_rgba(c: &ThemeColor) -> [f32; 4] {
-    [c.r, c.g, c.b, c.a]
-}
 
 /// Simple rectangle used by the resolved layout.
 #[derive(Debug, Clone, Copy)]
@@ -585,8 +581,8 @@ impl<'a> Renderer<'a> {
             }
 
             // Queue header/title text
-            let title_x = hx + 8.0;
-            let title_y = hy + 6.0;
+            let title_x = target.x + 8.0;
+            let title_y = target.y + 6.0;
             // When running diagnostics we may force a single bright color for all text
             let title_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
                 DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
@@ -626,6 +622,9 @@ impl<'a> Renderer<'a> {
 
             // Queue body/content text (first line only, if any)
             if !panel.content.is_empty() {
+                let hh = header_h.min(target.h.max(0.0));
+                let cx = target.x + content_padding;
+                let cy = target.y + hh + content_padding;
                 let content_x = cx + 6.0;
                 let content_y = cy + 6.0;
                 let content_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
