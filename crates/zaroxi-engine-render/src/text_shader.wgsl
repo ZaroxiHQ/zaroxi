@@ -27,10 +27,10 @@ fn vs_main(in: VertexInput) -> VSOut {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-    // Sample the single-channel font atlas. The alpha is taken from the red channel.
-    let s = textureSample(font_tex, font_sampler, in.uv).r;
-    // Premultiply color by sampled coverage
-    let rgb = in.color.rgb * s;
-    let a = in.color.a * s;
-    return vec4<f32>(rgb, a);
+    // Diagnostic: sample the single-channel font atlas into coverage and
+    // render bright red glyphs where coverage > 0. This helps verify atlas
+    // upload and sampling channel correctness. Uses the red channel (r)
+    // because the atlas is uploaded as R8Unorm.
+    let coverage = textureSample(font_tex, font_sampler, in.uv).r;
+    return vec4<f32>(1.0, 0.0, 0.0, coverage);
 }

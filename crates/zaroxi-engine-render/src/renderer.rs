@@ -182,6 +182,13 @@ impl FontAtlas {
         // Upload atlas to GPU using queue.write_texture (direct write) with the
         // wgpu 29.0.3 texel-copy types. This keeps the renderer implementation
         // compact and avoids introducing a direct dependency on wgpu_types.
+        info!(
+            "font atlas upload: format=R8Unorm size={}x{} bytes_per_row={}",
+            atlas_w, atlas_h, atlas_w
+        );
+        let first_n = std::cmp::min(8usize, atlas_buf.len());
+        info!("font atlas first {} bytes: {:?}", first_n, &atlas_buf[..first_n]);
+
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -198,6 +205,8 @@ impl FontAtlas {
             atlas_size,
         );
 
+        info!("font atlas upload completed ({}x{})", atlas_w, atlas_h);
+
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create a simple sampler for the atlas
@@ -211,6 +220,12 @@ impl FontAtlas {
             // use defaults for mipmap behavior to avoid version mismatches
             ..Default::default()
         });
+
+        info!(
+            "font atlas sampler: mag_filter={:?} min_filter={:?} address_mode=ClampToEdge",
+            wgpu::FilterMode::Linear,
+            wgpu::FilterMode::Linear
+        );
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
@@ -226,6 +241,8 @@ impl FontAtlas {
             ],
             label: Some("font-atlas-bind-group"),
         });
+
+        info!("font atlas bind_group created; shader coverage channel assumed = .r");
 
         Ok(Self {
             atlas_width: atlas_w,
@@ -448,6 +465,10 @@ impl<'a> Renderer<'a> {
             multiview_mask: None,
             cache: None,
         });
+
+        // Diagnostic: log text pipeline target format and blend usage so we can
+        // correlate shader behavior with pipeline state.
+        info!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
 
         // Create a minimal solid-color pipeline for debug-only draws.
         // This pipeline does not sample any textures or use bind groups.
