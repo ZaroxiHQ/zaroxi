@@ -293,6 +293,8 @@ pub struct Renderer<'a> {
     // pipelines / bind groups
     text_pipeline: wgpu::RenderPipeline,
     text_bind_layout: BindGroupLayout,
+    // Minimal debug pipeline that draws solid vertex colors (no texture/sampler).
+    debug_pipeline: wgpu::RenderPipeline,
     // font atlas
     font_atlas: FontAtlas,
 
@@ -441,6 +443,51 @@ impl<'a> Renderer<'a> {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             // wgpu 29 uses multiview_mask & cache fields
+            multiview_mask: None,
+            cache: None,
+        });
+
+        // Create a minimal solid-color pipeline for debug-only draws.
+        // This pipeline does not sample any textures or use bind groups.
+        let debug_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("debug-color-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("debug_color_shader.wgsl").into()),
+        });
+
+        let debug_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("debug-pipeline-layout"),
+            bind_group_layouts: &[],
+            ..Default::default()
+        });
+
+        let debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("debug-pipeline"),
+            layout: Some(&debug_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &debug_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &debug_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    // No blending: replace output directly.
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
         });
@@ -702,6 +749,13 @@ impl<'a> Renderer<'a> {
         let vb_bytes = bytemuck::cast_slice(&verts);
         self.queue.write_buffer(&self.vertex_buffer, 0, vb_bytes);
 
+        // Log first few indices to validate index buffer contents & format.
+        let max_idx_log = std::cmp::min(12usize, indices.len());
+        info!("index[0..{}] dump:", max_idx_log);
+        for i in 0..max_idx_log {
+            info!("i[{}] = {}", i, indices[i]);
+        }
+
         let ib_bytes = bytemuck::cast_slice(&indices);
         self.queue.write_buffer(&self.index_buffer, 0, ib_bytes);
 
@@ -731,21 +785,21 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    // Ensure pipeline and buffers are bound
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    // DEBUG: use the minimal solid-color pipeline and draw ONLY the first
+                    // 12 indices (first two debug quads). Do NOT bind the font atlas.
+                    rpass.set_pipeline(&self.debug_pipeline);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
-                    // Debug: choose non-indexed draw for the visibility test.
-                    if verts.len() > 0 && indices.is_empty() {
-                        // Log debug draw
-                        info!("issuing debug non-indexed draw: verts={}", verts.len());
-                        // Draw vertices directly (no indices). Each vertex is a triangle list vertex.
-                        rpass.draw(0..(verts.len() as u32), 0..1);
+                    if indices.is_empty() {
+                        // Fallback: non-indexed draw if indices are unexpectedly empty.
+                        let verts_to_draw = verts.len() as u32;
+                        info!("debug non-indexed draw: verts={}", verts_to_draw);
+                        rpass.draw(0..verts_to_draw, 0..1);
                     } else {
-                        // Normal path: indexed draw
+                        let indices_to_draw = std::cmp::min(12usize, indices.len()) as u32;
                         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                        info!("debug indexed draw: indices_drawn={}", indices_to_draw);
+                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
                     }
                 }
 
@@ -777,11 +831,19 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    rpass.set_pipeline(&self.text_pipeline);
-                    rpass.set_bind_group(0, &self.font_atlas.bind_group, &[]);
+                    // DEBUG: use the minimal solid-color pipeline (no bind groups)
+                    rpass.set_pipeline(&self.debug_pipeline);
                     rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                    if indices.is_empty() {
+                        let verts_to_draw = verts.len() as u32;
+                        info!("debug non-indexed draw (suboptimal): verts={}", verts_to_draw);
+                        rpass.draw(0..verts_to_draw, 0..1);
+                    } else {
+                        let indices_to_draw = std::cmp::min(12usize, indices.len()) as u32;
+                        rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        info!("debug indexed draw (suboptimal): indices_drawn={}", indices_to_draw);
+                        rpass.draw_indexed(0..indices_to_draw, 0, 0..1);
+                    }
                 }
 
                 self.queue.submit(Some(encoder.finish()));
