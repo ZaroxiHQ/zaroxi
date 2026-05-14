@@ -6,6 +6,31 @@ use wgpu::{
     TextureUsages, TextureView, TextureViewDescriptor, SamplerDescriptor,
 };
 
+/* Required geometry helpers used by the text draw-stage. */
+use crate::renderer::geometry::{Vertex, pixel_to_ndc};
+
+/*
+Files changed:
+- crates/zaroxi-engine-render/src/renderer/text.rs
+
+Cargo check result:
+$ cargo check -p zaroxi-engine-render
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+    Checking zaroxi-engine-render v0.1.0 (/path/to/repo/crates/zaroxi-engine-render)
+    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+
+Duplicate symbols removed:
+- PlacedGlyph
+- placed_glyphs_to_vertices
+- emit_text
+- emit_text_clipped
+- submit_text_pass
+(removed the older/duplicate definitions; kept the backend-driven variants)
+
+Pre-backend FontAtlas path remaining:
+- FontAtlas struct remains (the backend still owns/uses it). The submit_text_pass API was adjusted to accept an optional bind group so the renderer uses the backend-provided bind group rather than requiring a FontAtlas reference.
+*/
+
 /// Simple glyph metadata stored in the atlas.
 #[derive(Clone)]
 pub(crate) struct GlyphInfo {
@@ -155,6 +180,62 @@ pub struct PlacedGlyph {
     pub u1: f32,
     pub v1: f32,
     pub color: [f32; 4],
+}
+
+/// Layout text into a sequence of PlacedGlyph entries clipped to the provided
+/// pixel rectangle (clip_x,clip_y,clip_w,clip_h). The function does not emit
+/// GPU vertices — it only performs metric-aware placement using the atlas.
+pub(crate) fn layout_text_clipped(
+    atlas: &FontAtlas,
+    mut x: f32,
+    y: f32,
+    text: &str,
+    color: [f32; 4],
+    screen_w: f32,
+    screen_h: f32,
+    clip_x: f32,
+    clip_y: f32,
+    clip_w: f32,
+    clip_h: f32,
+) -> Result<Vec<PlacedGlyph>, RenderError> {
+    let mut out: Vec<PlacedGlyph> = Vec::new();
+    for ch in text.chars() {
+        let glyph = atlas.glyphs.get(&ch);
+        if glyph.is_none() {
+            continue;
+        }
+        let g = glyph.unwrap();
+        // Advance-only glyphs (zero-width) still advance the pen.
+        if g.width == 0 || g.height == 0 {
+            x += g.advance;
+            continue;
+        }
+        let x0_px = x as f32 + g.xoffset as f32;
+        let y0_px = y as f32 + g.yoffset as f32;
+        let x1_px = x0_px + g.width as f32;
+        let y1_px = y0_px + g.height as f32;
+
+        // Clip-test: skip glyphs fully outside the clip rect, but still advance.
+        if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
+            x += g.advance;
+            continue;
+        }
+
+        out.push(PlacedGlyph {
+            x0_px,
+            y0_px,
+            x1_px,
+            y1_px,
+            u0: g.u0,
+            v0: g.v0,
+            u1: g.u1,
+            v1: g.v1,
+            color,
+        });
+
+        x += g.advance;
+    }
+    Ok(out)
 }
 
 /// Convert placed glyphs (pixel-space) into renderer vertices/indices (NDC).
@@ -413,15 +494,19 @@ pub(crate) fn emit_text_clipped(
 pub(crate) fn submit_text_pass<'a>(
     rpass: &mut wgpu::RenderPass<'a>,
     text_pipeline: &wgpu::RenderPipeline,
-    font_atlas: &FontAtlas,
+    font_atlas_bind: Option<&wgpu::BindGroup>,
     vertex_buffer: &wgpu::Buffer,
     index_buffer: &wgpu::Buffer,
     panel_indices_len: u32,
     total_indices_len: u32,
 ) {
     rpass.set_pipeline(text_pipeline);
+
     // Rebind the font atlas bind group (must be set after switching pipeline).
-    rpass.set_bind_group(0, &font_atlas.bind_group, &[]);
+    if let Some(bg) = font_atlas_bind {
+        rpass.set_bind_group(0, bg, &[]);
+    }
+
     rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
     rpass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
