@@ -1,42 +1,128 @@
 [workspace]
 resolver = "2"
 members = [
-  # Library crates
-  "crates/zaroxi-ai-agent",
-  "crates/zaroxi-domain-ai-context",
+  # Kernel (foundation, zero-dependency)
+  "crates/zaroxi-kernel-core",
+  "crates/zaroxi-kernel-types",
+  "crates/zaroxi-kernel-errors",
+  "crates/zaroxi-kernel-memory",
+  "crates/zaroxi-kernel-async",
+  "crates/zaroxi-kernel-time",
+  "crates/zaroxi-kernel-math",
+  "crates/zaroxi-kernel-collections",
+  "crates/zaroxi-kernel-traits",
+  "crates/zaroxi-kernel-config",
+
+  # Core (low-level engines)
+  "crates/zaroxi-core-input",
+  "crates/zaroxi-core-event",
+  "crates/zaroxi-core-commands",
+  "crates/zaroxi-core-runtime",
+  "crates/zaroxi-core-scheduler",
+  "crates/zaroxi-core-task",
+  "crates/zaroxi-core-threading",
+  "crates/zaroxi-core-text",
+  "crates/zaroxi-core-text-buffer",
+  "crates/zaroxi-core-text-rope",
+  "crates/zaroxi-core-text-edit",
+  "crates/zaroxi-core-text-diff",
+  "crates/zaroxi-core-render",
+  "crates/zaroxi-core-render-backend",
+  "crates/zaroxi-core-render-graph",
+  "crates/zaroxi-core-render-pipeline",
+  "crates/zaroxi-core-render-resource",
+  "crates/zaroxi-core-render-text",
+  "crates/zaroxi-core-render-ui",
+  "crates/zaroxi-core-render-scene",
+  "crates/zaroxi-core-render-compositor",
+  "crates/zaroxi-core-layout",
+  "crates/zaroxi-core-ui",
+
+  # Domain (pure logic)
   "crates/zaroxi-domain-editor",
   "crates/zaroxi-domain-workspace",
-  "crates/zaroxi-infra-permissions",
-  "crates/zaroxi-infra-rpc",
-  "crates/zaroxi-infra-settings",
-  "crates/zaroxi-lang-lsp",
-  "crates/zaroxi-lang-syntax",
-  "crates/zaroxi-ops-file",
-  "crates/zaroxi-ops-patch",
-  "crates/zaroxi-protocol",
-  "crates/zaroxi-service-ai",
-  "crates/zaroxi-service-workspace",
-  "crates/zaroxi-theme",
+  "crates/zaroxi-domain-project",
+  "crates/zaroxi-domain-buffer",
+  "crates/zaroxi-domain-selection",
+  "crates/zaroxi-domain-cursor",
+  "crates/zaroxi-domain-history",
+  "crates/zaroxi-domain-ai",
+  "crates/zaroxi-domain-settings",
 
-  # Engine crates (new)
-  "crates/zaroxi-engine",
-  "crates/zaroxi-engine-runtime",
-  "crates/zaroxi-engine-render",
-  "crates/zaroxi-engine-input",
-  "crates/zaroxi-engine-text",
+  # Application (orchestration)
+  "crates/zaroxi-application-editor",
+  "crates/zaroxi-application-workspace",
+  "crates/zaroxi-application-project",
+  "crates/zaroxi-application-buffer",
+  "crates/zaroxi-application-command",
+  "crates/zaroxi-application-search",
+  "crates/zaroxi-application-ai",
+  "crates/zaroxi-application-navigation",
+  "crates/zaroxi-application-refactor",
 
-  # New app & domain crates (Zaroxi v1 skeleton)
-  "crates/zaroxi-foundation",
-  "crates/zaroxi-config",
-  "crates/zaroxi-editor-buffer",
-  "crates/zaroxi-editor-core",
-  "crates/zaroxi-workspace",
-  "crates/zaroxi-app",
+  # Intelligence (AI)
+  "crates/zaroxi-intelligence-agent",
+  "crates/zaroxi-intelligence-planning",
+  "crates/zaroxi-intelligence-memory",
+  "crates/zaroxi-intelligence-context",
+  "crates/zaroxi-intelligence-tools",
+  "crates/zaroxi-intelligence-orchestrator",
+  "crates/zaroxi-intelligence-eval",
+  "crates/zaroxi-intelligence-embedding",
 
-  # Application binaries
-  "apps/desktop",
-  "apps/ai-daemon",
-  "apps/workspace-daemon",
+  # Platform (language & tooling)
+  "crates/zaroxi-platform-lsp",
+  "crates/zaroxi-platform-syntax",
+  "crates/zaroxi-platform-debugger",
+  "crates/zaroxi-platform-terminal",
+  "crates/zaroxi-platform-git",
+  "crates/zaroxi-platform-test",
+  "crates/zaroxi-platform-profiler",
+  "crates/zaroxi-platform-formatter",
+  "crates/zaroxi-platform-linter",
+  "crates/zaroxi-platform-plugin",
+
+  # Workspace (filesystem + state)
+  "crates/zaroxi-workspace-files",
+  "crates/zaroxi-workspace-index",
+  "crates/zaroxi-workspace-history",
+  "crates/zaroxi-workspace-patch",
+  "crates/zaroxi-workspace-watcher",
+  "crates/zaroxi-workspace-cache",
+
+  # Collaboration (real-time)
+  "crates/zaroxi-collaboration-sync",
+  "crates/zaroxi-collaboration-crdt",
+  "crates/zaroxi-collaboration-presence",
+  "crates/zaroxi-collaboration-session",
+
+  # Infrastructure (adapters)
+  "crates/zaroxi-infrastructure-rpc",
+  "crates/zaroxi-infrastructure-http",
+  "crates/zaroxi-infrastructure-storage",
+  "crates/zaroxi-infrastructure-settings",
+  "crates/zaroxi-infrastructure-permissions",
+  "crates/zaroxi-infrastructure-logging",
+  "crates/zaroxi-infrastructure-metrics",
+  "crates/zaroxi-infrastructure-tracing",
+
+  # Security (isolation)
+  "crates/zaroxi-security-sandbox",
+  "crates/zaroxi-security-policy",
+  "crates/zaroxi-security-validation",
+  "crates/zaroxi-security-auth",
+
+  # Interface / Entry
+  "crates/zaroxi-interface-app",
+  "crates/zaroxi-interface-editor",
+  "crates/zaroxi-interface-theme",
+  "crates/zaroxi-interface-cli",
+  "crates/zaroxi-interface-gui",
+
+  # Tooling and docs
+  "tools/crate-lint",
+  "tools/generate-stubs",
+  "docs",
 ]
 
 [workspace.package]
@@ -76,34 +162,115 @@ chrono = { version = "0.4", features = ["serde"] }
 once_cell = "1.20"
 winit = "0.30.13"
 
-# Add workspace crate dependencies
+# Local workspace crates (paths correspond to the new architecture)
 zaroxi-protocol = { path = "crates/zaroxi-protocol" }
+zaroxi-kernel-core = { path = "crates/zaroxi-kernel-core" }
+zaroxi-kernel-types = { path = "crates/zaroxi-kernel-types" }
+zaroxi-kernel-errors = { path = "crates/zaroxi-kernel-errors" }
+zaroxi-kernel-memory = { path = "crates/zaroxi-kernel-memory" }
+zaroxi-kernel-async = { path = "crates/zaroxi-kernel-async" }
+zaroxi-kernel-time = { path = "crates/zaroxi-kernel-time" }
+zaroxi-kernel-math = { path = "crates/zaroxi-kernel-math" }
+zaroxi-kernel-collections = { path = "crates/zaroxi-kernel-collections" }
+zaroxi-kernel-traits = { path = "crates/zaroxi-kernel-traits" }
+zaroxi-kernel-config = { path = "crates/zaroxi-kernel-config" }
+
+zaroxi-core-input = { path = "crates/zaroxi-core-input" }
+zaroxi-core-event = { path = "crates/zaroxi-core-event" }
+zaroxi-core-commands = { path = "crates/zaroxi-core-commands" }
+zaroxi-core-runtime = { path = "crates/zaroxi-core-runtime" }
+zaroxi-core-scheduler = { path = "crates/zaroxi-core-scheduler" }
+zaroxi-core-task = { path = "crates/zaroxi-core-task" }
+zaroxi-core-threading = { path = "crates/zaroxi-core-threading" }
+zaroxi-core-text = { path = "crates/zaroxi-core-text" }
+zaroxi-core-text-buffer = { path = "crates/zaroxi-core-text-buffer" }
+zaroxi-core-text-rope = { path = "crates/zaroxi-core-text-rope" }
+zaroxi-core-text-edit = { path = "crates/zaroxi-core-text-edit" }
+zaroxi-core-text-diff = { path = "crates/zaroxi-core-text-diff" }
+
+zaroxi-core-render = { path = "crates/zaroxi-core-render" }
+zaroxi-core-render-backend = { path = "crates/zaroxi-core-render-backend" }
+zaroxi-core-render-graph = { path = "crates/zaroxi-core-render-graph" }
+zaroxi-core-render-pipeline = { path = "crates/zaroxi-core-render-pipeline" }
+zaroxi-core-render-resource = { path = "crates/zaroxi-core-render-resource" }
+zaroxi-core-render-text = { path = "crates/zaroxi-core-render-text" }
+zaroxi-core-render-ui = { path = "crates/zaroxi-core-render-ui" }
+zaroxi-core-render-scene = { path = "crates/zaroxi-core-render-scene" }
+zaroxi-core-render-compositor = { path = "crates/zaroxi-core-render-compositor" }
+zaroxi-core-layout = { path = "crates/zaroxi-core-layout" }
+zaroxi-core-ui = { path = "crates/zaroxi-core-ui" }
+
 zaroxi-domain-editor = { path = "crates/zaroxi-domain-editor" }
 zaroxi-domain-workspace = { path = "crates/zaroxi-domain-workspace" }
-zaroxi-domain-ai-context = { path = "crates/zaroxi-domain-ai-context" }
-zaroxi-ai-agent = { path = "crates/zaroxi-ai-agent" }
-zaroxi-ops-patch = { path = "crates/zaroxi-ops-patch" }
-zaroxi-infra-rpc = { path = "crates/zaroxi-infra-rpc" }
-zaroxi-infra-settings = { path = "crates/zaroxi-infra-settings" }
-zaroxi-infra-permissions = { path = "crates/zaroxi-infra-permissions" }
-zaroxi-ops-file = { path = "crates/zaroxi-ops-file" }
-zaroxi-lang-syntax = { path = "crates/zaroxi-lang-syntax" }
-zaroxi-theme = { path = "crates/zaroxi-theme" }
-zaroxi-service-ai = { path = "crates/zaroxi-service-ai" }
-zaroxi-service-workspace = { path = "crates/zaroxi-service-workspace" }
-zaroxi-lang-lsp = { path = "crates/zaroxi-lang-lsp" }
+zaroxi-domain-project = { path = "crates/zaroxi-domain-project" }
+zaroxi-domain-buffer = { path = "crates/zaroxi-domain-buffer" }
+zaroxi-domain-selection = { path = "crates/zaroxi-domain-selection" }
+zaroxi-domain-cursor = { path = "crates/zaroxi-domain-cursor" }
+zaroxi-domain-history = { path = "crates/zaroxi-domain-history" }
+zaroxi-domain-ai = { path = "crates/zaroxi-domain-ai" }
+zaroxi-domain-settings = { path = "crates/zaroxi-domain-settings" }
 
-# New workspace crate entries (engine)
-zaroxi-engine = { path = "crates/zaroxi-engine" }
-zaroxi-engine-runtime = { path = "crates/zaroxi-engine-runtime" }
-zaroxi-engine-render = { path = "crates/zaroxi-engine-render" }
-zaroxi-engine-input = { path = "crates/zaroxi-engine-input" }
-zaroxi-engine-text = { path = "crates/zaroxi-engine-text" }
+zaroxi-application-editor = { path = "crates/zaroxi-application-editor" }
+zaroxi-application-workspace = { path = "crates/zaroxi-application-workspace" }
+zaroxi-application-project = { path = "crates/zaroxi-application-project" }
+zaroxi-application-buffer = { path = "crates/zaroxi-application-buffer" }
+zaroxi-application-command = { path = "crates/zaroxi-application-command" }
+zaroxi-application-search = { path = "crates/zaroxi-application-search" }
+zaroxi-application-ai = { path = "crates/zaroxi-application-ai" }
+zaroxi-application-navigation = { path = "crates/zaroxi-application-navigation" }
+zaroxi-application-refactor = { path = "crates/zaroxi-application-refactor" }
 
-# New workspace crate entries (Zaroxi v1 skeleton)
-zaroxi-foundation = { path = "crates/zaroxi-foundation" }
-zaroxi-config = { path = "crates/zaroxi-config" }
-zaroxi-editor-buffer = { path = "crates/zaroxi-editor-buffer" }
-zaroxi-editor-core = { path = "crates/zaroxi-editor-core" }
-zaroxi-workspace = { path = "crates/zaroxi-workspace" }
-zaroxi-app = { path = "crates/zaroxi-app" }
+zaroxi-intelligence-agent = { path = "crates/zaroxi-intelligence-agent" }
+zaroxi-intelligence-planning = { path = "crates/zaroxi-intelligence-planning" }
+zaroxi-intelligence-memory = { path = "crates/zaroxi-intelligence-memory" }
+zaroxi-intelligence-context = { path = "crates/zaroxi-intelligence-context" }
+zaroxi-intelligence-tools = { path = "crates/zaroxi-intelligence-tools" }
+zaroxi-intelligence-orchestrator = { path = "crates/zaroxi-intelligence-orchestrator" }
+zaroxi-intelligence-eval = { path = "crates/zaroxi-intelligence-eval" }
+zaroxi-intelligence-embedding = { path = "crates/zaroxi-intelligence-embedding" }
+
+zaroxi-platform-lsp = { path = "crates/zaroxi-platform-lsp" }
+zaroxi-platform-syntax = { path = "crates/zaroxi-platform-syntax" }
+zaroxi-platform-debugger = { path = "crates/zaroxi-platform-debugger" }
+zaroxi-platform-terminal = { path = "crates/zaroxi-platform-terminal" }
+zaroxi-platform-git = { path = "crates/zaroxi-platform-git" }
+zaroxi-platform-test = { path = "crates/zaroxi-platform-test" }
+zaroxi-platform-profiler = { path = "crates/zaroxi-platform-profiler" }
+zaroxi-platform-formatter = { path = "crates/zaroxi-platform-formatter" }
+zaroxi-platform-linter = { path = "crates/zaroxi-platform-linter" }
+zaroxi-platform-plugin = { path = "crates/zaroxi-platform-plugin" }
+
+zaroxi-workspace-files = { path = "crates/zaroxi-workspace-files" }
+zaroxi-workspace-index = { path = "crates/zaroxi-workspace-index" }
+zaroxi-workspace-history = { path = "crates/zaroxi-workspace-history" }
+zaroxi-workspace-patch = { path = "crates/zaroxi-workspace-patch" }
+zaroxi-workspace-watcher = { path = "crates/zaroxi-workspace-watcher" }
+zaroxi-workspace-cache = { path = "crates/zaroxi-workspace-cache" }
+
+zaroxi-collaboration-sync = { path = "crates/zaroxi-collaboration-sync" }
+zaroxi-collaboration-crdt = { path = "crates/zaroxi-collaboration-crdt" }
+zaroxi-collaboration-presence = { path = "crates/zaroxi-collaboration-presence" }
+zaroxi-collaboration-session = { path = "crates/zaroxi-collaboration-session" }
+
+zaroxi-infrastructure-rpc = { path = "crates/zaroxi-infrastructure-rpc" }
+zaroxi-infrastructure-http = { path = "crates/zaroxi-infrastructure-http" }
+zaroxi-infrastructure-storage = { path = "crates/zaroxi-infrastructure-storage" }
+zaroxi-infrastructure-settings = { path = "crates/zaroxi-infrastructure-settings" }
+zaroxi-infrastructure-permissions = { path = "crates/zaroxi-infrastructure-permissions" }
+zaroxi-infrastructure-logging = { path = "crates/zaroxi-infrastructure-logging" }
+zaroxi-infrastructure-metrics = { path = "crates/zaroxi-infrastructure-metrics" }
+zaroxi-infrastructure-tracing = { path = "crates/zaroxi-infrastructure-tracing" }
+
+zaroxi-security-sandbox = { path = "crates/zaroxi-security-sandbox" }
+zaroxi-security-policy = { path = "crates/zaroxi-security-policy" }
+zaroxi-security-validation = { path = "crates/zaroxi-security-validation" }
+zaroxi-security-auth = { path = "crates/zaroxi-security-auth" }
+
+zaroxi-interface-app = { path = "crates/zaroxi-interface-app" }
+zaroxi-interface-editor = { path = "crates/zaroxi-interface-editor" }
+zaroxi-interface-theme = { path = "crates/zaroxi-interface-theme" }
+zaroxi-interface-cli = { path = "crates/zaroxi-interface-cli" }
+zaroxi-interface-gui = { path = "crates/zaroxi-interface-gui" }
+
+tools-crate-lint = { path = "tools/crate-lint" }
+docs = { path = "docs" }
