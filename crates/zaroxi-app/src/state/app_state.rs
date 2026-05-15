@@ -41,12 +41,12 @@ impl AppState {
         // editor with a welcome document (use a multi-line sample document so editor renders real content)
         let mut editor = EditorState::new();
         let welcome_content = "fn main() {\n    println!(\"Hello, Zaroxi Studio!\");\n    // Sample document for editor rendering\n    for i in 0..10 {\n        println!(\"line {}\", i);\n    }\n}\n";
-        let welcome = Document::new(\"welcome.rs\".to_string(), welcome_content.to_string());
+        let welcome = Document::new("welcome.rs".to_string(), welcome_content.to_string());
         editor.open_document(welcome.clone());
 
         info!(
-            \"Editor initialized with active document: {} ({} bytes, {} lines)\",
-            \"welcome.rs\",
+            "Editor initialized with active document: {} ({} bytes, {} lines)",
+            "welcome.rs",
             welcome_content.len(),
             welcome_content.lines().count()
         );
@@ -63,7 +63,7 @@ impl AppState {
 
         // Ensure editor panel body contains document text rather than a short title.
         if let Some(p) = app_panels.iter_mut().find(|p| p.id == "editor") {
-            p.content = welcome_content.to_string();
+            p.content = welcome.text();
         }
 
         // Log created panels for visibility
@@ -100,9 +100,9 @@ impl AppState {
                 self.tabs.open_tab_for_document(&doc);
                 self.status.message = format!("Opened {}", path);
 
-                // Reflect active editor title in the editor panel content if present
+                // Reflect active editor text in the editor panel content if present
                 if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
-                    panel.content = doc.display_name.clone();
+                    panel.content = doc.text();
                 }
             }
 
@@ -120,7 +120,7 @@ impl AppState {
 
                             // update editor panel content
                             if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
-                                panel.content = doc.display_name.clone();
+                                panel.content = doc.text();
                             }
                         }
                     }
