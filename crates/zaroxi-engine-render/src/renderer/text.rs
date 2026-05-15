@@ -3,6 +3,7 @@ use log::info;
 use crate::renderer::debug::RENDER_DEBUG;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::num::NonZeroU32;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, Queue, Extent3d, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureView, TextureViewDescriptor, SamplerDescriptor,
