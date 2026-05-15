@@ -19,8 +19,5 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 
-# Workspace crates
-zaroxi-core-ids = { workspace = true }
-
 [features]
 default = []
