@@ -185,7 +185,7 @@ impl<'a> Renderer<'a> {
         // This helps prove whether the shader file edited during debugging is the
         // one actually used at runtime.
         let shader_src = include_str!("../text_shader.wgsl");
-        info!(
+        debug!(
             "TEXT PIPELINE BUILD: shader=crates/zaroxi-engine-render/src/text_shader.wgsl len={} bytes",
             shader_src.len()
         );
@@ -238,13 +238,13 @@ impl<'a> Renderer<'a> {
             let vertex_size = mem::size_of::<Vertex>();
             let expected_vertex_size = 32usize; // vec2 + vec2 + vec4 -> (2+2+4)*4 = 32 bytes
 
-            info!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
-            info!("Vertex struct: size_of::<Vertex>() = {}", vertex_size);
-            info!("Vertex buffer layout (Rust -> WGSL):");
-            info!("  - @location(0) pos : Float32x2  @ offset 0");
-            info!("  - @location(1) uv  : Float32x2  @ offset 8");
-            info!("  - @location(2) color: Float32x4 @ offset 16");
-            info!("  - array_stride = {} (bytes)", vertex_size);
+            debug!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
+            debug!("Vertex struct: size_of::<Vertex>() = {}", vertex_size);
+            debug!("Vertex buffer layout (Rust -> WGSL):");
+            debug!("  - @location(0) pos : Float32x2  @ offset 0");
+            debug!("  - @location(1) uv  : Float32x2  @ offset 8");
+            debug!("  - @location(2) color: Float32x4 @ offset 16");
+            debug!("  - array_stride = {} (bytes)", vertex_size);
 
             // Sanity check: ensure Rust Vertex size matches expected WGSL layout size.
             if vertex_size != expected_vertex_size {
@@ -557,7 +557,7 @@ impl<'a> Renderer<'a> {
                     let v1 = panel_verts[base_idx + 1];
                     let v2 = panel_verts[base_idx + 2];
                     let v3 = panel_verts[base_idx + 3];
-                    info!(
+                    debug!(
                         "packed block verts: \
                          v0 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
@@ -600,7 +600,7 @@ impl<'a> Renderer<'a> {
             // Queue title for the native Glyphon text renderer (prepare/render will occur later).
             self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(&block.title, title_x, title_y, title_color, DEFAULT_FONT_SIZE, hx, hy, hw, hh));
             // Concise info for queued title (no per-glyph spam).
-            info!("queued title for block='{}'", block.id);
+            debug!("queued title for block='{}'", block.id);
 
             // Body/content text emission:
             // - The renderer is intentionally domain-agnostic. It renders whatever
@@ -632,7 +632,7 @@ impl<'a> Renderer<'a> {
                 if content_w > 0.0 && content_h > 0.0 {
                     // Queue content for Glyphon native rendering
                     self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(&block.content, content_x, content_y, title_color, DEFAULT_FONT_SIZE, content_x, content_y, content_w, content_h));
-                    info!("queued content for block='{}'", block.id);
+                    debug!("queued content for block='{}'", block.id);
                 } else if RENDER_DEBUG {
                     info!("emit_text: content area too small for block='{}'", block.id);
                 }
@@ -697,7 +697,7 @@ impl<'a> Renderer<'a> {
         // These logs are intentionally concise and should be safe in normal runs.
         let panel_indices_len = panel_indices.len() as u32;
         let total_indices_len = indices.len() as u32;
-        info!(
+        debug!(
             "render geometry counts: panel_verts={} text_verts={} panel_indices={} text_indices={} total_verts={} total_indices={}",
             panel_vertex_count as usize,
             verts.len().saturating_sub(panel_vertex_count as usize),
@@ -829,7 +829,7 @@ impl<'a> Renderer<'a> {
                                 log::debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
                             }
                             // Diagnostic: explicit draw parameters for shape pass
-                            info!("shape pass draw_indexed: start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
+                            debug!("shape pass draw_indexed: start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
                             crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
                         }
                     } else {
@@ -839,10 +839,11 @@ impl<'a> Renderer<'a> {
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
-                    if total_indices_len > panel_indices_len {
+                    // Run text pass if either legacy text indices indicate text geometry OR there are queued native Glyphon commands.
+                    if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0 {
                         if DISABLE_TEXT_PASS {
                             if render_debug_enabled() {
-                                log::debug!("DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)", total_indices_len - panel_indices_len);
+                                log::debug!("DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)", total_indices_len.saturating_sub(panel_indices_len));
                             }
                         } else {
                             if render_debug_enabled() {
@@ -859,9 +860,27 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
-                            self.text_renderer.prepare(&self.device, &mut self.queue)?;
-                            self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
+                            // Ensure Glyphon receives queued commands (if any).
+                            let queued_count = self.text_renderer.queued_len();
+                            info!("Glyphon: queued commands before prepare: {}", queued_count);
+
+                            info!("Glyphon prepare called");
+                            match self.text_renderer.prepare(&self.device, &mut self.queue) {
+                                Ok(()) => info!("Glyphon prepare succeeded"),
+                                Err(e) => {
+                                    info!("Glyphon prepare failed: {:?}", e);
+                                    return Err(e);
+                                }
+                            }
+
+                            info!("Glyphon render called");
+                            match self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len) {
+                                Ok(()) => info!("Glyphon render succeeded"),
+                                Err(e) => {
+                                    info!("Glyphon render failed: {:?}", e);
+                                    return Err(e);
+                                }
+                            }
                         }
                     }
                 }
@@ -934,7 +953,7 @@ impl<'a> Renderer<'a> {
                                 debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
                             }
                             // Diagnostic: explicit draw parameters for shape pass
-                            info!("shape pass draw_indexed (suboptimal): start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
+                            debug!("shape pass draw_indexed (suboptimal): start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
                             crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
                         }
                     } else {

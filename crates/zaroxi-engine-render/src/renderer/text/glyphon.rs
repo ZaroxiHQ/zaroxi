@@ -105,6 +105,11 @@ impl TextRenderer for GlyphonTextRenderer {
         q.push(cmd);
     }
 
+    fn queued_len(&self) -> usize {
+        let q = self.queued.lock().unwrap();
+        q.len()
+    }
+
     fn prepare(&self, device: &Device, queue: &mut Queue) -> Result<(), RenderError> {
         // Lock mutable glyphon state
         let mut gr = self.glyphon_renderer.lock().unwrap();
@@ -114,7 +119,9 @@ impl TextRenderer for GlyphonTextRenderer {
         let mut swash = self.swash_cache.lock().unwrap();
 
         let mut q = self.queued.lock().unwrap();
-        if q.is_empty() {
+        let queued_count = q.len();
+        info!("Glyphon queued commands: {}", queued_count);
+        if queued_count == 0 {
             return Ok(());
         }
 
@@ -180,12 +187,14 @@ impl TextRenderer for GlyphonTextRenderer {
             areas.push(area);
         }
 
+        info!("Glyphon prepare called with {} text areas", queued_count);
         // Call the glyphon prepare API with the exact signature required by 0.11.0.
         match gr.prepare(device, queue, &mut *fs, &mut *atlas, &*viewport, areas.into_iter(), &mut *swash) {
             Ok(()) => {
-                // prepared successfully
+                info!("Glyphon prepare succeeded");
             }
             Err(e) => {
+                info!("Glyphon prepare failed: {:?}", e);
                 return Err(RenderError::Other(format!("Glyphon prepare failed: {:?}", e)));
             }
         }
@@ -208,8 +217,15 @@ impl TextRenderer for GlyphonTextRenderer {
         let viewport = self.viewport.lock().unwrap();
         let mut gr = self.glyphon_renderer.lock().unwrap();
 
-        if let Err(e) = gr.render(&*atlas, &*viewport, rpass) {
-            return Err(RenderError::Other(format!("Glyphon render failed: {:?}", e)));
+        info!("Glyphon render called");
+        match gr.render(&*atlas, &*viewport, rpass) {
+            Ok(()) => {
+                info!("Glyphon render succeeded");
+            }
+            Err(e) => {
+                info!("Glyphon render failed: {:?}", e);
+                return Err(RenderError::Other(format!("Glyphon render failed: {:?}", e)));
+            }
         }
 
         Ok(())

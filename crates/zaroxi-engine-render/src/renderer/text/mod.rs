@@ -81,6 +81,12 @@ pub trait TextRenderer: Send + Sync {
     /// Queue a text command for the upcoming frame.
     fn queue_text(&self, cmd: TextCommand);
 
+    /// Return number of queued text commands waiting to be prepared.
+    ///
+    /// This allows renderer core to decide to invoke native prepare/render even
+    /// when legacy vertex/index counters are zero.
+    fn queued_len(&self) -> usize;
+
     /// Prepare glyphs for queued commands: shape, rasterize and upload any GPU resources.
     ///
     /// The prepare step needs access to the Device as glyphon may create or
