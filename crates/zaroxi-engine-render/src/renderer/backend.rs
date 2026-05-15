@@ -10,6 +10,7 @@ use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
    provided as "cosmic-text" in Cargo.toml but the Rust module path is
    `cosmic_text`. Import the commonly used types here so the file uses them
    directly. */
+#[cfg(feature = "legacy_cosmic")]
 use cosmic_text::{FontSystem, SwashCache, Buffer};
 
 /// A minimal backend boundary trait for text shaping/layout/rasterization.
@@ -176,6 +177,7 @@ pub struct CosmicTextBackend {
     resolved_family: Option<String>,
 }
 
+#[cfg(feature = "legacy_cosmic")]
 impl CosmicTextBackend {
     /// Create a new CosmicTextBackend and create an empty GPU atlas using
     /// the provided bind group layout so the backend can upload glyphs on-demand.
@@ -273,6 +275,7 @@ impl CosmicTextBackend {
     }
 }
 
+#[cfg(feature = "legacy_cosmic")]
 impl TextBackend for CosmicTextBackend {
     fn layout_text_clipped(
         &self,
