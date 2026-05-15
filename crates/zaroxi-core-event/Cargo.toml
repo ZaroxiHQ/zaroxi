@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-event"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+zaroxi-kernel-collections = { path = "../zaroxi-kernel-collections" }

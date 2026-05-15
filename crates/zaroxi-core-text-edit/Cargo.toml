@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-text-edit"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+zaroxi-core-text-rope = { path = "../zaroxi-core-text-rope" }

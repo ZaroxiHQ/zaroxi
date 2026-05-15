@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-render-text"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+fontdb = "0.23"

@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+zaroxi-core-layout = { path = "../zaroxi-core-layout" }
+zaroxi-core-render = { path = "../zaroxi-core-render" }
