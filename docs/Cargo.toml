@@ -1,0 +1,11 @@
+[package]
+name = "docs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Documentation bundle for the Zaroxi workspace (non-code placeholder to satisfy workspace member)."
+publish = false
+rust-version = "1.85"
+
+[package.metadata]
+notes = "This is a placeholder Cargo.toml so `cargo metadata` succeeds. Documentation lives under docs/ and is not a Rust crate."
