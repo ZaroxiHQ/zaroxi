@@ -23,7 +23,7 @@ use crate::renderer::debug::{
     LOGGED_TITLEBAR, LOGGED_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED,
     FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
 };
-use crate::renderer::geometry::{Vertex, push_colored_quad, color_to_rgba};
+use crate::renderer::geometry::{Vertex, push_colored_quad, color_to_rgba, pixel_to_ndc};
 
 /// Internal context that groups per-frame geometry buffers and screen size.
 /// Introduced to reduce the responsibility surface of core.rs and to provide
@@ -608,6 +608,33 @@ impl<'a> Renderer<'a> {
                 hw,
                 hh,
             )?;
+
+            // Diagnostic: log first placed glyph bounds for title (pixel & NDC).
+            if !placed.is_empty() {
+                let pg = &placed[0];
+                let ndc_a = pixel_to_ndc(pg.x0_px, pg.y0_px, width, height);
+                let ndc_c = pixel_to_ndc(pg.x1_px, pg.y1_px, width, height);
+                info!(
+                    "title_placed: block='{}' title='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                    block.id,
+                    block.title,
+                    pg.x0_px,
+                    pg.y0_px,
+                    pg.x1_px,
+                    pg.y1_px,
+                    ndc_a[0],
+                    ndc_a[1],
+                    ndc_c[0],
+                    ndc_c[1],
+                    hx,
+                    hy,
+                    hx + hw,
+                    hy + hh
+                );
+            } else {
+                info!("title_placed: block='{}' title='{}' no placed glyphs", block.id, block.title);
+            }
+
             crate::renderer::text::placed_glyphs_to_vertices(&placed, &mut text_verts, &mut text_indices, width, height);
 
             info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
@@ -653,6 +680,33 @@ impl<'a> Renderer<'a> {
                         content_w,
                         content_h,
                     )?;
+
+                    // Diagnostic: log first placed glyph bounds for content (pixel & NDC).
+                    if !placed_content.is_empty() {
+                        let pgc = &placed_content[0];
+                        let ndc_a = pixel_to_ndc(pgc.x0_px, pgc.y0_px, width, height);
+                        let ndc_c = pixel_to_ndc(pgc.x1_px, pgc.y1_px, width, height);
+                        info!(
+                            "content_placed: block='{}' first_char='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                            block.id,
+                            block.content.chars().next().unwrap_or('?'),
+                            pgc.x0_px,
+                            pgc.y0_px,
+                            pgc.x1_px,
+                            pgc.y1_px,
+                            ndc_a[0],
+                            ndc_a[1],
+                            ndc_c[0],
+                            ndc_c[1],
+                            content_x,
+                            content_y,
+                            content_w,
+                            content_h
+                        );
+                    } else {
+                        info!("content_placed: block='{}' no placed glyphs", block.id);
+                    }
+
                     crate::renderer::text::placed_glyphs_to_vertices(&placed_content, &mut text_verts, &mut text_indices, width, height);
                     info!("emit_text: content emitted for block='{}' at y={:.1} (content_h={:.1})", block.id, content_y, content_h);
                 } else if RENDER_DEBUG {

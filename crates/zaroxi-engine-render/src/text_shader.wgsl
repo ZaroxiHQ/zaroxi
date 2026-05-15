@@ -7,7 +7,7 @@ var font_sampler: sampler;
 // Diagnostic toggles:
 // Set DIAGNOSTIC_MAGENTA or DIAGNOSTIC_SOLID to true for temporary rendering checks.
 // These are compile-time constants; leave them false in production.
-const DIAGNOSTIC_MAGENTA: bool = false;
+const DIAGNOSTIC_MAGENTA: bool = true;
 const DIAGNOSTIC_SOLID: bool = false;
 
 struct VertexInput {
