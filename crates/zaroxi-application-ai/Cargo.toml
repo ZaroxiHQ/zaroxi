@@ -1,52 +1,24 @@
 [package]
-name = "zaroxi-service-ai"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "AI service orchestration logic for Zaroxi Studio"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+name = "zaroxi-application-ai"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Application layer orchestration for AI features: copilots, assistants and agent orchestration."
 
 [lib]
-name = "zaroxi_service_ai"
+name = "zaroxi_application_ai"
 path = "src/lib.rs"
 
 [dependencies]
-zaroxi-ai-agent = { workspace = true }
-zaroxi-domain-ai-context = { workspace = true }
-zaroxi-protocol = { workspace = true }
-zaroxi-infra-rpc = { workspace = true }
+zaroxi-intelligence-agent = { path = "../zaroxi-intelligence-agent" }
+zaroxi-domain-ai = { path = "../zaroxi-domain-ai" }
+zaroxi-infrastructure-rpc = { path = "../zaroxi-infrastructure-rpc" }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-[package]
-name = "zaroxi-service-ai"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "AI service orchestration logic for Zaroxi Studio"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
 
-[lib]
-name = "zaroxi_service_ai"
-path = "src/lib.rs"
-
-[dependencies]
-zaroxi-ai-agent = { workspace = true }
-zaroxi-domain-ai-context = { workspace = true }
-zaroxi-protocol = { workspace = true }
-zaroxi-infra-rpc = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tracing = { workspace = true }
-anyhow = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-uuid = { workspace = true }
+[features]
+default = []

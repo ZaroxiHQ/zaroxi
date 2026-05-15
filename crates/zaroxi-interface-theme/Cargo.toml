@@ -1,38 +1,12 @@
 [package]
-name = "zaroxi-theme"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Theme system for Zaroxi Studio"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+name = "zaroxi-interface-theme"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Theme primitives, semantic colors and design tokens used across the UI."
 
 [lib]
-name = "zaroxi_theme"
-path = "src/lib.rs"
-
-[dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-
-[features]
-default = []
-[package]
-name = "zaroxi-theme"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Theme system for Zaroxi Studio"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
-
-[lib]
-name = "zaroxi_theme"
+name = "zaroxi_interface_theme"
 path = "src/lib.rs"
 
 [dependencies]

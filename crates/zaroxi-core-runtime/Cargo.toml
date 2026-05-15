@@ -1,8 +1,10 @@
 [package]
-name = "zaroxi-engine-runtime"
+name = "zaroxi-core-runtime"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
+description = "Core runtime and window loop integration: task scheduling and render loop orchestration."
 
 [dependencies]
 anyhow = "1"
@@ -10,23 +12,6 @@ winit = { workspace = true }
 pollster = "0.3"
 log = "0.4"
 env_logger = "0.11"
-zaroxi-engine-render = { path = "../zaroxi-engine-render" }
-zaroxi-engine-input = { path = "../zaroxi-engine-input" }
-# runtime needs to be able to access AppState (read-only during render).
-zaroxi-app = { path = "../zaroxi-app" }
-[package]
-name = "zaroxi-engine-runtime"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
-[dependencies]
-anyhow = "1"
-winit = { workspace = true }
-pollster = "0.3"
-log = "0.4"
-env_logger = "0.11"
-zaroxi-engine-render = { path = "../zaroxi-engine-render" }
-zaroxi-engine-input = { path = "../zaroxi-engine-input" }
-# runtime needs to be able to access AppState (read-only during render).
-zaroxi-app = { path = "../zaroxi-app" }
+zaroxi-core-render = { path = "../zaroxi-core-render" }
+zaroxi-core-input = { path = "../zaroxi-core-input" }
+zaroxi-interface-app = { path = "../crates/zaroxi-interface-app", optional = true }

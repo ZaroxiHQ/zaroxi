@@ -1,18 +1,11 @@
 [package]
-name = "zaroxi-engine-text"
+name = "zaroxi-core-text"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
+description = "Facade API for text buffers, edits and snapshots (zero-copy where possible)."
 
 [dependencies]
-# Placeholder for future text shaping/atlas integration (cosmic-text later).
-cosmic-text = "0.19.0"
-[package]
-name = "zaroxi-engine-text"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
-[dependencies]
-# Placeholder for future text shaping/atlas integration (cosmic-text later).
+# Placeholder for future text shaping/atlas integration.
 cosmic-text = "0.19.0"

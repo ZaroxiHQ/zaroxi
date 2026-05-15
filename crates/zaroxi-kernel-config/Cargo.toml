@@ -1,16 +1,10 @@
 [package]
-name = "zaroxi-config"
+name = "zaroxi-kernel-config"
 version = "0.1.0"
 edition = "2024"
 publish = false
-
-[dependencies]
-serde = { workspace = true }
-[package]
-name = "zaroxi-config"
-version = "0.1.0"
-edition = "2024"
-publish = false
+license = "MIT"
+description = "Canonical config schema types used by kernel and higher layers (no IO)."
 
 [dependencies]
 serde = { workspace = true }
