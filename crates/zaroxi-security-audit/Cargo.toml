@@ -1,0 +1,21 @@
+[package]
+name = "zaroxi-security-audit"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Audit logging utilities for security-sensitive actions (append-only, structured events)."
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_security_audit"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+chrono = { workspace = true }
+
+[features]
+default = []

@@ -1,0 +1,21 @@
+[package]
+name = "zaroxi-core-telemetry"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Lightweight telemetry and metrics primitives tailored for core engines (low-overhead, no external IO)."
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_core_telemetry"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []

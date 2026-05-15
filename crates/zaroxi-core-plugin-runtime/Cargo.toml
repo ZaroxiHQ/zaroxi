@@ -1,0 +1,21 @@
+[package]
+name = "zaroxi-core-plugin-runtime"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Core plugin runtime primitives: safe FFI boundaries, plugin host traits, and lightweight loader abstractions. Core-only (no platform-specific loaders)."
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_core_plugin_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+libloading = { workspace = true }
+
+[features]
+default = []

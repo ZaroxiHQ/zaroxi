@@ -15,6 +15,9 @@ members = [
   "crates/zaroxi-kernel-protocol",
 
   # Core (low-level engines)
+  "crates/zaroxi-core-state",
+  "crates/zaroxi-core-telemetry",
+  "crates/zaroxi-core-plugin-runtime",
   "crates/zaroxi-core-input",
   "crates/zaroxi-core-event",
   "crates/zaroxi-core-commands",
@@ -166,6 +169,12 @@ winit = "0.30.13"
 
 # Local workspace crates (paths correspond to the new architecture)
 zaroxi-kernel-protocol = { path = "crates/zaroxi-kernel-protocol" }
+zaroxi-core-state = { path = "crates/zaroxi-core-state" }
+zaroxi-core-telemetry = { path = "crates/zaroxi-core-telemetry" }
+zaroxi-core-plugin-runtime = { path = "crates/zaroxi-core-plugin-runtime" }
+zaroxi-infrastructure-network = { path = "crates/zaroxi-infrastructure-network" }
+zaroxi-security-audit = { path = "crates/zaroxi-security-audit" }
+zaroxi-application-plugin = { path = "crates/zaroxi-application-plugin" }
 zaroxi-kernel-core = { path = "crates/zaroxi-kernel-core" }
 zaroxi-kernel-types = { path = "crates/zaroxi-kernel-types" }
 zaroxi-kernel-errors = { path = "crates/zaroxi-kernel-errors" }

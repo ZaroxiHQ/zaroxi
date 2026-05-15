@@ -1,0 +1,20 @@
+[package]
+name = "zaroxi-core-state"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Deterministic, allocation-aware state primitives for core engines (small containers and helpers)."
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_core_state"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+
+[features]
+default = []

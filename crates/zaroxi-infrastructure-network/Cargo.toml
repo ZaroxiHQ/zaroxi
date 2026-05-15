@@ -1,0 +1,21 @@
+[package]
+name = "zaroxi-infrastructure-network"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+description = "Networking adapters and utilities for Zaroxi infrastructure layer (implementations of networking traits)."
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_infrastructure_network"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+tokio = { workspace = true }
+
+[features]
+default = []
