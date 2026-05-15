@@ -102,8 +102,12 @@ impl FontAtlas {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            // Use nearest filtering for single-channel atlas textures (R8Unorm).
+            // Some platforms do not support linear filtering for single-channel
+            // formats; nearest sampling avoids undefined behavior and preserves
+            // mask values exactly when sampling coverage.
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
