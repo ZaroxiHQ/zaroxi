@@ -7,4 +7,5 @@ description = "Core runtime: task scheduling and render-loop orchestration."
 rust-version = "1.85"
 
 [dependencies]
+zaroxi-kernel-core = { path = "../zaroxi-kernel-core" }
 # Add crate-specific dependencies when replacing stubbed manifests.
