@@ -148,7 +148,12 @@ impl AppState {
                             // Open the selected file from disk and show real contents in the editor.
                             match std::fs::read_to_string(&path) {
                                 Ok(content) => {
-                                    let doc = Document::from_text_with_path(&content, path.clone());
+                                    let display_name = std::path::Path::new(path)
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or(path)
+                                        .to_string();
+                                    let doc = Document::new(display_name, content);
                                     self.editor.open_document(doc.clone());
                                     self.tabs.open_tab_for_document(&doc);
                                     self.status.message = format!("Selected {}", path);
