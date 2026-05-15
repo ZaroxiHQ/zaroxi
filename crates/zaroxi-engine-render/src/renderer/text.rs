@@ -154,6 +154,7 @@ impl FontAtlas {
         advance: f32,
         xoffset: i32,
         yoffset: i32,
+        src_bytes_per_pixel: u32,
     ) -> Result<(f32,f32,f32,f32), RenderError> {
         // Pack the glyph into the atlas using a simple shelf allocator.
         let mut packer = self.packer.lock().unwrap();
@@ -174,14 +175,63 @@ impl FontAtlas {
         let x = *nx;
         let y = *ny;
 
-        // Write bitmap into the texture at (x,y)
+        // The atlas currently stores single-channel coverage (R8Unorm).
+        // Ensure we upload data in the atlas' expected byte-per-pixel layout.
+        let atlas_bpp: u32 = 1;
+
+        // Convert source bitmap into atlas layout if needed.
+        // If src_bytes_per_pixel == atlas_bpp we can upload directly (row-copy).
+        // If src is RGBA (4) or other multi-channel, extract alpha channel as coverage.
+        let mut upload_buf: Vec<u8>;
+        if src_bytes_per_pixel == atlas_bpp {
+            // Direct reference - but we still may need to pad rows to COPY_BYTES_PER_ROW_ALIGNMENT.
+            upload_buf = bitmap.to_vec();
+        } else if src_bytes_per_pixel == 4 {
+            // Source is RGBA-like: use alpha channel as coverage (common for swash).
+            upload_buf = Vec::with_capacity((width * height * atlas_bpp) as usize);
+            for row in 0..height {
+                let row_start = (row * width * src_bytes_per_pixel) as usize;
+                for col in 0..width {
+                    let pix_idx = row_start + (col as usize) * (src_bytes_per_pixel as usize);
+                    // assume RGBA order -> alpha is at +3
+                    let alpha = bitmap.get(pix_idx + 3).cloned().unwrap_or(0u8);
+                    upload_buf.push(alpha);
+                }
+            }
+        } else {
+            // Unknown packing: fall back to taking first channel as coverage (best-effort).
+            upload_buf = Vec::with_capacity((width * height * atlas_bpp) as usize);
+            for row in 0..height {
+                let row_start = (row * width * src_bytes_per_pixel) as usize;
+                for col in 0..width {
+                    let pix_idx = row_start + (col as usize) * (src_bytes_per_pixel as usize);
+                    let v = bitmap.get(pix_idx).cloned().unwrap_or(0u8);
+                    upload_buf.push(v);
+                }
+            }
+        }
+
+        // Compute padded bytes_per_row for GPU upload (wgpu expects COPY bytes alignment).
+        const COPY_BYTES_PER_ROW_ALIGNMENT: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let unpadded_row_bytes = width.checked_mul(atlas_bpp).ok_or_else(|| RenderError::Other("row size overflow".into()))?;
+        let padded_row_bytes = ((unpadded_row_bytes + COPY_BYTES_PER_ROW_ALIGNMENT - 1) / COPY_BYTES_PER_ROW_ALIGNMENT) * COPY_BYTES_PER_ROW_ALIGNMENT;
+
+        // Build a padded host-side buffer where each row is aligned to padded_row_bytes.
+        let mut padded: Vec<u8> = vec![0u8; (padded_row_bytes * height) as usize];
+        for row in 0..height {
+            let src_off = (row * width * atlas_bpp) as usize;
+            let dst_off = (row * padded_row_bytes) as usize;
+            padded[dst_off..dst_off + (unpadded_row_bytes as usize)].copy_from_slice(&upload_buf[src_off..src_off + (unpadded_row_bytes as usize)]);
+        }
+
+        // Write bitmap into the texture at (x,y) using padded bytes_per_row.
         let extent = Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
 
-        let bytes_per_row = width;
+        let bytes_per_row = padded_row_bytes;
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
@@ -189,7 +239,7 @@ impl FontAtlas {
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            bitmap,
+            &padded,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),

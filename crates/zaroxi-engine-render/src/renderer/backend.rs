@@ -507,6 +507,30 @@ impl TextBackend for CosmicTextBackend {
                     swash_images_obtained += 1;
                     atlas_insert_attempts += 1;
 
+                    // Inspect swash image to determine format and bytes-per-pixel.
+                    // We log a concise diagnostic payload to help confirm the image type.
+                    let data_len = img.data.len();
+                    let img_w = img.placement.width;
+                    let img_h = img.placement.height;
+                    let computed_bpp = if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h {
+                        1u32
+                    } else if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h * 4 {
+                        4u32
+                    } else {
+                        // Unknown packing: fall back to 1 and log for investigation.
+                        1u32
+                    };
+
+                    if should_log {
+                        info!(
+                            "CosmicTextBackend: swash_image: cache_key={:?} key_u64={} placement=({}x{}) data_len={} inferred_bpp={}",
+                            cache_key, key_u64, img_w, img_h, data_len, computed_bpp
+                        );
+                        // Log first few bytes so we can tell whether data looks like mask vs RGBA.
+                        let sample_bytes = &img.data[..std::cmp::min(16, img.data.len())];
+                        debug!("CosmicTextBackend: swash_image sample_bytes={:?}", sample_bytes);
+                    }
+
                     // Attempt to insert/upload the glyph bitmap into the atlas.
                     match self.atlas.insert_glyph_from_bitmap(
                         _queue,
@@ -517,6 +541,7 @@ impl TextBackend for CosmicTextBackend {
                         advance,
                         img.placement.left,
                         -img.placement.top,
+                        computed_bpp,
                     ) {
                         Ok((u0, v0, u1, v1)) => {
                             atlas_insert_succeeded += 1;
