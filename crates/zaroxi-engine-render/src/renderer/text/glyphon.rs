@@ -133,8 +133,8 @@ impl TextRenderer for GlyphonTextRenderer {
             let mut buf = Buffer::new(&mut *fs, metrics);
             // Use a simple Attrs; prefer bundled family later when available.
             let mut attrs = Attrs::new();
-            // Set text and shaping
-            buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
+            // Set text and shaping (glyphon/cosmic-text 0.11 API requires passing &mut FontSystem)
+            buf.set_text(&mut *fs, &cmd.text, &attrs, Shaping::Advanced, None);
 
             // Build TextBounds from clip rectangle (convert f32 -> i32)
             let bounds = TextBounds {
