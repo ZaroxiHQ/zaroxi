@@ -8,6 +8,7 @@ use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
 use zaroxi_workspace::{WorkspaceState, WorkspaceItem};
 use zaroxi_theme::ZaroxiTheme;
+use log::info;
 
 /// Top-level app state assembled from domain parts.
 ///
@@ -37,10 +38,18 @@ impl AppState {
         workspace.items.push(WorkspaceItem::file("Cargo.toml", Some("Cargo.toml".to_string())));
         workspace.select(Some(0));
 
-        // editor with a welcome document
+        // editor with a welcome document (use a multi-line sample document so editor renders real content)
         let mut editor = EditorState::new();
-        let welcome = Document::welcome();
+        let welcome_content = "fn main() {\n    println!(\"Hello, Zaroxi Studio!\");\n    // Sample document for editor rendering\n    for i in 0..10 {\n        println!(\"line {}\", i);\n    }\n}\n";
+        let welcome = Document::new(\"welcome.rs\".to_string(), welcome_content.to_string());
         editor.open_document(welcome.clone());
+
+        info!(
+            \"Editor initialized with active document: {} ({} bytes, {} lines)\",
+            \"welcome.rs\",
+            welcome_content.len(),
+            welcome_content.lines().count()
+        );
 
         // tabs: open welcome doc in tabs
         let mut tabs = TabState::new();
@@ -50,7 +59,12 @@ impl AppState {
         let assistant = AssistantState::default();
 
         // Build app-owned panels via the panels builder module.
-        let app_panels = crate::panels::default_panels(config, &welcome);
+        let mut app_panels = crate::panels::default_panels(config, &welcome);
+
+        // Ensure editor panel body contains document text rather than a short title.
+        if let Some(p) = app_panels.iter_mut().find(|p| p.id == "editor") {
+            p.content = welcome_content.to_string();
+        }
 
         // Log created panels for visibility
         for p in &app_panels {

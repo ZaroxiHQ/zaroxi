@@ -316,7 +316,17 @@ pub(crate) fn layout_text_clipped(
     clip_h: f32,
 ) -> Result<Vec<PlacedGlyph>, RenderError> {
     let mut out: Vec<PlacedGlyph> = Vec::new();
+    let initial_x = x;
+    let mut pen_x = x;
+    let line_height = atlas.font_size;
     for ch in text.chars() {
+        // Handle newline by resetting pen_x and advancing y by a line height.
+        if ch == '\n' {
+            pen_x = initial_x;
+            y += line_height;
+            continue;
+        }
+
         let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
         if glyph_opt.is_none() {
             continue;
@@ -324,17 +334,17 @@ pub(crate) fn layout_text_clipped(
         let g = glyph_opt.unwrap();
         // Advance-only glyphs (zero-width) still advance the pen.
         if g.width == 0 || g.height == 0 {
-            x += g.advance;
+            pen_x += g.advance;
             continue;
         }
-        let x0_px = x as f32 + g.xoffset as f32;
-        let y0_px = y as f32 + g.yoffset as f32;
+        let x0_px = pen_x + g.xoffset as f32;
+        let y0_px = y + g.yoffset as f32;
         let x1_px = x0_px + g.width as f32;
         let y1_px = y0_px + g.height as f32;
 
         // Clip-test: skip glyphs fully outside the clip rect, but still advance.
         if x1_px <= clip_x || x0_px >= (clip_x + clip_w) || y1_px <= clip_y || y0_px >= (clip_y + clip_h) {
-            x += g.advance;
+            pen_x += g.advance;
             continue;
         }
 
@@ -350,7 +360,7 @@ pub(crate) fn layout_text_clipped(
             color,
         });
 
-        x += g.advance;
+        pen_x += g.advance;
     }
     Ok(out)
 }
@@ -400,7 +410,36 @@ pub(crate) fn emit_text(
     let mut first_glyph_logged = false;
     let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
 
+    let initial_x = x;
+    let mut pen_x = x;
+    let line_height = atlas.font_size;
     for ch in text.chars() {
+        // Newline handling: reset pen_x and move down a line.
+        if ch == '\n' {
+            pen_x = initial_x;
+            // move down by an approximate line height (font_size)
+            // this keeps layout simple and deterministic for now
+            // callers provide y as the top origin for the first line
+            // subsequent lines use y + N * line_height
+            // advance loop continues to next char
+            // glyph placement uses the current y baseline
+            // so adjust y here
+            // Note: this mutates y for subsequent glyphs
+            // and keeps layout CPU-side (no backend reflow changes)
+            // which is sufficient for basic multi-line rendering.
+            // You can tune line spacing later.
+            // Skip inserting any glyph for newline
+            // and continue to next character.
+            // Do not increment glyph_count for newline.
+            // Continue with next char.
+            // (Keep glyph_count semantics unchanged)
+            // Move to next char:
+            // (do not execute glyph layout below)
+            // (the continue below implements that)
+            y += line_height;
+            continue;
+        }
+
         let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
         if glyph_opt.is_none() {
             // skip unknown glyphs
@@ -408,13 +447,13 @@ pub(crate) fn emit_text(
         }
         let g = glyph_opt.unwrap();
         if g.width == 0 || g.height == 0 {
-            x += g.advance;
+            pen_x += g.advance;
             glyph_count += 1;
             continue;
         }
         // positions: top-left origin in pixels; atlas uv coordinates map into glyph
-        let x0_px = x as f32 + g.xoffset as f32;
-        let y0_px = y as f32 + g.yoffset as f32;
+        let x0_px = pen_x + g.xoffset as f32;
+        let y0_px = y + g.yoffset as f32;
         let x1_px = x0_px + g.width as f32;
         let y1_px = y0_px + g.height as f32;
         // UVs
@@ -481,7 +520,7 @@ pub(crate) fn emit_text(
         // lies fully outside the clip rect, skip emitting its vertices/indices.
         // The non-clipped emit_text behavior is preserved by calling this function
         // with a clip that covers the entire screen.
-        x += g.advance;
+        pen_x += g.advance;
         glyph_count += 1;
     }
     Ok(())
@@ -511,7 +550,17 @@ pub(crate) fn emit_text_clipped(
     let mut first_glyph_logged = false;
     let log_interesting_string = text.contains("Zaroxi Studio") || text.contains("Explorer");
 
+    let initial_x = x;
+    let mut pen_x = x;
+    let line_height = atlas.font_size;
     for ch in text.chars() {
+        // newline handling: move pen to next line
+        if ch == '\n' {
+            pen_x = initial_x;
+            y += line_height;
+            continue;
+        }
+
         let glyph_opt = { atlas.glyphs.lock().unwrap().get(&ch).cloned() };
         if glyph_opt.is_none() {
             // skip unknown glyphs (still advance if needed)
@@ -519,13 +568,13 @@ pub(crate) fn emit_text_clipped(
         }
         let g = glyph_opt.unwrap();
         if g.width == 0 || g.height == 0 {
-            x += g.advance;
+            pen_x += g.advance;
             glyph_count += 1;
             continue;
         }
         // positions: top-left origin in pixels; atlas uv coordinates map into glyph
-        let x0_px = x as f32 + g.xoffset as f32;
-        let y0_px = y as f32 + g.yoffset as f32;
+        let x0_px = pen_x + g.xoffset as f32;
+        let y0_px = y + g.yoffset as f32;
         let x1_px = x0_px + g.width as f32;
         let y1_px = y0_px + g.height as f32;
 
@@ -597,7 +646,7 @@ pub(crate) fn emit_text_clipped(
             first_glyph_logged = true;
         }
 
-        x += g.advance;
+        pen_x += g.advance;
         glyph_count += 1;
     }
     Ok(())
