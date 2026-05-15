@@ -14,22 +14,24 @@ pub(crate) fn create_pipelines(
     // Create bind group layout for font atlas (texture + sampler)
     let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            // sampled texture (R8)
+            // sampled texture (R8). For single-channel R8Unorm atlases we mark the
+            // texture as non-filterable so platforms that disallow linear filtering
+            // for single-channel formats won't clash with the bind layout.
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
                 },
                 count: None,
             },
-            // sampler
+            // sampler: use NonFiltering in the bind layout to match the non-filterable texture.
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                 count: None,
             },
         ],

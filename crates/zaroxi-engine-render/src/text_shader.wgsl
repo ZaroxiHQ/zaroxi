@@ -37,12 +37,21 @@ fn vs_main(in: VertexInput) -> VSOut {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    // Quick diagnostic: force magenta output to validate that glyph quads are
+    // being emitted and reach the fragment stage. Toggle DIAGNOSTIC_MAGENTA at
+    // compile-time to enable/disable this fast check.
+    if DIAGNOSTIC_MAGENTA {
+        return vec4<f32>(1.0, 0.0, 1.0, 1.0);
+    }
+
     // Sample coverage from the atlas (atlas encoded as R8Unorm -> use .r).
     let sampled = textureSample(font_tex, font_sampler, in.uv);
     let coverage = sampled.r;
 
     // Diagnostic proof: show coverage as grayscale if enabled.
     if DIAGNOSTIC_SHOW_COVERAGE {
+        // Render sampled coverage as a visible grayscale map (alpha=1.0) so we can
+        // verify atlas uploads and UVs independently of blending.
         return vec4<f32>(coverage, coverage, coverage, 1.0);
     }
 
