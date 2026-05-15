@@ -8,7 +8,7 @@ var font_sampler: sampler;
 // Set DIAGNOSTIC_MAGENTA or DIAGNOSTIC_SOLID to true for temporary rendering checks.
 // These are compile-time constants; toggle them during investigation and revert to
 // false for normal rendering.
-const DIAGNOSTIC_MAGENTA: bool = true;
+const DIAGNOSTIC_MAGENTA: bool = false;
 const DIAGNOSTIC_SOLID: bool = false;
 // Proof mode: when set to true render sampled glyph coverage as grayscale.
 // Useful to verify atlas content/sampling without applying vertex colors.
