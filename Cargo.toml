@@ -154,6 +154,7 @@ tree-sitter = "0.26.8"
 libloading = "0.8"
 ureq = { version = "2", features = ["json"] }
 tempfile = "3"
+ropey = "1"
 cc = "1.0"
 parking_lot = "0.12"
 log = "0.4"
