@@ -21,7 +21,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 # Workspace crates
-zaroxi-core-ids = { workspace = true }
 zaroxi-protocol = { workspace = true }
 
 [features]
