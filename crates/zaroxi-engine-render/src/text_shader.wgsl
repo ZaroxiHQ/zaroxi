@@ -4,6 +4,12 @@ var font_tex: texture_2d<f32>;
 @group(0) @binding(1)
 var font_sampler: sampler;
 
+// Diagnostic toggles:
+// Set DIAGNOSTIC_MAGENTA or DIAGNOSTIC_SOLID to true for temporary rendering checks.
+// These are compile-time constants; leave them false in production.
+const DIAGNOSTIC_MAGENTA: bool = false;
+const DIAGNOSTIC_SOLID: bool = false;
+
 struct VertexInput {
     @location(0) pos: vec2<f32>,
     @location(1) uv: vec2<f32>,
@@ -27,10 +33,26 @@ fn vs_main(in: VertexInput) -> VSOut {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-    // Text rendering: sample the single-channel font atlas (R8Unorm). The atlas
-    // encodes coverage in the red channel. Use sampled coverage as the fragment
-    // alpha and keep the vertex color RGB as the output color.
-    let coverage = textureSample(font_tex, font_sampler, in.uv).r;
+    // Sample coverage from the atlas (atlas encoded as R8Unorm -> use .r).
+    let sampled = textureSample(font_tex, font_sampler, in.uv);
+    let coverage = sampled.r;
+
+    // Diagnostic 1: force magenta glyphs where coverage > 0.01 to validate geometry/pipeline.
+    if DIAGNOSTIC_MAGENTA {
+        if coverage > 0.01 {
+            return vec4<f32>(1.0, 0.0, 1.0, 1.0);
+        } else {
+            return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        }
+    }
+
+    // Diagnostic 2: output vertex RGB with solid alpha to verify color path (bypass atlas).
+    if DIAGNOSTIC_SOLID {
+        return vec4<f32>(in.color.rgb, 1.0);
+    }
+
+    // Normal rendering: treat atlas coverage as the alpha multiplier for the vertex color.
+    // This expects the pipeline to use ALPHA_BLENDING and that the atlas stores straight alpha.
     let alpha = in.color.a * coverage;
     return vec4<f32>(in.color.rgb, alpha);
 }
