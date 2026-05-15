@@ -7,4 +7,6 @@ description = "Concrete editor UI combining core-ui and domain models."
 rust-version = "1.85"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+serde = { workspace = true }
+zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }

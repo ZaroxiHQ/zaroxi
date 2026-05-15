@@ -1,7 +1,7 @@
 use crate::commands::EditorCommand;
 use serde::{Deserialize, Serialize};
-use zaroxi_editor_buffer::Document;
-use zaroxi_foundation::DocumentId;
+use zaroxi_domain_buffer::Document;
+use zaroxi_kernel_types::Id;
 
 /// In-memory editor state.
 ///
@@ -11,7 +11,7 @@ pub struct EditorState {
     /// Open documents.
     pub open_documents: Vec<Document>,
     /// Active document id.
-    pub active_document: Option<DocumentId>,
+    pub active_document: Option<Id>,
 }
 
 impl EditorState {
