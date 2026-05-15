@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create missing crate stubs for every member listed in the workspace Cargo.toml.
+# Robust stub creator for workspace members.
+# - Uses Python to reliably extract the members array from Cargo.toml (handles multi-line, comments, etc).
 # - Creates <member>/Cargo.toml and <member>/src/lib.rs only if they do not already exist.
 # - Cargo.toml contains a short description field.
 # - Safe to run multiple times; will not overwrite existing files.
@@ -16,51 +17,41 @@ if [ ! -f "$WORKSPACE_MANIFEST" ]; then
   exit 1
 fi
 
-# Extract the members block between "members =" and the matching closing bracket.
-members_block=$(awk '
-  BEGIN { in=0; }
-  /members[[:space:]]*=/ {
-    # find the opening bracket on this line (or the following lines)
-    idx = index($0, "[");
-    if (idx > 0) {
-      # capture after the first '['
-      sub(".*\\[","[");
-      in = 1;
-    } else {
-      in = 1;
-    }
-  }
-  in {
-    print $0;
-    if (index($0, "]") > 0) exit;
-  }
-' "$WORKSPACE_MANIFEST")
+# Extract members using a small Python snippet (more portable than complex awk on different awk implementations)
+members_raw=$(python3 - <<'PY'
+import re, sys
+s = open("Cargo.toml", "r", encoding="utf-8").read()
+m = re.search(r'members\s*=\s*\[(.*?)\]', s, re.S)
+if not m:
+    # No members block found; exit cleanly
+    sys.exit(0)
+block = m.group(1)
+# Extract all double-quoted strings inside the members block
+items = re.findall(r'"([^"]+)"', block)
+for it in items:
+    print(it)
+PY
+)
 
-if [ -z "$members_block" ]; then
-  echo "Error: failed to parse members block from $WORKSPACE_MANIFEST"
-  exit 1
-fi
-
-# Find all quoted paths inside the block.
-mapfile -t members < <(printf "%s" "$members_block" | grep -oP '"\K[^"]+(?=")' || true)
-
-if [ ${#members[@]} -eq 0 ]; then
-  echo "No workspace members found in Cargo.toml"
+if [ -z "$members_raw" ]; then
+  echo "No workspace members found in Cargo.toml (or Python failed to extract them)."
   exit 0
 fi
 
 created=0
 skipped=0
 
-for m in "${members[@]}"; do
-  # Normalize path (strip trailing commas/spaces)
-  member_path="$(echo "$m" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+# Read members_raw line by line
+while IFS= read -r member_path; do
+  member_path="${member_path%%,}" # strip trailing comma if any
+  member_path="$(printf "%s" "$member_path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [ -z "$member_path" ] && continue
 
   # Skip obvious non-crate entries
   case "$member_path" in
     docs|docs/*|.github/*|tools/*)
       echo "skipping non-crate member: $member_path"
-      ((skipped++))
+      skipped=$((skipped+1))
       continue
       ;;
   esac
@@ -71,11 +62,7 @@ for m in "${members[@]}"; do
   lib_rs_path="$src_dir/lib.rs"
 
   # Ensure directory exists
-  if [ ! -d "$crate_dir" ]; then
-    mkdir -p "$src_dir"
-  else
-    mkdir -p "$src_dir" || true
-  fi
+  mkdir -p "$src_dir"
 
   # Derive package name from the directory basename.
   pkg_name="$(basename "$crate_dir")"
@@ -84,21 +71,21 @@ for m in "${members[@]}"; do
   if [ ! -f "$cargo_toml_path" ]; then
     cat > "$cargo_toml_path" <<EOF
 [package]
-name = "$pkg_name"
+name = "${pkg_name}"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Auto-generated stub crate for $pkg_name (scaffolded by scripts/create-all-stubs.sh)."
+description = "Auto-generated stub crate for ${pkg_name} (created by scripts/create-all-stubs.sh)."
 rust-version = "1.70"
 
 [dependencies]
-# Add crate-specific dependencies here when replacing the stub.
+# add crate-specific deps when replacing the stub
 EOF
     echo "created: $cargo_toml_path"
-    ((created++))
+    created=$((created+1))
   else
-    echo "exists: $cargo_toml_path (skipped)"
-    ((skipped++))
+    echo "exists: $cargo_toml_path"
+    skipped=$((skipped+1))
   fi
 
   # Create src/lib.rs if it does not exist
@@ -119,11 +106,13 @@ pub fn info() -> &'static str {
 }
 EOF
     echo "created: $lib_rs_path"
-    ((created++))
+    created=$((created+1))
   else
-    echo "exists: $lib_rs_path (skipped)"
-    ((skipped++))
+    echo "exists: $lib_rs_path"
+    skipped=$((skipped+1))
   fi
-done
+done <<EOF
+$members_raw
+EOF
 
 echo "done. created $created files; skipped $skipped existing files."
