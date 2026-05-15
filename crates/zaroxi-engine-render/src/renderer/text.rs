@@ -3,7 +3,6 @@ use log::info;
 use crate::renderer::debug::RENDER_DEBUG;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::num::NonZeroU32;
 use wgpu::{
     BindGroup, BindGroupLayout, Device, Queue, Extent3d, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureView, TextureViewDescriptor, SamplerDescriptor,
@@ -90,7 +89,7 @@ impl FontAtlas {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
-                rows_per_image: Some(NonZeroU32::new(atlas_h).unwrap()),
+                rows_per_image: Some(atlas_h),
             },
             atlas_size,
         );
@@ -244,7 +243,7 @@ impl FontAtlas {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
-                rows_per_image: Some(NonZeroU32::new(height).unwrap()),
+                rows_per_image: Some(height),
             },
             extent,
         );
