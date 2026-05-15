@@ -173,13 +173,14 @@ impl<'a> Renderer<'a> {
         let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
             crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
-        // Initialize the text backend abstraction. The backend performs shaping,
-        // layout and rasterization. The backend will own and manage the font atlas
-        // and rasterization cache (cosmic-text / swash-backed). Pass required GPU
-        // resources so the backend can create/upload its atlas internally.
+        // Initialize the text backend abstraction. Default backend switched to a
+        // Glyphon-backed implementation which acts as the stable facade over glyph
+        // shaping/rasterization. The backend is responsible for shaping/layout and
+        // any GPU atlas management; it exposes the minimal `TextBackend` trait used
+        // by the renderer so the rest of the render pipeline remains unchanged.
         let font_size = 14.0f32;
         let text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync> =
-            Box::new(crate::renderer::backend::CosmicTextBackend::new(&device, &queue, &text_bind_layout, font_size)?);
+            Box::new(crate::renderer::backend::GlyphonTextBackend::new(&device, &queue, &text_bind_layout, font_size)?);
 
         // Create a simple shader for textured text (WGSL).
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
