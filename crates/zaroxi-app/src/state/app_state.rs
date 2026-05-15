@@ -8,7 +8,6 @@ use zaroxi_editor_core::EditorState;
 use zaroxi_editor_buffer::Document;
 use zaroxi_workspace::{WorkspaceState, WorkspaceItem};
 use zaroxi_theme::ZaroxiTheme;
-use log::info;
 
 /// Top-level app state assembled from domain parts.
 ///
@@ -37,12 +36,12 @@ impl AppState {
         workspace.select(None);
 
         // editor: workspace-first — start with no active document.
-        let mut editor = EditorState::new();
+        let editor = EditorState::new();
         // create an empty document only to satisfy panel construction; do not open it.
         let empty_doc = Document::new("".to_string(), "".to_string());
 
         // tabs: empty initially
-        let mut tabs = TabState::new();
+        let tabs = TabState::new();
 
         let status = StatusState::default();
         let assistant = AssistantState::default();
@@ -156,7 +155,7 @@ impl AppState {
 
                                     // update editor panel content
                                     if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
-                                        panel.content = doc.text();
+                                        panel.content = doc.text.clone();
                                     }
                                 }
                                 Err(e) => {
