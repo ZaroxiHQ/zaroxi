@@ -859,7 +859,9 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_renderer.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
+                            self.text_renderer.prepare(&mut self.queue)?;
+                            self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
                         }
                     }
                 }
@@ -960,7 +962,9 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_renderer.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
+                            self.text_renderer.prepare(&mut self.queue)?;
+                            self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
                         }
                     }
                 }
