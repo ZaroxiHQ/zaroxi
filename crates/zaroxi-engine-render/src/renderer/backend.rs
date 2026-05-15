@@ -21,6 +21,7 @@ use cosmic_text::{FontSystem, SwashCache, Buffer};
 /// - rasterization / atlas interactions (atlas is internal to the backend)
 ///
 /// The renderer consumes only placed glyphs produced by a backend instance.
+#[cfg(feature = "legacy_cosmic")]
 pub trait TextBackend: Send + Sync {
     /// Layout text clipped to a pixel rectangle. Returns placed glyphs in
     /// pixel coordinates ready for placement conversion into GPU vertices.

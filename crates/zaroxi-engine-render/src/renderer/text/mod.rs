@@ -82,7 +82,11 @@ pub trait TextRenderer: Send + Sync {
     fn queue_text(&self, cmd: TextCommand);
 
     /// Prepare glyphs for queued commands: shape, rasterize and upload any GPU resources.
-    fn prepare(&self, queue: &mut Queue) -> Result<(), RenderError>;
+    ///
+    /// The prepare step needs access to the Device as glyphon may create or
+    /// update GPU resources (textures, buffers) during prepare. Device is
+    /// passed in along with the Queue.
+    fn prepare(&self, device: &Device, queue: &mut Queue) -> Result<(), RenderError>;
 
     /// Render queued/ prepared text into the provided render pass. This method
     /// must bind any atlas bind groups and issue draw calls. It is called after

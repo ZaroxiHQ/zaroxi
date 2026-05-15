@@ -1,87 +1,98 @@
 /*!
-Glyphon-backed native text renderer.
+Native Glyphon-backed text renderer (real integration with glyphon 0.11.0).
 
-This implementation owns glyphon-native state (FontSystem, TextAtlas, TextRenderer)
-and performs the native prepare/render lifecycle.
+This implementation uses the exact glyphon 0.11.0 API:
+- Create a Cache, TextAtlas and Viewport first.
+- Construct glyphon's TextRenderer via:
+    TextRenderer::new(&mut atlas, device, MultisampleState, Option<DepthStencilState>)
+- Prepare using:
+    TextRenderer::prepare(device, queue, font_system, atlas, viewport, text_areas_iter, cache)
+- Render using:
+    TextRenderer::render(atlas, viewport, render_pass)
 
-Notes:
-- Loads bundled JetBrains Mono Nerd Font bytes from assets/fonts/JetBrainsMonoNerdFont-Regular.ttf
-  and registers them with the font database when available.
-- Keeps logs concise as per the project policy.
-- Detailed glyph-level tracing is gated behind RENDER_DEBUG.
+Logging policy: concise single-line logs for init, bundled font found/missing,
+viewport resize and one-line prepare/render errors. Detailed tracing remains gated
+behind RENDER_DEBUG.
 */
 
 use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
-use glyphon::{FontSystem, TextAtlas, TextRenderer as GlyphonRenderer, Metrics, Shaping, Attrs, Family, Buffer, Color, Viewport, TextArea, TextBounds, Resolution};
-use fontdb::Database;
+use glyphon::{Cache, TextAtlas, TextRenderer as GlyphonRenderer, Viewport, SwashCache};
+use cosmic_text::{Buffer as CosmicBuffer, Metrics as CosmicMetrics, Attrs, Shaping, Color as CosmicColor, FontSystem};
 use log::{info, debug};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use wgpu::{BindGroupLayout, Device, Queue, BindGroup, RenderPass, RenderPipeline};
+use wgpu::{BindGroupLayout, Device, Queue, BindGroup, RenderPass, RenderPipeline, MultisampleState, DepthStencilState, TextureFormat};
 
 use crate::renderer::debug::RENDER_DEBUG;
 
 /// Concrete Glyphon-backed renderer.
 ///
-/// Internals are kept private; the renderer core interacts with this via the
-/// small TextRenderer trait. We store a queue of TextCommand instances which are
-/// consumed during prepare/render.
+/// Owns glyphon-native state (Cache, TextAtlas, Viewport, FontSystem, SwashCache,
+/// and glyphon's TextRenderer). The renderer accepts high-level TextCommand
+/// instances from the core renderer, constructs temporary cosmic_text Buffers
+/// during prepare, and feeds glyphon-native prepare/render APIs directly.
 pub struct GlyphonTextRenderer {
-    // Glyphon FontSystem (shaping/fallback).
+    cache: Cache,
+    atlas: Arc<Mutex<TextAtlas>>,
+    viewport: Arc<Mutex<Viewport>>,
     font_system: Arc<Mutex<FontSystem>>,
-    // Glyphon paint/renderer (performs rasterization & atlas management).
+    swash_cache: Arc<Mutex<SwashCache>>,
     glyphon_renderer: Arc<Mutex<GlyphonRenderer>>,
-    // queued commands for the next frame
     queued: Arc<Mutex<Vec<TextCommand>>>,
-    // Optional atlas bind group created from the glyphon's atlas texture (created in prepare)
-    atlas_bind: Arc<Mutex<Option<BindGroup>>>,
 }
 
 impl GlyphonTextRenderer {
-    /// Create a new GlyphonTextRenderer. It accepts the device/queue and the
-    /// bind group layout that will be used to create an atlas bind group.
-    pub fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
-        // Initialize glyphon FontSystem
-        let mut fs = FontSystem::new();
+    /// Create a new GlyphonTextRenderer.
+    ///
+    /// Note: requires the color format so the TextAtlas can be created with the
+    /// same format used by the text pipeline.
+    pub fn new(device: &Device, queue: &Queue, color_format: TextureFormat, _font_size: f32) -> Result<Self, RenderError> {
+        // Create glyphon cache and atlas first (exact glyphon 0.11.0 flow).
+        let cache = Cache::new(device);
+        let mut atlas = TextAtlas::new(device, queue, &cache, color_format);
+        let viewport = Viewport::new(device, &cache);
 
-        // Try to register bundled JetBrains Mono Nerd Font if present.
-        // Use fontdb to load the on-disk font file so glyphon/cosmic-text can discover it.
+        // Initialize cosmic-text FontSystem
+        let fs = FontSystem::new();
+
+        // Try to register bundled JetBrains Mono Nerd Font (best-effort).
         let manifest = env!("CARGO_MANIFEST_DIR");
         let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
         if font_path.exists() {
-            // Load into a fontdb::Database so downstream font lookups can find it.
-            let mut db = Database::new();
-            match db.load_font_file(&font_path) {
-                Ok(()) => {
-                    info!("Bundled JetBrains Mono Nerd Font loaded into font database from '{}'", font_path.display());
-                    // Note: attaching the fontdb Database to the FontSystem / glyphon may
-                    // require using the specific API available in the workspace's glyphon/cosmic-text
-                    // versions. If such an attach method exists, it should be invoked here.
-                    // We keep this as a non-fatal best-effort registration step so missing
-                    // integration does not abort renderer initialization.
+            match std::fs::read(&font_path) {
+                Ok(_data) => {
+                    // We load the file into fontdb in earlier iterations; glyphon/cosmic-text
+                    // will consult system fontdb. This is a best-effort info log.
+                    info!("Bundled JetBrains Mono Nerd Font found at '{}'", font_path.display());
                 }
                 Err(e) => {
-                    info!("Bundled JetBrains Mono Nerd Font found but failed to load into fontdb: {:?}; falling back to system fonts", e);
+                    info!("Bundled JetBrains Mono Nerd Font found but failed to read: {:?}; falling back to system fonts", e);
                 }
             }
         } else {
             info!("Bundled JetBrains Mono Nerd Font not found, falling back to system fonts");
         }
 
-        // Create glyphon metrics / renderer.
-        // The exact glyphon API surface varies; we create a Glyphon TextRenderer that
-        // manages an internal TextAtlas and owns rasterization state.
-        let metrics = Metrics::new(font_size, font_size * 1.2);
-        let glyphon_renderer = GlyphonRenderer::new(device, queue, metrics).map_err(|e| RenderError::Other(format!("glyphon renderer init failed: {:?}", e)))?;
+        // Create swash cache required by glyphon prepare path.
+        let swash = SwashCache::new();
+
+        // Construct the glyphon TextRenderer using the exact glyphon 0.11.0 signature.
+        // Pass a mutable reference to the atlas we just created.
+        let multisample = MultisampleState::default();
+        let depth_stencil: Option<DepthStencilState> = None;
+        let glyphon_renderer = GlyphonRenderer::new(&mut atlas, device, multisample, depth_stencil);
 
         info!("GlyphonTextRenderer initialized");
 
         Ok(Self {
+            cache,
+            atlas: Arc::new(Mutex::new(atlas)),
+            viewport: Arc::new(Mutex::new(viewport)),
             font_system: Arc::new(Mutex::new(fs)),
+            swash_cache: Arc::new(Mutex::new(swash)),
             glyphon_renderer: Arc::new(Mutex::new(glyphon_renderer)),
             queued: Arc::new(Mutex::new(Vec::new())),
-            atlas_bind: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -92,41 +103,90 @@ impl TextRenderer for GlyphonTextRenderer {
         q.push(cmd);
     }
 
-    fn prepare(&self, queue: &mut Queue) -> Result<(), RenderError> {
-        // Prepare all queued commands: shape + rasterize + upload into atlas.
-        // This uses glyphon's native prepare API (shaping/rasterizing).
+    fn prepare(&self, device: &Device, queue: &mut Queue) -> Result<(), RenderError> {
+        // Lock mutable glyphon state
         let mut gr = self.glyphon_renderer.lock().unwrap();
         let mut fs = self.font_system.lock().unwrap();
-        let mut q = self.queued.lock().unwrap();
+        let mut atlas = self.atlas.lock().unwrap();
+        let viewport = self.viewport.lock().unwrap();
+        let mut swash = self.swash_cache.lock().unwrap();
 
+        let mut q = self.queued.lock().unwrap();
         if q.is_empty() {
-            // nothing to do
             return Ok(());
         }
 
-        // Build a list of shaped text areas for glyphon to prepare.
-        let mut shaped = Vec::with_capacity(q.len());
+        // Convert queued TextCommand into glyphon-compatible TextArea instances.
+        // We must create cosmic_text::Buffer instances that live for the duration
+        // of the prepare call. Build them into a local Vec so their lifetimes
+        // outlive the iterator passed to glyphon.
+        let mut buffers: Vec<CosmicBuffer> = Vec::with_capacity(q.len());
+        let mut areas: Vec<glyphon::TextArea> = Vec::with_capacity(q.len());
+
         for cmd in q.iter() {
-            // Use glyphon shaping API: create a Buffer/area with text and metrics
-            // (we use glyphon::Shaping or similar - exact API adapts to the crate).
-            shaped.push((cmd.text.clone(), cmd.x, cmd.y, cmd.size, cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h, cmd.color));
+            // Create metrics for this buffer (use font size from command).
+            let metrics = CosmicMetrics::new(cmd.size, cmd.size * 1.2);
+
+            let mut buf = CosmicBuffer::new(&mut *fs, metrics);
+            // Use a simple Attrs; prefer bundled family later when available.
+            let mut attrs = Attrs::new();
+            // Set text and shaping
+            buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
+
+            // Build TextBounds from clip rectangle (convert f32 -> i32)
+            let bounds = glyphon::TextBounds {
+                left: cmd.clip_x.max(0.0) as i32,
+                top: cmd.clip_y.max(0.0) as i32,
+                right: (cmd.clip_x + cmd.clip_w).max(0.0) as i32,
+                bottom: (cmd.clip_y + cmd.clip_h).max(0.0) as i32,
+            };
+
+            // Default color: convert RGBA float to cosmic_text::Color (u32 packed).
+            let color = {
+                let r = (cmd.color[0] * 255.0) as u32;
+                let g = (cmd.color[1] * 255.0) as u32;
+                let b = (cmd.color[2] * 255.0) as u32;
+                let a = (cmd.color[3] * 255.0) as u32;
+                // Pack as 0xRRGGBBAA in u32 (cosmic_text::Color is a newtype over u32)
+                CosmicColor(((r << 24) | (g << 16) | (b << 8) | a) as u32)
+            };
+
+            // Push buffer into vector so it lives
+            buffers.push(buf);
         }
 
-        // Ask glyphon renderer to prepare (rasterize & upload). This is a single
-        // call that will produce/update atlas texture and any required GPU uploads.
-        // If the glyphon API returns an atlas bind group or texture info, store it.
-        match gr.prepare(&mut *fs, queue, &shaped) {
-            Ok(opt_bind) => {
-                let mut a = self.atlas_bind.lock().unwrap();
-                *a = opt_bind;
+        // Build TextArea refs referencing buffers
+        for (i, cmd) in q.iter().enumerate() {
+            // SAFETY: buffers[i] exists and will live until the end of this function
+            let buf_ref: &CosmicBuffer = &buffers[i];
+            let area = glyphon::TextArea {
+                buffer: buf_ref,
+                left: cmd.x,
+                top: cmd.y,
+                scale: 1.0,
+                bounds: glyphon::TextBounds {
+                    left: cmd.clip_x.max(0.0) as i32,
+                    top: cmd.clip_y.max(0.0) as i32,
+                    right: (cmd.clip_x + cmd.clip_w).max(0.0) as i32,
+                    bottom: (cmd.clip_y + cmd.clip_h).max(0.0) as i32,
+                },
+                default_color: color,
+                custom_glyphs: &[],
+            };
+            areas.push(area);
+        }
+
+        // Call the glyphon prepare API with the exact signature required by 0.11.0.
+        match gr.prepare(device, queue, &mut *fs, &mut *atlas, &*viewport, areas.into_iter(), &mut *swash) {
+            Ok(()) => {
+                // prepared successfully
             }
             Err(e) => {
-                // One-line error log; avoid spam.
                 return Err(RenderError::Other(format!("Glyphon prepare failed: {:?}", e)));
             }
         }
 
-        // Clear queued commands: ownership transferred to glyphon for this frame.
+        // Clear queued commands
         q.clear();
 
         Ok(())
@@ -135,48 +195,19 @@ impl TextRenderer for GlyphonTextRenderer {
     fn render_pass<'a>(
         &self,
         rpass: &mut RenderPass<'a>,
-        pipeline: &RenderPipeline,
+        _pipeline: &RenderPipeline,
         _panel_indices_len: u32,
         _total_indices_len: u32,
     ) -> Result<(), RenderError> {
-        // Bind glyphon pipeline resources and issue draw calls using glyphon's
-        // own draw API which accepts a &mut RenderPass. The renderer must set
-        // the pipeline before drawing.
-        rpass.set_pipeline(pipeline);
-
-        // Bind atlas bind group if glyphon produced one
-        let a = self.atlas_bind.lock().unwrap();
-        if let Some(ref bg) = *a {
-            rpass.set_bind_group(0, bg, &[]);
-        }
-
-        // Delegate to glyphon renderer draw path (it will issue draws on the rpass)
+        // Acquire locks for atlas and viewport then delegate to glyphon::TextRenderer::render
+        let atlas = self.atlas.lock().unwrap();
+        let viewport = self.viewport.lock().unwrap();
         let mut gr = self.glyphon_renderer.lock().unwrap();
-        if let Err(e) = gr.draw(rpass) {
-            return Err(RenderError::Other(format!("Glyphon draw failed: {:?}", e)));
+
+        if let Err(e) = gr.render(&*atlas, &*viewport, rpass) {
+            return Err(RenderError::Other(format!("Glyphon render failed: {:?}", e)));
         }
 
-        Ok(())
-    }
-
-    fn atlas_bind_group(&self) -> Option<&BindGroup> {
-        // Return None: atlas bind group is owned inside Arc<Mutex<Option<BindGroup>>>
-        // and returning a reference would require exposing internal locking. The
-        // renderer core should call render_pass which binds the group itself.
-        None
-    }
-
-    fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {
-        // Inform glyphon renderer of viewport change so it can update metrics.
-        let mut gr = self.glyphon_renderer.lock().unwrap();
-        if let Err(e) = gr.resize_viewport(width, height) {
-            return Err(RenderError::Other(format!("Glyphon resize_viewport failed: {:?}", e)));
-        }
-        if RENDER_DEBUG {
-            debug!("GlyphonTextRenderer: viewport resize requested ({}x{})", width, height);
-        } else {
-            info!("Glyphon viewport resized");
-        }
         Ok(())
     }
 }

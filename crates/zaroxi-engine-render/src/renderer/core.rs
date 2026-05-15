@@ -178,7 +178,7 @@ impl<'a> Renderer<'a> {
         // owns its native glyphon state and manages prepare/viewport/update/prepare/render lifecycle.
         let font_size = 14.0f32;
         let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
-            Box::new(crate::renderer::text::GlyphonTextRenderer::new(&device, &queue, &text_bind_layout, font_size)?);
+            Box::new(crate::renderer::text::GlyphonTextRenderer::new(&device, &queue, config.format, font_size)?);
 
         // Create a simple shader for textured text (WGSL).
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
@@ -860,7 +860,7 @@ impl<'a> Renderer<'a> {
                             );
 
                             // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
-                            self.text_renderer.prepare(&mut self.queue)?;
+                            self.text_renderer.prepare(&self.device, &mut self.queue)?;
                             self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
                         }
                     }
@@ -963,7 +963,7 @@ impl<'a> Renderer<'a> {
                             );
 
                             // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
-                            self.text_renderer.prepare(&mut self.queue)?;
+                            self.text_renderer.prepare(&self.device, &mut self.queue)?;
                             self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
                         }
                     }
