@@ -89,7 +89,7 @@ impl FontAtlas {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
-                rows_per_image: None,
+                rows_per_image: Some(NonZeroU32::new(atlas_h).unwrap()),
             },
             atlas_size,
         );
@@ -243,7 +243,7 @@ impl FontAtlas {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row),
-                rows_per_image: None,
+                rows_per_image: Some(NonZeroU32::new(height).unwrap()),
             },
             extent,
         );

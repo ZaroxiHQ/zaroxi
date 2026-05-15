@@ -3,6 +3,7 @@ use crate::renderer::text::{PlacedGlyph, FontAtlas, GlyphInfo};
 use crate::renderer::geometry::color_to_rgba;
 use log::{debug, info};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
 
 /* explicit re-exports expected by the backend code; cosmic-text crate is
