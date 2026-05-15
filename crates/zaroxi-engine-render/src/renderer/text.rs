@@ -1,5 +1,5 @@
 use crate::error::RenderError;
-use log::{debug, info};
+use log::info;
 use crate::renderer::debug::RENDER_DEBUG;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -158,7 +158,7 @@ impl FontAtlas {
     ) -> Result<(f32,f32,f32,f32), RenderError> {
         // Pack the glyph into the atlas using a simple shelf allocator.
         let mut packer = self.packer.lock().unwrap();
-        let (ref mut nx, ref mut ny, ref mut row_h, ref padding) = (*packer);
+        let (ref mut nx, ref mut ny, ref mut row_h, ref padding) = *packer;
 
         // New row if needed
         if *nx + width + *padding > self.atlas_width {
@@ -305,7 +305,7 @@ pub struct PlacedGlyph {
 pub(crate) fn layout_text_clipped(
     atlas: &FontAtlas,
     mut x: f32,
-    y: f32,
+    mut y: f32,
     text: &str,
     color: [f32; 4],
     screen_w: f32,
@@ -400,7 +400,7 @@ pub(crate) fn emit_text(
     verts: &mut Vec<Vertex>,
     indices: &mut Vec<u16>,
     mut x: f32,
-    y: f32,
+    mut y: f32,
     text: &str,
     color: [f32; 4],
     screen_w: f32,
@@ -536,7 +536,7 @@ pub(crate) fn emit_text_clipped(
     verts: &mut Vec<Vertex>,
     indices: &mut Vec<u16>,
     mut x: f32,
-    y: f32,
+    mut y: f32,
     text: &str,
     color: [f32; 4],
     screen_w: f32,

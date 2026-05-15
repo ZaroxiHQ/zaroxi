@@ -1,29 +1,24 @@
 use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use wgpu::{
     Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device, DeviceDescriptor,
-    Features, Instance, InstanceDescriptor, Limits, PresentMode, Queue, RequestAdapterOptions, Surface,
+    Features, Instance, InstanceDescriptor, Limits, Queue, RequestAdapterOptions, Surface,
     SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
     Extent3d, TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
 };
 
-use fontdue::Font;
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
-
 use zaroxi_app::AppState;
-use zaroxi_theme::{SemanticColors, Color as ThemeColor};
+use zaroxi_theme::SemanticColors;
 
 use crate::renderer::debug::{
     render_debug_enabled, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, FIRST_GLYPH_LOGGED,
     LOGGED_TITLEBAR, LOGGED_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED,
     FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
 };
-use crate::renderer::geometry::{Vertex, push_colored_quad, color_to_rgba, pixel_to_ndc};
+use crate::renderer::geometry::{Vertex, push_colored_quad, pixel_to_ndc};
 
 /// Internal context that groups per-frame geometry buffers and screen size.
 /// Introduced to reduce the responsibility surface of core.rs and to provide
@@ -175,7 +170,7 @@ impl<'a> Renderer<'a> {
         let config = crate::renderer::surface::configure_surface(&surface, &adapter, &device, size)?;
 
         // Create pipelines & bind group layouts (moved to renderer::pipelines).
-        let (text_bind_layout, text_pipeline, debug_pipeline, shape_pipeline) =
+        let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
             crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
         // Initialize the text backend abstraction. The backend performs shaping,
