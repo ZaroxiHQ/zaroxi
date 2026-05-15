@@ -1,16 +1,16 @@
 [package]
-name = "zaroxi-protocol"
+name = "zaroxi-kernel-protocol"
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
-description = "Shared protocol definitions for Zaroxi"
+description = "Kernel-level protocol definitions for Zaroxi (stable wire types). Exposes minimal, stable wire types for inter-crate communication."
 authors = ["Zaroxi Team"]
 repository = "https://github.com/zaroxi/zaroxi"
 readme = "README.md"
 rust-version = "1.85.0"
 
 [lib]
-name = "zaroxi_protocol"
+name = "zaroxi_kernel_protocol"
 path = "src/lib.rs"
 
 [dependencies]
