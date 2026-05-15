@@ -15,7 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 zaroxi-domain-editor = { workspace = true }
-zaroxi-core-ids = { workspace = true }
 zaroxi-protocol = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
