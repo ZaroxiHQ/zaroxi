@@ -187,9 +187,17 @@ impl<'a> Renderer<'a> {
             Box::new(crate::renderer::backend::CosmicTextBackend::new(&device, &queue, &text_bind_layout, font_size)?);
 
         // Create a simple shader for textured text (WGSL).
+        // Diagnostic: record which WGSL source is being compiled into the pipeline.
+        // This helps prove whether the shader file edited during debugging is the
+        // one actually used at runtime.
+        let shader_src = include_str!("../text_shader.wgsl");
+        info!(
+            "TEXT PIPELINE BUILD: shader=crates/zaroxi-engine-render/src/text_shader.wgsl len={} bytes",
+            shader_src.len()
+        );
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("text-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../text_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

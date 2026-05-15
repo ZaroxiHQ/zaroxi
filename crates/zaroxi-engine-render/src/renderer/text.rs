@@ -617,11 +617,17 @@ pub(crate) fn submit_text_pass<'a>(
     panel_indices_len: u32,
     total_indices_len: u32,
 ) {
+    // Provenance diagnostic: log the runtime pipeline/bind-group pointers so we
+    // can prove which pipeline object is actually bound when drawing text.
+    info!("TEXT PIPELINE BIND: pipeline_ptr={:p}", text_pipeline);
     rpass.set_pipeline(text_pipeline);
 
     // Rebind the font atlas bind group (must be set after switching pipeline).
     if let Some(bg) = font_atlas_bind {
+        info!("TEXT PIPELINE BIND: bind_group_ptr={:p}", bg);
         rpass.set_bind_group(0, bg, &[]);
+    } else {
+        info!("TEXT PIPELINE BIND: no font_atlas_bind provided");
     }
 
     rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
