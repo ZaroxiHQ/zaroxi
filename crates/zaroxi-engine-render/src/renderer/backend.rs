@@ -154,6 +154,7 @@ fn cosmic_color_to_rgba(c: cosmic_text::Color) -> [f32; 4] {
     [r, g, b, a]
 }
 
+#[cfg(feature = "legacy_cosmic")]
 pub struct CosmicTextBackend {
     // cosmic-text's FontSystem is the shaping/layout/fallback engine.
     // Wrapped in a Mutex so the TextBackend can borrow it mutably while
@@ -645,89 +646,13 @@ impl TextBackend for CosmicTextBackend {
     }
 }
 
-//
-// Glyphon-backed TextBackend (new default)
-// - Lightweight facade implementing the existing `TextBackend` trait so the
-//   renderer core can remain unchanged.
-// - Default behavior registers the bundled JetBrains Mono Nerd font (if present)
-//   and returns concise log lines. Detailed per-glyph logging is avoided by
-//   default to prevent terminal spam. A full glyphon integration (layout,
-//   rasterization and atlas uploads) can be implemented behind this facade
-//   without touching renderer core logic.
-//
-// Note: this initial implementation is intentionally conservative: it sets up
-// font registration and initialization logging, and returns an empty placed
-// glyph list until the full glyphon -> wgpu atlas glue is implemented. This
-// allows us to switch the default path to glyphon safely while preserving the
-// architecture and enabling incremental work to complete the rasterization
-// uploads and atlas bind-group wiring.
-//
-// The old CosmicTextBackend remains available in this file as a legacy path
-// (not used by default). If needed the legacy path can be re-enabled via a
-// feature flag or by changing the initializer in renderer core.
-use std::path::PathBuf;
+/*
+Glyphon integration has been moved to `crates/zaroxi-engine-render/src/renderer/text/mod.rs`
+which implements the new `TextRenderer` trait and provides the default Glyphon-backed
+text renderer. The legacy `CosmicTextBackend` remains available behind the
+`legacy_cosmic` Cargo feature and is not used by default.
 
-pub struct GlyphonTextBackend {
-    // Indicates whether the bundled font was found and registered.
-    bundled_font_loaded: bool,
-}
-
-impl GlyphonTextBackend {
-    /// Create a new Glyphon-backed text backend.
-    ///
-    /// This will attempt to discover the bundled JetBrainsMono Nerd font under
-    /// the repository assets and log a concise success/failure message.
-    /// The backend currently does not expose an atlas bind group (None returned)
-    /// until the glyphon -> GPU atlas integration is implemented.
-    pub fn new(_device: &Device, _queue: &Queue, _layout: &BindGroupLayout, _font_size: f32) -> Result<Self, RenderError> {
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
-        let bundled_loaded = if font_path.exists() {
-            info!("GlyphonTextBackend: bundled JetBrainsMonoNerdFont found at '{}'", font_path.display());
-            true
-        } else {
-            // Concise single-line warning if the bundled font is not present.
-            info!("GlyphonTextBackend: bundled JetBrainsMonoNerdFont not found at '{}', will fall back to system fonts", font_path.display());
-            false
-        };
-
-        // TODO: integrate glyphon here for shaping + rasterization.
-        // For now the backend is a safe facade returning no atlas bind group
-        // and an empty placement list; this enables switching the default
-        // wiring without leaving partially-working or noisy code paths.
-        Ok(Self { bundled_font_loaded: bundled_loaded })
-    }
-
-    // Helper: future place for font registration / glyphon state
-    // (kept private to avoid leaking glyphon types into rest of renderer).
-}
-
-impl TextBackend for GlyphonTextBackend {
-    fn layout_text_clipped(
-        &self,
-        _queue: &mut Queue,
-        _x: f32,
-        _y: f32,
-        _text: &str,
-        _color: [f32; 4],
-        _screen_w: f32,
-        _screen_h: f32,
-        _clip_x: f32,
-        _clip_y: f32,
-        _clip_w: f32,
-        _clip_h: f32,
-    ) -> Result<Vec<PlacedGlyph>, RenderError> {
-        // NOTE: TODO: implement glyphon integration here. For the initial
-        // migration we return an empty placement list to keep the default
-        // renderer path stable and noise-free. Once the glyphon -> GPU atlas
-        // plumbing is completed this will return real placed glyphs.
-        Ok(Vec::new())
-    }
-
-    fn atlas_bind_group(&self) -> Option<&BindGroup> {
-        // Glyphon-backed path will own its atlas and eventually return a bind
-        // group here. For now return None to avoid binding an atlas that isn't
-        // been created by this facade yet.
-        None
-    }
-}
+The legacy `GlyphonTextBackend` stub that previously lived here has been intentionally
+removed to keep glyphon-specific code inside `renderer::text` and to avoid scattering
+glyphon APIs across unrelated modules.
+*/

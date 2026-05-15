@@ -109,8 +109,8 @@ pub struct Renderer<'a> {
     debug_pipeline: wgpu::RenderPipeline,
     // Solid-shape pipeline used for all non-text UI quads (panels / borders).
     shape_pipeline: wgpu::RenderPipeline,
-    // font atlas
-    text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync>,
+    // text subsystem renderer (default: Glyphon-backed)
+    text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync>,
 
     // vertex/index buffers reused each frame
     vertex_buffer: Buffer,
@@ -173,14 +173,12 @@ impl<'a> Renderer<'a> {
         let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
             crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
-        // Initialize the text backend abstraction. Default backend switched to a
-        // Glyphon-backed implementation which acts as the stable facade over glyph
-        // shaping/rasterization. The backend is responsible for shaping/layout and
-        // any GPU atlas management; it exposes the minimal `TextBackend` trait used
-        // by the renderer so the rest of the render pipeline remains unchanged.
+        // Initialize the text subsystem. Default renderer uses the Glyphon-backed
+        // TextRenderer implementation located in renderer::text. The text subsystem
+        // owns its atlas and manages prepare/viewport/update/prepare/render lifecycle.
         let font_size = 14.0f32;
-        let text_backend: Box<dyn crate::renderer::backend::TextBackend + Send + Sync> =
-            Box::new(crate::renderer::backend::GlyphonTextBackend::new(&device, &queue, &text_bind_layout, font_size)?);
+        let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
+            Box::new(crate::renderer::text::GlyphonTextRenderer::new(&device, &queue, &text_bind_layout, font_size)?);
 
         // Create a simple shader for textured text (WGSL).
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
@@ -302,7 +300,7 @@ impl<'a> Renderer<'a> {
             text_bind_layout,
             debug_pipeline,
             shape_pipeline,
-            text_backend,
+            text_renderer,
             vertex_buffer,
             index_buffer,
             index_count: 0,
@@ -599,7 +597,7 @@ impl<'a> Renderer<'a> {
             // in the backend-managed atlas. The backend may use the provided queue to
             // upload missing glyph bitmaps into its internal atlas before returning
             // placed glyphs with valid UVs.
-            let placed = self.text_backend.layout_text_clipped(
+            let placed = self.text_renderer.layout_text_clipped(
                 &mut self.queue,
                 title_x,
                 title_y,
@@ -695,7 +693,7 @@ impl<'a> Renderer<'a> {
                 let content_w = (target.w - content_padding * 2.0).max(0.0);
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
                 if content_w > 0.0 && content_h > 0.0 {
-                    let placed_content = self.text_backend.layout_text_clipped(
+                    let placed_content = self.text_renderer.layout_text_clipped(
                         &mut self.queue,
                         content_x,
                         content_y,
@@ -985,7 +983,7 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_backend.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_renderer.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
                 }
@@ -1086,7 +1084,7 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_backend.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
+                            crate::renderer::text::submit_text_pass(&mut rpass, &self.text_pipeline, self.text_renderer.atlas_bind_group(), &self.vertex_buffer, &self.index_buffer, panel_indices_len, total_indices_len);
                         }
                     }
                 }

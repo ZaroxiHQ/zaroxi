@@ -33,3 +33,13 @@ zaroxi-app = { path = "../zaroxi-app" }
 
 # Theme tokens (semantic colors) are owned by the theme crate; renderer consumes them.
 zaroxi-theme = { path = "../zaroxi-theme" }
+
+[features]
+# Default feature enables the new Glyphon-based text renderer.
+default = ["use_glyphon"]
+# Enable the legacy cosmic-text based backend (opt-in only).
+legacy_cosmic = []
+
+# Feature enabling the glyphon-based renderer (kept for clarity; glyphon is a
+# direct dependency in this crate so the feature primarily documents intent).
+use_glyphon = []
