@@ -301,6 +301,21 @@ impl TextBackend for CosmicTextBackend {
             debug!("CosmicTextBackend: note: using cosmic-text layout + swash rasterization for rendering");
         }
 
+        // Validate clip rectangle semantics early: callers MUST pass (x, y, width, height).
+        // A zero-or-negative width/height indicates a caller bug or a flipped rect.
+        // In that case we bail out early to avoid producing invalid glyph placements
+        // or performing wasted rasterization work.
+        if clip_w <= 0.0 || clip_h <= 0.0 {
+            if should_log {
+                info!(
+                    "CosmicTextBackend: empty_or_invalid_clip: x={}, y={}, w={}, h={}",
+                    clip_x, clip_y, clip_w, clip_h
+                );
+            }
+            // Return empty placement list (nothing to draw).
+            return Ok(Vec::new());
+        }
+
         // Output glyphs and counters
         let mut out: Vec<PlacedGlyph> = Vec::new();
         let mut pen_x = x;

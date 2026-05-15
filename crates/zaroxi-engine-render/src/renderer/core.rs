@@ -614,8 +614,28 @@ impl<'a> Renderer<'a> {
                 let pg = &placed[0];
                 let ndc_a = pixel_to_ndc(pg.x0_px, pg.y0_px, width, height);
                 let ndc_c = pixel_to_ndc(pg.x1_px, pg.y1_px, width, height);
+
+                // Compute clip min/max for clarity (caller passes x,y,width,height).
+                let clip_min_x = hx;
+                let clip_min_y = hy;
+                let clip_max_x = hx + hw;
+                let clip_max_y = hy + hh;
+
+                // Defensive diagnostic: if header width/height look invalid, emit a clear log.
+                if hw <= 0.0 || hh <= 0.0 {
+                    info!(
+                        "title_placed: block='{}' title='{}' invalid_header_size hx={},hy={},hw={},hh={}",
+                        block.id,
+                        block.title,
+                        hx,
+                        hy,
+                        hw,
+                        hh
+                    );
+                }
+
                 info!(
-                    "title_placed: block='{}' title='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                    "title_placed: block='{}' title='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip_xywh=({:.1},{:.1},{:.1},{:.1}) clip_minmax=({:.1},{:.1})-({:.1},{:.1})",
                     block.id,
                     block.title,
                     pg.x0_px,
@@ -626,10 +646,14 @@ impl<'a> Renderer<'a> {
                     ndc_a[1],
                     ndc_c[0],
                     ndc_c[1],
-                    hx,
-                    hy,
-                    hx + hw,
-                    hy + hh
+                    clip_min_x,
+                    clip_min_y,
+                    hw,
+                    hh,
+                    clip_min_x,
+                    clip_min_y,
+                    clip_max_x,
+                    clip_max_y
                 );
             } else {
                 info!("title_placed: block='{}' title='{}' no placed glyphs", block.id, block.title);
@@ -686,8 +710,26 @@ impl<'a> Renderer<'a> {
                         let pgc = &placed_content[0];
                         let ndc_a = pixel_to_ndc(pgc.x0_px, pgc.y0_px, width, height);
                         let ndc_c = pixel_to_ndc(pgc.x1_px, pgc.y1_px, width, height);
+
+                        let clip_min_x = content_x;
+                        let clip_min_y = content_y;
+                        let clip_max_x = content_x + content_w;
+                        let clip_max_y = content_y + content_h;
+
+                        if content_w <= 0.0 || content_h <= 0.0 {
+                            info!(
+                                "content_placed: block='{}' first_char='{}' invalid_content_area x={},y={},w={},h={}",
+                                block.id,
+                                block.content.chars().next().unwrap_or('?'),
+                                content_x,
+                                content_y,
+                                content_w,
+                                content_h
+                            );
+                        }
+
                         info!(
-                            "content_placed: block='{}' first_char='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip=({:.1},{:.1})-({:.1},{:.1})",
+                            "content_placed: block='{}' first_char='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip_xywh=({:.1},{:.1},{:.1},{:.1}) clip_minmax=({:.1},{:.1})-({:.1},{:.1})",
                             block.id,
                             block.content.chars().next().unwrap_or('?'),
                             pgc.x0_px,
@@ -698,10 +740,14 @@ impl<'a> Renderer<'a> {
                             ndc_a[1],
                             ndc_c[0],
                             ndc_c[1],
-                            content_x,
-                            content_y,
+                            clip_min_x,
+                            clip_min_y,
                             content_w,
-                            content_h
+                            content_h,
+                            clip_min_x,
+                            clip_min_y,
+                            clip_max_x,
+                            clip_max_y
                         );
                     } else {
                         info!("content_placed: block='{}' no placed glyphs", block.id);
