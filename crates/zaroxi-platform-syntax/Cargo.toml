@@ -7,4 +7,16 @@ description = "Language grammars and parser runtime (Tree-sitter integration)."
 rust-version = "1.85"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+serde = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+libloading = { workspace = true, optional = true }
+tree-sitter = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+ropey = { workspace = true }
+cc = { workspace = true }
+
+[features]
+# Optional dynamic loading for runtime plugins / grammars.
+dynamic-loading = ["libloading"]
