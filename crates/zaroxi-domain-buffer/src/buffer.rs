@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use zaroxi_foundation::DocumentId;
+use zaroxi_kernel_types::Id;
 
 /// Document model used by the editor buffer crate.
 ///
@@ -8,7 +8,7 @@ use zaroxi_foundation::DocumentId;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
     /// Unique identifier.
-    pub id: DocumentId,
+    pub id: Id,
     /// Display name (file name or untitled).
     pub display_name: String,
     /// Text contents of the buffer.
@@ -21,7 +21,7 @@ impl Document {
     /// Create a new in-memory document with provided contents.
     pub fn new(display_name: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
-            id: DocumentId::new(),
+            id: Id::new(),
             display_name: display_name.into(),
             text: text.into(),
             dirty: false,

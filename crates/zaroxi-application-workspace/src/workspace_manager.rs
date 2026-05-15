@@ -1,13 +1,13 @@
-//! Workspace manager.
+ //! Workspace manager.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use zaroxi_kernel_types::Id;
 
 /// A managed workspace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagedWorkspace {
     /// Unique identifier for the workspace.
-    pub id: Uuid,
+    pub id: Id,
     /// The root path.
     pub root_path: String,
     /// Whether the workspace is active.
@@ -17,7 +17,7 @@ pub struct ManagedWorkspace {
 impl ManagedWorkspace {
     /// Create a new managed workspace.
     pub fn new(root_path: String) -> Self {
-        Self { id: Uuid::new_v4(), root_path, active: true }
+        Self { id: Id::new(), root_path, active: true }
     }
 
     /// Deactivate the workspace.
