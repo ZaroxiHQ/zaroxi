@@ -2,32 +2,9 @@
 name = "zaroxi-core-render"
 version = "0.1.0"
 edition = "2024"
-publish = false
 license = "MIT"
-description = "GPU rendering API abstraction and renderer facade (render graph, pipelines, text compositor)."
+description = "GPU rendering API abstraction and renderer facade."
+rust-version = "1.85"
 
 [dependencies]
-anyhow = "1"
-thiserror = "2"
-wgpu = "29.0.3"
-winit = { workspace = true }
-pollster = "0.3"
-log = "0.4"
-raw-window-handle = "0.5"
-
-# Text and font support (examples; may be gated by features later)
-cosmic-text = "0.19.0"
-glyphon = "0.11.0"
-fontdb = "0.23"
-fontdue = "0.7"
-unicode-segmentation = "1.11"
-bytemuck = "1.13"
-
-# Local workspace deps (consume app state / theme tokens read-only)
-zaroxi-interface-app = { path = "../crates/zaroxi-interface-app", version = "0.1.0", optional = true }
-zaroxi-interface-theme = { path = "../crates/zaroxi-interface-theme", version = "0.1.0", optional = true }
-
-[features]
-default = ["use_glyphon"]
-legacy_cosmic = []
-use_glyphon = []
+# Add crate-specific dependencies when replacing stubbed manifests.

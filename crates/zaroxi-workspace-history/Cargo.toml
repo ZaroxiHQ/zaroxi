@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-workspace-history"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Workspace-level operation timeline and undo."
+rust-version = "1.85"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

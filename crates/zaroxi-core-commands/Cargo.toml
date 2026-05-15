@@ -3,3 +3,8 @@ name = "zaroxi-core-commands"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Typed command registry, execution model and undo hooks."
+rust-version = "1.85"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

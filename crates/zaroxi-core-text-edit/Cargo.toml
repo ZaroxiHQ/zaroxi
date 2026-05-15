@@ -3,6 +3,8 @@ name = "zaroxi-core-text-edit"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Efficient edit application and range translation utilities."
+rust-version = "1.85"
 
 [dependencies]
-zaroxi-core-text-rope = { path = "../zaroxi-core-text-rope" }
+# Add crate-specific dependencies when replacing stubbed manifests.

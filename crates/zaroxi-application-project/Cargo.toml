@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-application-project"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Build and task orchestration for projects."
+rust-version = "1.85"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

@@ -4,19 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Workspace model and project metadata (pure logic, no IO)."
-
-[lib]
-name = "zaroxi_domain_workspace"
-path = "src/lib.rs"
+rust-version = "1.85"
 
 [dependencies]
-zaroxi-domain-editor = { path = "../zaroxi-domain-editor" }
-zaroxi-protocol = { path = "../zaroxi-protocol" }
-serde = { workspace = true, features = ["derive"] }
-uuid = { workspace = true, features = ["v4", "serde"] }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-chrono = { workspace = true }
-
-[features]
-default = []
+# Add crate-specific dependencies when replacing stubbed manifests.

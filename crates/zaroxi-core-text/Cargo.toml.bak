@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-core-text"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Facade API for text buffers, edits and snapshots (zero-copy)."
+rust-version = "1.70"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

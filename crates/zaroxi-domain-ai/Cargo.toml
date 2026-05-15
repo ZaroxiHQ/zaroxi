@@ -3,19 +3,8 @@ name = "zaroxi-domain-ai"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "AI domain models: context collection, ranking, packing, and prompt construction (pure logic)."
-
-[lib]
-name = "zaroxi_domain_ai"
-path = "src/lib.rs"
+description = "AI domain models: context collection and prompt builders."
+rust-version = "1.85"
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-zaroxi-protocol = { workspace = true }
-
-[features]
-default = []
+# Add crate-specific dependencies when replacing stubbed manifests.

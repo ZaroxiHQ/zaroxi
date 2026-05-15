@@ -3,6 +3,8 @@ name = "zaroxi-kernel-errors"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Unified kernel error types and conversion utilities."
+rust-version = "1.85"
 
 [dependencies]
-thiserror = "2"
+# Add crate-specific dependencies when replacing stubbed manifests.

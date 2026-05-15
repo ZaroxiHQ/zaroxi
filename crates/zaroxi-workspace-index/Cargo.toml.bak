@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-workspace-index"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Indexing model and metadata for fast search."
+rust-version = "1.70"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

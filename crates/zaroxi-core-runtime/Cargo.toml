@@ -2,16 +2,9 @@
 name = "zaroxi-core-runtime"
 version = "0.1.0"
 edition = "2024"
-publish = false
 license = "MIT"
-description = "Core runtime and window loop integration: task scheduling and render loop orchestration."
+description = "Core runtime: task scheduling and render-loop orchestration."
+rust-version = "1.85"
 
 [dependencies]
-anyhow = "1"
-winit = { workspace = true }
-pollster = "0.3"
-log = "0.4"
-env_logger = "0.11"
-zaroxi-core-render = { path = "../zaroxi-core-render" }
-zaroxi-core-input = { path = "../zaroxi-core-input" }
-zaroxi-interface-app = { path = "../crates/zaroxi-interface-app", optional = true }
+# Add crate-specific dependencies when replacing stubbed manifests.

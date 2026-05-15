@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-core-text-diff"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Incremental diff algorithms for very large files."
+rust-version = "1.70"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

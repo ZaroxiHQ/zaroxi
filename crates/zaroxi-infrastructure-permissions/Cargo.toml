@@ -1,44 +1,10 @@
 [package]
-name = "zaroxi-infra-permissions"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Permissions infrastructure for Zaroxi"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
-
-[lib]
-name = "zaroxi_infra_permissions"
-path = "src/lib.rs"
+name = "zaroxi-infrastructure-permissions"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Permission evaluation engine and RBAC mappings."
+rust-version = "1.85"
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-
-[features]
-default = []
-[package]
-name = "zaroxi-infra-permissions"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Permissions infrastructure for Zaroxi"
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
-
-[lib]
-name = "zaroxi_infra_permissions"
-path = "src/lib.rs"
-
-[dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-
-[features]
-default = []
+# Add crate-specific dependencies when replacing stubbed manifests.

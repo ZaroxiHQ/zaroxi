@@ -1,20 +1,10 @@
 [package]
-name = "zaroxi-editor-core"
+name = "zaroxi-interface-editor"
 version = "0.1.0"
 edition = "2024"
-publish = false
+license = "MIT"
+description = "Concrete editor UI combining core-ui and domain models."
+rust-version = "1.85"
 
 [dependencies]
-zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
-zaroxi-foundation = { path = "../zaroxi-foundation" }
-serde = { workspace = true }
-[package]
-name = "zaroxi-editor-core"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
-[dependencies]
-zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
-zaroxi-foundation = { path = "../zaroxi-foundation" }
-serde = { workspace = true }
+# Add crate-specific dependencies when replacing stubbed manifests.

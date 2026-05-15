@@ -1,18 +1,10 @@
 [package]
-name = "zaroxi-editor-buffer"
+name = "zaroxi-domain-buffer"
 version = "0.1.0"
 edition = "2024"
-publish = false
+license = "MIT"
+description = "Domain buffer semantics tying domain logic to core text model."
+rust-version = "1.85"
 
 [dependencies]
-zaroxi-foundation = { path = "../zaroxi-foundation" }
-serde = { workspace = true }
-[package]
-name = "zaroxi-editor-buffer"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
-[dependencies]
-zaroxi-foundation = { path = "../zaroxi-foundation" }
-serde = { workspace = true }
+# Add crate-specific dependencies when replacing stubbed manifests.

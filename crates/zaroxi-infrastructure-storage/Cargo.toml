@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-infrastructure-storage"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "FS and remote storage adapters (S3/GCS) behind traits."
+rust-version = "1.85"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

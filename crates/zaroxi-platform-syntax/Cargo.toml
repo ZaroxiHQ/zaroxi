@@ -3,30 +3,8 @@ name = "zaroxi-platform-syntax"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Language grammars and parser runtime (Tree-sitter integration, dynamic grammar loader)."
-
-[lib]
-name = "zaroxi_platform_syntax"
-path = "src/lib.rs"
-
-[[bin]]
-name = "download_grammars"
-path = "src/bin/download_grammars.rs"
+description = "Language grammars and parser runtime (Tree-sitter integration)."
+rust-version = "1.85"
 
 [dependencies]
-tree-sitter = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
-libloading = { workspace = true, optional = true }
-serde_json = { workspace = true }
-tempfile = { workspace = true }
-memmap2 = "0.9"
-ropey = "1.6"
-parking_lot = { workspace = true }
-cc = { workspace = true }
-toml = "0.8"
-zaroxi-interface-theme = { workspace = true }
-
-[features]
-default = ["dynamic-loading"]
-dynamic-loading = ["libloading"]
+# Add crate-specific dependencies when replacing stubbed manifests.

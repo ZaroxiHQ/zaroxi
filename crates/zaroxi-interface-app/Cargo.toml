@@ -2,15 +2,9 @@
 name = "zaroxi-interface-app"
 version = "0.1.0"
 edition = "2024"
-publish = false
 license = "MIT"
-description = "Desktop/web app shell and orchestration: AppState, command dispatch, and view model facades."
+description = "Desktop/web app shell and orchestration (entrypoint)."
+rust-version = "1.85"
 
 [dependencies]
-zaroxi-kernel-config = { path = "../zaroxi-kernel-config" }
-zaroxi-workspace-files = { path = "../zaroxi-workspace-files" }
-zaroxi-interface-editor = { path = "../zaroxi-interface-editor", optional = true }
-zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer", optional = true }
-serde = { workspace = true }
-log = "0.4"
-zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
+# Add crate-specific dependencies when replacing stubbed manifests.

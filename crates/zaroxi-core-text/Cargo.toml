@@ -2,10 +2,9 @@
 name = "zaroxi-core-text"
 version = "0.1.0"
 edition = "2024"
-publish = false
 license = "MIT"
-description = "Facade API for text buffers, edits and snapshots (zero-copy where possible)."
+description = "Facade API for text buffers, edits and snapshots (zero-copy)."
+rust-version = "1.85"
 
 [dependencies]
-# Placeholder for future text shaping/atlas integration.
-cosmic-text = "0.19.0"
+# Add crate-specific dependencies when replacing stubbed manifests.

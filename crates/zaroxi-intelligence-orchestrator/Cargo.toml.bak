@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-intelligence-orchestrator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Multi-agent coordination and scheduling."
+rust-version = "1.70"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.
