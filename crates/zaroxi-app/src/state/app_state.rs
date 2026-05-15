@@ -146,16 +146,22 @@ impl AppState {
                 if let Some(i) = index {
                     if let Some(item) = self.workspace.items.get(i) {
                         if let Some(path) = &item.path {
-                            // simulate opening the selected file
-                            let content = format!("Contents of {}", path);
-                            let doc = Document::new(path.clone(), content);
-                            self.editor.open_document(doc.clone());
-                            self.tabs.open_tab_for_document(&doc);
-                            self.status.message = format!("Selected {}", path);
+                            // Open the selected file from disk and show real contents in the editor.
+                            match std::fs::read_to_string(&path) {
+                                Ok(content) => {
+                                    let doc = Document::from_text_with_path(&content, path.clone());
+                                    self.editor.open_document(doc.clone());
+                                    self.tabs.open_tab_for_document(&doc);
+                                    self.status.message = format!("Selected {}", path);
 
-                            // update editor panel content
-                            if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
-                                panel.content = doc.text();
+                                    // update editor panel content
+                                    if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
+                                        panel.content = doc.text();
+                                    }
+                                }
+                                Err(e) => {
+                                    self.status.message = format!("Failed to open {}: {}", path, e);
+                                }
                             }
                         }
                     }
