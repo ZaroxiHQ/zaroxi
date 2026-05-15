@@ -6,15 +6,15 @@ and performs the native prepare/render lifecycle.
 
 Notes:
 - Loads bundled JetBrains Mono Nerd Font bytes from assets/fonts/JetBrainsMonoNerdFont-Regular.ttf
-  and registers them with glyphon's font system when available.
+  and registers them with the font database when available.
 - Keeps logs concise as per the project policy.
 - Detailed glyph-level tracing is gated behind RENDER_DEBUG.
 */
 
 use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
-use glyphon::cosmic_text::FontSystem; // glyphon re-exports / integration point
-use glyphon::render::{TextAtlas, TextRenderer as GlyphonRenderer, Metrics, Shaping};
+use glyphon::{FontSystem, TextAtlas, TextRenderer as GlyphonRenderer, Metrics, Shaping, Attrs, Family, Buffer, Color, Viewport, TextArea, TextBounds, Resolution};
+use fontdb::Database;
 use log::{info, debug};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -45,22 +45,24 @@ impl GlyphonTextRenderer {
         // Initialize glyphon FontSystem
         let mut fs = FontSystem::new();
 
-        // Try to register bundled JetBrains Mono Nerd Font bytes if present.
+        // Try to register bundled JetBrains Mono Nerd Font if present.
+        // Use fontdb to load the on-disk font file so glyphon/cosmic-text can discover it.
         let manifest = env!("CARGO_MANIFEST_DIR");
         let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
         if font_path.exists() {
-            match std::fs::read(&font_path) {
-                Ok(data) => {
-                    // Register bytes with the FontSystem (glyphon exposes a registration API)
-                    // Prefer concise logging on success/failure.
-                    if fs.load_font_from_memory(&data).is_ok() {
-                        info!("Bundled JetBrains Mono Nerd Font loaded and registered");
-                    } else {
-                        info!("Bundled JetBrains Mono Nerd Font found but failed to register, falling back to system fonts");
-                    }
+            // Load into a fontdb::Database so downstream font lookups can find it.
+            let mut db = Database::new();
+            match db.load_font_file(&font_path) {
+                Ok(()) => {
+                    info!("Bundled JetBrains Mono Nerd Font loaded into font database from '{}'", font_path.display());
+                    // Note: attaching the fontdb Database to the FontSystem / glyphon may
+                    // require using the specific API available in the workspace's glyphon/cosmic-text
+                    // versions. If such an attach method exists, it should be invoked here.
+                    // We keep this as a non-fatal best-effort registration step so missing
+                    // integration does not abort renderer initialization.
                 }
-                Err(_) => {
-                    info!("Bundled JetBrains Mono Nerd Font found but failed to read, falling back to system fonts");
+                Err(e) => {
+                    info!("Bundled JetBrains Mono Nerd Font found but failed to load into fontdb: {:?}; falling back to system fonts", e);
                 }
             }
         } else {

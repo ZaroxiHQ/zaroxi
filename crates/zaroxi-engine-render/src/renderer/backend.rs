@@ -1,4 +1,5 @@
 use crate::error::RenderError;
+#[cfg(feature = "legacy_cosmic")]
 use crate::renderer::text::{PlacedGlyph, FontAtlas, GlyphInfo};
 use crate::renderer::geometry::color_to_rgba;
 use log::{debug, info};
