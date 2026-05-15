@@ -17,8 +17,10 @@ behind RENDER_DEBUG.
 
 use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
-use glyphon::{Cache, TextAtlas, TextRenderer as GlyphonRenderer, Viewport, SwashCache};
-use cosmic_text::{Buffer as CosmicBuffer, Metrics as CosmicMetrics, Attrs, Shaping, Color as CosmicColor, FontSystem};
+use glyphon::{
+    Cache, TextAtlas, TextRenderer as GlyphonRenderer, Viewport, SwashCache,
+    Buffer, Metrics, Attrs, Shaping, Color, FontSystem, TextArea, TextBounds,
+};
 use log::{info, debug};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -117,60 +119,62 @@ impl TextRenderer for GlyphonTextRenderer {
         }
 
         // Convert queued TextCommand into glyphon-compatible TextArea instances.
-        // We must create cosmic_text::Buffer instances that live for the duration
+        // We must create glyphon::Buffer instances that live for the duration
         // of the prepare call. Build them into a local Vec so their lifetimes
         // outlive the iterator passed to glyphon.
-        let mut buffers: Vec<CosmicBuffer> = Vec::with_capacity(q.len());
-        let mut areas: Vec<glyphon::TextArea> = Vec::with_capacity(q.len());
+        let mut buffers: Vec<Buffer> = Vec::with_capacity(q.len());
+        let mut colors: Vec<Color> = Vec::with_capacity(q.len());
+        let mut areas: Vec<TextArea> = Vec::with_capacity(q.len());
 
         for cmd in q.iter() {
             // Create metrics for this buffer (use font size from command).
-            let metrics = CosmicMetrics::new(cmd.size, cmd.size * 1.2);
+            let metrics = Metrics::new(cmd.size, cmd.size * 1.2);
 
-            let mut buf = CosmicBuffer::new(&mut *fs, metrics);
+            let mut buf = Buffer::new(&mut *fs, metrics);
             // Use a simple Attrs; prefer bundled family later when available.
             let mut attrs = Attrs::new();
             // Set text and shaping
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
 
             // Build TextBounds from clip rectangle (convert f32 -> i32)
-            let bounds = glyphon::TextBounds {
+            let bounds = TextBounds {
                 left: cmd.clip_x.max(0.0) as i32,
                 top: cmd.clip_y.max(0.0) as i32,
                 right: (cmd.clip_x + cmd.clip_w).max(0.0) as i32,
                 bottom: (cmd.clip_y + cmd.clip_h).max(0.0) as i32,
             };
 
-            // Default color: convert RGBA float to cosmic_text::Color (u32 packed).
+            // Default color: convert RGBA float to glyphon::Color (u32 packed).
             let color = {
                 let r = (cmd.color[0] * 255.0) as u32;
                 let g = (cmd.color[1] * 255.0) as u32;
                 let b = (cmd.color[2] * 255.0) as u32;
                 let a = (cmd.color[3] * 255.0) as u32;
-                // Pack as 0xRRGGBBAA in u32 (cosmic_text::Color is a newtype over u32)
-                CosmicColor(((r << 24) | (g << 16) | (b << 8) | a) as u32)
+                // Pack as 0xRRGGBBAA in u32 (glyphon::Color is a newtype over u32)
+                Color(((r << 24) | (g << 16) | (b << 8) | a) as u32)
             };
 
-            // Push buffer into vector so it lives
+            // Push buffer & color into vectors so they live
             buffers.push(buf);
+            colors.push(color);
         }
 
         // Build TextArea refs referencing buffers
         for (i, cmd) in q.iter().enumerate() {
             // SAFETY: buffers[i] exists and will live until the end of this function
-            let buf_ref: &CosmicBuffer = &buffers[i];
-            let area = glyphon::TextArea {
+            let buf_ref: &Buffer = &buffers[i];
+            let area = TextArea {
                 buffer: buf_ref,
                 left: cmd.x,
                 top: cmd.y,
                 scale: 1.0,
-                bounds: glyphon::TextBounds {
+                bounds: TextBounds {
                     left: cmd.clip_x.max(0.0) as i32,
                     top: cmd.clip_y.max(0.0) as i32,
                     right: (cmd.clip_x + cmd.clip_w).max(0.0) as i32,
                     bottom: (cmd.clip_y + cmd.clip_h).max(0.0) as i32,
                 },
-                default_color: color,
+                default_color: colors[i],
                 custom_glyphs: &[],
             };
             areas.push(area);
