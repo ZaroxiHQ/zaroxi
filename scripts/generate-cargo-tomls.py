@@ -195,7 +195,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "{description}"
-rust-version = "1.70"
+rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.
