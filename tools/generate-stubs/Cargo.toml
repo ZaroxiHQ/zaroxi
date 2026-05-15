@@ -7,3 +7,12 @@ license = "MIT"
 [[bin]]
 name = "generate-stubs"
 path = "src/main.rs"
+[package]
+name = "tools-generate-stubs"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[[bin]]
+name = "generate-stubs"
+path = "src/main.rs"

@@ -7,3 +7,12 @@ publish = false
 [dependencies]
 uuid = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+[package]
+name = "zaroxi-foundation"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+uuid = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

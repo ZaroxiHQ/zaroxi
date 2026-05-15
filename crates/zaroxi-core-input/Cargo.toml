@@ -6,3 +6,11 @@ publish = false
 
 [dependencies]
 winit = { workspace = true }
+[package]
+name = "zaroxi-engine-input"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+winit = { workspace = true }

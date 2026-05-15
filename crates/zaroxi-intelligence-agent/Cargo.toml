@@ -29,3 +29,34 @@ zaroxi-ops-patch = { workspace = true }
 
 [features]
 default = []
+[package]
+name = "zaroxi-ai-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AI agent for task planning and execution"
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_ai_agent"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+# Workspace crates
+zaroxi-protocol = { workspace = true }
+zaroxi-domain-ai-context = { workspace = true }
+zaroxi-ops-patch = { workspace = true }
+
+[features]
+default = []

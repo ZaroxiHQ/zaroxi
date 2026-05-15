@@ -15,3 +15,20 @@ tokio = { workspace = true, features = ["sync"] }
 zaroxi-lang-syntax = { workspace = true }
 zaroxi-theme = { workspace = true }
 parking_lot = { workspace = true }
+[package]
+name = "zaroxi-domain-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Editor domain models for Zaroxi Studio"
+
+[dependencies]
+zaroxi-ops-file = { workspace = true }
+ropey = "1.6"
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+memmap2 = "0.9"
+tokio = { workspace = true, features = ["sync"] }
+zaroxi-lang-syntax = { workspace = true }
+zaroxi-theme = { workspace = true }
+parking_lot = { workspace = true }

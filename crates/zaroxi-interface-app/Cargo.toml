@@ -13,3 +13,18 @@ zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true }
 log = "0.4"
 zaroxi-theme = { path = "../zaroxi-theme" }
+[package]
+name = "zaroxi-app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+zaroxi-config = { path = "../zaroxi-config" }
+zaroxi-workspace = { path = "../zaroxi-workspace" }
+zaroxi-editor-core = { path = "../zaroxi-editor-core" }
+zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
+zaroxi-foundation = { path = "../zaroxi-foundation" }
+serde = { workspace = true }
+log = "0.4"
+zaroxi-theme = { path = "../zaroxi-theme" }

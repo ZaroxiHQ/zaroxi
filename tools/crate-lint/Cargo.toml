@@ -9,3 +9,14 @@ name = "crate-lint"
 path = "src/main.rs"
 
 [dependencies]
+[package]
+name = "tools-crate-lint"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[[bin]]
+name = "crate-lint"
+path = "src/main.rs"
+
+[dependencies]

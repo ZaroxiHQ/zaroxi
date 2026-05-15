@@ -11,3 +11,16 @@ git-fetch-with-cli = true
 # Some build scripts use Git for version information
 # If they fail due to index version issues, you can try
 # setting rustflags or other options here
+# Cargo configuration
+# This file can help configure cargo behavior
+
+# Use Git CLI for network operations instead of libgit2
+# This can help avoid Git index version compatibility issues
+[net]
+git-fetch-with-cli = true
+
+# Build configuration
+[build]
+# Some build scripts use Git for version information
+# If they fail due to index version issues, you can try
+# setting rustflags or other options here

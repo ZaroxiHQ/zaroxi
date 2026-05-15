@@ -8,3 +8,13 @@ publish = false
 zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
 zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true }
+[package]
+name = "zaroxi-editor-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+zaroxi-editor-buffer = { path = "../zaroxi-editor-buffer" }
+zaroxi-foundation = { path = "../zaroxi-foundation" }
+serde = { workspace = true }

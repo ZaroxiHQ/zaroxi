@@ -24,3 +24,29 @@ chrono = { workspace = true }
 
 [features]
 default = []
+[package]
+name = "zaroxi-domain-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Workspace domain models for Zaroxi Studio"
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_domain_workspace"
+path = "src/lib.rs"
+
+[dependencies]
+zaroxi-domain-editor = { workspace = true }
+zaroxi-protocol = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+[features]
+default = []

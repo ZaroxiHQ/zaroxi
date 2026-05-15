@@ -7,3 +7,12 @@ publish = false
 [dependencies]
 zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true }
+[package]
+name = "zaroxi-editor-buffer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+zaroxi-foundation = { path = "../zaroxi-foundation" }
+serde = { workspace = true }

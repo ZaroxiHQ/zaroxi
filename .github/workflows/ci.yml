@@ -95,3 +95,100 @@ jobs:
 
       - name: cargo audit
         run: cargo audit
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # QUICK STATIC CHECKS (fmt, clippy, actionlint)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libglib2.0-dev
+
+      - name: Restore cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-lint-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-lint-registry-
+
+      - name: Restore cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-lint-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-lint-index-
+
+      - name: Restore cargo build output
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-lint-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Auto‑format Rust code
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Validate the YAML of our own workflows
+      - name: actionlint
+        uses: reviewdog/action-actionlint@v1
+        with:
+          fail_on_error: true
+
+
+  # ---------------------------------------------------------------------------
+  # SECURITY / DEPENDENCY AUDIT (fast, only on ubuntu)
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Security (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo registry (for Cargo.lock)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-audit-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-audit-registry-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        run: cargo audit

@@ -528,3 +528,25 @@ Zaroxi Studio is licensed under the MIT License. See [LICENSE](LICENSE) for deta
 <p align="center">
   <i>Built with ❤️ and Rust</i>
 </p>
+# Zaroxi Studio: AI-First IDE
+
+> ⚠️ **Heavily Under Development**: Zaroxi Studio is currently in active development. APIs, features, and architecture are subject to change. We welcome early adopters and contributors to help shape the project!
+
+[![CI](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+
+Zaroxi Studio is an open-source, AI-first integrated development environment built in Rust. It combines modern IDE features with AI-powered assistance to create a next-generation development experience.
+
+## 🚀 Features
+
+- **AI-Powered Development**: Built-in AI assistance for code completion, refactoring, debugging, and documentation
+- **Modular Architecture**: Clean separation of concerns with a workspace-based crate structure
+- **Cross-Platform**: Native support for Linux, macOS, and Windows
+- **Extensible**: Plugin system for languages, themes, and AI providers
+- **Hybrid Preview System**: Real‑time mobile, desktop, and website simulation with webview‑based previews
+- **Performance-Focused**: Built in Rust for speed and reliability
+- **Security-First**: Built-in permission system and security best practices
+
+... (README truncated in stub creation to match provided content)
