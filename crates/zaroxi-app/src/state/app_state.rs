@@ -31,39 +31,29 @@ pub struct AppState {
 impl AppState {
     /// Create a new AppState using provided config and sensible defaults.
     pub fn new(config: &AppConfig) -> Self {
-        // workspace placeholders
+        // workspace: start empty (workspace-first UX). User must open a folder to populate.
         let mut workspace = WorkspaceState::new();
-        workspace.items.push(WorkspaceItem::file("README.md", Some("README.md".to_string())));
-        workspace.items.push(WorkspaceItem::file("src/main.rs", Some("src/main.rs".to_string())));
-        workspace.items.push(WorkspaceItem::file("Cargo.toml", Some("Cargo.toml".to_string())));
-        workspace.select(Some(0));
+        // no initial items; selection cleared
+        workspace.select(None);
 
-        // editor with a welcome document (use a multi-line sample document so editor renders real content)
+        // editor: workspace-first — start with no active document.
         let mut editor = EditorState::new();
-        let welcome_content = "fn main() {\n    println!(\"Hello, Zaroxi Studio!\");\n    // Sample document for editor rendering\n    for i in 0..10 {\n        println!(\"line {}\", i);\n    }\n}\n";
-        let welcome = Document::new("welcome.rs".to_string(), welcome_content.to_string());
-        editor.open_document(welcome.clone());
+        // create an empty document only to satisfy panel construction; do not open it.
+        let empty_doc = Document::new("".to_string(), "".to_string());
 
-        info!(
-            "Editor initialized with active document: {} ({} bytes, {} lines)",
-            "welcome.rs",
-            welcome_content.len(),
-            welcome_content.lines().count()
-        );
-
-        // tabs: open welcome doc in tabs
+        // tabs: empty initially
         let mut tabs = TabState::new();
-        tabs.open_tab_for_document(&welcome);
 
         let status = StatusState::default();
         let assistant = AssistantState::default();
 
         // Build app-owned panels via the panels builder module.
-        let mut app_panels = crate::panels::default_panels(config, &welcome);
+        // Pass an empty document placeholder; panels will be updated when a workspace is loaded.
+        let mut app_panels = crate::panels::default_panels(config, &empty_doc);
 
-        // Ensure editor panel body contains document text rather than a short title.
+        // Ensure editor panel body starts empty (no placeholder welcome).
         if let Some(p) = app_panels.iter_mut().find(|p| p.id == "editor") {
-            p.content = welcome.text();
+            p.content = "".to_string();
         }
 
         // Log created panels for visibility
@@ -87,22 +77,67 @@ impl AppState {
     /// single place, keeping the command pipeline explicit and easy to audit.
     pub fn apply(&mut self, cmd: AppCommand) {
         match cmd {
-            AppCommand::OpenFolder { path: _ } => {
-                // placeholder: set root and mark status
-                self.status.message = "Opened folder (placeholder)".to_string();
+            AppCommand::OpenFolder { path } => {
+                use std::fs;
+                use std::path::PathBuf;
+
+                let root = PathBuf::from(&path);
+                if !root.is_dir() {
+                    self.status.message = format!("OpenFolder failed: not a directory: {}", path);
+                } else {
+                    // set workspace root and populate items by walking files under the root
+                    self.workspace.root = Some(root.clone());
+                    self.workspace.items.clear();
+
+                    fn visit_dir(dir: &std::path::Path, base: &std::path::Path, items: &mut Vec<WorkspaceItem>) {
+                        if let Ok(entries) = fs::read_dir(dir) {
+                            for entry in entries.flatten() {
+                                let p = entry.path();
+                                if p.is_dir() {
+                                    visit_dir(&p, base, items);
+                                } else if p.is_file() {
+                                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                        // store a relative display name and absolute path string
+                                        let rel = p.strip_prefix(base).ok().and_then(|r| r.to_str()).unwrap_or(name).to_string();
+                                        items.push(WorkspaceItem::file(rel, Some(p.to_string_lossy().to_string())));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    visit_dir(&root, &root, &mut self.workspace.items);
+
+                    self.status.message = format!("Opened folder {}", path);
+
+                    // Update Explorer/Sidebar panel content to show file listing for immediate visual feedback.
+                    if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "sidebar" || p.id == "explorer") {
+                        let listing = self.workspace.items.iter().enumerate()
+                            .map(|(i,it)| format!("{}: {}", i, it.name))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        panel.content = listing;
+                    }
+                }
             }
 
             AppCommand::OpenFile { path } => {
-                // Create a simple Document from the path (placeholder content)
-                let content = format!("Contents of {}", path);
-                let doc = Document::new(path.clone(), content);
-                self.editor.open_document(doc.clone());
-                self.tabs.open_tab_for_document(&doc);
-                self.status.message = format!("Opened {}", path);
+                // Read the file from disk and open it as a real document.
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => {
+                        let doc = Document::new(path.clone(), content);
+                        self.editor.open_document(doc.clone());
+                        self.tabs.open_tab_for_document(&doc);
+                        self.status.message = format!("Opened {}", path);
 
-                // Reflect active editor text in the editor panel content if present
-                if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
-                    panel.content = doc.text();
+                        // Reflect active editor text in the editor panel content if present
+                        if let Some(panel) = self.app_panels.iter_mut().find(|p| p.id == "editor") {
+                            panel.content = doc.text.clone();
+                        }
+                    }
+                    Err(e) => {
+                        self.status.message = format!("Failed to open {}: {}", path, e);
+                    }
                 }
             }
 
