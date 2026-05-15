@@ -1,0 +1,45 @@
+[package]
+name = "zaroxi-engine-render"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+wgpu = "29.0.3"
+winit = { workspace = true }
+pollster = "0.3"
+log = "0.4"
+raw-window-handle = "0.5"
+
+# Cosmic Text backend (shaping / rasterization / font system).
+# Crate name on crates.io: "cosmic-text", Rust module path: `cosmic_text`.
+cosmic-text = "0.19.0"
+# New: glyphon is the default text shaping/rendering path (facade over cosmic-text + integrations).
+glyphon = "0.11.0"
+# Font database used to register bundled fonts for cosmic-text.
+fontdb = "0.23"
+
+# Low-level text rasterization (font rasterizer). We use fontdue to rasterize glyph bitmaps.
+fontdue = "0.7"
+unicode-segmentation = "1.11"
+
+# bytemuck for safe pod casts for vertex buffers
+bytemuck = "1.13"
+
+# Reference to app state so renderer can accept AppState for read-only rendering.
+zaroxi-app = { path = "../zaroxi-app" }
+
+# Theme tokens (semantic colors) are owned by the theme crate; renderer consumes them.
+zaroxi-theme = { path = "../zaroxi-theme" }
+
+[features]
+# Default feature enables the new Glyphon-based text renderer.
+default = ["use_glyphon"]
+# Enable the legacy cosmic-text based backend (opt-in only).
+legacy_cosmic = []
+
+# Feature enabling the glyphon-based renderer (kept for clarity; glyphon is a
+# direct dependency in this crate so the feature primarily documents intent).
+use_glyphon = []

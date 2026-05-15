@@ -1,0 +1,27 @@
+[package]
+name = "zaroxi-service-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Workspace service orchestration logic for Zaroxi Studio"
+authors = ["Zaroxi Team"]
+repository = "https://github.com/zaroxi/zaroxi"
+readme = "README.md"
+rust-version = "1.85.0"
+
+[lib]
+name = "zaroxi_service_workspace"
+path = "src/lib.rs"
+
+[dependencies]
+zaroxi-domain-workspace = { workspace = true }
+zaroxi-ops-file = { workspace = true }
+zaroxi-protocol = { workspace = true }
+zaroxi-infra-rpc = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
