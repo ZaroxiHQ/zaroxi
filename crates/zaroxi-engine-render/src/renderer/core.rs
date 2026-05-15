@@ -175,7 +175,7 @@ impl<'a> Renderer<'a> {
 
         // Initialize the text subsystem. Default renderer uses the Glyphon-backed
         // TextRenderer implementation located in renderer::text. The text subsystem
-        // owns its atlas and manages prepare/viewport/update/prepare/render lifecycle.
+        // owns its native glyphon state and manages prepare/viewport/update/prepare/render lifecycle.
         let font_size = 14.0f32;
         let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
             Box::new(crate::renderer::text::GlyphonTextRenderer::new(&device, &queue, &text_bind_layout, font_size)?);
@@ -597,73 +597,10 @@ impl<'a> Renderer<'a> {
             // in the backend-managed atlas. The backend may use the provided queue to
             // upload missing glyph bitmaps into its internal atlas before returning
             // placed glyphs with valid UVs.
-            let placed = self.text_renderer.layout_text_clipped(
-                &mut self.queue,
-                title_x,
-                title_y,
-                &block.title,
-                title_color,
-                width,
-                height,
-                hx,
-                hy,
-                hw,
-                hh,
-            )?;
-
-            // Diagnostic: log first placed glyph bounds for title (pixel & NDC).
-            if !placed.is_empty() {
-                let pg = &placed[0];
-                let ndc_a = pixel_to_ndc(pg.x0_px, pg.y0_px, width, height);
-                let ndc_c = pixel_to_ndc(pg.x1_px, pg.y1_px, width, height);
-
-                // Compute clip min/max for clarity (caller passes x,y,width,height).
-                let clip_min_x = hx;
-                let clip_min_y = hy;
-                let clip_max_x = hx + hw;
-                let clip_max_y = hy + hh;
-
-                // Defensive diagnostic: if header width/height look invalid, emit a clear log.
-                if hw <= 0.0 || hh <= 0.0 {
-                    info!(
-                        "title_placed: block='{}' title='{}' invalid_header_size hx={},hy={},hw={},hh={}",
-                        block.id,
-                        block.title,
-                        hx,
-                        hy,
-                        hw,
-                        hh
-                    );
-                }
-
-                info!(
-                    "title_placed: block='{}' title='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip_xywh=({:.1},{:.1},{:.1},{:.1}) clip_minmax=({:.1},{:.1})-({:.1},{:.1})",
-                    block.id,
-                    block.title,
-                    pg.x0_px,
-                    pg.y0_px,
-                    pg.x1_px,
-                    pg.y1_px,
-                    ndc_a[0],
-                    ndc_a[1],
-                    ndc_c[0],
-                    ndc_c[1],
-                    clip_min_x,
-                    clip_min_y,
-                    hw,
-                    hh,
-                    clip_min_x,
-                    clip_min_y,
-                    clip_max_x,
-                    clip_max_y
-                );
-            } else {
-                info!("title_placed: block='{}' title='{}' no placed glyphs", block.id, block.title);
-            }
-
-            crate::renderer::text::placed_glyphs_to_vertices(&placed, &mut text_verts, &mut text_indices, width, height);
-
-            info!("emit_text: block='{}' title emitted at y={:.1} (header_h={:.1})", block.id, title_y, hh);
+            // Queue title for the native Glyphon text renderer (prepare/render will occur later).
+            self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(&block.title, title_x, title_y, title_color, DEFAULT_FONT_SIZE, hx, hy, hw, hh));
+            // Concise info for queued title (no per-glyph spam).
+            info!("queued title for block='{}'", block.id);
 
             // Body/content text emission:
             // - The renderer is intentionally domain-agnostic. It renders whatever
@@ -693,70 +630,9 @@ impl<'a> Renderer<'a> {
                 let content_w = (target.w - content_padding * 2.0).max(0.0);
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
                 if content_w > 0.0 && content_h > 0.0 {
-                    let placed_content = self.text_renderer.layout_text_clipped(
-                        &mut self.queue,
-                        content_x,
-                        content_y,
-                        &block.content,
-                        title_color,
-                        width,
-                        height,
-                        content_x,
-                        content_y,
-                        content_w,
-                        content_h,
-                    )?;
-
-                    // Diagnostic: log first placed glyph bounds for content (pixel & NDC).
-                    if !placed_content.is_empty() {
-                        let pgc = &placed_content[0];
-                        let ndc_a = pixel_to_ndc(pgc.x0_px, pgc.y0_px, width, height);
-                        let ndc_c = pixel_to_ndc(pgc.x1_px, pgc.y1_px, width, height);
-
-                        let clip_min_x = content_x;
-                        let clip_min_y = content_y;
-                        let clip_max_x = content_x + content_w;
-                        let clip_max_y = content_y + content_h;
-
-                        if content_w <= 0.0 || content_h <= 0.0 {
-                            info!(
-                                "content_placed: block='{}' first_char='{}' invalid_content_area x={},y={},w={},h={}",
-                                block.id,
-                                block.content.chars().next().unwrap_or('?'),
-                                content_x,
-                                content_y,
-                                content_w,
-                                content_h
-                            );
-                        }
-
-                        info!(
-                            "content_placed: block='{}' first_char='{}' pixel_rect=({:.1},{:.1})-({:.1},{:.1}) ndc_rect=({:.4},{:.4})-({:.4},{:.4}) clip_xywh=({:.1},{:.1},{:.1},{:.1}) clip_minmax=({:.1},{:.1})-({:.1},{:.1})",
-                            block.id,
-                            block.content.chars().next().unwrap_or('?'),
-                            pgc.x0_px,
-                            pgc.y0_px,
-                            pgc.x1_px,
-                            pgc.y1_px,
-                            ndc_a[0],
-                            ndc_a[1],
-                            ndc_c[0],
-                            ndc_c[1],
-                            clip_min_x,
-                            clip_min_y,
-                            content_w,
-                            content_h,
-                            clip_min_x,
-                            clip_min_y,
-                            clip_max_x,
-                            clip_max_y
-                        );
-                    } else {
-                        info!("content_placed: block='{}' no placed glyphs", block.id);
-                    }
-
-                    crate::renderer::text::placed_glyphs_to_vertices(&placed_content, &mut text_verts, &mut text_indices, width, height);
-                    info!("emit_text: content emitted for block='{}' at y={:.1} (content_h={:.1})", block.id, content_y, content_h);
+                    // Queue content for Glyphon native rendering
+                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(&block.content, content_x, content_y, title_color, DEFAULT_FONT_SIZE, content_x, content_y, content_w, content_h));
+                    info!("queued content for block='{}'", block.id);
                 } else if RENDER_DEBUG {
                     info!("emit_text: content area too small for block='{}'", block.id);
                 }

@@ -1,3 +1,4 @@
+#[cfg(feature = "legacy_cosmic")]
 use crate::error::RenderError;
 use log::info;
 use crate::renderer::debug::RENDER_DEBUG;

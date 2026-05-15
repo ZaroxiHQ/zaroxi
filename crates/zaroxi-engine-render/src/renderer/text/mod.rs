@@ -1,140 +1,107 @@
 /*!
-New text subsystem module.
+Text subsystem
 
-This module provides:
-- TextRenderer trait: small internal abstraction used by renderer core
-  so the rest of the renderer is decoupled from the concrete implementation.
-- GlyphonTextRenderer: default, real text renderer (uses bundled font asset
-  and manages atlas/bind-group). For now this implementation uses the existing
-  FontAtlas plumbing for GPU atlas management so the renderer can perform the
-  text pass without per-glyph terminal spam. The module surface keeps the
-  Glyphon naming and provides a clear place to evolve a native glyphon
-  prepare/render integration later.
+This module exposes a small internal TextRenderer trait used by renderer core
+and provides the native Glyphon-backed implementation under `glyphon.rs`.
 
-Logging policy (default):
-- "GlyphonTextRenderer initialized"
-- "Bundled font loaded" or "Bundled font not found"
-- "Glyphon viewport resized"
-- One-line prepare/render error messages
-Detailed debug logs are gated behind the RENDER_DEBUG runtime flag.
+Design summary:
+- TextCommand: small command model emitted by the renderer core for each text
+  item (title/body). Commands are queued and consumed by the native Glyphon
+  prepare/render flow.
+- TextRenderer trait: minimal interface used by core:
+    - queue_text(cmd)
+    - prepare(queue) -> perform glyph rasterization / GPU uploads
+    - render_pass(rpass, pipeline, panel_indices_len, total_indices_len)
+    - resize_viewport(w,h)
+- glyphon::GlyphonTextRenderer: concrete implementation that owns glyphon-native
+  state (FontSystem, TextAtlas, TextRenderer) and registers the bundled JetBrains
+  Mono Nerd Font bytes as the preferred family if available.
 
-Note: This module intentionally avoids leaking glyphon-specific types into
-the rest of the renderer. The public trait is small and focused.
+The default implementation is fully native Glyphon; legacy FontAtlas-based
+code is gated behind the `legacy_cosmic` Cargo feature and is not used by default.
 */
 
 use crate::error::RenderError;
-use crate::renderer::text::{FontAtlas, PlacedGlyph};
 use log::info;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex;
-use wgpu::{BindGroup, BindGroupLayout, Device, Queue};
+use wgpu::{BindGroup, BindGroupLayout, Device, Queue, RenderPass, RenderPipeline};
 
-/// Internal small trait used by renderer core to layout text and expose
-/// an optional atlas bind group for the text pass.
+pub mod glyphon;
+pub use glyphon::GlyphonTextRenderer;
+
+/// Small in-process command representing text to be rendered.
+///
+/// The renderer core emits these commands per panel title/content. The native
+/// Glyphon renderer consumes them, performs shaping/rasterization in `prepare`
+/// and draws them in `render_pass`.
+#[derive(Debug, Clone)]
+pub struct TextCommand {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: [f32; 4],
+    pub size: f32,
+    pub clip_x: f32,
+    pub clip_y: f32,
+    pub clip_w: f32,
+    pub clip_h: f32,
+    pub is_title: bool,
+}
+
+impl TextCommand {
+    pub fn new(text: impl Into<String>, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32, is_title: bool) -> Self {
+        Self {
+            text: text.into(),
+            x,
+            y,
+            color,
+            size,
+            clip_x,
+            clip_y,
+            clip_w,
+            clip_h,
+            is_title,
+        }
+    }
+
+    pub fn new_title(text: &str, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32) -> Self {
+        Self::new(text, x, y, color, size, clip_x, clip_y, clip_w, clip_h, true)
+    }
+
+    pub fn new_body(text: &str, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32) -> Self {
+        Self::new(text, x, y, color, size, clip_x, clip_y, clip_w, clip_h, false)
+    }
+}
+
+/// Minimal internal trait used by renderer core to plan/prepare/render text.
+///
+/// The goal is to keep the rest of the renderer glyphon-agnostic while giving
+/// the Glyphon backend ownership of the native prepare/render lifecycle.
 pub trait TextRenderer: Send + Sync {
-    fn layout_text_clipped(
+    /// Queue a text command for the upcoming frame.
+    fn queue_text(&self, cmd: TextCommand);
+
+    /// Prepare glyphs for queued commands: shape, rasterize and upload any GPU resources.
+    fn prepare(&self, queue: &mut Queue) -> Result<(), RenderError>;
+
+    /// Render queued/ prepared text into the provided render pass. This method
+    /// must bind any atlas bind groups and issue draw calls. It is called after
+    /// shape/background drawing to preserve draw ordering.
+    fn render_pass<'a>(
         &self,
-        queue: &mut Queue,
-        x: f32,
-        y: f32,
-        text: &str,
-        color: [f32; 4],
-        screen_w: f32,
-        screen_h: f32,
-        clip_x: f32,
-        clip_y: f32,
-        clip_w: f32,
-        clip_h: f32,
-    ) -> Result<Vec<PlacedGlyph>, RenderError>;
+        rpass: &mut RenderPass<'a>,
+        pipeline: &RenderPipeline,
+        panel_indices_len: u32,
+        total_indices_len: u32,
+    ) -> Result<(), RenderError>;
 
-    fn atlas_bind_group(&self) -> Option<&BindGroup>;
+    /// Return an optional atlas bind group to be used by the renderer if it
+    /// needs access to it for compatibility with existing submit paths.
+    fn atlas_bind_group(&self) -> Option<&BindGroup> { None }
 
-    /// Notify the renderer of a viewport/resolution change so internal metrics
-    /// or GPU resources can be updated.
-    fn resize_viewport(&mut self, width: u32, height: u32) -> Result<(), RenderError>;
-}
-
-/// Glyphon-backed text renderer (default).
-///
-/// Ownership:
-/// - owns a FontAtlas used for glyph uploads and sampling
-/// - manages a concise initialization path that attempts to load the bundled
-///   JetBrains Mono Nerd Font and logs a single-line result
-///
-/// Implementation note:
-/// For this initial migration the GlyphonTextRenderer uses the existing FontAtlas
-/// implementation (found in renderer::text) to store glyph bitmaps and expose a
-/// bind group compatible with the renderer's pipeline. This keeps the migration
-/// safe while providing a clear home for future glyphon-native prepare/render
-/// plumbing.
-pub struct GlyphonTextRenderer {
-    atlas: FontAtlas,
-    // Whether the bundled JetBrains Mono Nerd Font was found on disk.
-    bundled_font_loaded: bool,
-    // Keep bind group ownership behind the atlas; atlas provides bind_group
-    // access through atlas.bind_group so we can return a reference easily.
-    // Additional glyphon-specific state can be added here later.
-    _private: (),
-}
-
-impl GlyphonTextRenderer {
-    pub fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
-        // Attempt to locate bundled JetBrains Mono Nerd Font (single concise log message).
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
-        let bundled_loaded = if font_path.exists() {
-            info!("Bundled JetBrains Mono Nerd Font found at '{}'", font_path.display());
-            true
-        } else {
-            info!("Bundled JetBrains Mono Nerd Font not found at '{}', falling back to system fonts", font_path.display());
-            false
-        };
-
-        // Create the GPU atlas (empty) which will be populated on-demand.
-        let atlas = FontAtlas::new_empty(device, queue, layout, font_size)?;
-
-        info!("GlyphonTextRenderer initialized");
-
-        Ok(Self {
-            atlas,
-            bundled_font_loaded: bundled_loaded,
-            _private: (),
-        })
-    }
-}
-
-impl TextRenderer for GlyphonTextRenderer {
-    fn layout_text_clipped(
-        &self,
-        queue: &mut Queue,
-        x: f32,
-        y: f32,
-        text: &str,
-        color: [f32; 4],
-        screen_w: f32,
-        screen_h: f32,
-        clip_x: f32,
-        clip_y: f32,
-        clip_w: f32,
-        clip_h: f32,
-    ) -> Result<Vec<PlacedGlyph>, RenderError> {
-        // Delegate to the atlas-backed layout helper. This preserves existing
-        // placement semantics and ensures the atlas bind group is populated
-        // by insert_glyph_from_bitmap when needed.
-        crate::renderer::text::layout_text_clipped(&self.atlas, x, y, text, color, screen_w, screen_h, clip_x, clip_y, clip_w, clip_h)
-    }
-
-    fn atlas_bind_group(&self) -> Option<&BindGroup> {
-        Some(&self.atlas.bind_group)
-    }
-
-    fn resize_viewport(&mut self, _width: u32, _height: u32) -> Result<(), RenderError> {
-        // For the current atlas-backed implementation there is no per-viewport
-        // GPU resource to update. When a native glyphon integration is added
-        // this will update glyphon viewport metrics and potentially recreate
-        // atlas textures.
-        info!("GlyphonTextRenderer: viewport resize requested ({}x{})", _width, _height);
+    /// Update viewport/resolution information.
+    fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {
+        info!("TextRenderer: viewport resize requested ({}x{})", width, height);
         Ok(())
     }
 }
