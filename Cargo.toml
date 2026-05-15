@@ -3,7 +3,6 @@ resolver = "2"
 members = [
   # Library crates
   "crates/zaroxi-ai-agent",
-  "crates/zaroxi-core-ids",
   "crates/zaroxi-domain-ai-context",
   "crates/zaroxi-domain-editor",
   "crates/zaroxi-domain-workspace",
