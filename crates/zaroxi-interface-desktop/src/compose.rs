@@ -9,8 +9,8 @@
  use crate as _; // avoid unused warning in skeleton
 
  // Import the port traits from the application layer only.
- use crates::zaroxi_kernel_core::boot::BootConfig;
- use crates::zaroxi_application_workspace::ports::{
+ use zaroxi_kernel_core::boot::BootConfig;
+ use zaroxi_application_workspace::ports::{
      WorkspaceService, WorkspaceOpenCommand, AppCommand, CommandResult,
  };
 
