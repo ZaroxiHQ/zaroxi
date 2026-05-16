@@ -1,7 +1,6 @@
 //! AI service implementation.
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tracing::info;
 
 /// AI service for handling AI-related operations.
@@ -23,7 +22,7 @@ impl AiService {
 
     /// Start the AI service.
     pub async fn start(&self) -> Result<(), anyhow::Error> {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap();
         if state.running {
             return Err(anyhow::anyhow!("AI service is already running"));
         }
@@ -34,7 +33,7 @@ impl AiService {
 
     /// Stop the AI service.
     pub async fn stop(&self) -> Result<(), anyhow::Error> {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap();
         if !state.running {
             return Err(anyhow::anyhow!("AI service is not running"));
         }
@@ -45,7 +44,7 @@ impl AiService {
 
     /// Check if the service is running.
     pub async fn is_running(&self) -> bool {
-        let state = self.state.lock().await;
+        let state = self.state.lock().unwrap();
         state.running
     }
 }
