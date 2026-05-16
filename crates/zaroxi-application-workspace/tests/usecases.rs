@@ -120,7 +120,7 @@ async fn orchestrator_flow_happy_path() {
     }
 
     let repo = Arc::new(FakeRepo) as Arc<dyn domain_ports::WorkspaceRepository>;
-    let store = Arc::new(FakeStore) as Arc<dyn buffer_ports::BufferStore>;
+    let store = Arc::new(FakeStore::new()) as Arc<dyn buffer_ports::BufferStore>;
     let ai = Arc::new(FakeAi) as Arc<dyn ai_ports::AiClient>;
 
     let orchestrator = WorkspaceOrchestrator::new(repo, store, ai);
