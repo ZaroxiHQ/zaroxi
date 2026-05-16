@@ -9,7 +9,7 @@
      GetActiveBufferRequest, GetActiveBufferResponse,
      BoxFuture, UseCaseError,
      // Transaction seam (Phase 4)
-     ApplyTextTransactionRequest, ApplyTextTransactionResponse,
+     ApplyTextTransactionRequest, ApplyTextTransactionResponse, TextEdit,
      CommandRecord, CommandKind, WorkspaceEvent, WorkspaceEventKind,
      GetRecentCommandsRequest, GetRecentCommandsResponse, GetRecentEventsRequest, GetRecentEventsResponse,
      // Snapshot/query types (Phase 7)
