@@ -2,6 +2,7 @@
 
 pub mod state;
 pub mod commands;
+pub mod compose;
 
 pub use state::EditorState;
 pub use commands::EditorCommand;
