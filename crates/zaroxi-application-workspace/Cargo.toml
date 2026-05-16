@@ -6,8 +6,7 @@ description = "zaroxi-application-workspace (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Minimal workspace-aligned dependencies required for Phase 0.
-# Use workspace = true so versions/features come from the top-level workspace pins.
+# Minimal workspace-aligned dependencies required for Phase 1.
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -19,3 +18,6 @@ serde = { workspace = true }
 zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
+
+# Application AI port (used by orchestrator)
+zaroxi-application-ai = { path = "../zaroxi-application-ai" }

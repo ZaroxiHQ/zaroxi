@@ -4,10 +4,9 @@ use std::path::PathBuf;
 use tokio;
 
 use zaroxi_application_workspace::ports::{
-    WorkspaceService, WorkspaceOpenCommand, AppCommand, CommandResult,
-    WorkspaceSessionDTO,
+    WorkspaceService, WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
 };
-use zaroxi_domain_workspace::ports::{WorkspaceRepository, WorkspaceOpenCommand as DomainOpenCmd};
+use zaroxi_domain_workspace::ports::WorkspaceRepository;
 use zaroxi_core_editor_buffer::ports::BufferStore;
 use zaroxi_application_ai::ports::AiClient;
 
@@ -15,66 +14,8 @@ use zaroxi_application_ai::ports::AiClient;
 use zaroxi_infrastructure_ai_mock;
 use zaroxi_infrastructure_memory;
 
-type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
-
-/// Small service implementation that lives in the outer composition crate for Phase 0.
-/// It implements the application-owned WorkspaceService trait by delegating to infrastructure ports.
-/// NOTE: For Phase 0 this lightweight implementation is acceptable; for Phase 1 this belongs
-/// in the application-workspace crate proper.
-struct SimpleWorkspaceService {
-    repo: Arc<dyn WorkspaceRepository>,
-    buffer_store: Arc<dyn BufferStore>,
-    ai_client: Arc<dyn AiClient>,
-}
-
-impl SimpleWorkspaceService {
-    fn new(
-        repo: Arc<dyn WorkspaceRepository>,
-        buffer_store: Arc<dyn BufferStore>,
-        ai_client: Arc<dyn AiClient>,
-    ) -> Self {
-        Self { repo, buffer_store, ai_client }
-    }
-}
-
-impl WorkspaceService for SimpleWorkspaceService {
-    fn open_workspace(&self, cmd: WorkspaceOpenCommand) -> BoxFuture<'static, Result<WorkspaceSessionDTO, String>> {
-        let repo = self.repo.clone();
-        Box::pin(async move {
-            // Translate application command into domain repo call and create a session DTO.
-            let domain_cmd = DomainOpenCmd { path: cmd.path.clone() };
-            let dto = repo.open_workspace(domain_cmd).await.map_err(|e| e.0)?;
-            Ok(WorkspaceSessionDTO {
-                session_id: dto.id.clone(),
-                workspace_id: dto.id.clone(),
-            })
-        })
-    }
-
-    fn open_buffer(&self, _session_id: String, path: PathBuf) -> BoxFuture<'static, Result<String, String>> {
-        let store = self.buffer_store.clone();
-        Box::pin(async move {
-            let id = store.open_buffer(path).await.map_err(|e| e.0)?;
-            Ok(id.0)
-        })
-    }
-
-    fn dispatch_command(&self, _session_id: String, cmd: AppCommand) -> BoxFuture<'static, Result<CommandResult, String>> {
-        let ai = self.ai_client.clone();
-        Box::pin(async move {
-            match cmd {
-                AppCommand::AiExplain { prompt } => {
-                    let res = ai.request(prompt).await.map_err(|e| e.0)?;
-                    Ok(CommandResult { message: res.text })
-                }
-                AppCommand::InsertText { buffer_id: _, offset: _, text: _ } => {
-                    // Not implemented for Phase 0
-                    Ok(CommandResult { message: "inserted (noop-sim)".to_string() })
-                }
-            }
-        })
-    }
-}
+// Application orchestrator (concrete implementation lives in application crate)
+use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -89,20 +30,26 @@ async fn main() -> Result<(), String> {
     let ai = zaroxi_infrastructure_ai_mock::MockAiClient::new();
     let ai_dyn = zaroxi_infrastructure_ai_mock::into_dyn(ai);
 
-    // Compose the application service (for Phase 0 we construct it here).
-    let service = SimpleWorkspaceService::new(repo_dyn, buffer_dyn, ai_dyn);
+    // Compose the application orchestrator (implementation owned by application layer).
+    let orchestrator = WorkspaceOrchestrator::new(repo_dyn, buffer_dyn, ai_dyn);
 
-    // Run the harness flow directly (composition root) — uses application service directly.
-    let open_cmd = WorkspaceOpenCommand { path: PathBuf::from("./sample-workspace") };
-    let session = service.open_workspace(open_cmd).await?;
-    println!("Harness: opened workspace session: {}", session.session_id);
+    // Boot workspace (use-case)
+    let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
+    let boot_res = orchestrator.boot_workspace(boot_req).await?;
+    println!("Harness: opened workspace session: {}", boot_res.session.session_id);
 
-    let buffer_id = service.open_buffer(session.session_id.clone(), PathBuf::from("main.rs")).await?;
-    println!("Harness: opened buffer id: {}", buffer_id);
+    // Open buffer (use-case)
+    let open_req = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
+    let open_res = orchestrator.open_buffer(open_req).await?;
+    println!("Harness: opened buffer id: {}", open_res.buffer_id);
 
-    let cmd = AppCommand::AiExplain { prompt: format!("Explain contents of buffer {}", buffer_id) };
-    let result = service.dispatch_command(session.session_id.clone(), cmd).await?;
-    println!("Harness: command result: {}", result.message);
+    // Dispatch AI explain command (use-case)
+    let dispatch_req = DispatchCommandRequest {
+        session_id: boot_res.session.session_id.clone(),
+        command: AppCommand::AiExplain { prompt: format!("Explain contents of buffer {}", open_res.buffer_id) },
+    };
+    let dispatch_res = orchestrator.dispatch_command(dispatch_req).await?;
+    println!("Harness: command result: {}", dispatch_res.result.message);
 
     Ok(())
 }

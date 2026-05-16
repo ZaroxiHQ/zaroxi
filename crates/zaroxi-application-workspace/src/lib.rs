@@ -2,27 +2,35 @@
 ///
 /// Application-level orchestrators (use-case services) live here. They depend on
 /// domain contracts and core ports, but not on infrastructure or interface.
-/// For Phase 0 keep implementations minimal and focused on the single slice.
+/// For Phase 1 keep implementations minimal and focused on the single slice.
 pub mod service;
 pub mod workspace_manager;
 pub mod ports;
+pub mod usecases;
 
 /// Prelude for convenient imports.
 ///
 /// Be explicit about exported symbols to avoid ambiguous glob re-export warnings.
-/// Ports own the public trait/type surface; re-export those intentionally.
-/// Workspace manager helpers are re-exported as a group.
+/// Re-export application-owned types and the orchestrator.
 pub mod prelude {
     // Re-export the application-owned port/type surface explicitly.
     pub use crate::ports::{
         WorkspaceService,
-        WorkspaceOpenCommand,
-        WorkspaceSessionDTO,
+        WorkspaceBootRequest,
+        WorkspaceBootResponse,
+        OpenBufferRequest,
+        OpenBufferResponse,
+        DispatchCommandRequest,
+        DispatchCommandResponse,
         AppCommand,
         CommandResult,
+        WorkspaceSessionDTO,
         DynWorkspaceService,
     };
 
-    // Re-export manager helpers (names here are intentionally grouped).
+    // Re-export the concrete orchestrator type for convenience.
+    pub use crate::usecases::WorkspaceOrchestrator;
+
+    // Re-export manager helpers.
     pub use crate::workspace_manager::*;
 }

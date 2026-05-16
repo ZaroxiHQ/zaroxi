@@ -21,18 +21,44 @@
      pub workspace_id: String,
  }
 
- /// Command used to request open workspace
+ /// Request to boot/open a workspace and create a session.
  #[derive(Clone, Debug)]
- pub struct WorkspaceOpenCommand {
+ pub struct WorkspaceBootRequest {
      pub path: PathBuf,
  }
 
+ /// Response from workspace boot.
+ #[derive(Clone, Debug)]
+ pub struct WorkspaceBootResponse {
+     pub session: WorkspaceSessionDTO,
+ }
+
+ /// Request to open a buffer within a session.
+ #[derive(Clone, Debug)]
+ pub struct OpenBufferRequest {
+     pub session_id: String,
+     pub path: PathBuf,
+ }
+
+ /// Response from opening a buffer.
+ #[derive(Clone, Debug)]
+ pub struct OpenBufferResponse {
+     pub buffer_id: String,
+ }
+
  /// Application-level commands that the UI may dispatch.
- /// Keep this small for Phase 0: an AI explain command and a simple edit command.
+ /// Keep this small for Phase 1: an AI explain command and a simple edit command.
  #[derive(Clone, Debug)]
  pub enum AppCommand {
      AiExplain { prompt: String },
      InsertText { buffer_id: String, offset: usize, text: String },
+ }
+
+ /// Request to dispatch an application command.
+ #[derive(Clone, Debug)]
+ pub struct DispatchCommandRequest {
+     pub session_id: String,
+     pub command: AppCommand,
  }
 
  /// Result returned from a dispatched command.
@@ -41,17 +67,23 @@
      pub message: String,
  }
 
- /// Very small service trait. Implementations are in application layer.
- pub trait WorkspaceService: Send + Sync {
-     /// Open a workspace and create a session for UI. Returns a session DTO.
-     fn open_workspace(&self, cmd: WorkspaceOpenCommand) -> BoxFuture<'static, Result<WorkspaceSessionDTO, String>>;
+ /// Response from dispatch command
+ #[derive(Clone, Debug)]
+ pub struct DispatchCommandResponse {
+     pub result: CommandResult,
+ }
 
-     /// Open a buffer inside an active session (session_id is a string for the skeleton).
-     fn open_buffer(&self, session_id: String, path: PathBuf) -> BoxFuture<'static, Result<String /* buffer id */, String>>;
+ /// Very small service trait. Implementations are in application layer.
+ /// Methods are explicit use-case entry points for Phase 1.
+ pub trait WorkspaceService: Send + Sync {
+     /// Boot/open a workspace and create a UI session.
+     fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, String>>;
+
+     /// Open a buffer inside an active session.
+     fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, String>>;
 
      /// Dispatch a high-level application command (AI requests, edits, etc).
-     /// The application service is responsible for routing this to the correct port (ai client, buffer store, etc).
-     fn dispatch_command(&self, session_id: String, cmd: AppCommand) -> BoxFuture<'static, Result<CommandResult, String>>;
+     fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, String>>;
  }
 
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;
