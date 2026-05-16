@@ -134,6 +134,8 @@
      AiFailure(String),
      /// Checkpoint was malformed or could not be applied.
      InvalidCheckpoint(String),
+     /// Durability / storage related failure.
+     DurabilityFailure(String),
      /// Attempt to restore a checkpoint that would re-use an existing session id.
      SessionAlreadyExists(SessionId),
  }
@@ -149,6 +151,7 @@
              UseCaseError::InvalidMutation(s) => write!(f, "invalid mutation: {}", s),
              UseCaseError::AiFailure(s) => write!(f, "ai failure: {}", s),
              UseCaseError::InvalidCheckpoint(s) => write!(f, "invalid checkpoint: {}", s),
+             UseCaseError::DurabilityFailure(s) => write!(f, "durability failure: {}", s),
              UseCaseError::SessionAlreadyExists(sid) => write!(f, "session already exists: {}", sid),
          }
      }
@@ -219,6 +222,43 @@
  }
 
  pub type DynHistoryRepository = Arc<dyn HistoryRepository>;
+ 
+ /// Durability errors for checkpoint persistence.
+ #[derive(Clone, Debug)]
+ pub enum DurabilityError {
+     Io(String),
+     NotFound(String),
+     Malformed(String),
+     UnknownVersion(u32),
+ }
+ 
+ impl From<&str> for DurabilityError {
+     fn from(s: &str) -> Self {
+         DurabilityError::Io(s.to_string())
+     }
+ }
+ 
+ impl std::fmt::Display for DurabilityError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+             DurabilityError::Io(s) => write!(f, "io error: {}", s),
+             DurabilityError::NotFound(s) => write!(f, "not found: {}", s),
+             DurabilityError::Malformed(s) => write!(f, "malformed checkpoint: {}", s),
+             DurabilityError::UnknownVersion(v) => write!(f, "unknown checkpoint version: {}", v),
+         }
+     }
+ }
+ 
+ /// Durability port: simple store for checkpoints.
+ pub trait DurabilityRepository: Send + Sync {
+     /// Persist a checkpoint and return a location identifier (opaque string).
+     fn save_checkpoint(&self, checkpoint: Checkpoint) -> BoxFuture<'static, Result<String, DurabilityError>>;
+ 
+     /// Load a checkpoint by location id and return the deserialized checkpoint.
+     fn load_checkpoint(&self, location: String) -> BoxFuture<'static, Result<Checkpoint, DurabilityError>>;
+ }
+ 
+ pub type DynDurabilityRepository = Arc<dyn DurabilityRepository>;
 
  /// Request to query recent commands for a session.
  #[derive(Clone, Debug)]
@@ -299,8 +339,11 @@
  }
  
  /// Checkpoint DTO capturing a compact session state suitable for restore.
+ /// Includes an explicit `version` field to allow safe evolution of the format.
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct Checkpoint {
+     /// Checkpoint serialization format version. Monotonic small integer.
+     pub version: u32,
      /// Original session id carried by the checkpoint.
      pub session_id: SessionId,
      /// Workspace id referenced by the session.
@@ -344,7 +387,30 @@
      /// Optional replacement id if a deterministic replacement policy was used.
      pub replaced_session_id: Option<SessionId>,
  }
-
+ 
+ /// Request to persist a checkpoint using the configured durability adapter.
+ #[derive(Clone, Debug)]
+ pub struct SaveCheckpointRequest {
+     pub session_id: SessionId,
+ }
+ 
+ /// Response returned when a checkpoint has been persisted.
+ #[derive(Clone, Debug)]
+ pub struct SaveCheckpointResponse {
+     /// Opaque location identifier returned by the durability adapter (e.g. filename or id).
+     pub location: String,
+ }
+ 
+ /// Request to load a checkpoint from the durability adapter and restore it.
+ #[derive(Clone, Debug)]
+ pub struct LoadCheckpointRequest {
+     /// Opaque location identifier previously returned by save_checkpoint.
+     pub location: String,
+ }
+ 
+ /// Response returns the restored session metadata (reuses existing restore response shape).
+ pub type LoadCheckpointResponse = RestoreCheckpointResponse;
+ 
  /// Very small service trait. Implementations are in application layer.
  /// Methods are explicit use-case entry points for Phase 5 multi-buffer behavior.
  pub trait WorkspaceService: Send + Sync {
@@ -384,6 +450,12 @@
  
      /// Create a typed checkpoint capturing a session snapshot suitable for restore.
      fn create_checkpoint(&self, req: CreateCheckpointRequest) -> BoxFuture<'static, Result<CreateCheckpointResponse, UseCaseError>>;
+ 
+     /// Persist a previously created or freshly created checkpoint using the durability port.
+     fn save_checkpoint(&self, req: SaveCheckpointRequest) -> BoxFuture<'static, Result<SaveCheckpointResponse, UseCaseError>>;
+ 
+     /// Load a checkpoint from the durability port and restore it into the orchestrator.
+     fn load_checkpoint(&self, req: LoadCheckpointRequest) -> BoxFuture<'static, Result<LoadCheckpointResponse, UseCaseError>>;
  
      /// Restore a session from a checkpoint. Returns the restored session and optional replaced id.
      fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>>;

@@ -177,6 +177,7 @@ async fn restore_rejects_invalid_checkpoint() {
 
     // Build a malformed checkpoint (invalid buffer id)
     let bad_cp = ports::Checkpoint {
+        version: 1,
         session_id: ports::SessionId(Id::new()),
         workspace_id: Id::new(),
         opened_buffers: vec!["badid".to_string()],

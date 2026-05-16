@@ -35,6 +35,8 @@
      ai_client: Arc<dyn ai_ports::AiClient>,
      /// Optional history repository for recording commands and events.
      history: Arc<dyn crate::ports::HistoryRepository>,
+     /// Durability adapter for persisting checkpoints.
+     durability: Arc<dyn crate::ports::DurabilityRepository>,
      /// In-memory session -> session info mapping for the simple slice.
      sessions: Arc<Mutex<HashMap<Id, SessionInfo>>>,
  }
@@ -58,9 +60,10 @@
          buffer_store: Arc<dyn buffer_ports::BufferStore>,
          ai_client: Arc<dyn ai_ports::AiClient>,
      ) -> Self {
-         // default no-op history repository
+         // default no-op history repository and no-op durability
          let noop = NoopHistory::new();
-         Self { repo, buffer_store, ai_client, history: Arc::new(noop), sessions: Arc::new(Mutex::new(HashMap::new())) }
+         let noop_dur = NoopDurability::new();
+         Self { repo, buffer_store, ai_client, history: Arc::new(noop), durability: Arc::new(noop_dur), sessions: Arc::new(Mutex::new(HashMap::new())) }
      }
 
      /// Create a new orchestrator with an explicit history repository (for harness/infra composition).
@@ -70,7 +73,20 @@
          ai_client: Arc<dyn ai_ports::AiClient>,
          history: Arc<dyn crate::ports::HistoryRepository>,
      ) -> Self {
-         Self { repo, buffer_store, ai_client, history, sessions: Arc::new(Mutex::new(HashMap::new())) }
+         // default no-op durability when one is not provided
+         let noop_dur = NoopDurability::new();
+         Self { repo, buffer_store, ai_client, history, durability: Arc::new(noop_dur), sessions: Arc::new(Mutex::new(HashMap::new())) }
+     }
+ 
+     /// Create a new orchestrator with an explicit history repository and durability adapter.
+     pub fn new_with_history_and_durability(
+         repo: Arc<dyn domain_ports::WorkspaceRepository>,
+         buffer_store: Arc<dyn buffer_ports::BufferStore>,
+         ai_client: Arc<dyn ai_ports::AiClient>,
+         history: Arc<dyn crate::ports::HistoryRepository>,
+         durability: Arc<dyn crate::ports::DurabilityRepository>,
+     ) -> Self {
+         Self { repo, buffer_store, ai_client, history, durability, sessions: Arc::new(Mutex::new(HashMap::new())) }
      }
  }
 
@@ -80,7 +96,7 @@
  impl NoopHistory {
      fn new() -> Self { NoopHistory }
  }
-
+ 
  impl crate::ports::HistoryRepository for NoopHistory {
      fn record_command(&self, _rec: CommandRecord) -> BoxFuture<'static, Result<(), String>> {
          Box::pin(async { Ok(()) })
@@ -93,6 +109,22 @@
      }
      fn get_recent_events(&self, _session_id: SessionId, _limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>> {
          Box::pin(async { Ok(Vec::new()) })
+     }
+ }
+ 
+ /// No-op durability adapter used when none is provided at composition time.
+ struct NoopDurability;
+ 
+ impl NoopDurability {
+     fn new() -> Self { NoopDurability }
+ }
+ 
+ impl crate::ports::DurabilityRepository for NoopDurability {
+     fn save_checkpoint(&self, _checkpoint: crate::ports::Checkpoint) -> BoxFuture<'static, Result<String, crate::ports::DurabilityError>> {
+         Box::pin(async { Err(crate::ports::DurabilityError::Io("noop durability not configured".to_string())) })
+     }
+     fn load_checkpoint(&self, _location: String) -> BoxFuture<'static, Result<crate::ports::Checkpoint, crate::ports::DurabilityError>> {
+         Box::pin(async { Err(crate::ports::DurabilityError::NotFound("noop durability not configured".to_string())) })
      }
  }
 
@@ -714,6 +746,7 @@
              let events = history.get_recent_events(req.session_id.clone(), 50).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
  
              let checkpoint = Checkpoint {
+                 version: 1,
                  session_id: req.session_id.clone(),
                  workspace_id,
                  opened_buffers: opened,
@@ -728,12 +761,73 @@
          })
      }
  
-     fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>> {
+     fn save_checkpoint(&self, req: crate::ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, UseCaseError>> {
          let store = self.buffer_store.clone();
          let sessions = self.sessions.clone();
          let history = self.history.clone();
+         let durability = self.durability.clone();
          Box::pin(async move {
-             let ck = req.checkpoint;
+             // Resolve session info (synchronous lookup).
+             let info = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).cloned().ok_or(UseCaseError::UnknownSession)?
+             };
+ 
+             let opened = info.open_buffers.clone();
+             let active = info.active_buffer.clone();
+             let workspace_id = info.workspace_id;
+ 
+             // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
+             let mut buffers: Vec<crate::ports::BufferSnapshot> = Vec::new();
+             for b in opened.iter() {
+                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 buffers.push(crate::ports::BufferSnapshot { buffer_id: b.clone(), content });
+             }
+ 
+             // Recent commands and events (read from history port).
+             let commands = history.get_recent_commands(req.session_id.clone(), 50).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+             let events = history.get_recent_events(req.session_id.clone(), 50).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+ 
+             let checkpoint = crate::ports::Checkpoint {
+                 version: 1,
+                 session_id: req.session_id.clone(),
+                 workspace_id,
+                 opened_buffers: opened,
+                 active_buffer: active,
+                 buffers,
+                 recent_commands: commands,
+                 recent_events: events,
+                 created_at: Utc::now(),
+             };
+ 
+             // Persist via durability adapter (serialize is responsibility of adapter or can be performed by adapter).
+             let loc = match durability.save_checkpoint(checkpoint).await {
+                 Ok(l) => l,
+                 Err(e) => return Err(UseCaseError::DurabilityFailure(e.to_string())),
+             };
+ 
+             Ok(crate::ports::SaveCheckpointResponse { location: loc })
+         })
+     }
+ 
+     fn load_checkpoint(&self, req: crate::ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, UseCaseError>> {
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         let history = self.history.clone();
+         let durability = self.durability.clone();
+         Box::pin(async move {
+             // Load checkpoint bytes/record from durability adapter.
+             let ck = match durability.load_checkpoint(req.location.clone()).await {
+                 Ok(c) => c,
+                 Err(e) => {
+                     // Map durability errors to explicit use-case errors.
+                     match e {
+                         crate::ports::DurabilityError::Malformed(s) => return Err(UseCaseError::InvalidCheckpoint(s)),
+                         crate::ports::DurabilityError::UnknownVersion(v) => return Err(UseCaseError::InvalidCheckpoint(format!("unknown version {}", v))),
+                         _ => return Err(UseCaseError::DurabilityFailure(e.to_string())),
+                     }
+                 }
+             };
  
              // Validate target session id is not already in use.
              {
