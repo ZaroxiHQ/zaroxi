@@ -1133,6 +1133,18 @@
                  }
              })
          }
+
+         fn apply_transaction(&self, id: &buffer_ports::BufferId, _txn: buffer_ports::TextEdit) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+             let key = id.0.clone();
+             Box::pin(async move {
+                 // Minimal fake behavior: accept transactions for buffer ids that look valid.
+                 if key.starts_with("buf:") {
+                     Ok(())
+                 } else {
+                     Err(buffer_ports::BufferError("buffer not found".to_string()))
+                 }
+             })
+         }
      }
  
      struct FakeAi;
