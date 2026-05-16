@@ -186,8 +186,13 @@ license = "MIT"
 # Projects using this workspace should pin dependencies individually.
 
 # Workspace-level recommended tooling (kept minimal and optional)
+# Core workspace dependencies declared here so member crates may use
+# `serde = { workspace = true }` style. This fixes manifests that inherit
+# dependencies from the workspace.
 [workspace.dependencies]
 anyhow = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # Metadata for CI and maintainers: enforce architecture rules programmatically
 [workspace.metadata.zaroxi]
