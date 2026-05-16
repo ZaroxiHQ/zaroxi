@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
@@ -25,26 +26,42 @@ async fn orchestrator_flow_happy_path() {
         }
     }
 
-    // Fake buffer store
-    struct FakeStore;
+    /// Simple in-test buffer store supporting open/get/set/apply_transaction
+    struct FakeStore {
+        inner: Arc<Mutex<HashMap<String, String>>>,
+    }
+
+    impl FakeStore {
+        fn new() -> Self {
+            Self { inner: Arc::new(Mutex::new(HashMap::new())) }
+        }
+    }
+
     impl buffer_ports::BufferStore for FakeStore {
         fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
-            // Prefer the canonical core helper to construct BufferId from a path.
-            let id = buffer_ports::BufferId::from(path);
+            let id = buffer_ports::BufferId::from_path(&path);
+            let key = id.0.clone();
+            let id_clone = id.clone();
+            let inner = self.inner.clone();
             Box::pin(async move {
-                Ok(id)
+                let mut m = inner.lock().unwrap();
+                m.entry(key.clone()).or_insert_with(|| "fn main() {}".to_string());
+                Ok(id_clone)
             })
         }
 
-        fn get_text(&self, _id: &buffer_ports::BufferId) -> Option<String> {
-            Some("fn main() {}".to_string())
+        fn get_text(&self, id: &buffer_ports::BufferId) -> Option<String> {
+            let m = self.inner.lock().unwrap();
+            m.get(&id.0).cloned()
         }
 
-        fn set_text(&self, id: &buffer_ports::BufferId, _content: String) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+        fn set_text(&self, id: &buffer_ports::BufferId, content: String) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
             let key = id.0.clone();
+            let inner = self.inner.clone();
             Box::pin(async move {
-                // Lightweight fake behavior: accept writes for any buffer id that looks like a BufferId produced by open_buffer.
-                if key.starts_with("buf:") {
+                let mut m = inner.lock().unwrap();
+                if m.contains_key(&key) {
+                    m.insert(key, content);
                     Ok(())
                 } else {
                     Err(buffer_ports::BufferError("buffer not found".to_string()))
