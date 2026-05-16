@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::fmt;
+use std::ops::Deref;
 use serde::{Deserialize, Serialize};
 
 /// Boxed future alias for this skeleton (import from kernel in future).
@@ -71,6 +72,13 @@ impl From<std::path::PathBuf> for BufferId {
 impl fmt::Display for BufferId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for BufferId {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

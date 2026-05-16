@@ -180,7 +180,7 @@ async fn restore_rejects_invalid_checkpoint() {
         version: 1,
         session_id: ports::SessionId(Id::new()),
         workspace_id: Id::new(),
-        opened_buffers: vec!["badid".to_string()],
+        opened_buffers: vec![ports::BufferId::from("badid")],
         active_buffer: None,
         buffers: vec![],
         recent_commands: vec![],
