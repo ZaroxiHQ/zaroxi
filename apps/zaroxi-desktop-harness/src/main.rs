@@ -48,7 +48,15 @@ async fn main() -> Result<(), String> {
     let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
     let open1_res = orchestrator.open_buffer(open1).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open1_res.buffer_id);
-    // Read buffer content via the new view API (thin, read-only seam).
+
+    // Phase 3: set a cursor for this buffer (editor-state seam) and read it back.
+    use zaroxi_application_workspace::ports::{SetEditorCursorRequest, EditorCursor, GetEditorStateRequest};
+    let _ = orchestrator.set_editor_cursor(SetEditorCursorRequest {
+        session_id: boot_res.session.session_id.clone(),
+        buffer_id: open1_res.buffer_id.clone(),
+        cursor: EditorCursor { line: 0, column: 0 },
+    }).await.map_err(|e| e.to_string())?;
+
     match orchestrator.get_buffer_content(open1_res.buffer_id.clone()).await {
         Ok(Some(text)) => {
             let snippet = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
@@ -56,6 +64,18 @@ async fn main() -> Result<(), String> {
         }
         Ok(None) => println!("Harness: buffer content: <empty>"),
         Err(e) => println!("Harness: failed to read buffer content: {}", e),
+    }
+
+    // Read and print the editor-state for the buffer.
+    match orchestrator.get_editor_state(GetEditorStateRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open1_res.buffer_id.clone() }).await {
+        Ok(s) => {
+            if let Some(state) = s.state {
+                println!("Harness: editor state cursor = {}:{}", state.cursor.line, state.cursor.column);
+            } else {
+                println!("Harness: editor state: <none>");
+            }
+        }
+        Err(e) => println!("Harness: failed to read editor state: {}", e),
     }
 
     let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };

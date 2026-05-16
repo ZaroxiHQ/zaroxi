@@ -14,6 +14,9 @@
      GetSessionSnapshotRequest, GetSessionSnapshotResponse, SessionSnapshot, BufferSnapshot,
      // Phase 8 checkpoint types
      CreateCheckpointRequest, CreateCheckpointResponse, RestoreCheckpointRequest, RestoreCheckpointResponse, Checkpoint,
+     // Editor-state types (Phase 3)
+     EditorCursor, Selection, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
+     ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
      SessionId,
  };
  
@@ -46,6 +49,8 @@
      workspace_id: Id,
      open_buffers: Vec<buffer_ports::BufferId>,     // list of buffer ids opened in this session (order of opening)
      active_buffer: Option<buffer_ports::BufferId>, // currently selected buffer id
+     /// Editor transient state per buffer (cursor + optional selection).
+     editor_states: std::collections::HashMap<buffer_ports::BufferId, EditorState>,
  }
  
  use zaroxi_domain_buffer::rules as buffer_rules;
@@ -217,6 +222,8 @@
                  let mut s = sessions.lock().unwrap();
                  if let Some(info) = s.get_mut(&req.session_id.0) {
                      info.open_buffers.push(buffer_id.clone());
+                     // initialize lightweight editor state for this buffer as empty cursor at (0,0)
+                     info.editor_states.entry(buffer_id.clone()).or_insert(EditorState { cursor: EditorCursor::zero(), selection: None });
                      if info.active_buffer.is_none() {
                          info.active_buffer = Some(buffer_id.clone());
                      }
@@ -326,6 +333,63 @@
                  Some(b) => Ok(GetActiveBufferResponse { buffer_id: b.clone() }),
                  None => Err(UseCaseError::NoActiveBuffer),
              }
+         })
+     }
+
+     fn set_editor_cursor(&self, req: SetEditorCursorRequest) -> BoxFuture<'static, Result<SetEditorCursorResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             // validate session and membership
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+             let entry = info.editor_states.entry(req.buffer_id.clone()).or_insert(EditorState { cursor: EditorCursor::zero(), selection: None });
+             entry.cursor = req.cursor.clone();
+             Ok(SetEditorCursorResponse { ok: true })
+         })
+     }
+
+     fn set_editor_selection(&self, req: SetSelectionRequest) -> BoxFuture<'static, Result<SetSelectionResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+             let entry = info.editor_states.entry(req.buffer_id.clone()).or_insert(EditorState { cursor: EditorCursor::zero(), selection: None });
+             entry.selection = Some(req.selection.clone());
+             Ok(SetSelectionResponse { ok: true })
+         })
+     }
+
+     fn clear_editor_selection(&self, req: ClearSelectionRequest) -> BoxFuture<'static, Result<ClearSelectionResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+             if let Some(entry) = info.editor_states.get_mut(&req.buffer_id) {
+                 entry.selection = None;
+             }
+             Ok(ClearSelectionResponse { ok: true })
+         })
+     }
+
+     fn get_editor_state(&self, req: GetEditorStateRequest) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let s = sessions.lock().unwrap();
+             let info = s.get(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+             let state = info.editor_states.get(&req.buffer_id).cloned();
+             Ok(GetEditorStateResponse { state })
          })
      }
 
@@ -777,7 +841,7 @@
              // Insert session info
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone() });
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new() });
              }
  
              // Record provided recent commands and events into history (best-effort).
@@ -836,7 +900,7 @@
              // Insert session info
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone() });
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new() });
              }
  
              // Record provided recent commands and events into history (best-effort).

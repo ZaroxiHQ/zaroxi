@@ -276,6 +276,93 @@
      pub buffer_id: BufferId,
      pub content: Option<String>,
  }
+
+ /// Editor transient cursor position (line/column, 0-based).
+ #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+ pub struct EditorCursor {
+     /// 0-based line index.
+     pub line: u32,
+     /// 0-based column index.
+     pub column: u32,
+ }
+
+ impl EditorCursor {
+     /// Create a zero cursor at start of document.
+     pub fn zero() -> Self {
+         Self { line: 0, column: 0 }
+     }
+ }
+
+ /// Simple selection (anchor and active positions).
+ #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+ pub struct Selection {
+     pub anchor: EditorCursor,
+     pub active: EditorCursor,
+ }
+
+ /// Lightweight editor-state for an open buffer inside a session.
+ /// - cursor: current caret position
+ /// - selection: optional selection (anchor/active)
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct EditorState {
+     pub cursor: EditorCursor,
+     pub selection: Option<Selection>,
+ }
+
+ /// Request to set the editor cursor for a buffer in a session.
+ #[derive(Clone, Debug)]
+ pub struct SetEditorCursorRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+     pub cursor: EditorCursor,
+ }
+
+ /// Response when setting cursor.
+ #[derive(Clone, Debug)]
+ pub struct SetEditorCursorResponse {
+     pub ok: bool,
+ }
+
+ /// Request to set a selection.
+ #[derive(Clone, Debug)]
+ pub struct SetSelectionRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+     pub selection: Selection,
+ }
+
+ /// Response when setting selection.
+ #[derive(Clone, Debug)]
+ pub struct SetSelectionResponse {
+     pub ok: bool,
+ }
+
+ /// Request to clear selection for a buffer.
+ #[derive(Clone, Debug)]
+ pub struct ClearSelectionRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+ }
+
+ /// Response when clearing selection.
+ #[derive(Clone, Debug)]
+ pub struct ClearSelectionResponse {
+     pub ok: bool,
+ }
+
+ /// Request to get editor-state for a buffer.
+ #[derive(Clone, Debug)]
+ pub struct GetEditorStateRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+ }
+
+ /// Response for editor-state query. If no transient state is present for the buffer,
+ /// `state` may be None.
+ #[derive(Clone, Debug)]
+ pub struct GetEditorStateResponse {
+     pub state: Option<EditorState>,
+ }
  
  /// Read-model representing the current workspace session state.
  #[derive(Clone, Debug)]
@@ -381,47 +468,59 @@
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
      fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>>;
- 
+
      /// Open a buffer inside an active session.
      fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>>;
- 
+
      /// List opened buffers for a session and indicate the active buffer (if any).
      fn list_open_buffers(&self, req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>>;
- 
+
      /// Set the active buffer for a session.
      fn set_active_buffer(&self, req: SetActiveBufferRequest) -> BoxFuture<'static, Result<SetActiveBufferResponse, UseCaseError>>;
- 
+
      /// Get the currently active buffer for a session.
      fn get_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, UseCaseError>>;
- 
+
+     /// Editor-state seam (Phase 3): typed cursor/selection APIs for open buffers.
+     ///
+     /// These methods only mutate or read editor transient state associated with an
+     /// open buffer in a session. They do not mutate buffer text or affect rendering.
+     fn set_editor_cursor(&self, req: SetEditorCursorRequest) -> BoxFuture<'static, Result<SetEditorCursorResponse, UseCaseError>>;
+
+     fn set_editor_selection(&self, req: SetSelectionRequest) -> BoxFuture<'static, Result<SetSelectionResponse, UseCaseError>>;
+
+     fn clear_editor_selection(&self, req: ClearSelectionRequest) -> BoxFuture<'static, Result<ClearSelectionResponse, UseCaseError>>;
+
+     fn get_editor_state(&self, req: GetEditorStateRequest) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>>;
+
      /// Shorthand use-case: explain the currently active buffer (uses the AiClient).
      fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
- 
+
      /// Dispatch a high-level application command (AI requests, edits, etc).
      fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
- 
+
      /// Update or replace buffer content within a session.
      fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
- 
+
      /// Query recent command history for a session.
      fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>>;
- 
+
      /// Query recent workspace events for a session.
      fn get_recent_events(&self, req: GetRecentEventsRequest) -> BoxFuture<'static, Result<GetRecentEventsResponse, UseCaseError>>;
- 
+
      /// Read-only snapshot query for the current workspace session.
      /// Returns a compact, explicit read-model of the session state.
      fn get_session_snapshot(&self, req: GetSessionSnapshotRequest) -> BoxFuture<'static, Result<GetSessionSnapshotResponse, UseCaseError>>;
- 
+
      /// Create a typed checkpoint capturing a session snapshot suitable for restore.
      fn create_checkpoint(&self, req: CreateCheckpointRequest) -> BoxFuture<'static, Result<CreateCheckpointResponse, UseCaseError>>;
- 
+
      /// Persist a previously created or freshly created checkpoint using the durability port.
      fn save_checkpoint(&self, req: SaveCheckpointRequest) -> BoxFuture<'static, Result<SaveCheckpointResponse, UseCaseError>>;
- 
+
      /// Load a checkpoint from the durability port and restore it into the orchestrator.
      fn load_checkpoint(&self, req: LoadCheckpointRequest) -> BoxFuture<'static, Result<LoadCheckpointResponse, UseCaseError>>;
- 
+
      /// Restore a session from a checkpoint. Returns the restored session and optional replaced id.
      fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>>;
  }
