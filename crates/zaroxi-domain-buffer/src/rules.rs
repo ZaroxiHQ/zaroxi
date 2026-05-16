@@ -32,3 +32,19 @@ pub fn validate_content(content: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Validate buffer identifier shape for the simple slice.
+/// We expect buffer ids produced by core/infra to follow `buf:<path>` convention.
+pub fn validate_buffer_id(id: &str) -> Result<(), String> {
+    if id.trim().is_empty() {
+        return Err("buffer id must not be empty".to_string());
+    }
+    if !id.starts_with("buf:") {
+        return Err("buffer id must start with 'buf:'".to_string());
+    }
+    // require at least one character after the prefix
+    if id.len() <= 4 {
+        return Err("buffer id missing identifier after 'buf:'".to_string());
+    }
+    Ok(())
+}

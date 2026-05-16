@@ -18,33 +18,11 @@
      repo: Arc<dyn domain_ports::WorkspaceRepository>,
      buffer_store: Arc<dyn buffer_ports::BufferStore>,
      ai_client: Arc<dyn ai_ports::AiClient>,
- }
- 
- impl WorkspaceOrchestrator {
-     /// Create a new orchestrator with concrete port implementations (adapters).
-     pub fn new(
-         repo: Arc<dyn domain_ports::WorkspaceRepository>,
-         buffer_store: Arc<dyn buffer_ports::BufferStore>,
-         ai_client: Arc<dyn ai_ports::AiClient>,
-     ) -> Self {
-         Self { repo, buffer_store, ai_client }
-     }
+     /// In-memory session -> workspace mapping for the simple slice.
+     sessions: Arc<Mutex<HashMap<Id, Id>>>,
  }
  
  use crate::ports::BoxFuture;
- 
- impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
-     fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, String>> {
-         let repo = self.repo.clone();
-         Box::pin(async move {
-             let domain_cmd = domain_ports::WorkspaceOpenCommand { path: req.path.clone() };
-             let dto = repo.open_workspace(domain_cmd).await.map_err(|e| e.0)?;
-             // Create a session id for this UI session.
-             let session_id = Id::new();
-             let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
-             Ok(WorkspaceBootResponse { session })
-         })
-     }
  
      fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, String>> {
          let store = self.buffer_store.clone();

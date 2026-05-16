@@ -17,6 +17,7 @@ serde = { workspace = true }
 # Domain and core ports this application orchestrator depends on.
 zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
+zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 
 # Application AI port (used by orchestrator)

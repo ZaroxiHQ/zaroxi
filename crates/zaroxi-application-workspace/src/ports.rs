@@ -133,16 +133,19 @@
  }
 
  /// Very small service trait. Implementations are in application layer.
- /// Methods are explicit use-case entry points for Phase 2.
+ /// Methods are explicit use-case entry points for Phase 2/4.
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
-     fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, String>>;
+     fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>>;
 
      /// Open a buffer inside an active session.
-     fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, String>>;
+     fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>>;
 
      /// Dispatch a high-level application command (AI requests, edits, etc).
-     fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, String>>;
+     fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
+
+     /// Update or replace buffer content within a session.
+     fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
  }
 
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;

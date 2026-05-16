@@ -32,29 +32,29 @@ async fn main() -> Result<(), String> {
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
-    let boot_res = orchestrator.boot_workspace(boot_req).await?;
+    let boot_res = orchestrator.boot_workspace(boot_req).await.map_err(|e| e.to_string())?;
     println!("Harness: opened workspace session: {}", boot_res.session.session_id);
-
+ 
     // Open buffer (use-case)
     let open_req = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
-    let open_res = orchestrator.open_buffer(open_req).await?;
+    let open_res = orchestrator.open_buffer(open_req).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open_res.buffer_id);
-
+ 
     // Mutate buffer content via application use-case (Phase 4)
     let update_req = zaroxi_application_workspace::ports::UpdateBufferRequest {
         session_id: boot_res.session.session_id.clone(),
         buffer_id: open_res.buffer_id.clone(),
         new_content: "fn main() { println!(\"Mutated by harness\"); }".to_string(),
     };
-    let update_res = orchestrator.update_buffer(update_req).await?;
+    let update_res = orchestrator.update_buffer(update_req).await.map_err(|e| e.to_string())?;
     println!("Harness: update ok: {}", update_res.ok);
-
+ 
     // Dispatch AI explain command (use-case)
     let dispatch_req = DispatchCommandRequest {
         session_id: boot_res.session.session_id.clone(),
         command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() },
     };
-    let dispatch_res = orchestrator.dispatch_command(dispatch_req).await?;
+    let dispatch_res = orchestrator.dispatch_command(dispatch_req).await.map_err(|e| e.to_string())?;
     println!("Harness: command result: {}", dispatch_res.result.message);
 
     Ok(())
