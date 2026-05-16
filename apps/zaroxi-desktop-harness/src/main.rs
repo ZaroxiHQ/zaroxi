@@ -6,7 +6,7 @@ use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest, GetSessionSnapshotRequest,
     SaveCheckpointRequest, LoadCheckpointRequest,
 };
-use zaroxi_application_workspace::ports::WorkspaceService;
+use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
