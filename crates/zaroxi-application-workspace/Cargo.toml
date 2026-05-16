@@ -6,4 +6,16 @@ description = "zaroxi-application-workspace (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Minimal workspace-aligned dependencies required for Phase 0.
+# Use workspace = true so versions/features come from the top-level workspace pins.
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+
+# Domain and core ports this application orchestrator depends on.
+zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
+zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }

@@ -6,4 +6,8 @@ description = "zaroxi-domain-workspace (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Minimal domain dependencies used by the Phase 0 DTOs and types.
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
