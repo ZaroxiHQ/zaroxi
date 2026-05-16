@@ -881,6 +881,66 @@
              Ok(RestoreCheckpointResponse { session, replaced_session_id: None })
          })
      }
+ 
+     fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>> {
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         let history = self.history.clone();
+         Box::pin(async move {
+             let ck = req.checkpoint;
+ 
+             // Validate target session id is not already in use.
+             {
+                 let s = sessions.lock().unwrap();
+                 if s.contains_key(&ck.session_id.0) {
+                     return Err(UseCaseError::SessionAlreadyExists(ck.session_id.clone()));
+                 }
+             }
+ 
+             // Ensure buffers exist in the store and apply contents if provided.
+             for b in ck.opened_buffers.iter() {
+                 // If buffer missing, attempt to open by deriving path from id "buf:<path>"
+                 if store.get_text(&buffer_ports::BufferId(b.clone())).is_none() {
+                     if b.starts_with("buf:") {
+                         let path_str = &b[4..];
+                         match store.open_buffer(PathBuf::from(path_str)).await {
+                             Ok(_id) => {}
+                             Err(_) => return Err(UseCaseError::InvalidCheckpoint(format!("cannot open buffer {}", b))),
+                         }
+                     } else {
+                         return Err(UseCaseError::InvalidCheckpoint(format!("invalid buffer id {}", b)));
+                     }
+                 }
+ 
+                 // Apply content snapshot when present.
+                 if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
+                     if let Some(content) = &bs.content {
+                         if let Err(_) = store.set_text(&buffer_ports::BufferId(b.clone()), content.clone()).await {
+                             return Err(UseCaseError::InvalidCheckpoint(format!("failed to set buffer {}", b)));
+                         }
+                     }
+                 }
+             }
+ 
+             // Insert session info
+             {
+                 let mut s = sessions.lock().unwrap();
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone() });
+             }
+ 
+             // Record provided recent commands and events into history (best-effort).
+             for c in ck.recent_commands.iter() {
+                 let _ = history.record_command(c.clone()).await;
+             }
+             for e in ck.recent_events.iter() {
+                 let _ = history.record_event(e.clone()).await;
+             }
+ 
+             let session = WorkspaceSessionDTO { session_id: ck.session_id.clone(), workspace_id: ck.workspace_id };
+ 
+             Ok(RestoreCheckpointResponse { session, replaced_session_id: None })
+         })
+     }
  }
  
  #[cfg(test)]
