@@ -7,12 +7,12 @@ edition = "2021"
 tokio = { version = "1", features = ["full"] }
 
 # Application and interface crates (workspace members)
-zaroxi_interface_desktop = { path = "../../crates/zaroxi-interface-desktop" }
-zaroxi_application_workspace = { path = "../../crates/zaroxi-application-workspace" }
-zaroxi_application_ai = { path = "../../crates/zaroxi-application-ai" }
-zaroxi_domain_workspace = { path = "../../crates/zaroxi-domain-workspace" }
-zaroxi_core_editor_buffer = { path = "../../crates/zaroxi-core-editor-buffer" }
+zaroxi-interface-desktop = { path = "../../crates/zaroxi-interface-desktop" }
+zaroxi-application-workspace = { path = "../../crates/zaroxi-application-workspace" }
+zaroxi-application-ai = { path = "../../crates/zaroxi-application-ai" }
+zaroxi-domain-workspace = { path = "../../crates/zaroxi-domain-workspace" }
+zaroxi-core-editor-buffer = { path = "../../crates/zaroxi-core-editor-buffer" }
 
 # Infrastructure adapters (outer composition references infra implementations)
-zaroxi_infrastructure_ai_mock = { path = "../../crates/zaroxi-infrastructure-ai-mock" }
-zaroxi_infrastructure_memory = { path = "../../crates/zaroxi-infrastructure-memory" }
+zaroxi-infrastructure-ai-mock = { path = "../../crates/zaroxi-infrastructure-ai-mock" }
+zaroxi-infrastructure-memory = { path = "../../crates/zaroxi-infrastructure-memory" }
