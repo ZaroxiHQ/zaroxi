@@ -175,6 +175,7 @@ members = [
   "crates/zaroxi-interface-desktop",
   "crates/zaroxi-interface-cli",
   "crates/zaroxi-interface-theme",
+  "apps/zaroxi-desktop-harness",
 ]
 
 # Standard defaults for newly generated crates.
