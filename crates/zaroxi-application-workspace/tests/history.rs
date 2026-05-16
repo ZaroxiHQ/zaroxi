@@ -135,7 +135,7 @@ async fn history_and_events_recorded() {
     let boot_res = orchestrator.boot_workspace(boot).await.expect("boot ok");
 
     let open = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
-    let open_res = orchestrator.open_buffer(open).await.expect("open ok");
+    let _open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Query recent commands and events and assert
     let cmds = orchestrator.get_recent_commands(GetRecentCommandsRequest { session_id: boot_res.session.session_id.clone(), limit: 10 }).await.expect("query cmds");
