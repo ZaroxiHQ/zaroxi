@@ -161,39 +161,9 @@
  impl std::error::Error for UseCaseError {}
  
 
- /// Application-level commands that the UI may dispatch.
- /// Phase 2: AiExplain is buffer-focused and does not carry a free-form prompt here.
- #[derive(Clone, Debug, Serialize, Deserialize)]
- pub enum AppCommand {
-     AiExplain { buffer_id: BufferId },
-     InsertText { buffer_id: BufferId, offset: usize, text: String },
- }
-
- /// Command kind for history records (typed minimal).
- #[derive(Clone, Debug, Serialize, Deserialize)]
- pub enum CommandKind {
-     BootWorkspace { path: PathBuf },
-     OpenBuffer { path: PathBuf },
-     UpdateBuffer { buffer_id: BufferId },
-     SetActiveBuffer { buffer_id: BufferId },
-     ExplainActiveBuffer,
-     DispatchAppCommand { command: AppCommand },
- }
-
- /// Command execution record stored in history.
- #[derive(Clone, Debug, Serialize, Deserialize)]
- pub struct CommandRecord {
-     pub id: Uuid,
-     pub timestamp: DateTime<Utc>,
-     pub kind: CommandKind,
-     pub session_id: Option<SessionId>,
-     pub workspace_id: Option<WorkspaceId>,
-     pub buffer_id: Option<BufferId>,
-     pub success: bool,
-     pub result: Option<String>,
-     pub error: Option<String>,
- }
-
+ // Re-export narrow command concepts owned by the new application-command crate.
+ pub use zaroxi_application_command::ports::{AppCommand, CommandKind, CommandRecord, CommandResult, DispatchCommandResponse};
+ 
  /// Small workspace event model for important transitions (internal records).
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub enum WorkspaceEventKind {
@@ -203,7 +173,7 @@
      ActiveBufferChanged { old: Option<BufferId>, new: Option<BufferId> },
      ExplainExecuted { buffer_id: BufferId, result: String },
  }
-
+ 
  /// Workspace event record with metadata.
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct WorkspaceEvent {
@@ -213,15 +183,17 @@
      pub workspace_id: WorkspaceId,
      pub kind: WorkspaceEventKind,
  }
-
+ 
  /// History repository port: infra may implement to persist/serve history and events.
+ /// Note: command records are owned by application-command but the history trait remains
+ /// here so history queries and session-typed APIs stay in application-workspace.
  pub trait HistoryRepository: Send + Sync {
      fn record_command(&self, rec: CommandRecord) -> BoxFuture<'static, Result<(), String>>;
      fn record_event(&self, ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>>;
      fn get_recent_commands(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>>;
      fn get_recent_events(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>>;
  }
-
+ 
  pub type DynHistoryRepository = Arc<dyn HistoryRepository>;
  
  /// Durability errors for checkpoint persistence.

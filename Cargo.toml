@@ -127,6 +127,7 @@ members = [
   # APPLICATION
   "crates/zaroxi-application-editor",
   "crates/zaroxi-application-workspace",
+  "crates/zaroxi-application-command",
   "crates/zaroxi-application-project",
   "crates/zaroxi-application-command",
   "crates/zaroxi-application-search",

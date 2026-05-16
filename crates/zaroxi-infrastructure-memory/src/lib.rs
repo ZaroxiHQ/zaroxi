@@ -139,7 +139,7 @@ impl HistoryRepository for InMemoryHistoryStore {
         Box::pin(async move {
             let v = inner.lock().unwrap();
             // filter by session and return most recent up to limit
-            let mut filtered: Vec<CommandRecord> = v.iter().cloned().filter(|c| c.session_id.as_ref().map(|s| s == &session_id).unwrap_or(false)).collect();
+            let mut filtered: Vec<CommandRecord> = v.iter().cloned().filter(|c| c.session_id.as_ref().map(|s| s == &session_id.0).unwrap_or(false)).collect();
             filtered.sort_by_key(|c| c.timestamp);
             if filtered.len() > limit {
                 let start = filtered.len() - limit;
