@@ -219,8 +219,8 @@
                      return Err(UseCaseError::UnknownBuffer);
                  }
              };
-             let buffer_id = id.0.clone();
-
+             let buffer_id = id.clone();
+ 
              // Register buffer in session and set active if first
              let workspace_id_opt = {
                  let mut s = sessions.lock().unwrap();
@@ -362,10 +362,9 @@
                  let info = s.get(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
                  (info.active_buffer.clone().ok_or(UseCaseError::NoActiveBuffer)?, info.workspace_id)
              };
-
+ 
              // Snapshot content for the AI request.
-             let buf_id = buffer_ports::BufferId(active.clone());
-             let content = store.get_text(&buf_id).unwrap_or_else(|| "".to_string());
+             let content = store.get_text(&active).unwrap_or_else(|| "".to_string());
              if content.trim().is_empty() {
                  // record failure
                  let cmd = CommandRecord {
@@ -471,8 +470,7 @@
              match req.command {
                  AppCommand::AiExplain { buffer_id } => {
                      // Snapshot content for the AI request.
-                     let buf_id = buffer_ports::BufferId(buffer_id.clone());
-                     let content = store.get_text(&buf_id).unwrap_or_else(|| "".to_string());
+                     let content = store.get_text(&buffer_id).unwrap_or_else(|| "".to_string());
                      if content.trim().is_empty() {
                          // record failed dispatch
                          let cmd = CommandRecord {
@@ -899,10 +897,9 @@
              // Ensure buffers exist in the store and apply contents if provided.
              for b in ck.opened_buffers.iter() {
                  // If buffer missing, attempt to open by deriving path from id "buf:<path>"
-                 if store.get_text(&buffer_ports::BufferId(b.clone())).is_none() {
-                     if b.starts_with("buf:") {
-                         let path_str = &b[4..];
-                         match store.open_buffer(PathBuf::from(path_str)).await {
+                 if store.get_text(&b.clone()).is_none() {
+                     if let Some(path) = b.path() {
+                         match store.open_buffer(path).await {
                              Ok(_id) => {}
                              Err(_) => return Err(UseCaseError::InvalidCheckpoint(format!("cannot open buffer {}", b))),
                          }
@@ -914,7 +911,7 @@
                  // Apply content snapshot when present.
                  if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
                      if let Some(content) = &bs.content {
-                         if let Err(_) = store.set_text(&buffer_ports::BufferId(b.clone()), content.clone()).await {
+                         if let Err(_) = store.set_text(&b.clone(), content.clone()).await {
                              return Err(UseCaseError::InvalidCheckpoint(format!("failed to set buffer {}", b)));
                          }
                      }
