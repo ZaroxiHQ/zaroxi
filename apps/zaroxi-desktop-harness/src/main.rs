@@ -5,6 +5,7 @@ use tokio;
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
 };
+use zaroxi_application_workspace::ports::WorkspaceService;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
