@@ -5,7 +5,7 @@
  use std::sync::Arc;
  use std::fmt;
  use zaroxi_kernel_types::Id;
- use zaroxi_core_editor_buffer::ports::BufferId;
+ pub use zaroxi_core_editor_buffer::ports::BufferId;
  
  /// Boxed future alias for the skeleton (import kernel BoxFuture in real code).
  pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
