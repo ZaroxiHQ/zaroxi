@@ -81,7 +81,7 @@ impl WorkspaceService {
     }
 
     /// Get workspace metadata (future enhancement)
-    pub async fn get_workspace_metadata(&self, workspace_id: Uuid) -> Result<WorkspaceMetadata> {
+    pub async fn get_workspace_metadata(&self, workspace_id: Id) -> Result<WorkspaceMetadata> {
         // TODO: Implement actual metadata retrieval
         Ok(WorkspaceMetadata { id: workspace_id, file_count: 0, total_size: 0, last_indexed: None })
     }
