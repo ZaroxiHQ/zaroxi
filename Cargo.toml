@@ -203,6 +203,9 @@ libloading = "0.8"
 ropey = "0.12"
 tempfile = "3.6"
 tracing = "0.1"
+# Chrono is required by several security/telemetry crates; expose it via workspace
+# so member crates can inherit `chrono = { workspace = true }` in their manifests.
+chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tree-sitter = "0.20"
 
