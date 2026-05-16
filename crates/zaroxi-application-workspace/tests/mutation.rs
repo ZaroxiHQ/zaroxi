@@ -132,7 +132,7 @@ async fn update_buffer_unknown_session() {
     let orchestrator = WorkspaceOrchestrator::new(repo, store, ai);
 
     let bogus_session = ports::SessionId(Id::new());
-    let update = UpdateBufferRequest { session_id: bogus_session, buffer_id: "buf:main.rs".to_string(), new_content: "fn main() {}".to_string() };
+    let update = UpdateBufferRequest { session_id: bogus_session, buffer_id: buffer_ports::BufferId::from("buf:main.rs"), new_content: "fn main() {}".to_string() };
     let err = orchestrator.update_buffer(update).await.expect_err("should fail unknown session");
     assert!(err.to_string().contains("unknown session"));
 }
