@@ -7,4 +7,4 @@ license = "MIT"
 
 [dependencies]
 serde = { workspace = true }
-uuid = { workspace = true }
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }

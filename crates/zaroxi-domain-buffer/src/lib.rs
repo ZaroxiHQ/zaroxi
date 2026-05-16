@@ -5,13 +5,13 @@
 // Responsibility: Provide lightweight domain models for document buffers.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use zaroxi_kernel_types::Id;
 
 /// Domain representation of a document buffer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Document {
-    /// Unique identifier for the document.
-    pub id: Uuid,
+    /// Unique identifier for the document (kernel Id).
+    pub id: Id,
     /// Display name (file name or untitled).
     pub display_name: String,
     /// Text contents of the buffer.
