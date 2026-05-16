@@ -13,3 +13,6 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
 serde_json = { workspace = true }
+
+# Kernel types (strongly-typed ids) used by AI request/response DTOs.
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
