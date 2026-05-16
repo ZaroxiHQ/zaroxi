@@ -6,4 +6,11 @@ description = "zaroxi-application-command (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Workspace-shared small dependencies
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Core canonical BufferId and kernel Id types used by command DTOs
+zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
