@@ -175,7 +175,6 @@ pub fn into_history_store(store: InMemoryHistoryStore) -> Arc<dyn HistoryReposit
 //
 use serde_json;
 use uuid::Uuid;
-use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
 
 /// In-memory checkpoint store.
