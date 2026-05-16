@@ -2,15 +2,24 @@
 # Architecture check for Phase 3 (conservative, pattern-based).
 # Fails fast when forbidden upward dependencies are detected for the main slice.
 #
-# Rules enforced:
-#  - interface crates MUST NOT import infrastructure crates
-#  - domain crates MUST NOT import interface/application/infrastructure
-#  - application crates MUST NOT import interface crates
-#  - infrastructure crates MUST NOT import application or interface crates,
-#    with the explicit exception that infra adapters MAY depend on the
-#    specific port crate they implement (e.g. zaroxi-application-ai).
+# Diagnosis (Phase 6): `crates/zaroxi-infrastructure-memory` intentionally
+# depends on the application-level "zaroxi-application-workspace" port crate
+# in order to implement a HistoryRepository adapter. This is a valid
+# adapter-to-port dependency in the ports-and-adapters style (infrastructure
+# implements an inner-layer port). The original script treated *any*
+# application dependency from infra as a violation which produced a false
+# positive for this intended adapter.
 #
-# This is a simple grep-based gate intended for CI and local dev. Keep it explicit.
+# Fix approach: keep the rule strict but allow narrowly-scoped exceptions
+# for infrastructure adapters that implement specific application ports.
+# We explicitly allow:
+#  - zaroxi-infrastructure-ai-mock -> zaroxi-application-ai
+#  - zaroxi-infrastructure-memory -> zaroxi-application-workspace
+#
+# Do NOT widen the whitelist beyond explicit port crate names.
+#
+# This file enforces the architecture checks and documents the permitted
+# infra->application exceptions for clarity and auditability.
 
 set -euo pipefail
 
@@ -74,11 +83,13 @@ if [ -d "$ROOT_DIR/crates/zaroxi-application-workspace" ]; then
 fi
 
 # 4) infrastructure MUST NOT import application or interface (adapters only depend inward)
-# Allowed exception: an infra adapter MAY depend on the specific application port crate it implements,
-# e.g. zaroxi-infrastructure-ai-mock may depend on zaroxi-application-ai (ports). We explicitly allow that.
+# Allowed exceptions (explicit, narrow):
+#  - zaroxi-infrastructure-ai-mock may depend on zaroxi-application-ai (implements AiClient port)
+#  - zaroxi-infrastructure-memory may depend on zaroxi-application-workspace (implements HistoryRepository port)
 if [ -d "$ROOT_DIR/crates/zaroxi-infrastructure-memory" ]; then
-  if ! check_grep "zaroxi_application_|zaroxi-application-|zaroxi_interface_|zaroxi-interface-" "$ROOT_DIR/crates/zaroxi-infrastructure-memory"; then
-    fail "infrastructure-memory imports application or interface (forbidden)"
+  # Allow only the specific application port crate 'zaroxi-application-workspace' if present.
+  if ! check_grep_excluding "zaroxi_application_|zaroxi-application-|zaroxi_interface_|zaroxi-interface-" "$ROOT_DIR/crates/zaroxi-infrastructure-memory" "zaroxi_application_workspace|zaroxi-application-workspace"; then
+    fail "infrastructure-memory imports forbidden application or interface crates (only 'zaroxi-application-workspace' is allowed)"
   fi
 fi
 
