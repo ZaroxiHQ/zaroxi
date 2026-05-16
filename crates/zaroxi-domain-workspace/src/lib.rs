@@ -4,6 +4,7 @@
 /// Keep the public surface minimal for Phase 0.
 pub mod file_tree;
 pub mod workspace;
+pub mod ports; // expose ports so infrastructure adapters can implement domain contracts
 
 /// Prelude for convenient imports.
 pub mod prelude {
