@@ -266,17 +266,9 @@
      pub command: AppCommand,
  }
 
- /// Result returned from a dispatched command.
- #[derive(Clone, Debug)]
- pub struct CommandResult {
-     pub message: String,
- }
-
- /// Response from dispatch command
- #[derive(Clone, Debug)]
- pub struct DispatchCommandResponse {
-     pub result: CommandResult,
- }
+ // CommandResult and DispatchCommandResponse are owned and defined by the
+ // `zaroxi-application-command` crate and are re-exported above via:
+ // `pub use zaroxi_application_command::ports::{..., CommandResult, DispatchCommandResponse};`
  
  /// Snapshot of a single buffer (id + optional current content).
  #[derive(Clone, Debug, Serialize, Deserialize)]
