@@ -299,7 +299,7 @@
                      error: Some("invalid active buffer".to_string()),
                  };
                  let _ = history.record_command(cmd).await;
-                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id));
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
              }
 
              // Perform mutation while holding the lock briefly and capture old/new/ws
