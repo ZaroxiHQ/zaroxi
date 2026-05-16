@@ -4,7 +4,7 @@ use tokio;
 
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest, GetSessionSnapshotRequest,
-    CreateCheckpointRequest, RestoreCheckpointRequest,
+    SaveCheckpointRequest, LoadCheckpointRequest,
 };
 use zaroxi_application_workspace::ports::WorkspaceService;
 
@@ -102,7 +102,7 @@ async fn main() -> Result<(), String> {
 
     // Phase 8: create a checkpoint for the current session, then restore it into a fresh orchestrator.
     println!("Harness: creating and saving checkpoint for session {}", boot_res.session.session_id);
-    let save_res = orchestrator.save_checkpoint(CreateCheckpointRequest { session_id: boot_res.session.session_id.clone() }).await.map_err(|e| e.to_string())?;
+    let save_res = orchestrator.save_checkpoint(SaveCheckpointRequest { session_id: boot_res.session.session_id.clone() }).await.map_err(|e| e.to_string())?;
     let location = save_res.location;
     println!("Harness: checkpoint persisted at location: {}", location);
  
