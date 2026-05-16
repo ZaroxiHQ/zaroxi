@@ -2,10 +2,8 @@
 name = "zaroxi-kernel-types"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-kernel-types (auto-generated)"
 license = "MIT"
-description = "Kernel types: Id, Position, Span, Range; small serializable primitives."
-rust-version = "1.85"
-publish = false
 
 [dependencies]
 uuid = { workspace = true }

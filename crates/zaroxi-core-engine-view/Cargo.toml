@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-engine-view"
+version = "0.1.0"
+edition = "2024"
+description = "High-level view and composition utilities for engine."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

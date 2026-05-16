@@ -2,9 +2,8 @@
 name = "zaroxi-application-refactor"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-application-refactor (auto-generated)"
 license = "MIT"
-description = "Refactoring orchestration and safe apply mechanisms."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

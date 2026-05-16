@@ -2,9 +2,8 @@
 name = "zaroxi-interface-theme"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-interface-theme (auto-generated)"
 license = "MIT"
-description = "Theme primitives, semantic colors and design tokens."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

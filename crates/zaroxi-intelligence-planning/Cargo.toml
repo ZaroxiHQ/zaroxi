@@ -2,9 +2,8 @@
 name = "zaroxi-intelligence-planning"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-intelligence-planning (auto-generated)"
 license = "MIT"
-description = "Plan generation and step decomposition algorithms."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

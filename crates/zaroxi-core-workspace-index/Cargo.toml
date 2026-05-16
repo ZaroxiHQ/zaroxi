@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-workspace-index"
+version = "0.1.0"
+edition = "2024"
+description = "Workspace indexing and fast lookup utilities."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

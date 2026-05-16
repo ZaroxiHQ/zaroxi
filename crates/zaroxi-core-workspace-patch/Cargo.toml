@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-workspace-patch"
+version = "0.1.0"
+edition = "2024"
+description = "Patch application and preview helpers."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

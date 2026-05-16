@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-overlay"
+version = "0.1.0"
+edition = "2024"
+description = "Transient overlay primitives (menus, tooltips)."
+license = "MIT"
+
+[dependencies]

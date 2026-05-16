@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-engine-render-backend"
+version = "0.1.0"
+edition = "2024"
+description = "Backend-specific renderer adapters."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

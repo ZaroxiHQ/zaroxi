@@ -1,13 +1,9 @@
 [package]
 name = "zaroxi-kernel-protocol"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-license.workspace = true
-description = "Kernel-level protocol definitions for Zaroxi (stable wire types). Exposes minimal, stable wire types for inter-crate communication."
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+description = "zaroxi-kernel-protocol (auto-generated)"
+license = "MIT"
 
 [lib]
 name = "zaroxi_kernel_protocol"

@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-test"
+version = "0.1.0"
+edition = "2024"
+description = "Engine testing utilities and harnesses."
+license = "MIT"
+
+[dependencies]

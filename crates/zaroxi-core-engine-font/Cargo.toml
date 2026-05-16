@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-font"
+version = "0.1.0"
+edition = "2024"
+description = "Font management and shaping for engine text."
+license = "MIT"
+
+[dependencies]

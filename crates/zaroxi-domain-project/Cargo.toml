@@ -2,9 +2,8 @@
 name = "zaroxi-domain-project"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-domain-project (auto-generated)"
 license = "MIT"
-description = "Project model, dependency graph, and build targets."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

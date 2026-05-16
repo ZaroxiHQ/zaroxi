@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-window"
+version = "0.1.0"
+edition = "2024"
+description = "Window and native surface integration for the engine."
+license = "MIT"
+
+[dependencies]

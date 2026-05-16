@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-infrastructure-container"
+version = "0.1.0"
+edition = "2024"
+description = "zaroxi-infrastructure-container (auto-generated)"
+license = "MIT"
+
+[dependencies]

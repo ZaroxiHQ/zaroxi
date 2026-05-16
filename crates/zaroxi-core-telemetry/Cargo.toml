@@ -1,13 +1,9 @@
 [package]
 name = "zaroxi-core-telemetry"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-license.workspace = true
-description = "Lightweight telemetry and metrics primitives tailored for core engines (low-overhead, no external IO)."
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+description = "zaroxi-core-telemetry (auto-generated)"
+license = "MIT"
 
 [lib]
 name = "zaroxi_core_telemetry"

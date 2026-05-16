@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-decoration"
+version = "0.1.0"
+edition = "2024"
+description = "Decoration APIs for editor (high-level)."
+license = "MIT"
+
+[dependencies]

@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Engine runtime glue code for Zaroxi UI."
+license = "MIT"
+
+[dependencies]

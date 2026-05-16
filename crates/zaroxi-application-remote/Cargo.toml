@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-application-remote"
+version = "0.1.0"
+edition = "2024"
+description = "zaroxi-application-remote (auto-generated)"
+license = "MIT"
+
+[dependencies]

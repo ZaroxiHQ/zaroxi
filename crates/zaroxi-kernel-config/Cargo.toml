@@ -2,9 +2,8 @@
 name = "zaroxi-kernel-config"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-kernel-config (auto-generated)"
 license = "MIT"
-description = "Canonical config schema types used by kernel and higher layers (no IO)."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

@@ -1,13 +1,9 @@
 [package]
 name = "zaroxi-security-audit"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-license.workspace = true
-description = "Audit logging utilities for security-sensitive actions (append-only, structured events)."
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+description = "zaroxi-security-audit (auto-generated)"
+license = "MIT"
 
 [lib]
 name = "zaroxi_security_audit"

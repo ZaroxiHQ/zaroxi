@@ -2,9 +2,8 @@
 name = "zaroxi-application-workspace"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-application-workspace (auto-generated)"
 license = "MIT"
-description = "Workspace orchestration: open/close, indexing triggers and watchers."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

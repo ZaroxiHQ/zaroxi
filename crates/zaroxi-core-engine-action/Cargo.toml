@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-action"
+version = "0.1.0"
+edition = "2024"
+description = "UI action dispatch and mapping."
+license = "MIT"
+
+[dependencies]

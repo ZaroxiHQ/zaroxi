@@ -2,9 +2,8 @@
 name = "zaroxi-interface-cli"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-interface-cli (auto-generated)"
 license = "MIT"
-description = "CLI entrypoints for headless operations."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

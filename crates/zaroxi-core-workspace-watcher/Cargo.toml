@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-workspace-watcher"
+version = "0.1.0"
+edition = "2024"
+description = "Filesystem watcher abstraction for workspace."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-clipboard"
+version = "0.1.0"
+edition = "2024"
+description = "Clipboard integration for the engine."
+license = "MIT"
+
+[dependencies]

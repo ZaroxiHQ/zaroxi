@@ -2,9 +2,8 @@
 name = "zaroxi-application-command"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-application-command (auto-generated)"
 license = "MIT"
-description = "Command registry glue and permission checks."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

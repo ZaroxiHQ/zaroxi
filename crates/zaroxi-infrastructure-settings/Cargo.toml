@@ -2,9 +2,8 @@
 name = "zaroxi-infrastructure-settings"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-infrastructure-settings (auto-generated)"
 license = "MIT"
-description = "Settings persistence and loader adapters."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

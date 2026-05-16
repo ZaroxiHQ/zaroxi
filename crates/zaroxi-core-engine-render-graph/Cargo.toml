@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-engine-render-graph"
+version = "0.1.0"
+edition = "2024"
+description = "Render graph construction and execution."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

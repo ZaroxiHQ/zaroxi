@@ -2,9 +2,8 @@
 name = "zaroxi-intelligence-memory"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-intelligence-memory (auto-generated)"
 license = "MIT"
-description = "In-memory vector DB and memory cache patterns."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

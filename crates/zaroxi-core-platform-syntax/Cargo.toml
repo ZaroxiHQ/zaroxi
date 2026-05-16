@@ -1,0 +1,21 @@
+[package]
+name = "zaroxi-core-platform-syntax"
+version = "0.1.0"
+edition = "2024"
+description = "Syntax grammar loading and runtime helpers."
+license = "MIT"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+libloading = { workspace = true, optional = true }
+tree-sitter = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+ropey = { workspace = true }
+cc = { workspace = true }
+
+[features]
+# Optional dynamic loading for runtime plugins / grammars.
+dynamic-loading = ["libloading"]

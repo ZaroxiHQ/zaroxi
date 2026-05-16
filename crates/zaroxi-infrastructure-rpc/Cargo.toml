@@ -2,9 +2,8 @@
 name = "zaroxi-infrastructure-rpc"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-infrastructure-rpc (auto-generated)"
 license = "MIT"
-description = "RPC transport adapters (JSON-RPC / protobuf) for server/client."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

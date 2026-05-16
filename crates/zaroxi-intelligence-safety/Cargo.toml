@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-intelligence-safety"
+version = "0.1.0"
+edition = "2024"
+description = "zaroxi-intelligence-safety (auto-generated)"
+license = "MIT"
+
+[dependencies]

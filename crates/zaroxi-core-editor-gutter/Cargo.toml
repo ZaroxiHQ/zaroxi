@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-gutter"
+version = "0.1.0"
+edition = "2024"
+description = "Gutter and line number primitives."
+license = "MIT"
+
+[dependencies]

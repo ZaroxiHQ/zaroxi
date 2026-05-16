@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-element"
+version = "0.1.0"
+edition = "2024"
+description = "Low-level UI element primitives for engine."
+license = "MIT"
+
+[dependencies]

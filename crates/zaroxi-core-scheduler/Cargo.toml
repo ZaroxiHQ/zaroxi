@@ -2,9 +2,8 @@
 name = "zaroxi-core-scheduler"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-core-scheduler (auto-generated)"
 license = "MIT"
-description = "High-performance scheduler for short-lived UI/IO tasks."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

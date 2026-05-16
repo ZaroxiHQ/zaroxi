@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-view"
+version = "0.1.0"
+edition = "2024"
+description = "Editor view composition helpers (non-UI)."
+license = "MIT"
+
+[dependencies]

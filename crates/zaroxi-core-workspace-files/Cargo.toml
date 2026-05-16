@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-workspace-files"
+version = "0.1.0"
+edition = "2024"
+description = "Filesystem view and metadata for workspaces."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

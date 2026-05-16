@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-domain-collaboration"
+version = "0.1.0"
+edition = "2024"
+description = "Domain model for collaboration (events, intents)."
+license = "MIT"
+
+[dependencies]

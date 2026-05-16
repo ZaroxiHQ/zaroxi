@@ -2,9 +2,8 @@
 name = "zaroxi-infrastructure-tracing"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-infrastructure-tracing (auto-generated)"
 license = "MIT"
-description = "Tracing adapters (OpenTelemetry)."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

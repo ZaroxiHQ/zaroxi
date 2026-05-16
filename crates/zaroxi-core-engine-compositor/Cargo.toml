@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-engine-compositor"
+version = "0.1.0"
+edition = "2024"
+description = "Compositor orchestration for final frame."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

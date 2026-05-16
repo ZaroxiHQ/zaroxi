@@ -2,9 +2,8 @@
 name = "zaroxi-domain-settings"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-domain-settings (auto-generated)"
 license = "MIT"
-description = "Canonical settings model (no IO)."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-editor-history"
+version = "0.1.0"
+edition = "2024"
+description = "History and undo/redo backing storage."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

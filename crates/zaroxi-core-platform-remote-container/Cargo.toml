@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-platform-remote-container"
+version = "0.1.0"
+edition = "2024"
+description = "Remote container integration adapters."
+license = "MIT"
+
+[dependencies]

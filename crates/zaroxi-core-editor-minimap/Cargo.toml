@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-minimap"
+version = "0.1.0"
+edition = "2024"
+description = "Minimap rendering data model."
+license = "MIT"
+
+[dependencies]

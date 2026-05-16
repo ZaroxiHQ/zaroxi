@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-diagnostics"
+version = "0.1.0"
+edition = "2024"
+description = "Diagnostics and lint integration primitives."
+license = "MIT"
+
+[dependencies]

@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-folding"
+version = "0.1.0"
+edition = "2024"
+description = "Code folding algorithms and data structures."
+license = "MIT"
+
+[dependencies]

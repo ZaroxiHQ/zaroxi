@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-engine-accessibility"
+version = "0.1.0"
+edition = "2024"
+description = "Accessibility hooks and a11y integration."
+license = "MIT"
+
+[dependencies]

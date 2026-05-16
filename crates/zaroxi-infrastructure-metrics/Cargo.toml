@@ -2,9 +2,8 @@
 name = "zaroxi-infrastructure-metrics"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-infrastructure-metrics (auto-generated)"
 license = "MIT"
-description = "Metrics exporters and collectors."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

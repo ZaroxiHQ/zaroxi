@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-engine-render-pipeline"
+version = "0.1.0"
+edition = "2024"
+description = "Render pipeline configuration for engine."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

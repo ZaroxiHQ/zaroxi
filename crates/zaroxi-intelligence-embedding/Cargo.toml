@@ -2,9 +2,8 @@
 name = "zaroxi-intelligence-embedding"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-intelligence-embedding (auto-generated)"
 license = "MIT"
-description = "Embedding utilities and interfaces (local)."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

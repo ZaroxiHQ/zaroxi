@@ -1,13 +1,9 @@
 [package]
 name = "zaroxi-application-plugin"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-license.workspace = true
-description = "Application-level plugin abstractions and registration helpers (high-level orchestration layer)."
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+description = "zaroxi-application-plugin (auto-generated)"
+license = "MIT"
 
 [lib]
 name = "zaroxi_application_plugin"

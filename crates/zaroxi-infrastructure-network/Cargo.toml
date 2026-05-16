@@ -1,13 +1,9 @@
 [package]
 name = "zaroxi-infrastructure-network"
-version.workspace = true
+version = "0.1.0"
 edition = "2024"
-license.workspace = true
-description = "Networking adapters and utilities for Zaroxi infrastructure layer (implementations of networking traits)."
-authors = ["Zaroxi Team"]
-repository = "https://github.com/zaroxi/zaroxi"
-readme = "README.md"
-rust-version = "1.85.0"
+description = "zaroxi-infrastructure-network (auto-generated)"
+license = "MIT"
 
 [lib]
 name = "zaroxi_infrastructure_network"

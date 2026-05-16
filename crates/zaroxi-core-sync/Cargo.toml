@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-sync"
+version = "0.1.0"
+edition = "2024"
+description = "zaroxi-core-sync (auto-generated)"
+license = "MIT"
+
+[dependencies]

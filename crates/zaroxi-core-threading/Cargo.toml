@@ -2,9 +2,8 @@
 name = "zaroxi-core-threading"
 version = "0.1.0"
 edition = "2024"
+description = "zaroxi-core-threading (auto-generated)"
 license = "MIT"
-description = "Cross-platform threading primitives and thread pools."
-rust-version = "1.85"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.

@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-platform-terminal"
+version = "0.1.0"
+edition = "2024"
+description = "Terminal integration adapters."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.

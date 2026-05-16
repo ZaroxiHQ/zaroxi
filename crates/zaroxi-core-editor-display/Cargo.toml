@@ -1,0 +1,8 @@
+[package]
+name = "zaroxi-core-editor-display"
+version = "0.1.0"
+edition = "2024"
+description = "Editor layout and display helpers (non-UI)."
+license = "MIT"
+
+[dependencies]

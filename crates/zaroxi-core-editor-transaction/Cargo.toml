@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-editor-transaction"
+version = "0.1.0"
+edition = "2024"
+description = "Text transaction primitives and undo/redo."
+license = "MIT"
+
+[dependencies]
+# Add crate-specific dependencies when replacing stubbed manifests.
