@@ -145,17 +145,13 @@
              let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
 
              // Record command and event
-             let cmd = CommandRecord {
-                 id: Uuid::new_v4(),
-                 timestamp: Utc::now(),
-                 kind: CommandKind::BootWorkspace { path: req.path.clone() },
-                 session_id: Some(session.session_id.0),
-                 workspace_id: Some(dto.id),
-                 buffer_id: None,
-                 success: true,
-                 result: Some("workspace opened".to_string()),
-                 error: None,
-             };
+             let cmd = CommandRecord::new_success(
+                 CommandKind::BootWorkspace { path: req.path.clone() },
+                 Some(session.session_id.0),
+                 Some(dto.id),
+                 None,
+                 Some("workspace opened".to_string()),
+             );
              let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
@@ -203,17 +199,13 @@
                  Ok(id) => id,
                  Err(_e) => {
                      // record failed command
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::OpenBuffer { path: req.path.clone() },
-                         session_id: Some(req.session_id.0),
-                         workspace_id: None,
-                         buffer_id: None,
-                         success: false,
-                         result: None,
-                         error: Some("unknown buffer".to_string()),
-                     };
+                     let cmd = CommandRecord::new_failure(
+                         CommandKind::OpenBuffer { path: req.path.clone() },
+                         Some(req.session_id.0),
+                         None,
+                         None,
+                         Some("unknown buffer".to_string()),
+                     );
                      let _ = history.record_command(cmd).await;
                      return Err(UseCaseError::UnknownBuffer);
                  }
@@ -235,17 +227,13 @@
              };
 
              // Record success command and event
-             let cmd = CommandRecord {
-                 id: Uuid::new_v4(),
-                 timestamp: Utc::now(),
-                 kind: CommandKind::OpenBuffer { path: req.path.clone() },
-                 session_id: Some(req.session_id.0),
-                 workspace_id: workspace_id_opt.map(|id| id),
-                 buffer_id: Some(buffer_id.clone()),
-                 success: true,
-                 result: Some(format!("opened {}", buffer_id)),
-                 error: None,
-             };
+             let cmd = CommandRecord::new_success(
+                 CommandKind::OpenBuffer { path: req.path.clone() },
+                 Some(req.session_id.0),
+                 workspace_id_opt,
+                 Some(buffer_id.clone()),
+                 Some(format!("opened {}", buffer_id)),
+             );
              let _ = history.record_command(cmd).await;
 
              if let Some(ws) = workspace_id_opt {
@@ -286,17 +274,13 @@
              };
              if invalid {
                  // record failure
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
-                     session_id: Some(req.session_id.0),
-                     workspace_id: None,
-                     buffer_id: Some(req.buffer_id.clone()),
-                     success: false,
-                     result: None,
-                     error: Some("invalid active buffer".to_string()),
-                 };
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some("invalid active buffer".to_string()),
+                 );
                  let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
              }
@@ -311,17 +295,13 @@
              };
 
              // record success command and event
-             let cmd = CommandRecord {
-                 id: Uuid::new_v4(),
-                 timestamp: Utc::now(),
-                 kind: CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
-                 session_id: Some(req.session_id.0),
-                 workspace_id: Some(workspace_id),
-                 buffer_id: Some(req.buffer_id.clone()),
-                 success: true,
-                 result: Some("active buffer set".to_string()),
-                 error: None,
-             };
+             let cmd = CommandRecord::new_success(
+                 CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
+                 Some(req.session_id.0),
+                 Some(workspace_id),
+                 Some(req.buffer_id.clone()),
+                 Some("active buffer set".to_string()),
+             );
              let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
@@ -366,17 +346,13 @@
              let content = store.get_text(&active).unwrap_or_else(|| "".to_string());
              if content.trim().is_empty() {
                  // record failure
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::ExplainActiveBuffer,
-                     session_id: Some(req.session_id.0),
-                     workspace_id: Some(workspace_id),
-                     buffer_id: Some(active.clone()),
-                     success: false,
-                     result: None,
-                     error: Some("missing buffer content for explain".to_string()),
-                 };
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::ExplainActiveBuffer,
+                     Some(req.session_id.0),
+                     Some(workspace_id),
+                     Some(active.clone()),
+                     Some("missing buffer content for explain".to_string()),
+                 );
                  let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
              }
@@ -392,34 +368,26 @@
              let res = match ai.request(ai_req).await {
                  Ok(r) => r,
                  Err(_e) => {
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::ExplainActiveBuffer,
-                         session_id: Some(req.session_id.0),
-                         workspace_id: Some(workspace_id),
-                         buffer_id: Some(active.clone()),
-                         success: false,
-                         result: None,
-                         error: Some("ai request failed".to_string()),
-                     };
+                     let cmd = CommandRecord::new_failure(
+                         CommandKind::ExplainActiveBuffer,
+                         Some(req.session_id.0),
+                         Some(workspace_id),
+                         Some(active.clone()),
+                         Some("ai request failed".to_string()),
+                     );
                      let _ = history.record_command(cmd).await;
                      return Err(UseCaseError::AiFailure("ai request failed".to_string()));
                  }
              };
 
              // record success and event
-             let cmd = CommandRecord {
-                 id: Uuid::new_v4(),
-                 timestamp: Utc::now(),
-                 kind: CommandKind::ExplainActiveBuffer,
-                 session_id: Some(req.session_id.0),
-                 workspace_id: Some(workspace_id),
-                 buffer_id: Some(active.clone()),
-                 success: true,
-                 result: Some(res.text.clone()),
-                 error: None,
-             };
+             let cmd = CommandRecord::new_success(
+                 CommandKind::ExplainActiveBuffer,
+                 Some(req.session_id.0),
+                 Some(workspace_id),
+                 Some(active.clone()),
+                 Some(res.text.clone()),
+             );
              let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
@@ -450,17 +418,13 @@
                  Some(w) => w,
                  None => {
                      // record failed dispatch
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::DispatchAppCommand { command: req.command.clone() },
-                         session_id: Some(req.session_id.0),
-                         workspace_id: None,
-                         buffer_id: None,
-                         success: false,
-                         result: None,
-                         error: Some("unknown session".to_string()),
-                     };
+                     let cmd = CommandRecord::new_failure(
+                         CommandKind::DispatchAppCommand { command: req.command.clone() },
+                         Some(req.session_id.0),
+                         None,
+                         None,
+                         Some("unknown session".to_string()),
+                     );
                      let _ = history.record_command(cmd).await;
                      return Err(UseCaseError::UnknownSession)
                  }
@@ -472,17 +436,13 @@
                      let content = store.get_text(&buffer_id).unwrap_or_else(|| "".to_string());
                      if content.trim().is_empty() {
                          // record failed dispatch
-                         let cmd = CommandRecord {
-                             id: Uuid::new_v4(),
-                             timestamp: Utc::now(),
-                             kind: CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
-                             session_id: Some(req.session_id.0),
-                             workspace_id: Some(workspace_id),
-                             buffer_id: Some(buffer_id.clone()),
-                             success: false,
-                             result: None,
-                             error: Some("missing buffer content for explain".to_string()),
-                         };
+                         let cmd = CommandRecord::new_failure(
+                             CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
+                             Some(req.session_id.0),
+                             Some(workspace_id),
+                             Some(buffer_id.clone()),
+                             Some("missing buffer content for explain".to_string()),
+                         );
                          let _ = history.record_command(cmd).await;
                          return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
                      }
@@ -496,34 +456,26 @@
                      let res = match ai.request(ai_req).await {
                          Ok(r) => r,
                          Err(_e) => {
-                             let cmd = CommandRecord {
-                                 id: Uuid::new_v4(),
-                                 timestamp: Utc::now(),
-                                 kind: CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
-                                 session_id: Some(req.session_id.0),
-                                 workspace_id: Some(workspace_id),
-                                 buffer_id: Some(buffer_id.clone()),
-                                 success: false,
-                                 result: None,
-                                 error: Some("ai request failed".to_string()),
-                             };
+                             let cmd = CommandRecord::new_failure(
+                                 CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
+                                 Some(req.session_id.0),
+                                 Some(workspace_id),
+                                 Some(buffer_id.clone()),
+                                 Some("ai request failed".to_string()),
+                             );
                              let _ = history.record_command(cmd).await;
                              return Err(UseCaseError::AiFailure("ai request failed".to_string()));
                          }
                      };
 
                      // record success
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
-                         session_id: Some(req.session_id.0),
-                         workspace_id: Some(workspace_id),
-                         buffer_id: Some(buffer_id.clone()),
-                         success: true,
-                         result: Some(res.text.clone()),
-                         error: None,
-                     };
+                     let cmd = CommandRecord::new_success(
+                         CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
+                         Some(req.session_id.0),
+                         Some(workspace_id),
+                         Some(buffer_id.clone()),
+                         Some(res.text.clone()),
+                     );
                      let _ = history.record_command(cmd).await;
 
                      Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
@@ -531,17 +483,13 @@
                  AppCommand::InsertText { .. } => {
                      // Not implemented in Phase 5; return a successful no-op.
                      // record noop command
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::DispatchAppCommand { command: req.command.clone() },
-                         session_id: Some(req.session_id.0),
-                         workspace_id: Some(workspace_id),
-                         buffer_id: None,
-                         success: true,
-                         result: Some("inserted (noop)".to_string()),
-                         error: None,
-                     };
+                     let cmd = CommandRecord::new_success(
+                         CommandKind::DispatchAppCommand { command: req.command.clone() },
+                         Some(req.session_id.0),
+                         Some(workspace_id),
+                         None,
+                         Some("inserted (noop)".to_string()),
+                     );
                      let _ = history.record_command(cmd).await;
                      Ok(DispatchCommandResponse { result: CommandResult { message: "inserted (noop)".to_string() } })
                  }
@@ -561,33 +509,25 @@
              };
              if !session_known {
                  // record failed update
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                     session_id: Some(req.session_id.0),
-                     workspace_id: None,
-                     buffer_id: Some(req.buffer_id.clone()),
-                     success: false,
-                     result: None,
-                     error: Some("unknown session".to_string()),
-                 };
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some("unknown session".to_string()),
+                 );
                  let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::UnknownSession);
              }
 
              if let Err(m) = buffer_rules::validate_content(&req.new_content) {
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                     session_id: Some(req.session_id.0),
-                     workspace_id: None,
-                     buffer_id: Some(req.buffer_id.clone()),
-                     success: false,
-                     result: None,
-                     error: Some(m.clone()),
-                 };
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some(m.clone()),
+                 );
                  let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::InvalidMutation(m));
              }
@@ -595,17 +535,13 @@
              // Perform the mutation via BufferStore (infra).
              if let Err(_e) = store.set_text(&req.buffer_id, req.new_content.clone()).await {
                  // record failed mutation
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                     session_id: Some(req.session_id.0),
-                     workspace_id: None,
-                     buffer_id: Some(req.buffer_id.clone()),
-                     success: false,
-                     result: None,
-                     error: Some("unknown buffer".to_string()),
-                 };
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some("unknown buffer".to_string()),
+                 );
                  let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::UnknownBuffer);
              }
@@ -616,17 +552,13 @@
                  s.get(&req.session_id.0).map(|i| i.workspace_id)
              };
 
-             let cmd = CommandRecord {
-                 id: Uuid::new_v4(),
-                 timestamp: Utc::now(),
-                 kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                 session_id: Some(req.session_id.0),
-                 workspace_id: workspace_id_opt,
-                 buffer_id: Some(req.buffer_id.clone()),
-                 success: true,
-                 result: Some("updated".to_string()),
-                 error: None,
-             };
+             let cmd = CommandRecord::new_success(
+                 CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                 Some(req.session_id.0),
+                 workspace_id_opt,
+                 Some(req.buffer_id.clone()),
+                 Some("updated".to_string()),
+             );
              let _ = history.record_command(cmd).await;
 
              if let Some(ws) = workspace_id_opt {

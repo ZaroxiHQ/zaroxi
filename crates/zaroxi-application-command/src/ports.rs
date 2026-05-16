@@ -47,6 +47,50 @@ pub struct CommandRecord {
     pub error: Option<String>,
 }
 
+impl CommandRecord {
+    /// Create a success CommandRecord with a generated id and timestamp.
+    pub fn new_success(
+        kind: CommandKind,
+        session_id: Option<Id>,
+        workspace_id: Option<Id>,
+        buffer_id: Option<BufferId>,
+        result: Option<String>,
+    ) -> Self {
+        CommandRecord {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            kind,
+            session_id,
+            workspace_id,
+            buffer_id,
+            success: true,
+            result,
+            error: None,
+        }
+    }
+
+    /// Create a failure CommandRecord with a generated id and timestamp and an error message.
+    pub fn new_failure(
+        kind: CommandKind,
+        session_id: Option<Id>,
+        workspace_id: Option<Id>,
+        buffer_id: Option<BufferId>,
+        error: Option<String>,
+    ) -> Self {
+        CommandRecord {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            kind,
+            session_id,
+            workspace_id,
+            buffer_id,
+            success: false,
+            result: None,
+            error,
+        }
+    }
+}
+
 /// Small result for dispatched commands (shorthand).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandResult {
