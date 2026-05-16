@@ -140,29 +140,12 @@
          let sessions = self.sessions.clone();
          let history = self.history.clone();
          Box::pin(async move {
-             // Validate session exists
-             {
+             // Validate session exists (release lock before awaiting)
+             let session_exists = {
                  let s = sessions.lock().unwrap();
-                 if !s.contains_key(&req.session_id.0) {
-                     // record failed command
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::OpenBuffer { path: req.path.clone() },
-                         session_id: Some(req.session_id.clone()),
-                         workspace_id: None,
-                         buffer_id: None,
-                         success: false,
-                         result: None,
-                         error: Some("unknown session".to_string()),
-                     };
-                     let _ = history.record_command_box(cmd).await;
-                     return Err(UseCaseError::UnknownSession);
-                 }
-             }
-
-             // Ask underlying store to open buffer
-             let id = store.open_buffer(req.path.clone()).await.map_err(|_e| {
+                 s.contains_key(&req.session_id.0)
+             };
+             if !session_exists {
                  // record failed command
                  let cmd = CommandRecord {
                      id: Uuid::new_v4(),
@@ -173,11 +156,32 @@
                      buffer_id: None,
                      success: false,
                      result: None,
-                     error: Some("unknown buffer".to_string()),
+                     error: Some("unknown session".to_string()),
                  };
-                 let _ = history.record_command_box(cmd);
-                 UseCaseError::UnknownBuffer
-             })?;
+                 let _ = history.record_command(cmd).await;
+                 return Err(UseCaseError::UnknownSession);
+             }
+
+             // Ask underlying store to open buffer (handle infra failure explicitly)
+             let id = match store.open_buffer(req.path.clone()).await {
+                 Ok(id) => id,
+                 Err(_e) => {
+                     // record failed command
+                     let cmd = CommandRecord {
+                         id: Uuid::new_v4(),
+                         timestamp: Utc::now(),
+                         kind: CommandKind::OpenBuffer { path: req.path.clone() },
+                         session_id: Some(req.session_id.clone()),
+                         workspace_id: None,
+                         buffer_id: None,
+                         success: false,
+                         result: None,
+                         error: Some("unknown buffer".to_string()),
+                     };
+                     let _ = history.record_command(cmd).await;
+                     return Err(UseCaseError::UnknownBuffer);
+                 }
+             };
              let buffer_id = id.0.clone();
 
              // Register buffer in session and set active if first
