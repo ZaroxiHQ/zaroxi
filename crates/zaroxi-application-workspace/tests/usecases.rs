@@ -29,8 +29,10 @@ async fn orchestrator_flow_happy_path() {
     struct FakeStore;
     impl buffer_ports::BufferStore for FakeStore {
         fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+            // Prefer the canonical core helper to construct BufferId from a path.
+            let id = buffer_ports::BufferId::from(path);
             Box::pin(async move {
-                Ok(buffer_ports::BufferId(format!("buf:{}", path.to_string_lossy())))
+                Ok(id)
             })
         }
 

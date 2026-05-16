@@ -36,13 +36,14 @@ impl FakeStore {
 
 impl buffer_ports::BufferStore for FakeStore {
     fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
-        let key = format!("buf:{}", path.to_string_lossy());
-        let k_clone = key.clone();
+        let id = buffer_ports::BufferId::from_path(&path);
+        let key = id.0.clone();
+        let id_clone = id.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            m.entry(k_clone.clone()).or_insert_with(|| "fn main() {}".to_string());
-            Ok(buffer_ports::BufferId(key))
+            m.entry(key.clone()).or_insert_with(|| "fn main() {}".to_string());
+            Ok(id_clone)
         })
     }
 

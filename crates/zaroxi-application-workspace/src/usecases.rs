@@ -874,11 +874,13 @@
      struct FakeBufferStore;
      impl buffer_ports::BufferStore for FakeBufferStore {
          fn open_buffer(&self, path: PathBuf) -> crate::ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+             // Use core helper to construct BufferId from the path; avoids stringly creation here.
+             let id = buffer_ports::BufferId::from(path);
              Box::pin(async move {
-                 Ok(buffer_ports::BufferId(format!("buf:{}", path.to_string_lossy())))
+                 Ok(id)
              })
          }
-    
+   
          fn get_text(&self, _id: &buffer_ports::BufferId) -> Option<String> {
              Some("fn main() {}".to_string())
          }
