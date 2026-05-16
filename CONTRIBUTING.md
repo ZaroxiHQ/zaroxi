@@ -1,184 +1,175 @@
 # Contributing to Zaroxi Studio
 
-Thank you for your interest in contributing to Zaroxi Studio! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Zaroxi Studio! This document contains the canonical contribution workflow plus the strict layered architecture and dependency rules that must be followed when adding new crates or changing cross-crate dependencies.
 
-## Code of Conduct
+Table of contents
+- Layer rules and responsibilities
+- Dependency direction rules (enforced by CI)
+- How to create a new crate (use `just new-crate`)
+- How CI works
+- Local developer shortcuts (just commands)
+- How to extend the layer/namespace rules
 
-Please be respectful and considerate of others when participating in this project. We aim to foster an inclusive and welcoming community.
+---
 
-## How Can I Contribute?
+## Layer rules and responsibilities
 
-### Reporting Bugs
+Zaroxi organizes code into the following namespaces (prefixes are used for crate names):
 
-Before creating a bug report, please check the existing issues to avoid duplicates.
+- kernel: `zaroxi-kernel-*`
+  - Responsibilities: low-level primitives, ID types, small math helpers, memory, traits that are core to the runtime.
+  - Dependency allowance: may only depend on other kernel crates and external third-party crates.
 
-**How to Report a Bug:**
+- core: `zaroxi-core-*`
+  - Responsibilities: engine, runtime, core services that build on kernel primitives.
+  - Dependency allowance: may only depend on kernel crates and other core crates.
 
-1. Use the bug report template when creating an issue
-2. Describe the exact steps to reproduce the problem
-3. Include system information (OS, Rust version, etc.)
-4. Include any relevant logs or error messages
-5. If possible, include a minimal reproducible example
+- domain: `zaroxi-domain-*`
+  - Responsibilities: domain models, business logic that uses core primitives.
+  - Dependency allowance: may only depend on kernel and core crates.
 
-### Suggesting Enhancements
+- application: `zaroxi-application-*`
+  - Responsibilities: application-level orchestration, app features that use domain APIs.
+  - Dependency allowance: may only depend on kernel, core and domain crates.
 
-We welcome suggestions for new features and improvements.
+- interface: `zaroxi-interface-*`
+  - Responsibilities: UI, CLI, desktop/IDE front-ends.
+  - Dependency allowance: can depend on application, domain, core and kernel (anything below it).
 
-**How to Suggest an Enhancement:**
+Top-level special namespaces:
+- intelligence: `zaroxi-intelligence-*`
+  - Responsibilities: AI/ML features and planners.
+  - Dependency allowance: may depend on kernel, core and domain only.
+- security: `zaroxi-security-*`
+  - Responsibilities: audit, crypto, policy.
+  - Dependency allowance: may depend on kernel, core and domain only.
+- infrastructure: `zaroxi-infrastructure-*`
+  - Responsibilities: adapters (networking, containers, ssh, storage).
+  - Dependency allowance: may depend on kernel and core only.
 
-1. Use the feature request template when creating an issue
-2. Clearly describe the feature and its benefits
-3. Explain why this feature would be useful to most users
-4. Consider potential implementation approaches
+Important: No circular dependencies are allowed. The CI enforces the layer rules automatically.
 
-### Contributing Code
+---
 
-#### Setting Up Development Environment
+## Dependency direction rules (examples)
 
-1. Fork the repository
-2. Clone your fork locally
-3. Install Rust and Cargo (via rustup)
-4. Build the project: `cargo build --workspace`
-5. Run tests: `cargo test --workspace`
+Allowed:
+- `zaroxi-core-graphics` -> depends on `zaroxi-kernel-math`
+- `zaroxi-domain-workspace` -> depends on `zaroxi-core-runtime`
+- `zaroxi-application-editor` -> depends on `zaroxi-domain-buffer` and `zaroxi-core-engine`
 
-#### Development Workflow
+Forbidden:
+- `zaroxi-core-foo` -> depends on `zaroxi-domain-bar` (core must not depend on domain)
+- `zaroxi-domain-x` -> depends on `zaroxi-application-y` (domain must not depend on application)
+- `zaroxi-infrastructure-net` -> depends on `zaroxi-application-search` (infrastructure must only depend on kernel/core)
+- Circular: A -> B -> A (never allowed)
 
-1. **Create a branch** for your changes:
+If you need an exception to the rules (rare), open an issue describing the use case and get approval from maintainers. Once approved, CI can be updated to include an explicit exception.
 
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+---
 
-2. **Make your changes** following the coding standards
+## How to create a new crate
 
-3. **Test your changes**:
+We provide a helper: `just new-crate NAME`
 
-   ```bash
-   cargo test --workspace
-   cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets -- -D warnings
-   ```
+This:
+- scaffolds `crates/NAME` with a starter Cargo.toml and src/lib.rs
+- registers the crate under the workspace members in the root `Cargo.toml`
+- uses the appropriate crate name you provide (please follow namespace naming rules)
 
-4. **Commit your changes** with descriptive commit messages:
+Example:
+- `just new-crate zaroxi-core-logger`
 
-   ```bash
-   git commit -m "feat: add new feature"
-   ```
+After creating the crate:
+- Implement your code and tests
+- Run `just check` locally to ensure linting/formatting pass
+- Run `just test` to run tests
 
-5. **Push to your fork**:
+The `just` commands are documented in the Local developer shortcuts section.
 
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+---
 
-6. **Create a Pull Request** from your fork to the main repository
+## How CI works (high level)
 
-#### Pull Request Guidelines
+CI runs on push and pull_request to the `main` branch and performs the following jobs:
 
-- Fill out the PR template completely
-- Keep PRs focused on a single change
-- Include tests for new functionality
-- Update documentation as needed
-- Ensure all CI checks pass
+- check
+  - Runs `cargo check --workspace --all-targets` to ensure the project compiles.
+- clippy
+  - Runs `cargo clippy --workspace --all-targets -- -D warnings` (treat warnings as errors).
+- test
+  - Runs `cargo test --workspace`.
+- fmt
+  - Runs `cargo fmt --all -- --check` to ensure formatting.
+- deny
+  - Runs `cargo deny check` using the root `deny.toml` policy that enforces:
+    - license policy (allowed/forbidden licenses)
+    - known advisories
+    - duplicate dependency versions
+    - other workspace-wide bans
+- deps
+  - Runs a custom script that parses workspace crate manifests and ensures cross-crate dependency directions follow the layer rules described above.
 
-### Documentation
+If any job fails, CI fails. Fix the problem and push again. Use `just ci` to run all checks locally before pushing.
 
-Good documentation is crucial. We welcome contributions to:
+---
 
-- API documentation (Rustdoc comments)
-- User guides and tutorials
-- Architecture documentation
-- Code comments explaining complex logic
+## Local developer shortcuts (just commands)
 
-## Coding Standards
+We provide a `justfile` with convenient recipes. Common commands:
 
-### Rust Style Guide
+- `just check` — clippy + fmt check
+- `just test` — run all tests
+- `just deny` — run `cargo deny check`
+- `just ci` — run all checks locally (check, clippy, fmt, test, deny, deps)
+- `just new-crate NAME` — scaffold and register a new crate
 
-- Follow the official Rust style guide
-- Run `cargo fmt` before committing
-- Address all `cargo clippy` warnings
-- Use meaningful variable and function names
+Quick commands to run locally (example):
+- `just check`
+- `just test`
+- `just ci`
 
-### Code Organization
+These commands are intentionally thin wrappers around the canonical cargo/rust tooling.
 
-- Keep functions small and focused
-- Use modules to organize related functionality
-- Document public APIs with Rustdoc
-- Write unit tests for non-trivial functions
+---
 
-### Commit Messages
+## License policy enforced by cargo-deny
 
-Use conventional commit messages:
+The workspace policy permits the following licenses:
+- MIT
+- Apache-2.0
+- BSD-2-Clause
+- BSD-3-Clause
+- ISC
+- Unicode-DFS-2016
 
-```
-<type>: <description>
+The following licenses are explicitly forbidden for workspace dependencies:
+- GPL-2.0
+- GPL-3.0
+- AGPL-3.0
 
-[optional body]
+The deny policy also flags duplicate versions of the same crate where possible and known advisories.
 
-[optional footer]
-```
+---
 
-**Types:**
+## How to extend layer/namespace rules
 
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting, etc.)
-- `refactor`: Code refactoring
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
+- The dependency-direction rules are defined in `.github/scripts/check_layer_deps.py` and are invoked by CI.
+- To add new namespaces or update rules:
+  1. Edit `.github/scripts/check_layer_deps.py` and add the prefix → layer mapping or update the allowed-dependencies table.
+  2. Add tests if necessary.
+  3. Update `CONTRIBUTING.md` to reflect the new rule.
+  4. Open a PR to apply the change.
 
-**Examples:**
+We intentionally keep the enforcement script human-readable and self-contained so maintainers can adapt rules as the project evolves.
 
-```
-feat: add AI context collection
-fix: resolve buffer overflow in editor
-docs: update architecture documentation
-```
+---
 
-## Testing
+## Notes and best practices
 
-### Writing Tests
-
-- Write unit tests for individual functions
-- Write integration tests for component interactions
-- Use property-based testing where appropriate
-- Mock external dependencies
-
-### Running Tests
-
-```bash
-# Run all tests
-cargo test --workspace
-
-# Run tests for a specific crate
-cargo test -p core-types
-
-# Run tests with verbose output
-cargo test --workspace -- --nocapture
-```
-
-## Review Process
-
-1. **Initial Review**: A maintainer will review your PR within a few days
-2. **Feedback**: You may receive feedback or requested changes
-3. **Revision**: Make requested changes and push updates
-4. **Approval**: Once approved, a maintainer will merge your PR
-
-## Recognition
-
-All contributors will be recognized in:
-
-- The project's README (for significant contributions)
-- Release notes
-- The contributors graph on GitHub
-
-## Questions?
-
-If you have questions about contributing:
-
-- Check the documentation in `docs/`
-- Join discussions on GitHub
-- Open an issue with the `question` label
+- Keep your crates small and focused.
+- Prefer composing functionality via well-defined public APIs instead of reaching across layers.
+- Add unit tests for logic and integration tests for public module interactions.
+- If you need help deciding where a new crate belongs, open an issue describing the responsibilities and proposed name.
 
 Thank you for contributing to Zaroxi Studio! 🎉

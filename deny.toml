@@ -1,0 +1,62 @@
+# cargo-deny configuration for the Zaroxi workspace
+# See: https://embark.dev/cargo-deny/ for details.
+#
+# This file enforces:
+# - Duplicate-version detection (deny)
+# - Advisory checks (deny)
+# - License allowlist/denylist
+# - Custom bans: a warning/ban when kernel crates are imported by a non-kernel non-core crate
+#
+# NOTE: If cargo-deny introduces new config formats, adapt this file accordingly.
+
+[checks]
+
+# Deny duplicate versions of the same crate when detected in the dependency graph.
+[checks.duplicates]
+deny = true
+
+# Treat advisories as deny so CI fails on known vulnerable crates.
+[checks.advisories]
+deny = true
+
+# License policy: allow only a strict list; deny known incompatible copyleft licenses.
+# Adjust the SPDX identifiers below if you need to widen or restrict the policy.
+[checks.licenses]
+deny = true
+# Allowed licenses (workspace policy)
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+]
+# Forbidden licenses (explicitly denied)
+deny_list = [
+  "GPL-2.0",
+  "GPL-3.0",
+  "AGPL-3.0",
+]
+
+# Bans section:
+# This workspace uses naming conventions to identify layers. The CI's custom dependency
+# checker enforces the strict layer rules. The bans below serve as an additional,
+# explicit flagging mechanism that cargo-deny will report on for quick detection.
+#
+# We add a ban that flags any use of `zaroxi-kernel-*` by crates that are not
+# in the kernel or core namespaces. This ban is intentionally conservative and
+# intended to be extended/relaxed via manual edits if an approved exception is required.
+#
+# To extend: add additional ban blocks that target a specific package or pattern.
+
+[[bans]]
+# Match kernel crates by name pattern
+package = { name = "zaroxi-kernel-*" }
+# This ban is informational for cargo-deny. The authoritative check lives in
+# .github/scripts/check_layer_deps.py which enforces the layer graph.
+reason = "Kernel crates are low-level and must only be depended on by kernel and core crates. If a non-kernel/core crate depends on a kernel crate, consider moving shared code into core or request an exception."
+# 'exempt' can be used to list specific packages that are permitted (none by default).
+exempt = []
+
+# End of deny.toml

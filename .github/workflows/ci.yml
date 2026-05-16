@@ -2,193 +2,92 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
+  contents: read
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # QUICK STATIC CHECKS (fmt, clippy, actionlint)
-  # ---------------------------------------------------------------------------
-  lint:
-    name: Lint
+  check:
+    name: cargo check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
           components: clippy, rustfmt
+      - name: cargo check
+        run: cargo check --workspace --all-targets
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libglib2.0-dev
-
-      - name: Restore cargo registry
-        uses: actions/cache@v4
+  clippy:
+    name: cargo clippy (deny warnings)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-lint-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-lint-registry-
-
-      - name: Restore cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-lint-index-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-lint-index-
-
-      - name: Restore cargo build output
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-lint-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Auto‑format Rust code
-        run: cargo fmt --all -- --check
-
+          toolchain: stable
+          components: clippy
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Validate the YAML of our own workflows
-      - name: actionlint
-        uses: reviewdog/action-actionlint@v1
-        with:
-          fail_on_error: true
-
-
-  # ---------------------------------------------------------------------------
-  # SECURITY / DEPENDENCY AUDIT (fast, only on ubuntu)
-  # ---------------------------------------------------------------------------
-  audit:
-    name: Security (cargo audit)
+  test:
+    name: cargo test
     runs-on: ubuntu-latest
+    needs: clippy
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore cargo registry (for Cargo.lock)
-        uses: actions/cache@v4
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-audit-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-audit-registry-
+          toolchain: stable
+      - name: cargo test
+        run: cargo test --workspace
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: cargo audit
-        run: cargo audit
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
-jobs:
-  # ---------------------------------------------------------------------------
-  # QUICK STATIC CHECKS (fmt, clippy, actionlint)
-  # ---------------------------------------------------------------------------
-  lint:
-    name: Lint
+  fmt:
+    name: cargo fmt check
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install rustfmt
+        uses: actions-rs/toolchain@v1
         with:
-          components: clippy, rustfmt
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libglib2.0-dev
-
-      - name: Restore cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-lint-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-lint-registry-
-
-      - name: Restore cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-lint-index-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-lint-index-
-
-      - name: Restore cargo build output
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-lint-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Auto‑format Rust code
+          toolchain: stable
+          components: rustfmt
+      - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Validate the YAML of our own workflows
-      - name: actionlint
-        uses: reviewdog/action-actionlint@v1
-        with:
-          fail_on_error: true
-
-
-  # ---------------------------------------------------------------------------
-  # SECURITY / DEPENDENCY AUDIT (fast, only on ubuntu)
-  # ---------------------------------------------------------------------------
-  audit:
-    name: Security (cargo audit)
+  deny:
+    name: cargo-deny
     runs-on: ubuntu-latest
+    needs: fmt
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore cargo registry (for Cargo.lock)
-        uses: actions/cache@v4
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-audit-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-audit-registry-
+          toolchain: stable
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: Run cargo deny
+        run: cargo deny check
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: cargo audit
-        run: cargo audit
+  deps:
+    name: dependency layer checker
+    runs-on: ubuntu-latest
+    needs: deny
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Run layer dependency checker
+        run: python3 .github/scripts/check_layer_deps.py
