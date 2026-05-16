@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tokio;
 
 use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest,
+    WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest, GetSessionSnapshotRequest,
 };
 use zaroxi_application_workspace::ports::WorkspaceService;
 
@@ -68,6 +68,18 @@ async fn main() -> Result<(), String> {
     let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
     let explain_res = orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
     println!("Harness: explain result: {}", explain_res.result.message);
+    // Query and print a compact session snapshot (Phase 7)
+    let snap_req = GetSessionSnapshotRequest { session_id: boot_res.session.session_id.clone(), recent_limit: 10 };
+    let snap_res = orchestrator.get_session_snapshot(snap_req).await.map_err(|e| e.to_string())?;
+    let snap = snap_res.snapshot;
+    println!("Harness: session snapshot for {} (workspace {}):", snap.session_id, snap.workspace_id);
+    println!(" - opened buffers: {:?}", snap.opened_buffers);
+    println!(" - active buffer: {:?}", snap.active_buffer);
+    for b in snap.buffers.iter() {
+        println!("   - {} -> {} bytes", b.buffer_id, b.content.as_ref().map(|s| s.len()).unwrap_or(0));
+    }
+    println!(" - recent commands: {}", snap.recent_commands.len());
+    println!(" - recent events: {}", snap.recent_events.len());
 
     // Print recent commands and events for this session
     use zaroxi_application_workspace::ports::{GetRecentCommandsRequest, GetRecentEventsRequest};

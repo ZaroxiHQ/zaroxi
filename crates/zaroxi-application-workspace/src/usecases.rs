@@ -10,6 +10,8 @@
      BoxFuture, UseCaseError,
      CommandRecord, CommandKind, WorkspaceEvent, WorkspaceEventKind,
      GetRecentCommandsRequest, GetRecentCommandsResponse, GetRecentEventsRequest, GetRecentEventsResponse,
+     // Snapshot/query types (Phase 7)
+     GetSessionSnapshotRequest, GetSessionSnapshotResponse, SessionSnapshot, BufferSnapshot,
      SessionId,
  };
  
@@ -639,6 +641,46 @@
          Box::pin(async move {
              let evs: Vec<WorkspaceEvent> = history.get_recent_events(req.session_id.clone(), req.limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
              Ok(GetRecentEventsResponse { events: evs })
+         })
+     }
+ 
+     fn get_session_snapshot(&self, req: GetSessionSnapshotRequest) -> BoxFuture<'static, Result<GetSessionSnapshotResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         let store = self.buffer_store.clone();
+         let history = self.history.clone();
+         Box::pin(async move {
+             // Resolve session info (synchronous lookup).
+             let info = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).cloned().ok_or(UseCaseError::UnknownSession)?
+             };
+ 
+             let opened = info.open_buffers.clone();
+             let active = info.active_buffer.clone();
+             let workspace_id = info.workspace_id;
+ 
+             // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
+             let mut buffers: Vec<BufferSnapshot> = Vec::new();
+             for b in opened.iter() {
+                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 buffers.push(BufferSnapshot { buffer_id: b.clone(), content });
+             }
+ 
+             // Recent commands and events (read from history port).
+             let commands = history.get_recent_commands(req.session_id.clone(), req.recent_limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+             let events = history.get_recent_events(req.session_id.clone(), req.recent_limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+ 
+             let snapshot = SessionSnapshot {
+                 session_id: req.session_id.clone(),
+                 workspace_id,
+                 opened_buffers: opened,
+                 active_buffer: active,
+                 buffers,
+                 recent_commands: commands,
+                 recent_events: events,
+             };
+ 
+             Ok(GetSessionSnapshotResponse { snapshot })
          })
      }
  }

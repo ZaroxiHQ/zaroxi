@@ -258,6 +258,39 @@
  pub struct DispatchCommandResponse {
      pub result: CommandResult,
  }
+ 
+ /// Snapshot of a single buffer (id + optional current content).
+ #[derive(Clone, Debug)]
+ pub struct BufferSnapshot {
+     pub buffer_id: String,
+     pub content: Option<String>,
+ }
+ 
+ /// Read-model representing the current workspace session state.
+ #[derive(Clone, Debug)]
+ pub struct SessionSnapshot {
+     pub session_id: SessionId,
+     pub workspace_id: WorkspaceId,
+     pub opened_buffers: Vec<String>,
+     pub active_buffer: Option<String>,
+     pub buffers: Vec<BufferSnapshot>,
+     pub recent_commands: Vec<CommandRecord>,
+     pub recent_events: Vec<WorkspaceEvent>,
+ }
+ 
+ /// Request for fetching a session snapshot (read-only).
+ #[derive(Clone, Debug)]
+ pub struct GetSessionSnapshotRequest {
+     pub session_id: SessionId,
+     /// How many recent commands/events to include in the snapshot.
+     pub recent_limit: usize,
+ }
+ 
+ /// Response carrying the session snapshot.
+ #[derive(Clone, Debug)]
+ pub struct GetSessionSnapshotResponse {
+     pub snapshot: SessionSnapshot,
+ }
 
  /// Very small service trait. Implementations are in application layer.
  /// Methods are explicit use-case entry points for Phase 5 multi-buffer behavior.
@@ -291,6 +324,10 @@
 
      /// Query recent workspace events for a session.
      fn get_recent_events(&self, req: GetRecentEventsRequest) -> BoxFuture<'static, Result<GetRecentEventsResponse, UseCaseError>>;
+ 
+     /// Read-only snapshot query for the current workspace session.
+     /// Returns a compact, explicit read-model of the session state.
+     fn get_session_snapshot(&self, req: GetSessionSnapshotRequest) -> BoxFuture<'static, Result<GetSessionSnapshotResponse, UseCaseError>>;
  }
 
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;
