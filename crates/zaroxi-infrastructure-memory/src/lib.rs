@@ -15,7 +15,7 @@ use zaroxi_domain_workspace::ports::{
     WorkspaceRepository, WorkspaceOpenCommand, WorkspaceDTO, DomainError,
 };
 use zaroxi_core_editor_buffer::ports::{
-    BufferStore, BufferId, BufferError,
+    BufferStore, BufferId, BufferError, TextEdit,
 };
 
 /// Simple boxed future helper for this tiny crate.

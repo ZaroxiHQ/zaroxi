@@ -8,6 +8,8 @@
      ListBuffersRequest, ListBuffersResponse, SetActiveBufferRequest, SetActiveBufferResponse,
      GetActiveBufferRequest, GetActiveBufferResponse,
      BoxFuture, UseCaseError,
+     // Transaction seam (Phase 4)
+     ApplyTextTransactionRequest, ApplyTextTransactionResponse,
      CommandRecord, CommandKind, WorkspaceEvent, WorkspaceEventKind,
      GetRecentCommandsRequest, GetRecentCommandsResponse, GetRecentEventsRequest, GetRecentEventsResponse,
      // Snapshot/query types (Phase 7)
@@ -639,7 +641,141 @@
              Ok(UpdateBufferResponse { ok: true })
          })
      }
-
+ 
+     fn apply_text_transaction(&self, req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, UseCaseError>> {
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         let history = self.history.clone();
+         Box::pin(async move {
+             // Validate session exists
+             let session_known = { let s = sessions.lock().unwrap(); s.contains_key(&req.session_id.0) };
+             if !session_known {
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some("unknown session".to_string()),
+                 );
+                 let _ = history.record_command(cmd).await;
+                 return Err(UseCaseError::UnknownSession);
+             }
+ 
+             // Ensure buffer is opened in session and prepare editor-state mutation
+             {
+                 let mut s = sessions.lock().unwrap();
+                 let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+                 if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                     let cmd = CommandRecord::new_failure(
+                         CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                         Some(req.session_id.0),
+                         None,
+                         Some(req.buffer_id.clone()),
+                         Some("invalid active buffer".to_string()),
+                     );
+                     let _ = history.record_command(cmd).await;
+                     return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+                 }
+ 
+                 // Simple cursor/selection update policy (Phase 4 minimal):
+                 // We treat EditorCursor.column as a flat character index while line==0.
+                 // - Insert at the cursor index advances the cursor by inserted chars.
+                 // - Delete shifts cursor left if it was after the deleted range.
+                 // - Replace adjusts cursor depending on whether it was inside replaced region.
+                 let entry = info.editor_states.entry(req.buffer_id.clone()).or_insert(EditorState { cursor: EditorCursor::zero(), selection: None });
+                 let mut new_cursor = entry.cursor.clone();
+                 match &req.transaction {
+                     TextEdit::Insert { index, text } => {
+                         if entry.cursor.line == 0 && entry.cursor.column as usize == *index {
+                             new_cursor.column = new_cursor.column.saturating_add(text.chars().count() as u32);
+                         }
+                         entry.selection = None;
+                         entry.cursor = new_cursor.clone();
+                     }
+                     TextEdit::Delete { start, end } => {
+                         let del_len = if *end > *start { *end - *start } else { 0 };
+                         if entry.cursor.line == 0 {
+                             let cidx = entry.cursor.column as usize;
+                             if cidx > *start {
+                                 let sub = std::cmp::min(cidx - *start, del_len);
+                                 new_cursor.column = new_cursor.column.saturating_sub(sub as u32);
+                             }
+                         }
+                         entry.selection = None;
+                         entry.cursor = new_cursor.clone();
+                     }
+                     TextEdit::Replace { start, end, text } => {
+                         let old_len = if *end > *start { *end - *start } else { 0 };
+                         let new_len = text.chars().count();
+                         if entry.cursor.line == 0 {
+                             let cidx = entry.cursor.column as usize;
+                             if cidx >= *start && cidx <= *end {
+                                 // cursor inside replaced region -> move to end of replacement
+                                 new_cursor.column = (*start + new_len) as u32;
+                             } else if cidx > *end {
+                                 if new_len >= old_len {
+                                     new_cursor.column = new_cursor.column.saturating_add((new_len - old_len) as u32);
+                                 } else {
+                                     new_cursor.column = new_cursor.column.saturating_sub((old_len - new_len) as u32);
+                                 }
+                             }
+                         }
+                         entry.selection = None;
+                         entry.cursor = new_cursor.clone();
+                     }
+                 }
+             }
+ 
+             // Apply the transaction to the buffer via the BufferStore
+             if let Err(_e) = store.apply_transaction(&req.buffer_id, req.transaction.clone()).await {
+                 let cmd = CommandRecord::new_failure(
+                     CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     Some(req.session_id.0),
+                     None,
+                     Some(req.buffer_id.clone()),
+                     Some("unknown buffer".to_string()),
+                 );
+                 let _ = history.record_command(cmd).await;
+                 return Err(UseCaseError::UnknownBuffer);
+             }
+ 
+             // record success and event
+             let workspace_id_opt = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).map(|i| i.workspace_id)
+             };
+ 
+             let cmd = CommandRecord::new_success(
+                 CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                 Some(req.session_id.0),
+                 workspace_id_opt,
+                 Some(req.buffer_id.clone()),
+                 Some("transaction applied".to_string()),
+             );
+             let _ = history.record_command(cmd).await;
+ 
+             if let Some(ws) = workspace_id_opt {
+                 let ev = WorkspaceEvent {
+                     id: Uuid::new_v4(),
+                     timestamp: Utc::now(),
+                     session_id: req.session_id.clone(),
+                     workspace_id: ws,
+                     kind: WorkspaceEventKind::BufferUpdated { buffer_id: req.buffer_id.clone() },
+                 };
+                 let _ = history.record_event(ev).await;
+             }
+ 
+             // Read updated content and editor-state to return
+             let content = store.get_text(&req.buffer_id);
+             let state = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).and_then(|info| info.editor_states.get(&req.buffer_id).cloned())
+             };
+ 
+             Ok(ApplyTextTransactionResponse { ok: true, state: state.unwrap_or(EditorState { cursor: EditorCursor::zero(), selection: None }), content })
+         })
+     }
+ 
      fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>> {
          let history = self.history.clone();
          Box::pin(async move {

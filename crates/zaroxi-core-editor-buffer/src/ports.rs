@@ -92,6 +92,21 @@ impl From<&str> for BufferError {
     }
 }
 
+/// Simple typed transaction/edit model expressed in character indices (not bytes).
+/// The core layer owns the semantics of applying these edits to the underlying
+/// buffer string/rope. Character indices are used for safety with UTF-8 content.
+#[derive(Clone, Debug)]
+pub enum TextEdit {
+    /// Insert `text` at character index `index`.
+    Insert { index: usize, text: String },
+
+    /// Delete the inclusive..exclusive character range [start, end).
+    Delete { start: usize, end: usize },
+
+    /// Replace the inclusive..exclusive character range [start, end) with `text`.
+    Replace { start: usize, end: usize, text: String },
+}
+
 /// Port trait: BufferStore
 pub trait BufferStore: Send + Sync {
     /// Open a buffer backed by a filesystem path. Returns a BufferId.
@@ -103,6 +118,11 @@ pub trait BufferStore: Send + Sync {
     /// Set or replace the full text for a buffer.
     /// Returns Ok(()) on success or BufferError on failure (e.g. buffer not found).
     fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>>;
+
+    /// Apply a typed text transaction/edit to the buffer content.
+    /// The transaction uses character indices (0-based). Implementations must
+    /// atomically apply the edit and persist the updated content.
+    fn apply_transaction(&self, id: &BufferId, txn: TextEdit) -> BoxFuture<'static, Result<(), BufferError>>;
 }
 
 pub type DynBufferStore = Arc<dyn BufferStore>;

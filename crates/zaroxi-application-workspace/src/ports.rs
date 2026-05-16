@@ -9,7 +9,7 @@
  use crate as _; // placeholder for crate root
  use serde::{Serialize, Deserialize};
  use zaroxi_kernel_types::Id;
- pub use zaroxi_core_editor_buffer::ports::BufferId;
+ pub use zaroxi_core_editor_buffer::ports::{BufferId, TextEdit};
  
  use std::pin::Pin;
  use std::future::Future;
@@ -121,6 +121,24 @@
  #[derive(Clone, Debug)]
  pub struct UpdateBufferResponse {
      pub ok: bool,
+ }
+ 
+ /// Request to apply a typed text transaction to a buffer within a session.
+ /// The `transaction` uses the core `TextEdit` type (character-indexed).
+ #[derive(Clone, Debug)]
+ pub struct ApplyTextTransactionRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+     pub transaction: TextEdit,
+ }
+ 
+ /// Response after applying a transaction. Returns the updated transient editor
+ /// state for the buffer and the new buffer content (if present).
+ #[derive(Clone, Debug)]
+ pub struct ApplyTextTransactionResponse {
+     pub ok: bool,
+     pub state: EditorState,
+     pub content: Option<String>,
  }
  
  /// Typed errors for application use-cases (Phase 5).
@@ -501,6 +519,13 @@
 
      /// Update or replace buffer content within a session.
      fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
+
+     /// Apply a typed text transaction/edit to an open buffer within a session.
+     /// This use-case composes the current editor transient state (cursor/selection)
+     /// with the provided transaction and returns both the mutated content and the
+     /// updated editor state. The core BufferStore is responsible for actually
+     /// applying the edit to the underlying string/rope.
+     fn apply_text_transaction(&self, req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, UseCaseError>>;
 
      /// Query recent command history for a session.
      fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>>;
