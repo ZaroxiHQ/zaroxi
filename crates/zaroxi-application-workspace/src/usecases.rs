@@ -8,9 +8,9 @@
      ListBuffersRequest, ListBuffersResponse, SetActiveBufferRequest, SetActiveBufferResponse,
      GetActiveBufferRequest, GetActiveBufferResponse,
      BoxFuture, UseCaseError,
-     CommandRecord, CommandKind, WorkspaceEvent, WorkspaceEventKind, DynHistoryRepository,
+     CommandRecord, CommandKind, WorkspaceEvent, WorkspaceEventKind,
      GetRecentCommandsRequest, GetRecentCommandsResponse, GetRecentEventsRequest, GetRecentEventsResponse,
-     SessionId, WorkspaceId,
+     SessionId,
  };
  
  use zaroxi_domain_workspace::ports as domain_ports;
@@ -29,7 +29,7 @@
      buffer_store: Arc<dyn buffer_ports::BufferStore>,
      ai_client: Arc<dyn ai_ports::AiClient>,
      /// Optional history repository for recording commands and events.
-     history: Arc<dyn DynHistoryRepositoryMarker + Send + Sync>,
+     history: Arc<dyn crate::ports::HistoryRepository>,
      /// In-memory session -> session info mapping for the simple slice.
      sessions: Arc<Mutex<HashMap<Id, SessionInfo>>>,
  }
@@ -42,34 +42,8 @@
      active_buffer: Option<String>, // currently selected buffer id
  }
  
- use crate::ports::BoxFuture;
- use crate::ports::UseCaseError;
  use zaroxi_domain_buffer::rules as buffer_rules;
 
- // Define a thin marker trait so we can hold a dyn without exposing the concrete HistoryRepository
- // implementation details here; the real trait is defined in ports and dyn object is passed through.
- pub trait DynHistoryRepositoryMarker {
-     fn record_command_box(&self, rec: CommandRecord) -> BoxFuture<'static, Result<(), String>>;
-     fn record_event_box(&self, ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>>;
-     fn get_recent_commands_box(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>>;
-     fn get_recent_events_box(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>>;
- }
-
- // Adapter impl: forward to the real ports::HistoryRepository trait object when constructing the orchestrator.
- impl<T: crate::ports::HistoryRepository + ?Sized> DynHistoryRepositoryMarker for T {
-     fn record_command_box(&self, rec: CommandRecord) -> BoxFuture<'static, Result<(), String>> {
-         self.record_command(rec)
-     }
-     fn record_event_box(&self, ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>> {
-         self.record_event(ev)
-     }
-     fn get_recent_commands_box(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>> {
-         self.get_recent_commands(session_id, limit)
-     }
-     fn get_recent_events_box(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>> {
-         self.get_recent_events(session_id, limit)
-     }
- }
 
  impl WorkspaceOrchestrator {
      /// Create a new orchestrator with concrete port implementations (adapters).
@@ -91,7 +65,7 @@
          ai_client: Arc<dyn ai_ports::AiClient>,
          history: Arc<dyn crate::ports::HistoryRepository>,
      ) -> Self {
-         Self { repo, buffer_store, ai_client, history: history as Arc<dyn DynHistoryRepositoryMarker + Send + Sync>, sessions: Arc::new(Mutex::new(HashMap::new())) }
+         Self { repo, buffer_store, ai_client, history, sessions: Arc::new(Mutex::new(HashMap::new())) }
      }
  }
 
@@ -102,17 +76,17 @@
      fn new() -> Self { NoopHistory }
  }
 
- impl DynHistoryRepositoryMarker for NoopHistory {
-     fn record_command_box(&self, _rec: CommandRecord) -> BoxFuture<'static, Result<(), String>> {
+ impl crate::ports::HistoryRepository for NoopHistory {
+     fn record_command(&self, _rec: CommandRecord) -> BoxFuture<'static, Result<(), String>> {
          Box::pin(async { Ok(()) })
      }
-     fn record_event_box(&self, _ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>> {
+     fn record_event(&self, _ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>> {
          Box::pin(async { Ok(()) })
      }
-     fn get_recent_commands_box(&self, _session_id: SessionId, _limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>> {
+     fn get_recent_commands(&self, _session_id: SessionId, _limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>> {
          Box::pin(async { Ok(Vec::new()) })
      }
-     fn get_recent_events_box(&self, _session_id: SessionId, _limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>> {
+     fn get_recent_events(&self, _session_id: SessionId, _limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>> {
          Box::pin(async { Ok(Vec::new()) })
      }
  }
@@ -262,27 +236,39 @@
          let sessions = self.sessions.clone();
          let history = self.history.clone();
          Box::pin(async move {
-             let mut s = sessions.lock().unwrap();
-             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
-             // Ensure requested buffer was opened in this session
-             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+             // Validate membership without holding lock across awaits
+             let invalid = {
+                 let s = sessions.lock().unwrap();
+                 match s.get(&req.session_id.0) {
+                     Some(info) => !info.open_buffers.iter().any(|b| b == &req.buffer_id),
+                     None => return Err(UseCaseError::UnknownSession),
+                 }
+             };
+             if invalid {
                  // record failure
                  let cmd = CommandRecord {
                      id: Uuid::new_v4(),
                      timestamp: Utc::now(),
                      kind: CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
                      session_id: Some(req.session_id.clone()),
-                     workspace_id: Some(info.workspace_id),
+                     workspace_id: None,
                      buffer_id: Some(req.buffer_id.clone()),
                      success: false,
                      result: None,
                      error: Some("invalid active buffer".to_string()),
                  };
-                 let _ = history.record_command_box(cmd).await;
+                 let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id));
              }
-             let old = info.active_buffer.clone();
-             info.active_buffer = Some(req.buffer_id.clone());
+
+             // Perform mutation while holding the lock briefly and capture old/new/ws
+             let (old, workspace_id) = {
+                 let mut s = sessions.lock().unwrap();
+                 let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+                 let old = info.active_buffer.clone();
+                 info.active_buffer = Some(req.buffer_id.clone());
+                 (old, info.workspace_id)
+             };
 
              // record success command and event
              let cmd = CommandRecord {
@@ -413,26 +399,28 @@
          let history = self.history.clone();
          Box::pin(async move {
              // Validate session exists
-             let workspace_id = {
+             // Resolve workspace id for session; avoid holding lock across await.
+             let workspace_opt = {
                  let s = sessions.lock().unwrap();
-                 match s.get(&req.session_id.0) {
-                     Some(w) => w.workspace_id,
-                     None => {
-                         // record failed dispatch
-                         let cmd = CommandRecord {
-                             id: Uuid::new_v4(),
-                             timestamp: Utc::now(),
-                             kind: CommandKind::DispatchAppCommand { command: req.command.clone() },
-                             session_id: Some(req.session_id.clone()),
-                             workspace_id: None,
-                             buffer_id: None,
-                             success: false,
-                             result: None,
-                             error: Some("unknown session".to_string()),
-                         };
-                         let _ = history.record_command_box(cmd).await;
-                         return Err(UseCaseError::UnknownSession)
-                     },
+                 s.get(&req.session_id.0).map(|w| w.workspace_id)
+             };
+             let workspace_id = match workspace_opt {
+                 Some(w) => w,
+                 None => {
+                     // record failed dispatch
+                     let cmd = CommandRecord {
+                         id: Uuid::new_v4(),
+                         timestamp: Utc::now(),
+                         kind: CommandKind::DispatchAppCommand { command: req.command.clone() },
+                         session_id: Some(req.session_id.clone()),
+                         workspace_id: None,
+                         buffer_id: None,
+                         success: false,
+                         result: None,
+                         error: Some("unknown session".to_string()),
+                     };
+                     let _ = history.record_command(cmd).await;
+                     return Err(UseCaseError::UnknownSession)
                  }
              };
 
@@ -520,25 +508,26 @@
          let sessions = self.sessions.clone();
          let history = self.history.clone();
          Box::pin(async move {
-             // Validate session is known.
-             {
+             // Validate session is known (release lock before awaiting)
+             let session_known = {
                  let s = sessions.lock().unwrap();
-                 if !s.contains_key(&req.session_id.0) {
-                     // record failed update
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                         session_id: Some(req.session_id.clone()),
-                         workspace_id: None,
-                         buffer_id: Some(req.buffer_id.clone()),
-                         success: false,
-                         result: None,
-                         error: Some("unknown session".to_string()),
-                     };
-                     let _ = history.record_command_box(cmd).await;
-                     return Err(UseCaseError::UnknownSession);
-                 }
+                 s.contains_key(&req.session_id.0)
+             };
+             if !session_known {
+                 // record failed update
+                 let cmd = CommandRecord {
+                     id: Uuid::new_v4(),
+                     timestamp: Utc::now(),
+                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     session_id: Some(req.session_id.clone()),
+                     workspace_id: None,
+                     buffer_id: Some(req.buffer_id.clone()),
+                     success: false,
+                     result: None,
+                     error: Some("unknown session".to_string()),
+                 };
+                 let _ = history.record_command(cmd).await;
+                 return Err(UseCaseError::UnknownSession);
              }
 
              // Validate buffer id and content via domain rules.
