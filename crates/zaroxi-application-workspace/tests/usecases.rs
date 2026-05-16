@@ -5,6 +5,8 @@ use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
 };
+use zaroxi_application_workspace::ports as ports;
+use zaroxi_application_workspace::ports::WorkspaceService;
 use zaroxi_domain_workspace::ports as domain_ports;
 use zaroxi_core_editor_buffer::ports as buffer_ports;
 use zaroxi_application_ai::ports as ai_ports;
@@ -15,7 +17,7 @@ async fn orchestrator_flow_happy_path() {
     // Fake repo
     struct FakeRepo;
     impl domain_ports::WorkspaceRepository for FakeRepo {
-        fn open_workspace(&self, cmd: domain_ports::WorkspaceOpenCommand) -> crate::ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
+        fn open_workspace(&self, cmd: domain_ports::WorkspaceOpenCommand) -> ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
             Box::pin(async move {
                 Ok(domain_ports::WorkspaceDTO { id: "ws-test".to_string(), root_path: cmd.path.clone(), name: "Test" .to_string() })
             })
@@ -25,7 +27,7 @@ async fn orchestrator_flow_happy_path() {
     // Fake buffer store
     struct FakeStore;
     impl buffer_ports::BufferStore for FakeStore {
-        fn open_buffer(&self, path: PathBuf) -> crate::ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+        fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
             Box::pin(async move {
                 Ok(buffer_ports::BufferId(format!("buf:{}", path.to_string_lossy())))
             })
