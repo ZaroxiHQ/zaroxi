@@ -41,9 +41,9 @@ async fn orchestrator_flow_happy_path() {
     // Fake AI
     struct FakeAi;
     impl ai_ports::AiClient for FakeAi {
-        fn request(&self, prompt: String) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
+        fn request(&self, req: ai_ports::AiRequest) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
             Box::pin(async move {
-                Ok(ai_ports::AiResponseDTO { text: format!("fake: {}", prompt) })
+                Ok(ai_ports::AiResponseDTO { text: format!("fake: {}", req.buffer_id) })
             })
         }
     }

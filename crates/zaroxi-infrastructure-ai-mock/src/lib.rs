@@ -19,11 +19,17 @@
  }
 
  impl AiClient for MockAiClient {
-     fn request(&self, prompt: String) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
+     fn request(&self, req: zaroxi_application_ai::ports::AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
          Box::pin(async move {
              // simulate latency
              sleep(Duration::from_millis(50)).await;
-             let reply = format!("(mocked) explanation for prompt: {}", prompt);
+             // Echo a helpful mocked explanation including a bit of the content snapshot.
+             let snippet = if req.content_snapshot.len() > 80 {
+                 format!("{}...", &req.content_snapshot[..80])
+             } else {
+                 req.content_snapshot.clone()
+             };
+             let reply = format!("(mocked) explanation for buffer {}: {}", req.buffer_id, snippet);
              Ok(AiResponseDTO { text: reply })
          })
      }

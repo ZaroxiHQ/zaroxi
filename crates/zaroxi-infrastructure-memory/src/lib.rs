@@ -33,9 +33,9 @@ impl InMemoryWorkspaceRepo {
 impl WorkspaceRepository for InMemoryWorkspaceRepo {
     fn open_workspace(&self, cmd: WorkspaceOpenCommand) -> BoxFuture<'static, Result<WorkspaceDTO, DomainError>> {
         Box::pin(async move {
-            // Minimal behavior: echo the provided path into DTO
+            // Minimal behavior: create a kernel Id and echo the provided path into DTO
             let dto = WorkspaceDTO {
-                id: "workspace-1".to_string(),
+                id: zaroxi_kernel_types::Id::new(),
                 root_path: cmd.path.clone(),
                 name: "Sample Workspace".to_string(),
             };

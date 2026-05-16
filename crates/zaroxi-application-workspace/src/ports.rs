@@ -7,6 +7,7 @@
  use std::sync::Arc;
  use crate as _; // placeholder for crate root
  use serde::{Serialize, Deserialize};
+ use zaroxi_kernel_types::Id;
 
  use std::pin::Pin;
  use std::future::Future;
@@ -14,11 +15,30 @@
  /// Boxed future alias (replace with kernel::BoxFuture in real code)
  pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+ /// Kernel-backed workspace identifier.
+ pub type WorkspaceId = Id;
+
+ /// Kernel-backed session identifier (application-scoped wrapper).
+ #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+ pub struct SessionId(pub Id);
+
+ impl From<Id> for SessionId {
+     fn from(id: Id) -> Self {
+         SessionId(id)
+     }
+ }
+
+ impl std::fmt::Display for SessionId {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         write!(f, "{}", self.0)
+     }
+ }
+
  /// DTO: workspace session created by the application
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct WorkspaceSessionDTO {
-     pub session_id: String,
-     pub workspace_id: String,
+     pub session_id: SessionId,
+     pub workspace_id: WorkspaceId,
  }
 
  /// Request to boot/open a workspace and create a session.
@@ -36,7 +56,7 @@
  /// Request to open a buffer within a session.
  #[derive(Clone, Debug)]
  pub struct OpenBufferRequest {
-     pub session_id: String,
+     pub session_id: SessionId,
      pub path: PathBuf,
  }
 
@@ -47,17 +67,17 @@
  }
 
  /// Application-level commands that the UI may dispatch.
- /// Keep this small for Phase 1: an AI explain command and a simple edit command.
+ /// Phase 2: AiExplain is buffer-focused and does not carry a free-form prompt here.
  #[derive(Clone, Debug)]
  pub enum AppCommand {
-     AiExplain { prompt: String },
+     AiExplain { buffer_id: String },
      InsertText { buffer_id: String, offset: usize, text: String },
  }
 
  /// Request to dispatch an application command.
  #[derive(Clone, Debug)]
  pub struct DispatchCommandRequest {
-     pub session_id: String,
+     pub session_id: SessionId,
      pub command: AppCommand,
  }
 
@@ -74,7 +94,7 @@
  }
 
  /// Very small service trait. Implementations are in application layer.
- /// Methods are explicit use-case entry points for Phase 1.
+ /// Methods are explicit use-case entry points for Phase 2.
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
      fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, String>>;

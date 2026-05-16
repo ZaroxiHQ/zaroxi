@@ -43,7 +43,7 @@ async fn main() -> Result<(), String> {
     // Dispatch AI explain command (use-case)
     let dispatch_req = DispatchCommandRequest {
         session_id: boot_res.session.session_id.clone(),
-        command: AppCommand::AiExplain { prompt: format!("Explain contents of buffer {}", open_res.buffer_id) },
+        command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() },
     };
     let dispatch_res = orchestrator.dispatch_command(dispatch_req).await?;
     println!("Harness: command result: {}", dispatch_res.result.message);
