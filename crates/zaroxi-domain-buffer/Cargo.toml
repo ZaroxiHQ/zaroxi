@@ -1,0 +1,10 @@
+[package]
+name = "zaroxi-domain-buffer"
+version = "0.1.0"
+edition = "2024"
+description = "Domain model crate for document buffers (logical representation)."
+license = "MIT"
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }

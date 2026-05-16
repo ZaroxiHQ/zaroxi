@@ -121,6 +121,7 @@ members = [
   "crates/zaroxi-domain-session",
   "crates/zaroxi-domain-ai",
   "crates/zaroxi-domain-plugin",
+  "crates/zaroxi-domain-buffer",
   "crates/zaroxi-domain-collaboration",
 
   # APPLICATION
@@ -237,5 +238,7 @@ Intelligence crates depend only on domain and core-shared where necessary.
 Security crates must not depend on higher-level layers.
 No circular or upward dependencies allowed.
 """
+
+# EOF
 
 # EOF
