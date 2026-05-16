@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use tokio;
 
 use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
-    ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest,
+    WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest,
 };
 use zaroxi_application_workspace::ports::WorkspaceService;
 
