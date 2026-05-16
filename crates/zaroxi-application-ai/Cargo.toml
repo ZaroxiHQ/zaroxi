@@ -6,4 +6,10 @@ description = "zaroxi-application-ai (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Use workspace pinned packages so features (serde, uuid v4, etc.) are correctly used.
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
