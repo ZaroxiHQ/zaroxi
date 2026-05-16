@@ -2,8 +2,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tracing::info;
 use uuid::Uuid;
 
@@ -26,7 +25,7 @@ impl WorkspaceService {
 
     /// Start the workspace service.
     pub async fn start(&self) -> Result<()> {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap();
         if state.running {
             return Err(anyhow::anyhow!("Workspace service is already running"));
         }
@@ -37,7 +36,7 @@ impl WorkspaceService {
 
     /// Stop the workspace service.
     pub async fn stop(&self) -> Result<()> {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap();
         if !state.running {
             return Err(anyhow::anyhow!("Workspace service is not running"));
         }
@@ -48,7 +47,7 @@ impl WorkspaceService {
 
     /// Check if the service is running.
     pub async fn is_running(&self) -> bool {
-        let state = self.state.lock().await;
+        let state = self.state.lock().unwrap();
         state.running
     }
 

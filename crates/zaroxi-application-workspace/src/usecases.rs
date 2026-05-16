@@ -72,6 +72,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::WorkspaceService;
     use std::sync::Arc;
 
     // Lightweight test doubles implementing the required ports.
