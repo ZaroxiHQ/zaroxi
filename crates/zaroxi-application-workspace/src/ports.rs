@@ -9,7 +9,7 @@
  use crate as _; // placeholder for crate root
  use serde::{Serialize, Deserialize};
  use zaroxi_kernel_types::Id;
- use zaroxi_core_editor_buffer::ports::BufferId;
+ pub use zaroxi_core_editor_buffer::ports::BufferId;
  
  use std::pin::Pin;
  use std::future::Future;
