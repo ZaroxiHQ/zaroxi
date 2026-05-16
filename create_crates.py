@@ -1,24 +1,41 @@
 #!/usr/bin/env python3
 # Script: tools/create_crates.py
-# Purpose: Create the full Zaroxi crate tree with minimal Cargo.toml and src/lib.rs templates.
+# Purpose: Professional Zaroxi crate scaffolding generator.
 # Usage: python3 tools/create_crates.py
 #
-# This script enforces:
-# - edition = "2024"
-# - flat layout: crates/<crate-name>
-# - each crate gets a Cargo.toml with name, version "0.1.0", edition "2024", description
-# - each crate gets src/lib.rs with a strict header documenting purpose, layer, and single responsibility
-# - writes tools/crate-lint and docs directories placeholders
+# This script creates a complete, production-ready skeleton for every Zaroxi crate
+# in a flat workspace layout (crates/<crate-name>), enforcing the project's
+# strict layering rules and Rust edition policy.
 #
-# The script also computes allowed / forbidden dependency prefixes per layer to help validation.
+# Guarantees:
+# - Rust edition is set to RUST_EDITION below.
+# - Each crate gets a Cargo.toml with name, version "0.1.0", edition, and a
+#   meaningful description string suitable for publishing.
+# - Each crate gets src/lib.rs with standardized header comments documenting
+#   Layer and single responsibility.
+# - Writes placeholder tool directories (tools/crate-lint, docs).
+# - Writes a root Cargo.toml workspace file that lists all members (crates + tools).
+# - Creates a .rust-toolchain file to lock the recommended toolchain for the repo.
+# - Emits a compact validation summary at the end.
+#
+# This implementation is intended for production usage as a deterministic
+# scaffolding step in repo bootstrapping/CI workflows.
 
 import os
 import sys
 import textwrap
+from typing import List, Dict
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-CRATES = [
+# Policy constants
+RUST_EDITION = "2024"            # mandated Rust edition
+RUST_TOOLCHAIN = "stable"        # recommended toolchain; set to 'stable' by default
+CRATE_VERSION = "0.1.0"
+LICENSE = "MIT"
+
+# Flat crate inventory (final, authoritative)
+CRATES: List[str] = [
     # KERNEL
     "zaroxi-kernel-core",
     "zaroxi-kernel-types",
@@ -181,12 +198,13 @@ CRATES = [
     "zaroxi-interface-theme",
 ]
 
-TOOLS = [
+TOOLS: List[str] = [
     "tools/crate-lint",
     "docs",
 ]
 
-LAYER_PREFIXES = {
+# Layer prefixes used for validation and header output
+LAYER_PREFIXES: Dict[str, List[str]] = {
     "kernel": ["zaroxi-kernel-"],
     "core": ["zaroxi-core-", "zaroxi-core-engine-", "zaroxi-core-editor-", "zaroxi-core-workspace-", "zaroxi-core-platform-"],
     "domain": ["zaroxi-domain-"],
@@ -209,6 +227,7 @@ ALLOWED = {
     "security": ["kernel", "core"],    # security is cross-cutting but cannot break layering (allowed to depend down)
 }
 
+
 def detect_layer(crate_name: str) -> str:
     for layer, prefixes in LAYER_PREFIXES.items():
         for p in prefixes:
@@ -216,22 +235,57 @@ def detect_layer(crate_name: str) -> str:
                 return layer
     return "unknown"
 
-def allowed_prefixes_for(crate_name: str):
+
+def allowed_prefixes_for(crate_name: str) -> List[str]:
     layer = detect_layer(crate_name)
     allowed_layers = ALLOWED.get(layer, [])
-    prefixes = []
+    prefixes: List[str] = []
     for l in allowed_layers:
         prefixes.extend(LAYER_PREFIXES.get(l, []))
     return prefixes
 
-def human_purpose(crate_name: str) -> str:
-    # Derive a concise purpose from the crate name.
-    name = crate_name.replace("zaroxi-", "").replace("-", " ").strip()
-    return f"Provides {name} functionality for the Zaroxi platform."
+
+def crate_description(crate_name: str) -> str:
+    """
+    Produce a professional, human-readable description for the crate.
+    This is intentionally explicit so generated Cargo.toml descriptions are meaningful.
+    """
+    # Specific handcrafted descriptions for known crates (concise and publication-ready).
+    mapping = {
+        # Kernel
+        "zaroxi-kernel-core": "Core kernel primitives and application entry points for Zaroxi.",
+        "zaroxi-kernel-types": "Fundamental kernel-level type definitions used across Zaroxi.",
+        "zaroxi-kernel-errors": "Standardized kernel error types and conversions.",
+        "zaroxi-kernel-memory": "Memory management and safe allocation utilities for kernel components.",
+        "zaroxi-kernel-async": "Async runtime primitives and ergonomics used by kernel and core.",
+        "zaroxi-kernel-time": "Stable time utilities and monotonic clocks for the platform.",
+        "zaroxi-kernel-math": "High-performance math utilities and numeric helpers.",
+        "zaroxi-kernel-collections": "Specialized collection types optimized for IDE workloads.",
+        "zaroxi-kernel-traits": "Common low-level traits shared by kernel and core crates.",
+        "zaroxi-kernel-config": "Types and defaults for global runtime configuration.",
+        "zaroxi-kernel-protocol": "Wire protocol definitions and serialization primitives.",
+
+        # Domain examples (more can be added; fallback below)
+        "zaroxi-domain-ai": "Domain models and types for AI features and reasoning.",
+        "zaroxi-domain-workspace": "Domain representation of workspace metadata and invariants.",
+        "zaroxi-application-editor": "High-level editor orchestration built on domain and core services.",
+    }
+    if crate_name in mapping:
+        return mapping[crate_name]
+
+    # Heuristic descriptions based on crate name components
+    short = crate_name.replace("zaroxi-", "").replace("-", " ").strip()
+    # Capitalize first letter
+    return f"{short.capitalize()} subsystem for the Zaroxi platform. Implements precise responsibilities within its layer."
+
 
 def write_crate(crate_name: str):
+    """
+    Create crate directory, Cargo.toml and src/lib.rs template.
+    Cargo.toml includes structured metadata suitable for long-term maintenance.
+    """
     layer = detect_layer(crate_name)
-    desc = human_purpose(crate_name)
+    desc = crate_description(crate_name)
     crate_dir = os.path.join(ROOT, "crates", crate_name)
     src_dir = os.path.join(crate_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
@@ -239,10 +293,21 @@ def write_crate(crate_name: str):
     cargo_toml = textwrap.dedent(f"""\
         [package]
         name = "{crate_name}"
-        version = "0.1.0"
-        edition = "2024"
+        version = "{CRATE_VERSION}"
+        edition = "{RUST_EDITION}"
         description = "{desc}"
-        license = "MIT"
+        license = "{LICENSE}"
+        authors = []
+        documentation = ""
+        repository = ""
+        readme = ""
+        keywords = ["zaroxi", "{crate_name}"]
+        categories = ["development-tools"]
+        
+        [package.metadata.zaroxi]
+        layer = "{layer}"
+        responsibility = "Single-responsibility crate implementing the {crate_name} concern."
+        allowed_dependency_prefixes = {allowed_prefixes_for(crate_name)}
     """)
 
     lib_rs = textwrap.dedent(f"""\
@@ -252,11 +317,17 @@ def write_crate(crate_name: str):
         //! Responsibility: Single-responsibility crate implementing the {crate_name} concern.
         //!
         //! Allowed dependency prefixes: {allowed_prefixes_for(crate_name)}
-        //! Forbidden dependency prefixes: (any crate prefix not listed above, and any upward-layer dependency)
+        //! Forbidden dependency prefixes: any crate prefix not listed above and any upward-layer dependency.
         //!
-        //! Note: Do not add runtime dependencies that violate the global layering rules.
+        //! This file contains a minimal placeholder. Implementation files should:
+        //! - Keep public surface small and well documented.
+        //! - Avoid leaking internal details across layers.
+        //!
+        //! Generated by tools/create_crates.py (RUST_EDITION={RUST_EDITION}, RUST_TOOLCHAIN={RUST_TOOLCHAIN}).
+        
+        /// Placeholder function to make the crate non-empty.
         pub fn _placeholder() {{
-            // Placeholder to make this crate non-empty.
+            // Intentionally empty implementation.
         }}
     """)
 
@@ -265,11 +336,63 @@ def write_crate(crate_name: str):
     with open(os.path.join(src_dir, "lib.rs"), "w", encoding="utf-8") as f:
         f.write(lib_rs)
 
-def write_tool(path):
+
+def write_tool(path: str):
     full = os.path.join(ROOT, path)
     os.makedirs(full, exist_ok=True)
-    with open(os.path.join(full, ".gitkeep"), "w") as f:
+    with open(os.path.join(full, ".gitkeep"), "w", encoding="utf-8") as f:
         f.write("# placeholder\n")
+
+
+def write_workspace_toml():
+    """
+    Emit a root Cargo.toml for the workspace that enumerates all crate members and
+    pins the workspace edition to the mandated RUST_EDITION.
+    """
+    members = [f'  "crates/{c}",' for c in CRATES]
+    # include tools/docs as workspace members
+    members.append('  "tools/crate-lint",')
+    members.append('  "docs",')
+    members_block = "\n".join(members)
+    workspace_toml = textwrap.dedent(f"""\
+        [workspace]
+        resolver = "2"
+        members = [
+        {members_block}
+        ]
+        
+        [workspace.package]
+        edition = "{RUST_EDITION}"
+        version = "0.1.0"
+        license = "{LICENSE}"
+        
+        [workspace.dependencies]
+        anyhow = "1"
+        serde = {{ version = "1", features = ["derive"] }}
+        serde_json = "1"
+        tokio = {{ version = "1", features = ["rt-multi-thread","macros","sync","time"] }}
+        tracing = "0.1"
+        uuid = {{ version = "1", features = ["v4", "serde"] }}
+        thiserror = "2"
+        parking_lot = "0.12"
+        once_cell = "1.20"
+    """)
+    with open(os.path.join(ROOT, "Cargo.toml"), "w", encoding="utf-8") as f:
+        f.write(workspace_toml)
+
+
+def write_rust_toolchain():
+    """
+    Write a .rust-toolchain file to recommend the toolchain for the repository.
+    """
+    content = textwrap.dedent(f"""\
+        [toolchain]
+        channel = "{RUST_TOOLCHAIN}"
+        components = [ "rustfmt", "clippy" ]
+    """)
+    with open(os.path.join(ROOT, ".rust-toolchain.toml"), "w", encoding="utf-8") as f:
+        f.write(content)
+
 
 def main():
     print("Creating Zaroxi crate skeletons under crates/ ...")
@@ -279,10 +402,22 @@ def main():
     for t in TOOLS:
         print("Creating tool/doc:", t)
         write_tool(t)
+
+    print("Writing root Cargo.toml workspace file...")
+    write_workspace_toml()
+
+    print("Writing .rust-toolchain.toml...")
+    write_rust_toolchain()
+
     print("\nDone.")
     print("Validation summary (per-crate allowed dependency prefixes):")
     for c in CRATES:
         print(f"{c}: layer={detect_layer(c)}, allowed_prefixes={allowed_prefixes_for(c)}")
+
+    print("\nSuggested next steps (run from repo root):")
+    print(" - python3 tools/create_crates.py")
+    print(" - git add Cargo.toml .rust-toolchain.toml crates tools")
+    print(' - git commit -m "chore: bootstrap Zaroxi crate skeletons and workspace (edition=2024)"')
 
 if __name__ == "__main__":
     main()
