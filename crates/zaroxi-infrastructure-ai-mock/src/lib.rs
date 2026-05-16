@@ -3,11 +3,7 @@
  //
  // The implementation returns a canned response after a tiny async delay.
 
- use std::sync::Arc;
  use std::time::Duration;
- use std::pin::Pin;
- use std::future::Future;
-
  use tokio::time::sleep; // acceptable for the harness
 
  // Import the application-owned port types. Use the public crate name of the application-ai crate.

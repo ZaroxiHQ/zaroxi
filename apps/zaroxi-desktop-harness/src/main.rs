@@ -8,8 +8,8 @@ use zaroxi_application_workspace::ports::{
     WorkspaceSessionDTO,
 };
 use zaroxi_domain_workspace::ports::{WorkspaceRepository, WorkspaceOpenCommand as DomainOpenCmd};
-use zaroxi_core_editor_buffer::ports::{BufferStore, BufferId};
-use zaroxi_application_ai::ports::{AiClient};
+use zaroxi_core_editor_buffer::ports::BufferStore;
+use zaroxi_application_ai::ports::AiClient;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;

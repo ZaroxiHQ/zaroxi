@@ -8,8 +8,21 @@ pub mod workspace_manager;
 pub mod ports;
 
 /// Prelude for convenient imports.
+///
+/// Be explicit about exported symbols to avoid ambiguous glob re-export warnings.
+/// Ports own the public trait/type surface; re-export those intentionally.
+/// Workspace manager helpers are re-exported as a group.
 pub mod prelude {
-    pub use super::service::*;
-    pub use super::workspace_manager::*;
-    pub use super::ports::*;
+    // Re-export the application-owned port/type surface explicitly.
+    pub use crate::ports::{
+        WorkspaceService,
+        WorkspaceOpenCommand,
+        WorkspaceSessionDTO,
+        AppCommand,
+        CommandResult,
+        DynWorkspaceService,
+    };
+
+    // Re-export manager helpers (names here are intentionally grouped).
+    pub use crate::workspace_manager::*;
 }

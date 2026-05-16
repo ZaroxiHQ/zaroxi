@@ -62,7 +62,7 @@ impl BufferStore for InMemoryBufferStore {
         })
     }
 
-    fn get_text(&self, id: &BufferId) -> Option<String> {
+    fn get_text(&self, _id: &BufferId) -> Option<String> {
         // Return a small canned file content for the slice.
         Some("// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string())
     }

@@ -7,8 +7,6 @@
  // concrete adapters to application services. This compose module remains a pure
  // interface surface and intentionally does not reference infrastructure crates.
 
- use std::path::PathBuf;
-
  /// Pure interface entrypoint used by an outer composition binary to exercise the first slice.
  /// For Phase 0 this is intentionally a minimal, no-op presenter (keeps interface crate free of infra).
  pub async fn run_desktop_flow() -> Result<(), String> {
