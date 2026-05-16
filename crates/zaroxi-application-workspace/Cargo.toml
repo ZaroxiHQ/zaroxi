@@ -22,3 +22,7 @@ zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 
 # Application AI port (used by orchestrator)
 zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+
+[dev-dependencies]
+zaroxi-infrastructure-memory = { path = "../zaroxi-infrastructure-memory" }
+zaroxi-infrastructure-ai-mock = { path = "../zaroxi-infrastructure-ai-mock" }
