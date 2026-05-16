@@ -165,8 +165,8 @@
  /// Phase 2: AiExplain is buffer-focused and does not carry a free-form prompt here.
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub enum AppCommand {
-     AiExplain { buffer_id: String },
-     InsertText { buffer_id: String, offset: usize, text: String },
+     AiExplain { buffer_id: BufferId },
+     InsertText { buffer_id: BufferId, offset: usize, text: String },
  }
 
  /// Command kind for history records (typed minimal).
@@ -174,8 +174,8 @@
  pub enum CommandKind {
      BootWorkspace { path: PathBuf },
      OpenBuffer { path: PathBuf },
-     UpdateBuffer { buffer_id: String },
-     SetActiveBuffer { buffer_id: String },
+     UpdateBuffer { buffer_id: BufferId },
+     SetActiveBuffer { buffer_id: BufferId },
      ExplainActiveBuffer,
      DispatchAppCommand { command: AppCommand },
  }

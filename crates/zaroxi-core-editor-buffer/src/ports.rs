@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::fmt;
+use serde::{Deserialize, Serialize};
 
 /// Boxed future alias for this skeleton (import from kernel in future).
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -18,7 +19,7 @@ pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T
 /// - as_str() to access the inner representation
 /// - from_path() helper to derive storage-style ids used in the slice
 /// - path() helper to reverse `from_path()` when the representation encodes a path
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BufferId(pub String);
 
 impl BufferId {

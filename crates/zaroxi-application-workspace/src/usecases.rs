@@ -577,22 +577,6 @@
                  return Err(UseCaseError::UnknownSession);
              }
 
-             // Validate buffer id and content via domain rules.
-             if let Err(m) = buffer_rules::validate_buffer_id(&req.buffer_id) {
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                     session_id: Some(req.session_id.clone()),
-                     workspace_id: None,
-                     buffer_id: Some(req.buffer_id.clone()),
-                     success: false,
-                     result: None,
-                     error: Some(m.clone()),
-                 };
-                 let _ = history.record_command(cmd).await;
-                 return Err(UseCaseError::InvalidMutation(m));
-             }
              if let Err(m) = buffer_rules::validate_content(&req.new_content) {
                  let cmd = CommandRecord {
                      id: Uuid::new_v4(),
@@ -735,7 +719,7 @@
              // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
              let mut buffers: Vec<BufferSnapshot> = Vec::new();
              for b in opened.iter() {
-                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 let content = store.get_text(&b.clone());
                  buffers.push(BufferSnapshot { buffer_id: b.clone(), content });
              }
  
@@ -778,7 +762,7 @@
              // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
              let mut buffers: Vec<crate::ports::BufferSnapshot> = Vec::new();
              for b in opened.iter() {
-                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 let content = store.get_text(&b.clone());
                  buffers.push(crate::ports::BufferSnapshot { buffer_id: b.clone(), content });
              }
  
