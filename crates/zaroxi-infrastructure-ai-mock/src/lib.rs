@@ -3,7 +3,6 @@
  //
  // The implementation returns a canned response after a tiny async delay.
 
- use std::time::Duration;
  // Avoid requiring the tokio `time` feature in the workspace; no artificial sleep needed in the mock.
 
  // Import the application-owned port types. Use the public crate name of the application-ai crate.

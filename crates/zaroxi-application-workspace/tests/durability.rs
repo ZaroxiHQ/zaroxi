@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::path::PathBuf;
 
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-use zaroxi_application_workspace::ports::{WorkspaceBootRequest, SaveCheckpointRequest, LoadCheckpointRequest, CreateCheckpointRequest};
+use zaroxi_application_workspace::ports::{WorkspaceBootRequest, SaveCheckpointRequest, LoadCheckpointRequest};
 use zaroxi_application_workspace::ports as ports;
 use zaroxi_application_workspace::ports::WorkspaceService;
 use zaroxi_domain_workspace::ports as domain_ports;
@@ -90,7 +90,7 @@ async fn save_and_load_roundtrip() {
 
     // Open a buffer so checkpoint contains some state
     let open = ports::OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
-    let open_res = orchestrator.open_buffer(open).await.expect("open ok");
+    let _open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Save checkpoint
     let save_res = orchestrator.save_checkpoint(SaveCheckpointRequest { session_id: boot_res.session.session_id.clone() }).await.expect("save ok");
