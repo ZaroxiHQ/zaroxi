@@ -74,7 +74,8 @@ async fn orchestrator_flow_happy_path() {
 
     let open = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
-    assert!(open_res.buffer_id.starts_with("buf:"));
+    // Prefer typed assertion: the BufferId is expected to map to a filesystem path.
+    assert!(open_res.buffer_id.path().is_some());
 
     let dispatch = DispatchCommandRequest { session_id: boot_res.session.session_id.clone(), command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() } };
     let dispatch_res = orchestrator.dispatch_command(dispatch).await.expect("dispatch ok");

@@ -60,14 +60,15 @@ impl InMemoryBufferStore {
 
 impl BufferStore for InMemoryBufferStore {
     fn open_buffer(&self, path: PathBuf) -> BoxFuture<'static, Result<BufferId, BufferError>> {
-        let key = format!("buf:{}", path.to_string_lossy());
-        let k_clone = key.clone();
+        // Use the canonical BufferId helper to centralize representation rules.
+        let id = BufferId::from_path(&path);
+        let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
             // Ensure an entry exists (empty content) for the opened buffer.
             let mut m = inner.lock().unwrap();
-            m.entry(k_clone.clone()).or_insert_with(|| "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string());
-            Ok(BufferId(key))
+            m.entry(key.clone()).or_insert_with(|| "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string());
+            Ok(id)
         })
     }
 
