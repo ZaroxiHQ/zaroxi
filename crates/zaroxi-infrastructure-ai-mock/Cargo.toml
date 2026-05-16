@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-infrastructure-ai-mock"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { workspace = true }
+zaroxi-application-ai = { path = "../zaroxi-application-ai" }

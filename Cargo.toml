@@ -149,6 +149,8 @@ members = [
   "crates/zaroxi-intelligence-safety",
 
   # INFRASTRUCTURE
+  "crates/zaroxi-infrastructure-ai-mock",
+  "crates/zaroxi-infrastructure-memory",
   "crates/zaroxi-infrastructure-rpc",
   "crates/zaroxi-infrastructure-http",
   "crates/zaroxi-infrastructure-storage",

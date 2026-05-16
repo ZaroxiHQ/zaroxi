@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-infrastructure-memory"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
+zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
