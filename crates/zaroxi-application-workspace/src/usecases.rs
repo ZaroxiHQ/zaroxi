@@ -145,7 +145,7 @@
              // Store session info: workspace id, empty buffer list.
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(session_id, SessionInfo { workspace_id: dto.id, open_buffers: Vec::new(), active_buffer: None });
+                 s.insert(session_id, SessionInfo { workspace_id: dto.id, open_buffers: Vec::new(), active_buffer: None, editor_states: std::collections::HashMap::new() });
              }
              let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
 
