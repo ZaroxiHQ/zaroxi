@@ -663,9 +663,13 @@
  
              // Ensure buffer is opened in session and prepare editor-state mutation
              {
-                 let mut s = sessions.lock().unwrap();
-                 let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
-                 if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 // Short-lived membership check: acquire lock only to test membership and immediately drop it.
+                 let is_open = {
+                     let s = sessions.lock().unwrap();
+                     s.get(&req.session_id.0).map(|info| info.open_buffers.iter().any(|b| b == &req.buffer_id)).unwrap_or(false)
+                 };
+ 
+                 if !is_open {
                      let cmd = CommandRecord::new_failure(
                          CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
                          Some(req.session_id.0),
@@ -673,9 +677,14 @@
                          Some(req.buffer_id.clone()),
                          Some("invalid active buffer".to_string()),
                      );
+                     // history.record_command may await; do this while NOT holding the sessions lock.
                      let _ = history.record_command(cmd).await;
                      return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
                  }
+ 
+                 // Now acquire the lock again briefly to mutate editor-state.
+                 let mut s = sessions.lock().unwrap();
+                 let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
  
                  // Simple cursor/selection update policy (Phase 4 minimal):
                  // We treat EditorCursor.column as a flat character index while line==0.
