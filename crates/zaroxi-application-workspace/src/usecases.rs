@@ -155,9 +155,21 @@
                  Ok(buffer_ports::BufferId(format!("buf:{}", path.to_string_lossy())))
              })
          }
- 
+    
          fn get_text(&self, _id: &buffer_ports::BufferId) -> Option<String> {
              Some("fn main() {}".to_string())
+         }
+
+         fn set_text(&self, id: &buffer_ports::BufferId, _content: String) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+             let key = id.0.clone();
+             Box::pin(async move {
+                 // Lightweight fake behavior: accept writes for any buffer id that looks like a BufferId produced by open_buffer.
+                 if key.starts_with("buf:") {
+                     Ok(())
+                 } else {
+                     Err(buffer_ports::BufferError("buffer not found".to_string()))
+                 }
+             })
          }
      }
  
