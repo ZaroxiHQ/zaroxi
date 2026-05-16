@@ -1,6 +1,5 @@
  use std::sync::{Arc, Mutex};
  use std::collections::HashMap;
- use std::path::PathBuf;
  
  use crate::ports::{
      WorkspaceBootRequest, WorkspaceBootResponse, OpenBufferRequest, OpenBufferResponse,
