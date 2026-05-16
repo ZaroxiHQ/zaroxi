@@ -23,12 +23,12 @@ impl domain_ports::WorkspaceRepository for FakeRepo {
 
 /// Simple in-test buffer store supporting set_text/get_text/open_buffer
 struct FakeStore {
-    inner: Mutex<HashMap<String, String>>,
+    inner: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl FakeStore {
     fn new() -> Self {
-        Self { inner: Mutex::new(HashMap::new()) }
+        Self { inner: Arc::new(Mutex::new(HashMap::new())) }
     }
 }
 
