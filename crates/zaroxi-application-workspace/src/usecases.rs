@@ -22,39 +22,112 @@
      sessions: Arc<Mutex<HashMap<Id, Id>>>,
  }
  
+ use std::sync::{Arc, Mutex};
+ use std::collections::HashMap;
+
  use crate::ports::BoxFuture;
- 
-     fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, String>> {
+ use crate::ports::UseCaseError;
+ use zaroxi_domain_buffer::rules as buffer_rules;
+
+ impl WorkspaceOrchestrator {
+     /// Create a new orchestrator with concrete port implementations (adapters).
+     pub fn new(
+         repo: Arc<dyn domain_ports::WorkspaceRepository>,
+         buffer_store: Arc<dyn buffer_ports::BufferStore>,
+         ai_client: Arc<dyn ai_ports::AiClient>,
+     ) -> Self {
+         Self { repo, buffer_store, ai_client, sessions: Arc::new(Mutex::new(HashMap::new())) }
+     }
+ }
+
+ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
+     fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>> {
+         let repo = self.repo.clone();
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let domain_cmd = domain_ports::WorkspaceOpenCommand { path: req.path.clone() };
+             let dto = repo.open_workspace(domain_cmd).await.map_err(|_e| UseCaseError::UnknownWorkspace)?;
+             // Create a session id for this UI session.
+             let session_id = Id::new();
+             // Store mapping session -> workspace for later validation.
+             {
+                 let mut s = sessions.lock().unwrap();
+                 s.insert(session_id, dto.id);
+             }
+             let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
+             Ok(WorkspaceBootResponse { session })
+         })
+     }
+
+     fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>> {
          let store = self.buffer_store.clone();
          Box::pin(async move {
-             let id = store.open_buffer(req.path.clone()).await.map_err(|e| e.0)?;
+             let id = store.open_buffer(req.path.clone()).await.map_err(|_e| UseCaseError::UnknownBuffer)?;
              Ok(OpenBufferResponse { buffer_id: id.0 })
          })
      }
- 
-     fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, String>> {
+
+     fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>> {
          let ai = self.ai_client.clone();
          let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
          Box::pin(async move {
+             // Validate session exists
+             let workspace_id = {
+                 let s = sessions.lock().unwrap();
+                 match s.get(&req.session_id.0) {
+                     Some(wid) => *wid,
+                     None => return Err(UseCaseError::UnknownSession),
+                 }
+             };
+
              match req.command {
                  AppCommand::AiExplain { buffer_id } => {
                      // Snapshot content for the AI request.
                      let buf_id = buffer_ports::BufferId(buffer_id.clone());
                      let content = store.get_text(&buf_id).unwrap_or_else(|| "".to_string());
+                     if content.trim().is_empty() {
+                         return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
+                     }
                      let ai_req = ai_ports::AiRequest {
-                         session_id: (req.session_id.0),
-                         workspace_id: (Id::new()), // we don't persist workspace mapping here in the simple orchestrator; in Phase 3 this will be stored
+                         session_id: req.session_id.0,
+                         workspace_id,
                          buffer_id: buffer_id.clone(),
                          content_snapshot: content,
                      };
-                     let res = ai.request(ai_req).await.map_err(|e| e.0)?;
+                     let res = ai.request(ai_req).await.map_err(|_e| UseCaseError::AiFailure("ai request failed".to_string()))?;
                      Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
                  }
                  AppCommand::InsertText { .. } => {
-                     // Not implemented in Phase 2; return a successful no-op.
+                     // Not implemented in Phase 4; return a successful no-op.
                      Ok(DispatchCommandResponse { result: CommandResult { message: "inserted (noop)".to_string() } })
                  }
              }
+         })
+     }
+
+     fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>> {
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             // Validate session is known.
+             {
+                 let s = sessions.lock().unwrap();
+                 if !s.contains_key(&req.session_id.0) {
+                     return Err(UseCaseError::UnknownSession);
+                 }
+             }
+
+             // Validate buffer id and content via domain rules.
+             buffer_rules::validate_buffer_id(&req.buffer_id).map_err(|m| UseCaseError::InvalidMutation(m))?;
+             buffer_rules::validate_content(&req.new_content).map_err(|m| UseCaseError::InvalidMutation(m))?;
+
+             // Perform the mutation via BufferStore (infra).
+             store.set_text(&buffer_ports::BufferId(req.buffer_id.clone()), req.new_content.clone())
+                 .await
+                 .map_err(|_e| UseCaseError::UnknownBuffer)?;
+
+             Ok(UpdateBufferResponse { ok: true })
          })
      }
  }
