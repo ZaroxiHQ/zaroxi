@@ -1,7 +1,8 @@
- // Application workspace orchestrator trait skeleton.
+ // Application workspace orchestrator trait skeleton - Phase 5 enhancements.
  //
- // This trait composes domain and core ports to implement use cases like "open workspace"
- // and "open buffer" from the UI. Keep it minimal for the first slice.
+ // This trait composes domain and core ports to implement use cases like "open workspace",
+ // multi-buffer management (list/set/get active buffer) and explain-active-buffer.
+ // Keep surface minimal and typed for Phase 5.
 
  use std::path::PathBuf;
  use std::sync::Arc;
@@ -65,6 +66,45 @@
  pub struct OpenBufferResponse {
      pub buffer_id: String,
  }
+
+ /// Request to list opened buffers for a session.
+ #[derive(Clone, Debug)]
+ pub struct ListBuffersRequest {
+     pub session_id: SessionId,
+ }
+
+ /// Response listing opened buffers and the active buffer (if any).
+ #[derive(Clone, Debug)]
+ pub struct ListBuffersResponse {
+     pub buffer_ids: Vec<String>,
+     pub active_buffer: Option<String>,
+ }
+
+ /// Request to set the active buffer for a session.
+ #[derive(Clone, Debug)]
+ pub struct SetActiveBufferRequest {
+     pub session_id: SessionId,
+     pub buffer_id: String,
+ }
+
+ /// Response for set active buffer.
+ #[derive(Clone, Debug)]
+ pub struct SetActiveBufferResponse {
+     pub ok: bool,
+ }
+
+ /// Request to get currently active buffer for a session.
+ #[derive(Clone, Debug)]
+ pub struct GetActiveBufferRequest {
+     pub session_id: SessionId,
+ }
+
+ /// Response returning the active buffer id.
+ /// If there is no active buffer for the session the use-case returns an explicit error instead.
+ #[derive(Clone, Debug)]
+ pub struct GetActiveBufferResponse {
+     pub buffer_id: String,
+ }
  
  /// Request to update buffer content.
  #[derive(Clone, Debug)]
@@ -80,12 +120,14 @@
      pub ok: bool,
  }
  
- /// Typed errors for application use-cases (Phase 4).
+ /// Typed errors for application use-cases (Phase 5).
  #[derive(Clone, Debug)]
  pub enum UseCaseError {
      UnknownSession,
      UnknownWorkspace,
      UnknownBuffer,
+     NoActiveBuffer,
+     InvalidActiveBuffer(String),
      InvalidMutation(String),
      AiFailure(String),
  }
@@ -96,6 +138,8 @@
              UseCaseError::UnknownSession => write!(f, "unknown session"),
              UseCaseError::UnknownWorkspace => write!(f, "unknown workspace"),
              UseCaseError::UnknownBuffer => write!(f, "unknown buffer"),
+             UseCaseError::NoActiveBuffer => write!(f, "no active buffer for session"),
+             UseCaseError::InvalidActiveBuffer(s) => write!(f, "invalid active buffer: {}", s),
              UseCaseError::InvalidMutation(s) => write!(f, "invalid mutation: {}", s),
              UseCaseError::AiFailure(s) => write!(f, "ai failure: {}", s),
          }
@@ -133,13 +177,25 @@
  }
 
  /// Very small service trait. Implementations are in application layer.
- /// Methods are explicit use-case entry points for Phase 2/4.
+ /// Methods are explicit use-case entry points for Phase 5 multi-buffer behavior.
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
      fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>>;
 
      /// Open a buffer inside an active session.
      fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>>;
+
+     /// List opened buffers for a session and indicate the active buffer (if any).
+     fn list_open_buffers(&self, req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>>;
+
+     /// Set the active buffer for a session.
+     fn set_active_buffer(&self, req: SetActiveBufferRequest) -> BoxFuture<'static, Result<SetActiveBufferResponse, UseCaseError>>;
+
+     /// Get the currently active buffer for a session.
+     fn get_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, UseCaseError>>;
+
+     /// Shorthand use-case: explain the currently active buffer (uses the AiClient).
+     fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
 
      /// Dispatch a high-level application command (AI requests, edits, etc).
      fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;

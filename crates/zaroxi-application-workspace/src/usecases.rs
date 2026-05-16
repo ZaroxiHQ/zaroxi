@@ -5,6 +5,8 @@
      WorkspaceBootRequest, WorkspaceBootResponse, OpenBufferRequest, OpenBufferResponse,
      UpdateBufferRequest, UpdateBufferResponse,
      DispatchCommandRequest, DispatchCommandResponse, AppCommand, CommandResult, WorkspaceSessionDTO,
+     ListBuffersRequest, ListBuffersResponse, SetActiveBufferRequest, SetActiveBufferResponse,
+     GetActiveBufferRequest, GetActiveBufferResponse,
  };
  
  use zaroxi_domain_workspace::ports as domain_ports;
@@ -20,8 +22,16 @@
      repo: Arc<dyn domain_ports::WorkspaceRepository>,
      buffer_store: Arc<dyn buffer_ports::BufferStore>,
      ai_client: Arc<dyn ai_ports::AiClient>,
-     /// In-memory session -> workspace mapping for the simple slice.
-     sessions: Arc<Mutex<HashMap<Id, Id>>>,
+     /// In-memory session -> session info mapping for the simple slice.
+     sessions: Arc<Mutex<HashMap<Id, SessionInfo>>>,
+ }
+
+ /// Per-session minimal state owned by the application orchestrator.
+ #[derive(Clone, Debug)]
+ struct SessionInfo {
+     workspace_id: Id,
+     open_buffers: Vec<String>,     // list of buffer ids opened in this session (order of opening)
+     active_buffer: Option<String>, // currently selected buffer id
  }
  
  use crate::ports::BoxFuture;
@@ -48,10 +58,10 @@
              let dto = repo.open_workspace(domain_cmd).await.map_err(|_e| UseCaseError::UnknownWorkspace)?;
              // Create a session id for this UI session.
              let session_id = Id::new();
-             // Store mapping session -> workspace for later validation.
+             // Store session info: workspace id, empty buffer list.
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(session_id, dto.id);
+                 s.insert(session_id, SessionInfo { workspace_id: dto.id, open_buffers: Vec::new(), active_buffer: None });
              }
              let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
              Ok(WorkspaceBootResponse { session })
@@ -60,9 +70,103 @@
 
      fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>> {
          let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
          Box::pin(async move {
+             // Validate session exists
+             {
+                 let s = sessions.lock().unwrap();
+                 if !s.contains_key(&req.session_id.0) {
+                     return Err(UseCaseError::UnknownSession);
+                 }
+             }
+
+             // Ask underlying store to open buffer
              let id = store.open_buffer(req.path.clone()).await.map_err(|_e| UseCaseError::UnknownBuffer)?;
-             Ok(OpenBufferResponse { buffer_id: id.0 })
+             let buffer_id = id.0.clone();
+
+             // Register buffer in session and set active if first
+             {
+                 let mut s = sessions.lock().unwrap();
+                 if let Some(info) = s.get_mut(&req.session_id.0) {
+                     info.open_buffers.push(buffer_id.clone());
+                     if info.active_buffer.is_none() {
+                         info.active_buffer = Some(buffer_id.clone());
+                     }
+                 }
+             }
+
+             Ok(OpenBufferResponse { buffer_id })
+         })
+     }
+
+     fn list_open_buffers(&self, req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let s = sessions.lock().unwrap();
+             let info = s.get(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             Ok(ListBuffersResponse { buffer_ids: info.open_buffers.clone(), active_buffer: info.active_buffer.clone() })
+         })
+     }
+
+     fn set_active_buffer(&self, req: SetActiveBufferRequest) -> BoxFuture<'static, Result<SetActiveBufferResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             // Ensure requested buffer was opened in this session
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id));
+             }
+             info.active_buffer = Some(req.buffer_id.clone());
+             Ok(SetActiveBufferResponse { ok: true })
+         })
+     }
+
+     fn get_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let s = sessions.lock().unwrap();
+             let info = s.get(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             match &info.active_buffer {
+                 Some(b) => Ok(GetActiveBufferResponse { buffer_id: b.clone() }),
+                 None => Err(UseCaseError::NoActiveBuffer),
+             }
+         })
+     }
+
+     fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>> {
+         let ai = self.ai_client.clone();
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             // Resolve active buffer id
+             let active = {
+                 let s = sessions.lock().unwrap();
+                 let info = s.get(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+                 info.active_buffer.clone().ok_or(UseCaseError::NoActiveBuffer)?
+             };
+
+             // Snapshot content for the AI request.
+             let buf_id = buffer_ports::BufferId(active.clone());
+             let content = store.get_text(&buf_id).unwrap_or_else(|| "".to_string());
+             if content.trim().is_empty() {
+                 return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
+             }
+
+             // Retrieve workspace id for ai request
+             let workspace_id = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).map(|i| i.workspace_id).ok_or(UseCaseError::UnknownSession)?
+             };
+
+             let ai_req = ai_ports::AiRequest {
+                 session_id: req.session_id.0,
+                 workspace_id,
+                 buffer_id: active.clone(),
+                 content_snapshot: content,
+             };
+             let res = ai.request(ai_req).await.map_err(|_e| UseCaseError::AiFailure("ai request failed".to_string()))?;
+             Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
          })
      }
 
@@ -75,7 +179,7 @@
              let workspace_id = {
                  let s = sessions.lock().unwrap();
                  match s.get(&req.session_id.0) {
-                     Some(wid) => *wid,
+                     Some(w) => w.workspace_id,
                      None => return Err(UseCaseError::UnknownSession),
                  }
              };
@@ -98,7 +202,7 @@
                      Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
                  }
                  AppCommand::InsertText { .. } => {
-                     // Not implemented in Phase 4; return a successful no-op.
+                     // Not implemented in Phase 5; return a successful no-op.
                      Ok(DispatchCommandResponse { result: CommandResult { message: "inserted (noop)".to_string() } })
                  }
              }

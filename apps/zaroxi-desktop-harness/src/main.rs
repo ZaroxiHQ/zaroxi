@@ -4,6 +4,7 @@ use tokio;
 
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
+    ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest,
 };
 use zaroxi_application_workspace::ports::WorkspaceService;
 
@@ -34,28 +35,36 @@ async fn main() -> Result<(), String> {
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
     let boot_res = orchestrator.boot_workspace(boot_req).await.map_err(|e| e.to_string())?;
     println!("Harness: opened workspace session: {}", boot_res.session.session_id);
- 
-    // Open buffer (use-case)
-    let open_req = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
-    let open_res = orchestrator.open_buffer(open_req).await.map_err(|e| e.to_string())?;
-    println!("Harness: opened buffer id: {}", open_res.buffer_id);
- 
-    // Mutate buffer content via application use-case (Phase 4)
-    let update_req = zaroxi_application_workspace::ports::UpdateBufferRequest {
-        session_id: boot_res.session.session_id.clone(),
-        buffer_id: open_res.buffer_id.clone(),
-        new_content: "fn main() { println!(\"Mutated by harness\"); }".to_string(),
-    };
-    let update_res = orchestrator.update_buffer(update_req).await.map_err(|e| e.to_string())?;
-    println!("Harness: update ok: {}", update_res.ok);
- 
-    // Dispatch AI explain command (use-case)
-    let dispatch_req = DispatchCommandRequest {
-        session_id: boot_res.session.session_id.clone(),
-        command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() },
-    };
-    let dispatch_res = orchestrator.dispatch_command(dispatch_req).await.map_err(|e| e.to_string())?;
-    println!("Harness: command result: {}", dispatch_res.result.message);
+
+    // Open two buffers
+    let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
+    let open1_res = orchestrator.open_buffer(open1).await.map_err(|e| e.to_string())?;
+    println!("Harness: opened buffer id: {}", open1_res.buffer_id);
+
+    let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };
+    let open2_res = orchestrator.open_buffer(open2).await.map_err(|e| e.to_string())?;
+    println!("Harness: opened buffer id: {}", open2_res.buffer_id);
+
+    // List buffers and show active buffer
+    let list_req = ListBuffersRequest { session_id: boot_res.session.session_id.clone() };
+    let list_res = orchestrator.list_open_buffers(list_req).await.map_err(|e| e.to_string())?;
+    println!("Harness: opened buffers: {:?}", list_res.buffer_ids);
+    println!("Harness: active buffer: {:?}", list_res.active_buffer);
+
+    // Switch active buffer explicitly to the second
+    let set_active = SetActiveBufferRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open2_res.buffer_id.clone() };
+    let set_res = orchestrator.set_active_buffer(set_active).await.map_err(|e| e.to_string())?;
+    println!("Harness: set active ok: {}", set_res.ok);
+
+    // Confirm active buffer
+    let get_active = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
+    let active_res = orchestrator.get_active_buffer(get_active).await.map_err(|e| e.to_string())?;
+    println!("Harness: current active buffer: {}", active_res.buffer_id);
+
+    // Explain the active buffer (shorthand use-case)
+    let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
+    let explain_res = orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
+    println!("Harness: explain result: {}", explain_res.result.message);
 
     Ok(())
 }
