@@ -15,7 +15,7 @@
      // Phase 8 checkpoint types
      CreateCheckpointRequest, CreateCheckpointResponse, RestoreCheckpointRequest, RestoreCheckpointResponse, Checkpoint,
      // Editor-state types (Phase 3)
-     EditorCursor, Selection, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
+     EditorCursor, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
      ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
      SessionId,
  };
