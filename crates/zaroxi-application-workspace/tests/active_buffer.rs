@@ -112,7 +112,7 @@ async fn open_multiple_and_switch_active() {
     // Explain active buffer: should use b
     let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
     let explain_res = orchestrator.explain_active_buffer(explain_req).await.expect("explain ok");
-    assert!(explain_res.result.message.contains(&b.buffer_id));
+    assert!(explain_res.result.message.contains(b.buffer_id.as_str()));
 }
 
 #[tokio::test]

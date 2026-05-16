@@ -5,16 +5,17 @@
  use std::sync::Arc;
  use std::fmt;
  use zaroxi_kernel_types::Id;
-
+ use zaroxi_core_editor_buffer::ports::BufferId;
+ 
  /// Boxed future alias for the skeleton (import kernel BoxFuture in real code).
  pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
-
+ 
  /// Simple AI response DTO
  #[derive(Clone, Debug)]
  pub struct AiResponseDTO {
      pub text: String,
  }
-
+ 
  /// Small Ai error
  #[derive(Clone, Debug)]
  pub struct AiError(pub String);
@@ -36,7 +37,7 @@
  pub struct AiRequest {
      pub session_id: Id,
      pub workspace_id: Id,
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
      pub content_snapshot: String,
  }
 

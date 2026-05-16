@@ -9,7 +9,8 @@
  use crate as _; // placeholder for crate root
  use serde::{Serialize, Deserialize};
  use zaroxi_kernel_types::Id;
-
+ use zaroxi_core_editor_buffer::ports::BufferId;
+ 
  use std::pin::Pin;
  use std::future::Future;
  use chrono::{DateTime, Utc};
@@ -66,7 +67,7 @@
  /// Response from opening a buffer.
  #[derive(Clone, Debug)]
  pub struct OpenBufferResponse {
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
  }
 
  /// Request to list opened buffers for a session.
@@ -78,15 +79,15 @@
  /// Response listing opened buffers and the active buffer (if any).
  #[derive(Clone, Debug)]
  pub struct ListBuffersResponse {
-     pub buffer_ids: Vec<String>,
-     pub active_buffer: Option<String>,
+     pub buffer_ids: Vec<BufferId>,
+     pub active_buffer: Option<BufferId>,
  }
 
  /// Request to set the active buffer for a session.
  #[derive(Clone, Debug)]
  pub struct SetActiveBufferRequest {
      pub session_id: SessionId,
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
  }
 
  /// Response for set active buffer.
@@ -105,14 +106,14 @@
  /// If there is no active buffer for the session the use-case returns an explicit error instead.
  #[derive(Clone, Debug)]
  pub struct GetActiveBufferResponse {
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
  }
  
  /// Request to update buffer content.
  #[derive(Clone, Debug)]
  pub struct UpdateBufferRequest {
      pub session_id: SessionId,
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
      pub new_content: String,
  }
  
@@ -187,7 +188,7 @@
      pub kind: CommandKind,
      pub session_id: Option<SessionId>,
      pub workspace_id: Option<WorkspaceId>,
-     pub buffer_id: Option<String>,
+     pub buffer_id: Option<BufferId>,
      pub success: bool,
      pub result: Option<String>,
      pub error: Option<String>,
@@ -197,10 +198,10 @@
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub enum WorkspaceEventKind {
      SessionOpened { session_id: SessionId, workspace_id: WorkspaceId },
-     BufferOpened { buffer_id: String, path: PathBuf },
-     BufferUpdated { buffer_id: String },
-     ActiveBufferChanged { old: Option<String>, new: Option<String> },
-     ExplainExecuted { buffer_id: String, result: String },
+     BufferOpened { buffer_id: BufferId, path: PathBuf },
+     BufferUpdated { buffer_id: BufferId },
+     ActiveBufferChanged { old: Option<BufferId>, new: Option<BufferId> },
+     ExplainExecuted { buffer_id: BufferId, result: String },
  }
 
  /// Workspace event record with metadata.
@@ -308,7 +309,7 @@
  /// Snapshot of a single buffer (id + optional current content).
  #[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct BufferSnapshot {
-     pub buffer_id: String,
+     pub buffer_id: BufferId,
      pub content: Option<String>,
  }
  
@@ -317,8 +318,8 @@
  pub struct SessionSnapshot {
      pub session_id: SessionId,
      pub workspace_id: WorkspaceId,
-     pub opened_buffers: Vec<String>,
-     pub active_buffer: Option<String>,
+     pub opened_buffers: Vec<BufferId>,
+     pub active_buffer: Option<BufferId>,
      pub buffers: Vec<BufferSnapshot>,
      pub recent_commands: Vec<CommandRecord>,
      pub recent_events: Vec<WorkspaceEvent>,
@@ -349,9 +350,9 @@
      /// Workspace id referenced by the session.
      pub workspace_id: WorkspaceId,
      /// Opened buffer ids (in open order).
-     pub opened_buffers: Vec<String>,
+     pub opened_buffers: Vec<BufferId>,
      /// Active buffer id, if present.
-     pub active_buffer: Option<String>,
+     pub active_buffer: Option<BufferId>,
      /// Optional per-buffer snapshots (id + optional content).
      pub buffers: Vec<BufferSnapshot>,
      /// Recent commands/events included to preserve minimal history.

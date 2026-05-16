@@ -94,8 +94,7 @@ async fn update_buffer_success_and_explain() {
     assert!(update_res.ok);
 
     // Ensure store has new content
-    let buf_id = buffer_ports::BufferId(open_res.buffer_id.clone());
-    let content = store.get_text(&buf_id).unwrap();
+    let content = store.get_text(&open_res.buffer_id).unwrap();
     assert!(content.contains("mutated"));
 
     // Dispatch AI explain and ensure it sees new content

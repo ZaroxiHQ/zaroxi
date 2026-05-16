@@ -6,7 +6,7 @@
  // Avoid requiring the tokio `time` feature in the workspace; no artificial sleep needed in the mock.
 
  // Import the application-owned port types. Use the public crate name of the application-ai crate.
- use zaroxi_application_ai::ports::{AiClient, AiResponseDTO, AiError, BoxFuture};
+ use zaroxi_application_ai::ports::{AiClient, AiResponseDTO, AiError, BoxFuture, AiRequest};
 
  /// MockAiClient implements AiClient and returns a canned response.
  pub struct MockAiClient;
@@ -18,7 +18,7 @@
  }
 
  impl AiClient for MockAiClient {
-     fn request(&self, req: zaroxi_application_ai::ports::AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
+     fn request(&self, req: AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
          Box::pin(async move {
              // Mock adapter: immediate response (no artificial sleep to avoid tokio::time feature).
              // Echo a helpful mocked explanation including a bit of the content snapshot.

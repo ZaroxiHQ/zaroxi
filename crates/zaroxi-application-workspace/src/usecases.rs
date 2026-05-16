@@ -45,8 +45,8 @@
  #[derive(Clone, Debug)]
  struct SessionInfo {
      workspace_id: Id,
-     open_buffers: Vec<String>,     // list of buffer ids opened in this session (order of opening)
-     active_buffer: Option<String>, // currently selected buffer id
+     open_buffers: Vec<buffer_ports::BufferId>,     // list of buffer ids opened in this session (order of opening)
+     active_buffer: Option<buffer_ports::BufferId>, // currently selected buffer id
  }
  
  use zaroxi_domain_buffer::rules as buffer_rules;
@@ -612,7 +612,7 @@
              }
 
              // Perform the mutation via BufferStore (infra).
-             if let Err(_e) = store.set_text(&buffer_ports::BufferId(req.buffer_id.clone()), req.new_content.clone()).await {
+             if let Err(_e) = store.set_text(&req.buffer_id, req.new_content.clone()).await {
                  // record failed mutation
                  let cmd = CommandRecord {
                      id: Uuid::new_v4(),
@@ -697,7 +697,7 @@
              // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
              let mut buffers: Vec<BufferSnapshot> = Vec::new();
              for b in opened.iter() {
-                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 let content = store.get_text(&b.clone());
                  buffers.push(BufferSnapshot { buffer_id: b.clone(), content });
              }
  
@@ -840,10 +840,9 @@
              // Ensure buffers exist in the store and apply contents if provided.
              for b in ck.opened_buffers.iter() {
                  // If buffer missing, attempt to open by deriving path from id "buf:<path>"
-                 if store.get_text(&buffer_ports::BufferId(b.clone())).is_none() {
-                     if b.starts_with("buf:") {
-                         let path_str = &b[4..];
-                         match store.open_buffer(PathBuf::from(path_str)).await {
+                 if store.get_text(&b.clone()).is_none() {
+                     if let Some(path) = b.path() {
+                         match store.open_buffer(path).await {
                              Ok(_id) => {}
                              Err(_) => return Err(UseCaseError::InvalidCheckpoint(format!("cannot open buffer {}", b))),
                          }
@@ -855,7 +854,7 @@
                  // Apply content snapshot when present.
                  if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
                      if let Some(content) = &bs.content {
-                         if let Err(_) = store.set_text(&buffer_ports::BufferId(b.clone()), content.clone()).await {
+                         if let Err(_) = store.set_text(&b.clone(), content.clone()).await {
                              return Err(UseCaseError::InvalidCheckpoint(format!("failed to set buffer {}", b)));
                          }
                      }

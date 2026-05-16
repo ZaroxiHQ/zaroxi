@@ -22,10 +22,10 @@ async fn ai_request_roundtrip() {
     let req = ports::AiRequest {
         session_id: Id::new(),
         workspace_id: Id::new(),
-        buffer_id: "buf:1".to_string(),
+        buffer_id: ports::BufferId::from("buf:1"),
         content_snapshot: "fn main() {}".to_string(),
     };
-
+ 
     let res = ai.request(req).await.expect("ai responded");
     assert!(res.text.contains("explain: buf:1"));
 }
