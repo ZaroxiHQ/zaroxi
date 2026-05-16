@@ -12,6 +12,8 @@
 
  use std::pin::Pin;
  use std::future::Future;
+ use chrono::{DateTime, Utc};
+ use uuid::Uuid;
 
  /// Boxed future alias (replace with kernel::BoxFuture in real code)
  pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -151,10 +153,91 @@
 
  /// Application-level commands that the UI may dispatch.
  /// Phase 2: AiExplain is buffer-focused and does not carry a free-form prompt here.
- #[derive(Clone, Debug)]
+ #[derive(Clone, Debug, Serialize, Deserialize)]
  pub enum AppCommand {
      AiExplain { buffer_id: String },
      InsertText { buffer_id: String, offset: usize, text: String },
+ }
+
+ /// Command kind for history records (typed minimal).
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub enum CommandKind {
+     BootWorkspace { path: PathBuf },
+     OpenBuffer { path: PathBuf },
+     UpdateBuffer { buffer_id: String },
+     SetActiveBuffer { buffer_id: String },
+     ExplainActiveBuffer,
+     DispatchAppCommand { command: AppCommand },
+ }
+
+ /// Command execution record stored in history.
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct CommandRecord {
+     pub id: Uuid,
+     pub timestamp: DateTime<Utc>,
+     pub kind: CommandKind,
+     pub session_id: Option<SessionId>,
+     pub workspace_id: Option<WorkspaceId>,
+     pub buffer_id: Option<String>,
+     pub success: bool,
+     pub result: Option<String>,
+     pub error: Option<String>,
+ }
+
+ /// Small workspace event model for important transitions (internal records).
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub enum WorkspaceEventKind {
+     SessionOpened { session_id: SessionId, workspace_id: WorkspaceId },
+     BufferOpened { buffer_id: String, path: PathBuf },
+     BufferUpdated { buffer_id: String },
+     ActiveBufferChanged { old: Option<String>, new: Option<String> },
+     ExplainExecuted { buffer_id: String, result: String },
+ }
+
+ /// Workspace event record with metadata.
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct WorkspaceEvent {
+     pub id: Uuid,
+     pub timestamp: DateTime<Utc>,
+     pub session_id: SessionId,
+     pub workspace_id: WorkspaceId,
+     pub kind: WorkspaceEventKind,
+ }
+
+ /// History repository port: infra may implement to persist/serve history and events.
+ pub trait HistoryRepository: Send + Sync {
+     fn record_command(&self, rec: CommandRecord) -> BoxFuture<'static, Result<(), String>>;
+     fn record_event(&self, ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>>;
+     fn get_recent_commands(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>>;
+     fn get_recent_events(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>>;
+ }
+
+ pub type DynHistoryRepository = Arc<dyn HistoryRepository>;
+
+ /// Request to query recent commands for a session.
+ #[derive(Clone, Debug)]
+ pub struct GetRecentCommandsRequest {
+     pub session_id: SessionId,
+     pub limit: usize,
+ }
+
+ /// Response for recent commands query.
+ #[derive(Clone, Debug)]
+ pub struct GetRecentCommandsResponse {
+     pub commands: Vec<CommandRecord>,
+ }
+
+ /// Request to query recent workspace events for a session.
+ #[derive(Clone, Debug)]
+ pub struct GetRecentEventsRequest {
+     pub session_id: SessionId,
+     pub limit: usize,
+ }
+
+ /// Response for recent workspace events query.
+ #[derive(Clone, Debug)]
+ pub struct GetRecentEventsResponse {
+     pub events: Vec<WorkspaceEvent>,
  }
 
  /// Request to dispatch an application command.
@@ -202,6 +285,12 @@
 
      /// Update or replace buffer content within a session.
      fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
+
+     /// Query recent command history for a session.
+     fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>>;
+
+     /// Query recent workspace events for a session.
+     fn get_recent_events(&self, req: GetRecentEventsRequest) -> BoxFuture<'static, Result<GetRecentEventsResponse, UseCaseError>>;
  }
 
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;

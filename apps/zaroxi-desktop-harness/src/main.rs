@@ -23,12 +23,16 @@ async fn main() -> Result<(), String> {
     let buffer_store = zaroxi_infrastructure_memory::InMemoryBufferStore::new();
     let buffer_dyn = zaroxi_infrastructure_memory::into_buffer_store(buffer_store);
 
+    // History store
+    let history = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
+    let history_dyn = zaroxi_infrastructure_memory::into_history_store(history);
+
     // AI mock
     let ai = zaroxi_infrastructure_ai_mock::MockAiClient::new();
     let ai_dyn = zaroxi_infrastructure_ai_mock::into_dyn(ai);
 
     // Compose the application orchestrator (implementation owned by application layer).
-    let orchestrator = WorkspaceOrchestrator::new(repo_dyn, buffer_dyn, ai_dyn);
+    let orchestrator = WorkspaceOrchestrator::new_with_history(repo_dyn, buffer_dyn, ai_dyn, history_dyn);
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
@@ -64,6 +68,20 @@ async fn main() -> Result<(), String> {
     let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
     let explain_res = orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
     println!("Harness: explain result: {}", explain_res.result.message);
+
+    // Print recent commands and events for this session
+    use zaroxi_application_workspace::ports::{GetRecentCommandsRequest, GetRecentEventsRequest};
+    let recent_cmds = orchestrator.get_recent_commands(GetRecentCommandsRequest { session_id: boot_res.session.session_id.clone(), limit: 20 }).await.map_err(|e| e.to_string())?;
+    println!("Harness: recent commands (count={}):", recent_cmds.commands.len());
+    for c in recent_cmds.commands.iter() {
+        println!("- {:?} success={} result={:?} error={:?}", c.kind, c.success, c.result, c.error);
+    }
+
+    let recent_events = orchestrator.get_recent_events(GetRecentEventsRequest { session_id: boot_res.session.session_id.clone(), limit: 20 }).await.map_err(|e| e.to_string())?;
+    println!("Harness: recent events (count={}):", recent_events.events.len());
+    for e in recent_events.events.iter() {
+        println!("- {:?} at {}", e.kind, e.timestamp);
+    }
 
     Ok(())
 }

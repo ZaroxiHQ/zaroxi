@@ -99,3 +99,71 @@ pub fn into_workspace_repo(repo: InMemoryWorkspaceRepo) -> Arc<dyn WorkspaceRepo
 pub fn into_buffer_store(store: InMemoryBufferStore) -> Arc<dyn BufferStore> {
     Arc::new(store)
 }
+
+/// In-memory history/event store.
+pub struct InMemoryHistoryStore {
+    cmds: std::sync::Arc<Mutex<Vec<zaroxi_application_workspace::ports::CommandRecord>>>,
+    evs: std::sync::Arc<Mutex<Vec<zaroxi_application_workspace::ports::WorkspaceEvent>>>,
+}
+
+impl InMemoryHistoryStore {
+    pub fn new() -> Self {
+        InMemoryHistoryStore { cmds: std::sync::Arc::new(Mutex::new(Vec::new())), evs: std::sync::Arc::new(Mutex::new(Vec::new())) }
+    }
+}
+
+use zaroxi_application_workspace::ports::{HistoryRepository, CommandRecord, WorkspaceEvent, SessionId};
+
+impl HistoryRepository for InMemoryHistoryStore {
+    fn record_command(&self, rec: CommandRecord) -> BoxFuture<'static, Result<(), String>> {
+        let inner = self.cmds.clone();
+        Box::pin(async move {
+            let mut v = inner.lock().unwrap();
+            v.push(rec);
+            Ok(())
+        })
+    }
+
+    fn record_event(&self, ev: WorkspaceEvent) -> BoxFuture<'static, Result<(), String>> {
+        let inner = self.evs.clone();
+        Box::pin(async move {
+            let mut v = inner.lock().unwrap();
+            v.push(ev);
+            Ok(())
+        })
+    }
+
+    fn get_recent_commands(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<CommandRecord>, String>> {
+        let inner = self.cmds.clone();
+        Box::pin(async move {
+            let v = inner.lock().unwrap();
+            // filter by session and return most recent up to limit
+            let mut filtered: Vec<CommandRecord> = v.iter().cloned().filter(|c| c.session_id.as_ref().map(|s| s == &session_id).unwrap_or(false)).collect();
+            filtered.sort_by_key(|c| c.timestamp);
+            if filtered.len() > limit {
+                let start = filtered.len() - limit;
+                filtered = filtered[start..].to_vec();
+            }
+            Ok(filtered)
+        })
+    }
+
+    fn get_recent_events(&self, session_id: SessionId, limit: usize) -> BoxFuture<'static, Result<Vec<WorkspaceEvent>, String>> {
+        let inner = self.evs.clone();
+        Box::pin(async move {
+            let v = inner.lock().unwrap();
+            let mut filtered: Vec<WorkspaceEvent> = v.iter().cloned().filter(|e| e.session_id == session_id).collect();
+            filtered.sort_by_key(|e| e.timestamp);
+            if filtered.len() > limit {
+                let start = filtered.len() - limit;
+                filtered = filtered[start..].to_vec();
+            }
+            Ok(filtered)
+        })
+    }
+}
+
+/// Export helper to get Arc<dyn HistoryRepository>
+pub fn into_history_store(store: InMemoryHistoryStore) -> Arc<dyn HistoryRepository> {
+    Arc::new(store)
+}
