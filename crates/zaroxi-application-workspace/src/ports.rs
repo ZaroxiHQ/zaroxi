@@ -266,7 +266,7 @@
  }
  
  /// Snapshot of a single buffer (id + optional current content).
- #[derive(Clone, Debug)]
+ #[derive(Clone, Debug, Serialize, Deserialize)]
  pub struct BufferSnapshot {
      pub buffer_id: String,
      pub content: Option<String>,
