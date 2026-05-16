@@ -427,3 +427,21 @@
  }
  
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;
+
+ /// Read-only view port: thin query API for buffer-oriented views.
+ ///
+ /// This trait provides small, read-only queries that a UI/harness can use to
+ /// obtain buffer content or the active buffer's content for a session.
+ /// Implementations should be cheap and avoid mutating state.
+ pub trait WorkspaceView: Send + Sync {
+     /// Get the current content for a buffer by id.
+     /// Returns Ok(Some(text)) when present, Ok(None) when the buffer has no text,
+     /// or an Err(UseCaseError) for session/workspace-related errors when applicable.
+     fn get_buffer_content(&self, buffer_id: BufferId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>>;
+
+     /// Get the content of the currently active buffer for the provided session.
+     /// Returns NoActiveBuffer or UnknownSession as appropriate.
+     fn get_active_buffer_content(&self, session_id: SessionId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>>;
+ }
+
+ pub type DynWorkspaceView = Arc<dyn WorkspaceView>;

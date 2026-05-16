@@ -79,6 +79,11 @@ async fn orchestrator_flow_happy_path() {
     // Prefer typed assertion: the BufferId is expected to map to a filesystem path.
     assert!(open_res.buffer_id.path().is_some());
 
+    // Phase 2: verify view seam can read buffer content
+    let content = orchestrator.get_buffer_content(open_res.buffer_id.clone()).await.expect("read ok");
+    assert!(content.is_some());
+    assert!(content.unwrap().contains("fn main"));
+
     let dispatch = DispatchCommandRequest { session_id: boot_res.session.session_id.clone(), command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() } };
     let dispatch_res = orchestrator.dispatch_command(dispatch).await.expect("dispatch ok");
     assert!(dispatch_res.result.message.contains("fake:"));

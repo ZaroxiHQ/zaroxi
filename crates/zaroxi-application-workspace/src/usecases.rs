@@ -853,7 +853,35 @@
          })
      }
  }
- 
+
+ impl crate::ports::WorkspaceView for WorkspaceOrchestrator {
+     fn get_buffer_content(&self, buffer_id: crate::ports::BufferId) -> BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+         let store = self.buffer_store.clone();
+         // synchronous read path from BufferStore
+         Box::pin(async move {
+             Ok(store.get_text(&buffer_id))
+         })
+     }
+
+     fn get_active_buffer_content(&self, session_id: crate::ports::SessionId) -> BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+         let sessions = self.sessions.clone();
+         let store = self.buffer_store.clone();
+         Box::pin(async move {
+             // Resolve session synchronously
+             let info_opt = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&session_id.0).cloned()
+             };
+             let info = info_opt.ok_or(crate::ports::UseCaseError::UnknownSession)?;
+             if let Some(active) = info.active_buffer {
+                 Ok(store.get_text(&active))
+             } else {
+                 Err(crate::ports::UseCaseError::NoActiveBuffer)
+             }
+         })
+     }
+ }
+
  #[cfg(test)]
  mod tests {
      use super::*;

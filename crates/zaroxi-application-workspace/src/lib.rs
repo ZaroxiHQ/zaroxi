@@ -7,6 +7,7 @@ pub mod service;
 pub mod workspace_manager;
 pub mod ports;
 pub mod usecases;
+pub mod view; // small, read-only view seam (Phase 2)
 
 /// Prelude for convenient imports.
 ///
@@ -33,4 +34,7 @@ pub mod prelude {
 
     // Re-export manager helpers.
     pub use crate::workspace_manager::*;
+
+    // Re-export thin view helpers (Phase 2)
+    pub use crate::view::*;
 }

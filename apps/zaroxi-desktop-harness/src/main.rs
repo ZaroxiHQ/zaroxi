@@ -48,6 +48,15 @@ async fn main() -> Result<(), String> {
     let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
     let open1_res = orchestrator.open_buffer(open1).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open1_res.buffer_id);
+    // Read buffer content via the new view API (thin, read-only seam).
+    match orchestrator.get_buffer_content(open1_res.buffer_id.clone()).await {
+        Ok(Some(text)) => {
+            let snippet = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
+            println!("Harness: buffer content (snippet): {}", snippet);
+        }
+        Ok(None) => println!("Harness: buffer content: <empty>"),
+        Err(e) => println!("Harness: failed to read buffer content: {}", e),
+    }
 
     let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };
     let open2_res = orchestrator.open_buffer(open2).await.map_err(|e| e.to_string())?;
