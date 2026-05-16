@@ -1,7 +1,9 @@
- use std::sync::Arc;
+ use std::sync::{Arc, Mutex};
+ use std::collections::HashMap;
 
  use crate::ports::{
      WorkspaceBootRequest, WorkspaceBootResponse, OpenBufferRequest, OpenBufferResponse,
+     UpdateBufferRequest, UpdateBufferResponse,
      DispatchCommandRequest, DispatchCommandResponse, AppCommand, CommandResult, WorkspaceSessionDTO,
  };
  
@@ -22,9 +24,6 @@
      sessions: Arc<Mutex<HashMap<Id, Id>>>,
  }
  
- use std::sync::{Arc, Mutex};
- use std::collections::HashMap;
-
  use crate::ports::BoxFuture;
  use crate::ports::UseCaseError;
  use zaroxi_domain_buffer::rules as buffer_rules;

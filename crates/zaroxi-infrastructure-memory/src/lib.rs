@@ -49,12 +49,12 @@ use std::sync::Mutex;
 
 /// In-memory buffer store (infrastructure adapter).
 pub struct InMemoryBufferStore {
-    inner: Mutex<HashMap<String, String>>,
+    inner: std::sync::Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl InMemoryBufferStore {
     pub fn new() -> Self {
-        InMemoryBufferStore { inner: Mutex::new(HashMap::new()) }
+        InMemoryBufferStore { inner: std::sync::Arc::new(Mutex::new(HashMap::new())) }
     }
 }
 
