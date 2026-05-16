@@ -1,4 +1,5 @@
 use zaroxi_application_ai::ports as ports;
+use zaroxi_application_ai::ports::AiClient;
 use zaroxi_kernel_types::Id;
 
 /// Simple unit tests for the application-ai ports and request/response contract.
