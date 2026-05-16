@@ -196,6 +196,7 @@ serde_json = "1.0"
 uuid = "1"
 thiserror = "1"
 cc = "1.0"
+libloading = "0.8"
 
 # Metadata for CI and maintainers: enforce architecture rules programmatically
 [workspace.metadata.zaroxi]
