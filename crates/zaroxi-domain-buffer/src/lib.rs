@@ -4,6 +4,8 @@
 // Auto-generated domain crate: zaroxi-domain-buffer
 // Responsibility: Provide lightweight domain models for document buffers.
 
+pub mod rules;
+
 use serde::{Deserialize, Serialize};
 use zaroxi_kernel_types::Id;
 
