@@ -189,6 +189,8 @@ license = "MIT"
 # Core workspace dependencies declared here so member crates may use
 # `serde = { workspace = true }` style. This fixes manifests that inherit
 # dependencies from the workspace.
+# NOTE: tree-sitter is required by zaroxi-core-platform-syntax manifests;
+# adding it here so member crates can inherit via `workspace = true`.
 [workspace.dependencies]
 anyhow = "1"
 serde = { version = "1.0", features = ["derive"] }
@@ -200,6 +202,7 @@ parking_lot = "0.12"
 libloading = "0.8"
 ropey = "0.12"
 tempfile = "3.6"
+tree-sitter = "0.20"
 
 # Metadata for CI and maintainers: enforce architecture rules programmatically
 [workspace.metadata.zaroxi]
