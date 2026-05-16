@@ -1,14 +1,10 @@
-use std::sync::Arc;
 use std::path::PathBuf;
 
 use tokio;
 
 use zaroxi_application_workspace::ports::{
-    WorkspaceService, WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
+    WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
 };
-use zaroxi_domain_workspace::ports::WorkspaceRepository;
-use zaroxi_core_editor_buffer::ports::BufferStore;
-use zaroxi_application_ai::ports::AiClient;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
