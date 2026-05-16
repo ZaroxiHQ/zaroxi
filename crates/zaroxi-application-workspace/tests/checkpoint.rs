@@ -115,7 +115,7 @@ async fn checkpoint_create_and_restore() {
             let c = self.cmds.clone();
             Box::pin(async move {
                 let v = c.lock().unwrap().clone();
-                Ok(v.into_iter().filter(|r| r.session_id.as_ref().map(|s| s == &session_id).unwrap_or(false)).take(limit).collect())
+                Ok(v.into_iter().filter(|r| r.session_id.as_ref().map(|s| s == &session_id.0).unwrap_or(false)).take(limit).collect())
             })
         }
 
