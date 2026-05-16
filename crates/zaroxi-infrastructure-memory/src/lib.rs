@@ -90,6 +90,46 @@ impl BufferStore for InMemoryBufferStore {
             }
         })
     }
+
+    fn apply_transaction(&self, id: &BufferId, txn: TextEdit) -> BoxFuture<'static, Result<(), BufferError>> {
+        let key = id.0.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut m = inner.lock().unwrap();
+            let s = m.get_mut(&key).ok_or(BufferError("buffer not found".to_string()))?;
+            // Helper: map character index -> byte index in the current string.
+            let char_to_byte = |st: &str, idx: usize| -> usize {
+                st.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(st.len())
+            };
+            match txn {
+                TextEdit::Insert { index, text } => {
+                    let bpos = char_to_byte(&s, index);
+                    s.insert_str(bpos, &text);
+                    Ok(())
+                }
+                TextEdit::Delete { start, end } => {
+                    let bstart = char_to_byte(&s, start);
+                    let bend = char_to_byte(&s, end);
+                    if bstart <= bend && bend <= s.len() {
+                        s.replace_range(bstart..bend, "");
+                        Ok(())
+                    } else {
+                        Err(BufferError("invalid delete range".to_string()))
+                    }
+                }
+                TextEdit::Replace { start, end, text } => {
+                    let bstart = char_to_byte(&s, start);
+                    let bend = char_to_byte(&s, end);
+                    if bstart <= bend && bend <= s.len() {
+                        s.replace_range(bstart..bend, &text);
+                        Ok(())
+                    } else {
+                        Err(BufferError("invalid replace range".to_string()))
+                    }
+                }
+            }
+        })
+    }
 }
 
 /// Export helpers to turn into Arc'd dyn trait objects.
