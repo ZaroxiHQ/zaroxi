@@ -4,7 +4,7 @@
  // The implementation returns a canned response after a tiny async delay.
 
  use std::time::Duration;
- use tokio::time::sleep; // acceptable for the harness
+ // Avoid requiring the tokio `time` feature in the workspace; no artificial sleep needed in the mock.
 
  // Import the application-owned port types. Use the public crate name of the application-ai crate.
  use zaroxi_application_ai::ports::{AiClient, AiResponseDTO, AiError, BoxFuture};
@@ -21,8 +21,7 @@
  impl AiClient for MockAiClient {
      fn request(&self, req: zaroxi_application_ai::ports::AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
          Box::pin(async move {
-             // simulate latency
-             sleep(Duration::from_millis(50)).await;
+             // Mock adapter: immediate response (no artificial sleep to avoid tokio::time feature).
              // Echo a helpful mocked explanation including a bit of the content snapshot.
              let snippet = if req.content_snapshot.len() > 80 {
                  format!("{}...", &req.content_snapshot[..80])
