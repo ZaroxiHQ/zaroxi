@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 use tracing::info;
-use uuid::Uuid;
+use zaroxi_kernel_types::Id;
 
 /// Workspace service for handling workspace operations.
 pub struct WorkspaceService {
@@ -52,14 +52,15 @@ impl WorkspaceService {
     }
 
     /// Open a workspace at the given path
+    ///
+    /// Note: this helper intentionally does minimal validation and returns a kernel Id
+    /// representing the opened workspace. The authoritative workspace model and creation
+    /// policies are owned by the domain and the WorkspaceRepository port; callers should
+    /// prefer using the WorkspaceOrchestrator which delegates to the domain repository.
     pub async fn open_workspace(
         &self,
         path: std::path::PathBuf,
-    ) -> Result<zaroxi_domain_workspace::workspace::Workspace> {
-        use chrono::Utc;
-        use uuid::Uuid;
-        use zaroxi_domain_workspace::workspace::Workspace;
-
+    ) -> Result<Id> {
         // Validate path exists
         if !path.exists() {
             return Err(anyhow::anyhow!("Path does not exist: {:?}", path));
@@ -72,18 +73,11 @@ impl WorkspaceService {
         std::fs::read_dir(&path)
             .map_err(|e| anyhow::anyhow!("Cannot read directory: {:?}: {}", path, e))?;
 
-        let now = Utc::now();
-        let workspace = Workspace {
-            id: Uuid::new_v4(),
-            root_path: path.to_string_lossy().to_string(),
-            name: path.file_name().and_then(|n| n.to_str()).unwrap_or("workspace").to_string(),
-            is_open: true,
-            created_at: now,
-            last_accessed_at: now,
-        };
+        // Create a kernel-level Id for the opened workspace. The domain model remains authoritative.
+        let id = Id::new();
 
-        info!("Opened workspace: {} at {:?}", workspace.name, workspace.root_path);
-        Ok(workspace)
+        info!("Validated workspace path {:?}, assigned id {}", path, id);
+        Ok(id)
     }
 
     /// Get workspace metadata (future enhancement)
@@ -96,8 +90,21 @@ impl WorkspaceService {
 /// Workspace metadata
 #[derive(Debug, Clone)]
 pub struct WorkspaceMetadata {
-    pub id: Uuid,
+    pub id: Id,
     pub file_count: usize,
     pub total_size: u64,
     pub last_indexed: Option<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn open_workspace_returns_id_on_existing_dir() {
+        let svc = WorkspaceService::new();
+        let cur = std::env::current_dir().unwrap();
+        let id = svc.open_workspace(cur).await.expect("open ok");
+        assert!(id.as_uuid().to_string().len() > 0);
+    }
 }
