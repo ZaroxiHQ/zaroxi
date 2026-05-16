@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::path::PathBuf;
 
 use crate::ports::{
     WorkspaceBootRequest, WorkspaceBootResponse, OpenBufferRequest, OpenBufferResponse,
@@ -74,6 +73,7 @@ mod tests {
     use super::*;
     use crate::ports::WorkspaceService;
     use std::sync::Arc;
+    use std::path::PathBuf;
 
     // Lightweight test doubles implementing the required ports.
     struct FakeRepo;
