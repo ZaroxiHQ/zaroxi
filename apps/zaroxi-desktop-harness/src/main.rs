@@ -3,14 +3,13 @@ use std::path::PathBuf;
 
 use tokio;
 
-use zaroxi_interface_desktop::compose::run_desktop_flow;
 use zaroxi_application_workspace::ports::{
     WorkspaceService, WorkspaceOpenCommand, AppCommand, CommandResult,
     WorkspaceSessionDTO,
 };
 use zaroxi_domain_workspace::ports::{WorkspaceRepository, WorkspaceOpenCommand as DomainOpenCmd};
 use zaroxi_core_editor_buffer::ports::{BufferStore, BufferId};
-use zaroxi_application_ai::ports::{AiClient, AiResponseDTO, AiError};
+use zaroxi_application_ai::ports::{AiClient};
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -93,6 +92,17 @@ async fn main() -> Result<(), String> {
     // Compose the application service (for Phase 0 we construct it here).
     let service = SimpleWorkspaceService::new(repo_dyn, buffer_dyn, ai_dyn);
 
-    // Run the pure interface flow with only application-level trait
-    run_desktop_flow(Arc::new(service)).await
+    // Run the harness flow directly (composition root) — uses application service directly.
+    let open_cmd = WorkspaceOpenCommand { path: PathBuf::from("./sample-workspace") };
+    let session = service.open_workspace(open_cmd).await?;
+    println!("Harness: opened workspace session: {}", session.session_id);
+
+    let buffer_id = service.open_buffer(session.session_id.clone(), PathBuf::from("main.rs")).await?;
+    println!("Harness: opened buffer id: {}", buffer_id);
+
+    let cmd = AppCommand::AiExplain { prompt: format!("Explain contents of buffer {}", buffer_id) };
+    let result = service.dispatch_command(session.session_id.clone(), cmd).await?;
+    println!("Harness: command result: {}", result.message);
+
+    Ok(())
 }
