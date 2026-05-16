@@ -42,6 +42,10 @@ pub trait BufferStore: Send + Sync {
 
     /// Get full text for a buffer if available (sync read path for the slice).
     fn get_text(&self, id: &BufferId) -> Option<String>;
+
+    /// Set or replace the full text for a buffer.
+    /// Returns Ok(()) on success or BufferError on failure (e.g. buffer not found).
+    fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>>;
 }
 
 pub type DynBufferStore = Arc<dyn BufferStore>;

@@ -44,27 +44,50 @@ impl WorkspaceRepository for InMemoryWorkspaceRepo {
     }
 }
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 /// In-memory buffer store (infrastructure adapter).
-pub struct InMemoryBufferStore;
+pub struct InMemoryBufferStore {
+    inner: Mutex<HashMap<String, String>>,
+}
 
 impl InMemoryBufferStore {
     pub fn new() -> Self {
-        InMemoryBufferStore
+        InMemoryBufferStore { inner: Mutex::new(HashMap::new()) }
     }
 }
 
 impl BufferStore for InMemoryBufferStore {
     fn open_buffer(&self, path: PathBuf) -> BoxFuture<'static, Result<BufferId, BufferError>> {
+        let key = format!("buf:{}", path.to_string_lossy());
+        let k_clone = key.clone();
+        let inner = self.inner.clone();
         Box::pin(async move {
-            // Minimal behavior: return a deterministic buffer id.
-            let id = BufferId(format!("buf:{}", path.to_string_lossy()));
-            Ok(id)
+            // Ensure an entry exists (empty content) for the opened buffer.
+            let mut m = inner.lock().unwrap();
+            m.entry(k_clone.clone()).or_insert_with(|| "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string());
+            Ok(BufferId(key))
         })
     }
 
-    fn get_text(&self, _id: &BufferId) -> Option<String> {
-        // Return a small canned file content for the slice.
-        Some("// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string())
+    fn get_text(&self, id: &BufferId) -> Option<String> {
+        let m = self.inner.lock().unwrap();
+        m.get(&id.0).cloned()
+    }
+
+    fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>> {
+        let key = id.0.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut m = inner.lock().unwrap();
+            if m.contains_key(&key) {
+                m.insert(key, content);
+                Ok(())
+            } else {
+                Err(BufferError("buffer not found".to_string()))
+            }
+        })
     }
 }
 

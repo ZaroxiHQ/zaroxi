@@ -59,12 +59,51 @@
      pub session_id: SessionId,
      pub path: PathBuf,
  }
-
+ 
  /// Response from opening a buffer.
  #[derive(Clone, Debug)]
  pub struct OpenBufferResponse {
      pub buffer_id: String,
  }
+ 
+ /// Request to update buffer content.
+ #[derive(Clone, Debug)]
+ pub struct UpdateBufferRequest {
+     pub session_id: SessionId,
+     pub buffer_id: String,
+     pub new_content: String,
+ }
+ 
+ /// Response from updating buffer content.
+ #[derive(Clone, Debug)]
+ pub struct UpdateBufferResponse {
+     pub ok: bool,
+ }
+ 
+ /// Typed errors for application use-cases (Phase 4).
+ #[derive(Clone, Debug)]
+ pub enum UseCaseError {
+     UnknownSession,
+     UnknownWorkspace,
+     UnknownBuffer,
+     InvalidMutation(String),
+     AiFailure(String),
+ }
+ 
+ impl std::fmt::Display for UseCaseError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+             UseCaseError::UnknownSession => write!(f, "unknown session"),
+             UseCaseError::UnknownWorkspace => write!(f, "unknown workspace"),
+             UseCaseError::UnknownBuffer => write!(f, "unknown buffer"),
+             UseCaseError::InvalidMutation(s) => write!(f, "invalid mutation: {}", s),
+             UseCaseError::AiFailure(s) => write!(f, "ai failure: {}", s),
+         }
+     }
+ }
+ 
+ impl std::error::Error for UseCaseError {}
+ 
 
  /// Application-level commands that the UI may dispatch.
  /// Phase 2: AiExplain is buffer-focused and does not carry a free-form prompt here.

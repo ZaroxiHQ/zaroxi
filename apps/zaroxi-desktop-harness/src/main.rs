@@ -40,6 +40,15 @@ async fn main() -> Result<(), String> {
     let open_res = orchestrator.open_buffer(open_req).await?;
     println!("Harness: opened buffer id: {}", open_res.buffer_id);
 
+    // Mutate buffer content via application use-case (Phase 4)
+    let update_req = zaroxi_application_workspace::ports::UpdateBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        buffer_id: open_res.buffer_id.clone(),
+        new_content: "fn main() { println!(\"Mutated by harness\"); }".to_string(),
+    };
+    let update_res = orchestrator.update_buffer(update_req).await?;
+    println!("Harness: update ok: {}", update_res.ok);
+
     // Dispatch AI explain command (use-case)
     let dispatch_req = DispatchCommandRequest {
         session_id: boot_res.session.session_id.clone(),
