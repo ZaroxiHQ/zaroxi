@@ -132,6 +132,10 @@
      InvalidActiveBuffer(String),
      InvalidMutation(String),
      AiFailure(String),
+     /// Checkpoint was malformed or could not be applied.
+     InvalidCheckpoint(String),
+     /// Attempt to restore a checkpoint that would re-use an existing session id.
+     SessionAlreadyExists(SessionId),
  }
  
  impl std::fmt::Display for UseCaseError {
@@ -144,6 +148,8 @@
              UseCaseError::InvalidActiveBuffer(s) => write!(f, "invalid active buffer: {}", s),
              UseCaseError::InvalidMutation(s) => write!(f, "invalid mutation: {}", s),
              UseCaseError::AiFailure(s) => write!(f, "ai failure: {}", s),
+             UseCaseError::InvalidCheckpoint(s) => write!(f, "invalid checkpoint: {}", s),
+             UseCaseError::SessionAlreadyExists(sid) => write!(f, "session already exists: {}", sid),
          }
      }
  }
@@ -291,43 +297,96 @@
  pub struct GetSessionSnapshotResponse {
      pub snapshot: SessionSnapshot,
  }
+ 
+ /// Checkpoint DTO capturing a compact session state suitable for restore.
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct Checkpoint {
+     /// Original session id carried by the checkpoint.
+     pub session_id: SessionId,
+     /// Workspace id referenced by the session.
+     pub workspace_id: WorkspaceId,
+     /// Opened buffer ids (in open order).
+     pub opened_buffers: Vec<String>,
+     /// Active buffer id, if present.
+     pub active_buffer: Option<String>,
+     /// Optional per-buffer snapshots (id + optional content).
+     pub buffers: Vec<BufferSnapshot>,
+     /// Recent commands/events included to preserve minimal history.
+     pub recent_commands: Vec<CommandRecord>,
+     pub recent_events: Vec<WorkspaceEvent>,
+     /// Checkpoint creation time (informational).
+     pub created_at: DateTime<Utc>,
+ }
+ 
+ /// Request to create a checkpoint for a session.
+ #[derive(Clone, Debug)]
+ pub struct CreateCheckpointRequest {
+     pub session_id: SessionId,
+ }
+ 
+ /// Response carrying the created checkpoint.
+ #[derive(Clone, Debug)]
+ pub struct CreateCheckpointResponse {
+     pub checkpoint: Checkpoint,
+ }
+ 
+ /// Request to restore a session from a checkpoint.
+ #[derive(Clone, Debug)]
+ pub struct RestoreCheckpointRequest {
+     pub checkpoint: Checkpoint,
+ }
+ 
+ /// Response from restoring a checkpoint.
+ #[derive(Clone, Debug)]
+ pub struct RestoreCheckpointResponse {
+     /// The session that was restored (may equal the checkpoint.session_id).
+     pub session: WorkspaceSessionDTO,
+     /// Optional replacement id if a deterministic replacement policy was used.
+     pub replaced_session_id: Option<SessionId>,
+ }
 
  /// Very small service trait. Implementations are in application layer.
  /// Methods are explicit use-case entry points for Phase 5 multi-buffer behavior.
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
      fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>>;
-
+ 
      /// Open a buffer inside an active session.
      fn open_buffer(&self, req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>>;
-
+ 
      /// List opened buffers for a session and indicate the active buffer (if any).
      fn list_open_buffers(&self, req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>>;
-
+ 
      /// Set the active buffer for a session.
      fn set_active_buffer(&self, req: SetActiveBufferRequest) -> BoxFuture<'static, Result<SetActiveBufferResponse, UseCaseError>>;
-
+ 
      /// Get the currently active buffer for a session.
      fn get_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, UseCaseError>>;
-
+ 
      /// Shorthand use-case: explain the currently active buffer (uses the AiClient).
      fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
-
+ 
      /// Dispatch a high-level application command (AI requests, edits, etc).
      fn dispatch_command(&self, req: DispatchCommandRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
-
+ 
      /// Update or replace buffer content within a session.
      fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
-
+ 
      /// Query recent command history for a session.
      fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>>;
-
+ 
      /// Query recent workspace events for a session.
      fn get_recent_events(&self, req: GetRecentEventsRequest) -> BoxFuture<'static, Result<GetRecentEventsResponse, UseCaseError>>;
  
      /// Read-only snapshot query for the current workspace session.
      /// Returns a compact, explicit read-model of the session state.
      fn get_session_snapshot(&self, req: GetSessionSnapshotRequest) -> BoxFuture<'static, Result<GetSessionSnapshotResponse, UseCaseError>>;
+ 
+     /// Create a typed checkpoint capturing a session snapshot suitable for restore.
+     fn create_checkpoint(&self, req: CreateCheckpointRequest) -> BoxFuture<'static, Result<CreateCheckpointResponse, UseCaseError>>;
+ 
+     /// Restore a session from a checkpoint. Returns the restored session and optional replaced id.
+     fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>>;
  }
-
+ 
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;

@@ -4,6 +4,7 @@ use tokio;
 
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest, GetSessionSnapshotRequest,
+    CreateCheckpointRequest, RestoreCheckpointRequest,
 };
 use zaroxi_application_workspace::ports::WorkspaceService;
 
@@ -93,6 +94,43 @@ async fn main() -> Result<(), String> {
     println!("Harness: recent events (count={}):", recent_events.events.len());
     for e in recent_events.events.iter() {
         println!("- {:?} at {}", e.kind, e.timestamp);
+    }
+
+    // Phase 8: create a checkpoint for the current session, then restore it into a fresh orchestrator.
+    println!("Harness: creating checkpoint for session {}", boot_res.session.session_id);
+    let cp_req = CreateCheckpointRequest { session_id: boot_res.session.session_id.clone() };
+    let cp_res = orchestrator.create_checkpoint(cp_req).await.map_err(|e| e.to_string())?;
+    let checkpoint = cp_res.checkpoint;
+    println!("Harness: checkpoint created at {}", checkpoint.created_at);
+
+    // Build fresh infra instances for restore target
+    let repo2 = zaroxi_infrastructure_memory::InMemoryWorkspaceRepo::new();
+    let repo2_dyn = zaroxi_infrastructure_memory::into_workspace_repo(repo2);
+
+    let buffer_store2 = zaroxi_infrastructure_memory::InMemoryBufferStore::new();
+    let buffer2_dyn = zaroxi_infrastructure_memory::into_buffer_store(buffer_store2);
+
+    let history2 = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
+    let history2_dyn = zaroxi_infrastructure_memory::into_history_store(history2);
+
+    let ai2 = zaroxi_infrastructure_ai_mock::MockAiClient::new();
+    let ai2_dyn = zaroxi_infrastructure_ai_mock::into_dyn(ai2);
+
+    let orchestrator2 = WorkspaceOrchestrator::new_with_history(repo2_dyn, buffer2_dyn, ai2_dyn, history2_dyn);
+
+    println!("Harness: restoring checkpoint into fresh orchestrator...");
+    let restore_res = orchestrator2.restore_checkpoint(RestoreCheckpointRequest { checkpoint: checkpoint.clone() }).await.map_err(|e| e.to_string())?;
+    println!("Harness: restored session: {}", restore_res.session.session_id);
+
+    // Print restored snapshot for verification
+    let snap_req2 = GetSessionSnapshotRequest { session_id: restore_res.session.session_id.clone(), recent_limit: 10 };
+    let snap_res2 = orchestrator2.get_session_snapshot(snap_req2).await.map_err(|e| e.to_string())?;
+    let snap2 = snap_res2.snapshot;
+    println!("Harness: restored session snapshot for {} (workspace {}):", snap2.session_id, snap2.workspace_id);
+    println!(" - opened buffers: {:?}", snap2.opened_buffers);
+    println!(" - active buffer: {:?}", snap2.active_buffer);
+    for b in snap2.buffers.iter() {
+        println!("   - {} -> {} bytes", b.buffer_id, b.content.as_ref().map(|s| s.len()).unwrap_or(0));
     }
 
     Ok(())

@@ -12,6 +12,8 @@
      GetRecentCommandsRequest, GetRecentCommandsResponse, GetRecentEventsRequest, GetRecentEventsResponse,
      // Snapshot/query types (Phase 7)
      GetSessionSnapshotRequest, GetSessionSnapshotResponse, SessionSnapshot, BufferSnapshot,
+     // Phase 8 checkpoint types
+     CreateCheckpointRequest, CreateCheckpointResponse, RestoreCheckpointRequest, RestoreCheckpointResponse, Checkpoint,
      SessionId,
  };
  
@@ -681,6 +683,107 @@
              };
  
              Ok(GetSessionSnapshotResponse { snapshot })
+         })
+     }
+ 
+     fn create_checkpoint(&self, req: CreateCheckpointRequest) -> BoxFuture<'static, Result<CreateCheckpointResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         let store = self.buffer_store.clone();
+         let history = self.history.clone();
+         Box::pin(async move {
+             // Resolve session info (synchronous lookup).
+             let info = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).cloned().ok_or(UseCaseError::UnknownSession)?
+             };
+ 
+             let opened = info.open_buffers.clone();
+             let active = info.active_buffer.clone();
+             let workspace_id = info.workspace_id;
+ 
+             // Snapshot buffer contents for opened buffers (sync read path from BufferStore).
+             let mut buffers: Vec<BufferSnapshot> = Vec::new();
+             for b in opened.iter() {
+                 let content = store.get_text(&buffer_ports::BufferId(b.clone()));
+                 buffers.push(BufferSnapshot { buffer_id: b.clone(), content });
+             }
+ 
+             // Recent commands and events (read from history port).
+             let commands = history.get_recent_commands(req.session_id.clone(), 50).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+             let events = history.get_recent_events(req.session_id.clone(), 50).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+ 
+             let checkpoint = Checkpoint {
+                 session_id: req.session_id.clone(),
+                 workspace_id,
+                 opened_buffers: opened,
+                 active_buffer: active,
+                 buffers,
+                 recent_commands: commands,
+                 recent_events: events,
+                 created_at: Utc::now(),
+             };
+ 
+             Ok(CreateCheckpointResponse { checkpoint })
+         })
+     }
+ 
+     fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>> {
+         let store = self.buffer_store.clone();
+         let sessions = self.sessions.clone();
+         let history = self.history.clone();
+         Box::pin(async move {
+             let ck = req.checkpoint;
+ 
+             // Validate target session id is not already in use.
+             {
+                 let s = sessions.lock().unwrap();
+                 if s.contains_key(&ck.session_id.0) {
+                     return Err(UseCaseError::SessionAlreadyExists(ck.session_id.clone()));
+                 }
+             }
+ 
+             // Ensure buffers exist in the store and apply contents if provided.
+             for b in ck.opened_buffers.iter() {
+                 // If buffer missing, attempt to open by deriving path from id "buf:<path>"
+                 if store.get_text(&buffer_ports::BufferId(b.clone())).is_none() {
+                     if b.starts_with("buf:") {
+                         let path_str = &b[4..];
+                         match store.open_buffer(PathBuf::from(path_str)).await {
+                             Ok(_id) => {}
+                             Err(_) => return Err(UseCaseError::InvalidCheckpoint(format!("cannot open buffer {}", b))),
+                         }
+                     } else {
+                         return Err(UseCaseError::InvalidCheckpoint(format!("invalid buffer id {}", b)));
+                     }
+                 }
+ 
+                 // Apply content snapshot when present.
+                 if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
+                     if let Some(content) = &bs.content {
+                         if let Err(_) = store.set_text(&buffer_ports::BufferId(b.clone()), content.clone()).await {
+                             return Err(UseCaseError::InvalidCheckpoint(format!("failed to set buffer {}", b)));
+                         }
+                     }
+                 }
+             }
+ 
+             // Insert session info
+             {
+                 let mut s = sessions.lock().unwrap();
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone() });
+             }
+ 
+             // Record provided recent commands and events into history (best-effort).
+             for c in ck.recent_commands.iter() {
+                 let _ = history.record_command(c.clone()).await;
+             }
+             for e in ck.recent_events.iter() {
+                 let _ = history.record_event(e.clone()).await;
+             }
+ 
+             let session = WorkspaceSessionDTO { session_id: ck.session_id.clone(), workspace_id: ck.workspace_id };
+ 
+             Ok(RestoreCheckpointResponse { session, replaced_session_id: None })
          })
      }
  }
