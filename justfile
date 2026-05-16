@@ -4,7 +4,7 @@
 
 # Default recipe: run full local CI
 default:
-    just ci
+    just validate
 
 # Run clippy and fmt checks
 check:
@@ -30,6 +30,24 @@ ci:
     cargo test --workspace
     just deny
     python3 .github/scripts/check_layer_deps.py
+
+# ARCHITECTURE / enforcement helpers
+arch:
+    @echo "Running architecture enforcement scripts..."
+    python3 .github/scripts/check_layer_deps.py --report layer-deps-report.json
+    python3 .github/scripts/check_crate_naming.py
+    python3 .github/scripts/check_circular_deps.py
+    python3 .github/scripts/check_crate_size.py
+
+arch-report:
+    @echo "Generating architecture report and formatting with jq (if available)..."
+    python3 .github/scripts/check_layer_deps.py --report layer-deps-report.json
+    @if command -v jq >/dev/null 2>&1; then jq . layer-deps-report.json || true; else cat layer-deps-report.json; fi
+
+# Run just the size check with full output
+size:
+    @echo "Running crate size analysis..."
+    python3 .github/scripts/check_crate_size.py
 
 # Scaffold a new crate under crates/ and register it in workspace Cargo.toml
 # Usage: just new-crate NAME
@@ -80,3 +98,11 @@ else:
     print(f"Added crates/{name} to workspace members.")
 PY
     @echo "Scaffolded crates/{{NAME}}. Run 'just check' and 'just test' locally."
+
+# Combined validate: architecture + deny + fmt + clippy
+validate:
+    @echo "Running full local validation (architecture, deny, fmt, clippy)..."
+    just arch
+    just deny
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings

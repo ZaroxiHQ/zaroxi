@@ -1,44 +1,53 @@
 #!/usr/bin/env python3
 """
-Workspace layer dependency checker.
+check_layer_deps.py - Production-grade workspace layer dependency checker.
 
-This script enforces the workspace dependency-direction rules described in
-CONTRIBUTING.md. It parses the root Cargo.toml workspace members list and
-each member's Cargo.toml to detect internal (workspace) dependencies and
-ensures they follow the allowed layer rules.
+This script recursively parses all Cargo.toml files inside the workspace,
+builds an internal map of zaroxi-* crates and their internal dependencies,
+and enforces the strict layer dependency matrix described in CONTRIBUTING.md.
 
-If any violation is found, the script prints human-friendly errors and exits
-with non-zero status so CI fails.
+Features:
+- Parse every Cargo.toml under the repository root (skips obvious non-workspace folders)
+- Determine crate layer from crate name prefix (zaroxi-kernel-*, zaroxi-core-*, ...)
+- Collect only internal zaroxi-* dependencies from [dependencies], [dev-dependencies],
+  [build-dependencies] and target-specific sections
+- Strictly enforce the allowed layer matrix:
+    kernel         -> kernel, external
+    core           -> kernel, core
+    domain         -> kernel, core, domain
+    application    -> kernel, core, domain, application
+    interface      -> kernel, core, domain, application, interface
+    intelligence   -> kernel, core, domain
+    security       -> kernel, core, domain
+    infrastructure -> kernel, core
+- --fix-suggestions: prints actionable suggestions for misplaced dependencies
+- --report <path>: write a JSON report of the dependency graph + violations
+- Robust error handling for missing/malformed manifests
 
-Notes:
-- The script uses Python 3.11's tomllib to parse TOML. GitHub Actions uses a recent
-  Python runtime (3.11) by default in the workflow above.
-- To extend namespaces or adjust rules, edit the PREFIX_TO_LAYER and ALLOWED map below.
+No external Python dependencies are used (stdlib only).
+Designed to run with Python 3.12 (uses tomllib).
+
+Exit codes:
+  0 - no violations / successful run
+  1 - violations detected
+  2 - fatal parse / IO error
 """
 
+from __future__ import annotations
+
+import argparse
+import json
 import sys
 import tomllib
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Set, Tuple
 
 ROOT = Path.cwd()
-ROOT_CARGO = ROOT / "Cargo.toml"
+IGNORED_DIRS = {"target", ".git", ".github", "node_modules"}
 
-
-def load_toml(path: Path) -> dict:
-    try:
-        with path.open("rb") as f:
-            return tomllib.load(f)
-    except FileNotFoundError:
-        print(f"Missing Cargo.toml: {path}", file=sys.stderr)
-        sys.exit(2)
-    except Exception as e:
-        print(f"Failed to parse {path}: {e}", file=sys.stderr)
-        sys.exit(2)
-
-
-# Map crate-name prefix to a logical layer identifier.
-PREFIX_TO_LAYER = {
+# Layer detection prefix mapping
+PREFIX_TO_LAYER: Dict[str, str] = {
     "zaroxi-kernel-": "kernel",
     "zaroxi-core-": "core",
     "zaroxi-domain-": "domain",
@@ -49,20 +58,49 @@ PREFIX_TO_LAYER = {
     "zaroxi-infrastructure-": "infrastructure",
 }
 
-# Allowed target layers for a crate in a given layer.
-# The special layer "external" represents third-party crates (crates.io, git, etc.)
+# Strict allowed target layers for each source layer
 ALLOWED: Dict[str, List[str]] = {
     "kernel": ["kernel", "external"],
-    "core": ["kernel", "core", "external"],
-    "domain": ["kernel", "core", "external"],
-    "application": ["kernel", "core", "domain", "external"],
-    "interface": ["kernel", "core", "domain", "application", "interface", "external"],
-    "intelligence": ["kernel", "core", "domain", "external"],
-    "security": ["kernel", "core", "domain", "external"],
-    "infrastructure": ["kernel", "core", "external"],
-    # unknown layer: be conservative and allow external only (will be flagged for maintainers)
+    "core": ["kernel", "core"],
+    "domain": ["kernel", "core", "domain"],
+    "application": ["kernel", "core", "domain", "application"],
+    "interface": ["kernel", "core", "domain", "application", "interface"],
+    "intelligence": ["kernel", "core", "domain"],
+    "security": ["kernel", "core", "domain"],
+    "infrastructure": ["kernel", "core"],
+    # Unknown crates (not matching naming) are treated conservatively as "external-only" allowed
     "unknown": ["external"],
 }
+
+
+@dataclass
+class CrateInfo:
+    name: str
+    manifest: Path
+    layer: str
+    internal_deps: List[str]
+
+
+@dataclass
+class Violation:
+    src: str
+    src_layer: str
+    tgt: str
+    tgt_layer: str
+    manifest: str
+    reason: str
+    suggestion: Optional[str] = None
+
+
+def load_toml(path: Path) -> dict:
+    try:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Failed to parse TOML {path}: {exc}") from exc
+
 
 def detect_layer(crate_name: str) -> str:
     for prefix, layer in PREFIX_TO_LAYER.items():
@@ -71,90 +109,165 @@ def detect_layer(crate_name: str) -> str:
     return "unknown"
 
 
-def collect_workspace_members(root_cargo: Path) -> List[str]:
-    data = load_toml(root_cargo)
-    workspace = data.get("workspace", {})
-    members = workspace.get("members", [])
-    if not isinstance(members, list):
-        print("Workspace members in Cargo.toml must be an array", file=sys.stderr)
-        sys.exit(2)
-    return members
+def find_manifests(root: Path) -> List[Path]:
+    """Recursively locate Cargo.toml files under the workspace root, skipping ignored dirs."""
+    manifests: List[Path] = []
+    for p in root.rglob("Cargo.toml"):
+        # skip workspace root Cargo.toml itself (we'll parse it separately)
+        if p.resolve() == (root / "Cargo.toml").resolve():
+            continue
+        # skip manifests in ignored directories
+        if any(part in IGNORED_DIRS for part in p.parts):
+            continue
+        manifests.append(p)
+    return sorted(manifests)
 
 
-def read_package_name(manifest_path: Path) -> str:
-    data = load_toml(manifest_path)
-    package = data.get("package", {})
-    name = package.get("name")
-    if not name:
-        print(f"No [package].name in {manifest_path}", file=sys.stderr)
-        sys.exit(2)
-    return name
+def read_package_name(manifest: Path) -> str:
+    try:
+        data = load_toml(manifest)
+    except FileNotFoundError:
+        raise RuntimeError(f"Missing manifest: {manifest}")
+    package = data.get("package")
+    if not package or "name" not in package:
+        raise RuntimeError(f"Missing [package].name in {manifest}")
+    return package["name"]
 
 
-def collect_internal_deps(manifest_path: Path) -> List[str]:
-    data = load_toml(manifest_path)
-    deps = []
+def collect_zaroxi_deps(manifest: Path) -> List[str]:
+    """Collect declared dependency names that start with 'zaroxi-' from the manifest."""
+    try:
+        data = load_toml(manifest)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read {manifest}: {exc}") from exc
+
+    deps: Set[str] = set()
     for section in ("dependencies", "dev-dependencies", "build-dependencies"):
         sec = data.get(section, {})
         if isinstance(sec, dict):
-            deps.extend(sec.keys())
-    # also check target-specific deps (simple scan)
-    for key in data.keys():
-        if key.startswith("target"):
-            sec = data.get(key, {})
-            if isinstance(sec, dict):
-                for subsec in ("dependencies", "dev-dependencies", "build-dependencies"):
-                    sub = sec.get(subsec, {})
-                    if isinstance(sub, dict):
-                        deps.extend(sub.keys())
-    return deps
-
-
-def main():
-    members = collect_workspace_members(ROOT_CARGO)
-
-    # Build map from crate-name -> member-path
-    crate_name_to_path: Dict[str, Path] = {}
-    for member in members:
-        member_path = (ROOT / member).resolve()
-        manifest = member_path / "Cargo.toml"
-        if not manifest.exists():
-            # skip members that are not present in the checkout (could be intentionally absent)
-            print(f"Skipping missing workspace member manifest: {manifest}", file=sys.stderr)
+            deps.update(k for k in sec.keys() if k.startswith("zaroxi-"))
+    # target-specific sections
+    for k, v in data.items():
+        if not k.startswith("target"):
             continue
-        name = read_package_name(manifest)
-        crate_name_to_path[name] = member_path
+        if isinstance(v, dict):
+            for sub in ("dependencies", "dev-dependencies", "build-dependencies"):
+                subsec = v.get(sub, {})
+                if isinstance(subsec, dict):
+                    deps.update(x for x in subsec.keys() if x.startswith("zaroxi-"))
+    return sorted(deps)
 
-    # Reverse mapping for quick lookup
-    workspace_crates = set(crate_name_to_path.keys())
 
-    violations = []
+def build_crate_map(root: Path) -> Dict[str, CrateInfo]:
+    """Parse manifests and return mapping crate_name -> CrateInfo"""
+    manifests = find_manifests(root)
+    crate_map: Dict[str, CrateInfo] = {}
+    errors: List[str] = []
 
-    for crate_name, crate_path in crate_name_to_path.items():
-        manifest = crate_path / "Cargo.toml"
-        internal_deps = collect_internal_deps(manifest)
-        src_layer = detect_layer(crate_name)
-        allowed = ALLOWED.get(src_layer, ALLOWED["unknown"])
-        for dep in sorted(set(internal_deps)):
-            if dep in workspace_crates:
-                tgt_layer = detect_layer(dep)
-                # if target layer is unknown, treat as potential violation to be reviewed
-                if tgt_layer not in allowed:
-                    violations.append(
-                        f"{crate_name} ({src_layer}) -> {dep} ({tgt_layer}) is not allowed. "
-                        f"Allowed target layers for {src_layer}: {allowed}."
-                    )
+    for manifest in manifests:
+        try:
+            name = read_package_name(manifest)
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+        layer = detect_layer(name)
+        try:
+            deps = collect_zaroxi_deps(manifest)
+        except Exception as exc:
+            errors.append(str(exc))
+            deps = []
+        crate_map[name] = CrateInfo(name=name, manifest=str(manifest), layer=layer, internal_deps=deps)
+
+    if errors:
+        raise RuntimeError("Errors while reading manifests:\n" + "\n".join(errors))
+    return crate_map
+
+
+def analyze(crate_map: Dict[str, CrateInfo]) -> Tuple[List[Violation], dict]:
+    """Check each crate's internal zaroxi deps against allowed rules."""
+    violations: List[Violation] = []
+    nodes = {}
+
+    workspace_names = set(crate_map.keys())
+
+    for name, info in crate_map.items():
+        nodes[name] = {"layer": info.layer, "manifest": info.manifest, "deps": info.internal_deps}
+        allowed = ALLOWED.get(info.layer, ALLOWED["unknown"])
+        for dep in info.internal_deps:
+            # If dependency is not present in the workspace, treat as external (skip)
+            if dep not in workspace_names:
+                continue
+            tgt_layer = crate_map[dep].layer
+            if tgt_layer not in allowed:
+                reason = f"{info.layer} crates may not depend on {tgt_layer} crates"
+                suggestion = suggest_fix(info.layer, dep, crate_map)
+                violations.append(Violation(src=name, src_layer=info.layer, tgt=dep, tgt_layer=tgt_layer,
+                                            manifest=info.manifest, reason=reason, suggestion=suggestion))
+    report = {"nodes": nodes, "allowed_matrix": ALLOWED}
+    return violations, report
+
+
+def suggest_fix(src_layer: str, dep: str, crate_map: Dict[str, CrateInfo]) -> Optional[str]:
+    """Return a human-friendly suggestion for where the dependency should live instead."""
+    allowed = ALLOWED.get(src_layer, ALLOWED["unknown"])
+    dep_layer = crate_map.get(dep).layer if dep in crate_map else "unknown"
+    # If the dep is higher-level than allowed, recommend moving shared functionality down to the highest
+    # layer that the src_layer is allowed to depend on (prefer core over kernel when available).
+    allowed_non_external = [l for l in allowed if l != "external"]
+    if not allowed_non_external:
+        return None
+    preferred = allowed_non_external[-1] if allowed_non_external else allowed_non_external[0]
+    return (f"Consider moving the functionality in '{dep}' to a crate under the '{preferred}' layer "
+            f"(e.g. rename to 'zaroxi-{preferred}-...') or refactor to expose a small interface in an allowed layer.")
+
+
+def print_violations(violations: List[Violation], fix_suggestions: bool = False) -> None:
+    for v in violations:
+        print(f"[VIOLATION] {v.src} → {v.tgt}")
+        print(f"  {v.reason}")
+        print(f"  File: {v.manifest}")
+        if fix_suggestions and v.suggestion:
+            print(f"  Suggestion: {v.suggestion}")
+        print()
+
+
+def write_report(report: dict, violations: List[Violation], path: Path) -> None:
+    out = {"report": report, "violations": [asdict(v) for v in violations]}
+    path.write_text(json.dumps(out, indent=2, ensure_ascii=False))
+
+
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description="Enforce Zaroxi workspace layer dependency rules.")
+    ap.add_argument("--fix-suggestions", action="store_true", help="Print fix suggestions alongside violations.")
+    ap.add_argument("--report", type=Path, default=None, help="Path to write JSON report of dependency graph and violations.")
+    return ap.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        crate_map = build_crate_map(ROOT)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    violations, report = analyze(crate_map)
+
+    if args.report:
+        try:
+            write_report(report, violations, args.report)
+            print(f"Wrote layer dependency report to {args.report}")
+        except Exception as exc:
+            print(f"Failed to write report: {exc}", file=sys.stderr)
 
     if violations:
-        print("Dependency layer violations detected:", file=sys.stderr)
-        for v in violations:
-            print(" - " + v, file=sys.stderr)
-        print("\nSee CONTRIBUTING.md and .github/scripts/check_layer_deps.py to update rules or request exceptions.", file=sys.stderr)
-        sys.exit(1)
+        print_violations(violations, fix_suggestions=args.fix_suggestions)
+        print(f"Total violations: {len(violations)}", file=sys.stderr)
+        return 1
 
     print("No workspace dependency layer violations detected.")
-    sys.exit(0)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
