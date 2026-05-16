@@ -11,3 +11,6 @@ serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
+
+# Kernel types (strongly-typed ids) used by domain DTOs.
+zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
