@@ -120,7 +120,7 @@
                  result: Some("workspace opened".to_string()),
                  error: None,
              };
-             let _ = history.record_command_box(cmd).await;
+             let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
                  id: Uuid::new_v4(),
@@ -129,7 +129,7 @@
                  workspace_id: dto.id,
                  kind: WorkspaceEventKind::SessionOpened { session_id: session.session_id.clone(), workspace_id: dto.id },
              };
-             let _ = history.record_event_box(ev).await;
+             let _ = history.record_event(ev).await;
 
              Ok(WorkspaceBootResponse { session })
          })
@@ -210,7 +210,7 @@
                  result: Some(format!("opened {}", buffer_id)),
                  error: None,
              };
-             let _ = history.record_command_box(cmd).await;
+             let _ = history.record_command(cmd).await;
 
              if let Some(ws) = workspace_id_opt {
                  let ev = WorkspaceEvent {
@@ -220,7 +220,7 @@
                      workspace_id: ws,
                      kind: WorkspaceEventKind::BufferOpened { buffer_id: buffer_id.clone(), path: req.path.clone() },
                  };
-                 let _ = history.record_event_box(ev).await;
+                 let _ = history.record_event(ev).await;
              }
 
              Ok(OpenBufferResponse { buffer_id })
@@ -280,22 +280,22 @@
                  timestamp: Utc::now(),
                  kind: CommandKind::SetActiveBuffer { buffer_id: req.buffer_id.clone() },
                  session_id: Some(req.session_id.clone()),
-                 workspace_id: Some(info.workspace_id),
+                 workspace_id: Some(workspace_id),
                  buffer_id: Some(req.buffer_id.clone()),
                  success: true,
                  result: Some("active buffer set".to_string()),
                  error: None,
              };
-             let _ = history.record_command_box(cmd).await;
+             let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
                  id: Uuid::new_v4(),
                  timestamp: Utc::now(),
                  session_id: req.session_id.clone(),
-                 workspace_id: info.workspace_id,
-                 kind: WorkspaceEventKind::ActiveBufferChanged { old, new: info.active_buffer.clone() },
+                 workspace_id,
+                 kind: WorkspaceEventKind::ActiveBufferChanged { old, new: Some(req.buffer_id.clone()) },
              };
-             let _ = history.record_event_box(ev).await;
+             let _ = history.record_event(ev).await;
 
              Ok(SetActiveBufferResponse { ok: true })
          })
@@ -342,7 +342,7 @@
                      result: None,
                      error: Some("missing buffer content for explain".to_string()),
                  };
-                 let _ = history.record_command_box(cmd).await;
+                 let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
              }
 
@@ -352,22 +352,26 @@
                  buffer_id: active.clone(),
                  content_snapshot: content.clone(),
              };
-             let res = ai.request(ai_req).await.map_err(|_e| {
-                 // record failure
-                 let cmd = CommandRecord {
-                     id: Uuid::new_v4(),
-                     timestamp: Utc::now(),
-                     kind: CommandKind::ExplainActiveBuffer,
-                     session_id: Some(req.session_id.clone()),
-                     workspace_id: Some(workspace_id),
-                     buffer_id: Some(active.clone()),
-                     success: false,
-                     result: None,
-                     error: Some("ai request failed".to_string()),
-                 };
-                 let _ = history.record_command_box(cmd);
-                 UseCaseError::AiFailure("ai request failed".to_string())
-             })?;
+
+             // Perform AI request and record failures/successes explicitly (avoid awaiting while holding locks)
+             let res = match ai.request(ai_req).await {
+                 Ok(r) => r,
+                 Err(_e) => {
+                     let cmd = CommandRecord {
+                         id: Uuid::new_v4(),
+                         timestamp: Utc::now(),
+                         kind: CommandKind::ExplainActiveBuffer,
+                         session_id: Some(req.session_id.clone()),
+                         workspace_id: Some(workspace_id),
+                         buffer_id: Some(active.clone()),
+                         success: false,
+                         result: None,
+                         error: Some("ai request failed".to_string()),
+                     };
+                     let _ = history.record_command(cmd).await;
+                     return Err(UseCaseError::AiFailure("ai request failed".to_string()));
+                 }
+             };
 
              // record success and event
              let cmd = CommandRecord {
@@ -381,7 +385,7 @@
                  result: Some(res.text.clone()),
                  error: None,
              };
-             let _ = history.record_command_box(cmd).await;
+             let _ = history.record_command(cmd).await;
 
              let ev = WorkspaceEvent {
                  id: Uuid::new_v4(),
@@ -390,7 +394,7 @@
                  workspace_id,
                  kind: WorkspaceEventKind::ExplainExecuted { buffer_id: active.clone(), result: res.text.clone() },
              };
-             let _ = history.record_event_box(ev).await;
+             let _ = history.record_event(ev).await;
 
              Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
          })
@@ -402,7 +406,6 @@
          let sessions = self.sessions.clone();
          let history = self.history.clone();
          Box::pin(async move {
-             // Validate session exists
              // Resolve workspace id for session; avoid holding lock across await.
              let workspace_opt = {
                  let s = sessions.lock().unwrap();
@@ -446,7 +449,7 @@
                              result: None,
                              error: Some("missing buffer content for explain".to_string()),
                          };
-                         let _ = history.record_command_box(cmd).await;
+                         let _ = history.record_command(cmd).await;
                          return Err(UseCaseError::AiFailure("missing buffer content for explain".to_string()));
                      }
                      let ai_req = ai_ports::AiRequest {
@@ -455,21 +458,26 @@
                          buffer_id: buffer_id.clone(),
                          content_snapshot: content,
                      };
-                     let res = ai.request(ai_req).await.map_err(|_e| {
-                         let cmd = CommandRecord {
-                             id: Uuid::new_v4(),
-                             timestamp: Utc::now(),
-                             kind: CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
-                             session_id: Some(req.session_id.clone()),
-                             workspace_id: Some(workspace_id),
-                             buffer_id: Some(buffer_id.clone()),
-                             success: false,
-                             result: None,
-                             error: Some("ai request failed".to_string()),
-                         };
-                         let _ = history.record_command_box(cmd);
-                         UseCaseError::AiFailure("ai request failed".to_string())
-                     })?;
+
+                     let res = match ai.request(ai_req).await {
+                         Ok(r) => r,
+                         Err(_e) => {
+                             let cmd = CommandRecord {
+                                 id: Uuid::new_v4(),
+                                 timestamp: Utc::now(),
+                                 kind: CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: buffer_id.clone() } },
+                                 session_id: Some(req.session_id.clone()),
+                                 workspace_id: Some(workspace_id),
+                                 buffer_id: Some(buffer_id.clone()),
+                                 success: false,
+                                 result: None,
+                                 error: Some("ai request failed".to_string()),
+                             };
+                             let _ = history.record_command(cmd).await;
+                             return Err(UseCaseError::AiFailure("ai request failed".to_string()));
+                         }
+                     };
+
                      // record success
                      let cmd = CommandRecord {
                          id: Uuid::new_v4(),
@@ -482,7 +490,7 @@
                          result: Some(res.text.clone()),
                          error: None,
                      };
-                     let _ = history.record_command_box(cmd).await;
+                     let _ = history.record_command(cmd).await;
 
                      Ok(DispatchCommandResponse { result: CommandResult { message: res.text } })
                  }
@@ -500,7 +508,7 @@
                          result: Some("inserted (noop)".to_string()),
                          error: None,
                      };
-                     let _ = history.record_command_box(cmd).await;
+                     let _ = history.record_command(cmd).await;
                      Ok(DispatchCommandResponse { result: CommandResult { message: "inserted (noop)".to_string() } })
                  }
              }
@@ -547,7 +555,7 @@
                      result: None,
                      error: Some(m.clone()),
                  };
-                 let _ = history.record_command_box(cmd).await;
+                 let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::InvalidMutation(m));
              }
              if let Err(m) = buffer_rules::validate_content(&req.new_content) {
@@ -562,29 +570,27 @@
                      result: None,
                      error: Some(m.clone()),
                  };
-                 let _ = history.record_command_box(cmd).await;
+                 let _ = history.record_command(cmd).await;
                  return Err(UseCaseError::InvalidMutation(m));
              }
 
              // Perform the mutation via BufferStore (infra).
-             store.set_text(&buffer_ports::BufferId(req.buffer_id.clone()), req.new_content.clone())
-                 .await
-                 .map_err(|_e| {
-                     // record failed mutation
-                     let cmd = CommandRecord {
-                         id: Uuid::new_v4(),
-                         timestamp: Utc::now(),
-                         kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
-                         session_id: Some(req.session_id.clone()),
-                         workspace_id: None,
-                         buffer_id: Some(req.buffer_id.clone()),
-                         success: false,
-                         result: None,
-                         error: Some("unknown buffer".to_string()),
-                     };
-                     let _ = history.record_command_box(cmd);
-                     UseCaseError::UnknownBuffer
-                 })?;
+             if let Err(_e) = store.set_text(&buffer_ports::BufferId(req.buffer_id.clone()), req.new_content.clone()).await {
+                 // record failed mutation
+                 let cmd = CommandRecord {
+                     id: Uuid::new_v4(),
+                     timestamp: Utc::now(),
+                     kind: CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                     session_id: Some(req.session_id.clone()),
+                     workspace_id: None,
+                     buffer_id: Some(req.buffer_id.clone()),
+                     success: false,
+                     result: None,
+                     error: Some("unknown buffer".to_string()),
+                 };
+                 let _ = history.record_command(cmd).await;
+                 return Err(UseCaseError::UnknownBuffer);
+             }
 
              // record success and event
              let workspace_id_opt = {
@@ -603,7 +609,7 @@
                  result: Some("updated".to_string()),
                  error: None,
              };
-             let _ = history.record_command_box(cmd).await;
+             let _ = history.record_command(cmd).await;
 
              if let Some(ws) = workspace_id_opt {
                  let ev = WorkspaceEvent {
@@ -613,7 +619,7 @@
                      workspace_id: ws,
                      kind: WorkspaceEventKind::BufferUpdated { buffer_id: req.buffer_id.clone() },
                  };
-                 let _ = history.record_event_box(ev).await;
+                 let _ = history.record_event(ev).await;
              }
 
              Ok(UpdateBufferResponse { ok: true })
@@ -623,7 +629,7 @@
      fn get_recent_commands(&self, req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<GetRecentCommandsResponse, UseCaseError>> {
          let history = self.history.clone();
          Box::pin(async move {
-             let recs = history.get_recent_commands_box(req.session_id.clone(), req.limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+             let recs: Vec<CommandRecord> = history.get_recent_commands(req.session_id.clone(), req.limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
              Ok(GetRecentCommandsResponse { commands: recs })
          })
      }
@@ -631,7 +637,7 @@
      fn get_recent_events(&self, req: GetRecentEventsRequest) -> BoxFuture<'static, Result<GetRecentEventsResponse, UseCaseError>> {
          let history = self.history.clone();
          Box::pin(async move {
-             let evs = history.get_recent_events_box(req.session_id.clone(), req.limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
+             let evs: Vec<WorkspaceEvent> = history.get_recent_events(req.session_id.clone(), req.limit).await.map_err(|_e| UseCaseError::AiFailure("history query failed".to_string()))?;
              Ok(GetRecentEventsResponse { events: evs })
          })
      }
