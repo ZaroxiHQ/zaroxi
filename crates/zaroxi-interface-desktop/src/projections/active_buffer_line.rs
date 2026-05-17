@@ -38,7 +38,14 @@ impl ActiveBufferLine {
         // Map into the minimal parts we need. This keeps the projection local and
         // avoids depending on multiple other projections.
         let rev = snapshot.context.latest_revision;
-        let active = snapshot.context.active_buffer.clone();
+        // Convert the active buffer identifier into an owned String.
+        // Many buffer id types in the codebase are tuple structs like `BufferId(pub String)`,
+        // so extract the inner string when available. Clone to avoid borrowing the snapshot.
+        let active = snapshot
+            .context
+            .active_buffer
+            .as_ref()
+            .map(|b| b.0.clone());
         let display = snapshot.context.active_display.clone();
         Self::from_parts(rev, active, display)
     }
