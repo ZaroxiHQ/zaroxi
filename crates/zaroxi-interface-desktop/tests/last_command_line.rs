@@ -72,7 +72,16 @@ async fn last_command_line_present_and_parsed() {
     let wid = Id::new();
 
     // Fake service that returns a single recent command (OpenBuffer success).
-    struct FakeSvc;
+    struct FakeSvc {
+        sid: aw_ports::SessionId,
+        wid: Id,
+    }
+    impl FakeSvc {
+        fn new(sid: aw_ports::SessionId, wid: Id) -> Self {
+            Self { sid, wid }
+        }
+    }
+
     impl aw_ports::WorkspaceService for FakeSvc {
         fn boot_workspace(&self, _req: aw_ports::WorkspaceBootRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownWorkspace) }) }
         fn open_buffer(&self, _req: aw_ports::OpenBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) }) }
@@ -91,6 +100,8 @@ async fn last_command_line_present_and_parsed() {
         fn update_buffer(&self, _req: aw_ports::UpdateBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::UpdateBufferResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) }) }
         fn apply_text_transaction(&self, _req: aw_ports::ApplyTextTransactionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ApplyTextTransactionResponse, aw_ports::UseCaseError>> { Box::pin(async { Ok(aw_ports::ApplyTextTransactionResponse { ok: true, state: aw_ports::EditorState { cursor: aw_ports::EditorCursor::zero(), selection: None }, content: None }) }) }
         fn get_recent_commands(&self, _req: aw_ports::GetRecentCommandsRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>> {
+            let sid = self.sid.clone();
+            let wid = self.wid.clone();
             Box::pin(async move {
                 let rec = aw_ports::CommandRecord::new_success(
                     aw_ports::CommandKind::OpenBuffer { path: PathBuf::from("main.rs") },
