@@ -14,3 +14,5 @@ zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
