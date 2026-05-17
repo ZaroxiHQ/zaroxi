@@ -34,6 +34,24 @@ pub struct OpenedBufferItem {
     pub active: bool,
 }
 
+/// Small read-only projection describing the currently active buffer for the shell.
+///
+/// Purpose:
+/// - Tiny, shell-facing read model that gives the outer harness enough information
+///   to print and reason about the active buffer without pulling application logic
+///   into the interface layer.
+/// - Kept intentionally small: id, optional display label (path), and a simple
+///   line-count metric when available from the presenter's latest window.
+#[derive(Clone, Debug)]
+pub struct ActiveBufferDetails {
+    /// Canonical buffer id.
+    pub buffer_id: crate::ports::BufferId,
+    /// Optional display label derived from BufferId.path() or opened-buffer projection.
+    pub display: Option<String>,
+    /// Number of lines in the buffer snapshot when available (0 if unknown).
+    pub line_count: usize,
+}
+
 /// Minimal read-only metadata projection exposed to the shell.
 ///
 /// This small struct is intentionally tiny and shell-oriented. It captures a few
@@ -53,6 +71,8 @@ pub struct DesktopMetadata {
     pub opened_buffer_count: usize,
     /// New: small read-only list of opened buffers projected for the shell.
     pub opened_buffers: Vec<OpenedBufferItem>,
+    /// New: small, focused projection for the currently active buffer (when present).
+    pub active_buffer_details: Option<ActiveBufferDetails>,
 }
 
 /// Minimal desktop-level composition state.
@@ -158,6 +178,25 @@ impl DesktopComposition {
         }
 
         // 4) Update composition metadata and simple recorded ids.
+        // Compute a tiny active-buffer details projection by reusing the presenter's
+        // latest renderable window (this avoids duplicating application logic).
+        let active_buffer_details: Option<ActiveBufferDetails> = if let Some(bid) = active_buf_opt.clone() {
+            // Prefer the display label from the opened_buffers projection if available.
+            let display_label = opened_list.iter().find(|i| i.buffer_id == bid).and_then(|i| i.display.clone())
+                .or_else(|| bid.path().map(|p| p.to_string_lossy().to_string()));
+
+            // Use presenter's latest window (if present) to obtain a line_count metric.
+            let line_count = self.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize);
+
+            Some(ActiveBufferDetails {
+                buffer_id: bid.clone(),
+                display: display_label,
+                line_count,
+            })
+        } else {
+            None
+        };
+
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
         self.metadata = Some(DesktopMetadata {
@@ -166,6 +205,7 @@ impl DesktopComposition {
             active_buffer: active_buf_opt,
             opened_buffer_count: opened_count,
             opened_buffers: opened_list,
+            active_buffer_details,
         });
 
         Ok(())
@@ -189,6 +229,15 @@ impl DesktopComposition {
     /// Return the small, read-only metadata projection for shell consumption.
     pub fn latest_metadata(&self) -> Option<DesktopMetadata> {
         self.metadata.clone()
+    }
+
+    /// Return the tiny active-buffer details projection (if present).
+    ///
+    /// This accessor returns a small, shell-oriented view over the active buffer.
+    /// It is purely read-only and derived during refresh; callers may use it to
+    /// display a concise summary without touching application logic.
+    pub fn latest_active_buffer_details(&self) -> Option<ActiveBufferDetails> {
+        self.metadata.as_ref().and_then(|m| m.active_buffer_details.clone())
     }
 }
 
@@ -279,5 +328,11 @@ mod tests {
         assert_eq!(meta.workspace_id.unwrap(), wid);
         assert_eq!(meta.active_buffer.unwrap(), crate::ports::BufferId::from("buf:fake"));
         assert_eq!(meta.opened_buffer_count, 1);
+
+        // New: verify active-buffer details projection is populated and consistent
+        let abd = comp.latest_active_buffer_details().expect("active buffer details present");
+        assert_eq!(abd.buffer_id, crate::ports::BufferId::from("buf:fake"));
+        assert_eq!(abd.line_count, 1);
+        assert_eq!(abd.display.unwrap(), "fake".to_string());
     }
 }
