@@ -197,4 +197,16 @@ mod tests {
         let has_cursor = rl.spans.iter().any(|s| s.kind == InterfaceSpanKind::Cursor || s.kind == InterfaceSpanKind::SelectionCursor);
         assert!(has_cursor);
     }
+
+    #[tokio::test]
+    async fn presenter_refresh_stores_window() {
+        use crate::presenter::Presenter;
+        let v = FakeView::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let mut p = Presenter::new();
+        p.refresh(arc, sid).await.expect("refresh ok");
+        let win = p.latest().expect("window present");
+        assert_eq!(win.total_lines, 1);
+    }
 }

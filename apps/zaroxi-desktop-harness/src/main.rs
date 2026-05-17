@@ -102,35 +102,39 @@ async fn main() -> Result<(), String> {
                 viewport: vp.clone(),
             }).await.map_err(|e| e.to_string())?;
 
-            // Use the thin interface adapter seam to obtain the character-span render model.
+            // Use a tiny presenter to fetch and hold the renderable window.
+            // This decouples harness printing from the raw adapter output and
+            // demonstrates a minimal read-only presenter flow (Phase 12).
             let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
-            match zaroxi_interface_desktop::view_adapter::fetch_renderable_window(view_dyn, boot_res.session.session_id.clone()).await {
-                Ok(win) => {
-                    println!("Harness: visible render window: top_line={} total_lines={}", win.top_line, win.total_lines);
-                    for rl in win.lines.iter() {
-                        let mut out = String::new();
-                        for sp in rl.spans.iter() {
-                            match sp.kind {
-                                zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
-                                zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
-                                    out.push_str(&format!("[{}]", sp.text));
-                                }
-                                zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
-                                    if sp.text.is_empty() {
-                                        out.push_str("|^|");
-                                    } else {
-                                        out.push_str(&format!("|{}|", sp.text));
-                                    }
-                                }
-                                zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
-                                    out.push_str(&format!("[|{}|]", sp.text));
+            let mut presenter = zaroxi_interface_desktop::Presenter::new();
+            if let Err(e) = presenter.refresh(view_dyn.clone(), boot_res.session.session_id.clone()).await {
+                println!("Harness: failed to refresh presenter: {}", e);
+            } else if let Some(win) = presenter.latest() {
+                println!("Harness: visible render window (presenter): top_line={} total_lines={}", win.top_line, win.total_lines);
+                for rl in win.lines.iter() {
+                    let mut out = String::new();
+                    for sp in rl.spans.iter() {
+                        match sp.kind {
+                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
+                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
+                                out.push_str(&format!("[{}]", sp.text));
+                            }
+                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
+                                if sp.text.is_empty() {
+                                    out.push_str("|^|");
+                                } else {
+                                    out.push_str(&format!("|{}|", sp.text));
                                 }
                             }
+                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                                out.push_str(&format!("[|{}|]", sp.text));
+                            }
                         }
-                        println!("{:4} | {}", rl.line_number, out);
                     }
+                    println!("{:4} | {}", rl.line_number, out);
                 }
-                Err(e) => println!("Harness: failed to fetch renderable window: {}", e),
+            } else {
+                println!("Harness: presenter contained no window after refresh");
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
