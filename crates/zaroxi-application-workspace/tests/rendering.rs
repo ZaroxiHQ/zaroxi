@@ -9,6 +9,7 @@ use zaroxi_application_workspace::ports::{
 };
 use zaroxi_application_workspace::ports as ports;
 use zaroxi_application_workspace::ports::WorkspaceService;
+use zaroxi_application_workspace::ports::WorkspaceView;
 use zaroxi_domain_workspace::ports as domain_ports;
 use zaroxi_core_editor_buffer::ports as buffer_ports;
 use zaroxi_application_ai::ports as ai_ports;
