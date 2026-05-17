@@ -9,3 +9,4 @@ license = "MIT"
 serde = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
+zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
