@@ -249,6 +249,26 @@ async fn main() -> Result<(), String> {
                     println!("Harness: insert-line action failed: {}", e);
                 }
             }
+
+            // New tiny convenience: refresh and return the shell context to the harness.
+            match zaroxi_interface_desktop::actions::refresh_and_get_shell_context(
+                &mut composition,
+                view_dyn.clone(),
+                boot_res.session.session_id.clone(),
+                Some(boot_res.session.workspace_id),
+                Some(service_dyn.clone()),
+            ).await {
+                Ok(res) => {
+                    println!("Harness: refresh_and_get_shell_context: action.success={} refreshed={} message={:?}", res.action.success, res.action.refreshed, res.action.message);
+                    if let Some(ctx) = res.context {
+                        println!("Harness: shell context: rev={} active_buffer={:?} active_display={:?} refresh_reason={:?} has_ai={}",
+                            ctx.latest_revision, ctx.active_buffer, ctx.active_display, ctx.latest_refresh_reason, ctx.has_ai_projection);
+                    } else {
+                        println!("Harness: shell context: <none>");
+                    }
+                }
+                Err(e) => println!("Harness: refresh_and_get_shell_context failed: {}", e),
+            }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
     }

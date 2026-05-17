@@ -181,6 +181,34 @@ pub async fn insert_line_at_start_and_refresh(
     Ok(refresh_result)
 }
 
+/// Convenience, tiny shell-facing result containing the normalized ActionResult
+/// plus the latest ShellContext (when available).
+#[derive(Clone, Debug)]
+pub struct ShellActionResult {
+    pub action: ActionResult,
+    pub context: Option<crate::desktop::ShellContext>,
+}
+
+/// Tiny convenience action used by shells/harnesses:
+/// - Reuse the existing refresh_desktop flow to update the DesktopComposition.
+/// - Return both the normalized ActionResult and the latest ShellContext (if any).
+///
+/// This function intentionally delegates to refresh_desktop and then uses the
+/// composition accessor `latest_shell_context()` so no refresh logic is duplicated.
+pub async fn refresh_and_get_shell_context(
+    comp: &mut crate::desktop::DesktopComposition,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+) -> Result<ShellActionResult, String> {
+    // Perform the normalized refresh (reuses existing action semantics).
+    let action = refresh_desktop(comp, view, session_id.clone(), workspace_id, service).await?;
+    // Read the latest shell context from the composition (read-only accessor).
+    let context = comp.latest_shell_context();
+    Ok(ShellActionResult { action, context })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
