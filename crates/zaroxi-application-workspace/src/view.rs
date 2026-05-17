@@ -53,6 +53,8 @@ Freeze note (Phase‑1 editor‑view seam):
 /// Marker to make the view module non-empty and available for re-exports.
 pub fn _crate_marker_view() {}
 
+use crate::ports::{EditorDocument, EditorCursor};
+
 /// Create a compact, harness-friendly snippet from optional buffer content.
 ///
 /// - `content`: optional full buffer text as returned by a `WorkspaceView` read API.
@@ -74,4 +76,99 @@ pub fn content_snippet(content: Option<String>, max_chars: usize) -> Option<Stri
             s
         }
     })
+}
+
+/// A single visible/projected line DTO.
+///
+/// - `line_number` is 1-based (matches common editor UI conventions).
+/// - `text` is the line contents (no trimming performed).
+/// - `is_cursor_line` marks whether the editor cursor is on this line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleLine {
+    pub line_number: usize,
+    pub text: String,
+    pub is_cursor_line: bool,
+}
+
+/// A small window of visible lines projected from an EditorDocument.
+///
+/// - `top_line` is the 1-based line number of the first returned line.
+/// - `total_lines` is the total number of lines in the document (0 when content absent).
+/// - `lines` contains up to `window_size` VisibleLine entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleLinesWindow {
+    pub top_line: usize,
+    pub total_lines: usize,
+    pub lines: Vec<VisibleLine>,
+}
+
+/// Project a deterministic, presentation-only window of visible lines from an EditorDocument.
+///
+/// - `doc`: reference to an EditorDocument read-model (pure input).
+/// - `window_size`: number of lines to include in the window (preferred).
+/// - `center_on_cursor`: when true attempt to center the window on the cursor line;
+///    otherwise return the top-of-document window (starting at line 1).
+///
+/// Semantics (simple, deterministic):
+/// - If no content is present `total_lines == 0` and `lines` is empty.
+/// - Lines are computed using standard Rust `str::lines()` which is stable and
+///   deterministic for presentation (no layout or wrapping is performed).
+/// - Cursor line is derived from `doc.cursor.line` (0-based) and compared to the
+///   zero-based index of the chosen lines to set `is_cursor_line`.
+/// - `top_line` is 1-based and adjusted to ensure the returned window fits inside
+///   the document (when document shorter than `window_size` start at 1).
+pub fn project_visible_lines(doc: &EditorDocument, window_size: usize, center_on_cursor: bool) -> VisibleLinesWindow {
+    // Defensive: empty window_size treated as zero -> return empty projection.
+    if window_size == 0 {
+        return VisibleLinesWindow { top_line: 1, total_lines: 0, lines: Vec::new() };
+    }
+
+    // Extract lines deterministically using `lines()` iterator.
+    let lines_vec: Vec<String> = doc.content
+        .as_ref()
+        .map(|s| s.lines().map(|l| l.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let total = lines_vec.len();
+
+    if total == 0 {
+        return VisibleLinesWindow { top_line: 1, total_lines: 0, lines: Vec::new() };
+    }
+
+    let cursor_line = doc.cursor.line as usize;
+
+    // Determine start index (0-based) for the window.
+    let mut start = if center_on_cursor {
+        // center so cursor is roughly in the middle; floor behavior is ok.
+        let half = window_size / 2;
+        if cursor_line > half {
+            cursor_line.saturating_sub(half)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    // Clamp start so that window fits within document.
+    if start + window_size > total {
+        if total >= window_size {
+            start = total - window_size;
+        } else {
+            start = 0;
+        }
+    }
+
+    let end = std::cmp::min(start + window_size, total);
+
+    let mut out: Vec<VisibleLine> = Vec::with_capacity(end - start);
+    for (idx, line) in lines_vec.iter().enumerate().take(end).skip(start) {
+        out.push(VisibleLine {
+            line_number: idx + 1,
+            text: line.clone(),
+            is_cursor_line: idx == cursor_line,
+        });
+    }
+
+    VisibleLinesWindow { top_line: start + 1, total_lines: total, lines: out }
 }

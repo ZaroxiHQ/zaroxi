@@ -7,6 +7,7 @@ use zaroxi_application_workspace::ports::{
     SaveCheckpointRequest, LoadCheckpointRequest,
 };
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
+use zaroxi_application_workspace::view::project_visible_lines;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -90,6 +91,19 @@ async fn main() -> Result<(), String> {
             if let Some(line) = doc.current_line {
                 let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.clone() };
                 println!(" - current line snippet: {}", snippet);
+            }
+
+            // Phase 7 (new): project a deterministic, presentation-only visible lines window
+            // based on the EditorDocument. We choose a small default window (10 lines)
+            // and center it on the cursor for the harness demonstration.
+            let visible = project_visible_lines(&doc, 10, true);
+            println!("Harness: visible lines (top_line={}, total_lines={}):", visible.top_line, visible.total_lines);
+            for vl in visible.lines.iter() {
+                if vl.is_cursor_line {
+                    println!("> {:4} | {}", vl.line_number, vl.text);
+                } else {
+                    println!("  {:4} | {}", vl.line_number, vl.text);
+                }
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
