@@ -19,8 +19,6 @@
      // Editor-state types (Phase 3)
      EditorCursor, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
      ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
-     // Editor document/view model (Phase 6)
-     EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
      SessionId,
  };
  
