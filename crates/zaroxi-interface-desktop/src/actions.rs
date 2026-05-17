@@ -14,15 +14,12 @@ Architectural rationale (Phase 14 - minimal desktop action flow):
   intent-focused function to update presenter/composition state.
 
 Public API:
-- pub async fn refresh_desktop(
-      comp: &mut DesktopComposition,
-      view: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView>,
-      session_id: zaroxi_application_workspace::ports::SessionId,
-      workspace_id: Option<zaroxi_kernel_types::Id>,
-  ) -> Result<(), String>
+- A tiny ActionResult returned by interface-facing actions:
+    - `success`: true when action completed semantically
+    - `message`: optional human-facing message (on failure or informative)
+    - `refreshed`: whether the DesktopComposition was refreshed by this action
 
-The function is intentionally tiny and documented. Tests exercise the happy-path using
-a small in-test WorkspaceView stub.
+This file implements two tiny actions that return the normalized ActionResult.
 */
 
 use std::sync::Arc;
@@ -32,57 +29,69 @@ use zaroxi_kernel_types::Id;
 
 use crate::desktop::DesktopComposition;
 
+/// Normalized, tiny action result returned by interface-desktop actions.
+///
+/// Purpose:
+/// - Simple, shell-oriented status for UI actions.
+/// - Avoid duplicating application/domain error types.
+/// - Communicate whether a composition refresh occurred.
+#[derive(Clone, Debug)]
+pub struct ActionResult {
+    pub success: bool,
+    pub message: Option<String>,
+    pub refreshed: bool,
+}
+
 /// Refresh the given DesktopComposition by delegating to its async `refresh` method.
 ///
 /// Parameters:
-/// - comp: mutable reference to an existing DesktopComposition instance (presenter state).
-/// - view: Arc'd application WorkspaceView (read-only seam).
-/// - session_id: typed SessionId for the active UI session.
-/// - workspace_id: optional Workspace Id for caller metadata.
+/// - `comp`: mutable reference to an existing DesktopComposition instance (presenter state).
+/// - `view`: an Arc'd WorkspaceView (application-provided).
+/// - `session_id`: typed session id.
+/// - `workspace_id`: optional workspace id recorded in the composition.
 ///
-/// Returns:
-/// - Ok(()) on success.
-/// - Err(String) if the underlying presenter/composition refresh failed.
+/// Returns an ActionResult wrapped in `Result` to allow mapping unexpected internal errors
+/// (strings) while keeping the common success/failure represented by `ActionResult`.
+///
+/// Mapping policy:
+/// - If `DesktopComposition::refresh` returns Ok(()) => success=true, refreshed=true
+/// - If it returns Err(e) => success=false, message=Some(e), refreshed=false
 pub async fn refresh_desktop(
     comp: &mut DesktopComposition,
     view: Arc<dyn WorkspaceView>,
     session_id: SessionId,
     workspace_id: Option<Id>,
-) -> Result<(), String> {
-    comp.refresh(view, session_id, workspace_id).await
+) -> Result<ActionResult, String> {
+    match comp.refresh(view, session_id, workspace_id).await {
+        Ok(()) => Ok(ActionResult { success: true, message: None, refreshed: true }),
+        Err(e) => Ok(ActionResult { success: false, message: Some(e), refreshed: false }),
+    }
 }
 
 /// Small shell action: move the editor cursor for the active buffer to the document start
 /// (line 0, column 0) and refresh the desktop composition.
 ///
-/// Rationale:
-/// - This is intentionally tiny and orchestration-only. It resolves the active buffer
-///   using the WorkspaceService port, issues a typed editor-state mutation via
-///   set_editor_cursor, and then refreshes the composition via the existing presenter
-///   refresh seam. No editor logic is implemented here — the application handles
-///   cursor mutation semantics.
+/// Behavior:
+/// - Resolve active buffer via WorkspaceService::get_active_buffer
+/// - Issue set_editor_cursor to move caret to (0,0)
+/// - Refresh the DesktopComposition and return the ActionResult from refresh
 ///
-/// Parameters:
-/// - comp: mutable DesktopComposition to refresh after the side-effect.
-/// - service: Arc<dyn WorkspaceService> used to perform the cursor mutation.
-/// - view: Arc<dyn WorkspaceView> used to refresh the composition.
-/// - session_id: typed session id.
-/// - workspace_id: optional workspace id recorded on the composition.
-///
-/// Returns:
-/// - Ok(()) on success; Err(String) with a user-friendly message on failure.
+/// Error handling:
+/// - If get_active_buffer or set_editor_cursor return an error, return ActionResult with success=false
+///   and the mapped message (stringified).
+/// - The final result reflects whether the refresh completed (refreshed flag).
 pub async fn move_cursor_to_start_and_refresh(
     comp: &mut crate::desktop::DesktopComposition,
     service: Arc<dyn WorkspaceService>,
     view: Arc<dyn WorkspaceView>,
     session_id: SessionId,
     workspace_id: Option<zaroxi_kernel_types::Id>,
-) -> Result<(), String> {
+) -> Result<ActionResult, String> {
     // Resolve active buffer id from the service (explicit small use-case).
-    let active_resp = service
-        .get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() })
-        .await
-        .map_err(|e| e.to_string())?;
+    let active_resp = match service.get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+        Ok(r) => r,
+        Err(e) => return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+    };
 
     let buffer_id = active_resp.buffer_id;
 
@@ -93,13 +102,14 @@ pub async fn move_cursor_to_start_and_refresh(
         cursor: EditorCursor { line: 0, column: 0 },
     };
 
-    service
-        .set_editor_cursor(set_req)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Err(e) = service.set_editor_cursor(set_req).await {
+        return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
+    }
 
     // Refresh composition via existing tiny action (keeps responsibilities separated).
-    refresh_desktop(comp, view, session_id, workspace_id).await
+    // Reuse the normalized refresh_desktop so we return a consistent ActionResult.
+    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id).await?;
+    Ok(refresh_result)
 }
 
 #[cfg(test)]
@@ -275,7 +285,9 @@ mod tests {
         let sid = SessionId(zaroxi_kernel_types::Id::new());
         let mut comp = crate::desktop::DesktopComposition::new();
         // Call the tiny action
-        refresh_desktop(&mut comp, arc, sid.clone(), None).await.expect("refresh ok");
+        let ar = refresh_desktop(&mut comp, arc, sid.clone(), None).await.expect("refresh ok");
+        assert!(ar.success);
+        assert!(ar.refreshed);
         assert_eq!(comp.get_session_id().unwrap(), sid);
         let win = comp.latest_window().expect("window present");
         assert_eq!(win.total_lines, 1);
@@ -296,12 +308,15 @@ mod tests {
         let mut comp = crate::desktop::DesktopComposition::new();
 
         // First refresh to populate presenter state
-        refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
 
         // Execute the move-cursor action which should call set_editor_cursor on the service
         // and then refresh the composition again.
         let res = move_cursor_to_start_and_refresh(&mut comp, service_arc.clone(), view_arc.clone(), sid.clone(), None).await;
         assert!(res.is_ok(), "move cursor action should succeed");
+        let ar = res.unwrap();
+        assert!(ar.success);
+        assert!(ar.refreshed);
 
         // There is no direct observable cursor state on the composition beyond refresh success,
         // but success indicates the orchestration path executed (get_active_buffer -> set_editor_cursor -> refresh).
