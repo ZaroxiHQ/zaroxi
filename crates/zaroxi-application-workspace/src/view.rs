@@ -53,7 +53,7 @@ Freeze note (Phase‑1 editor‑view seam):
 /// Marker to make the view module non-empty and available for re-exports.
 pub fn _crate_marker_view() {}
 
-use crate::ports::{EditorDocument, EditorCursor};
+use crate::ports::EditorDocument;
 
 /// Create a compact, harness-friendly snippet from optional buffer content.
 ///

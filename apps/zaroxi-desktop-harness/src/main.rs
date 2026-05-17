@@ -88,8 +88,8 @@ async fn main() -> Result<(), String> {
             println!(" - cursor: {}:{}", doc.cursor.line, doc.cursor.column);
             println!(" - selection: {:?}", doc.selection);
             println!(" - line_count: {}", doc.line_count);
-            if let Some(line) = doc.current_line {
-                let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.clone() };
+            if let Some(ref line) = doc.current_line {
+                let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.to_owned() };
                 println!(" - current line snippet: {}", snippet);
             }
 
