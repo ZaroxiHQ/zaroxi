@@ -106,6 +106,8 @@ async fn main() -> Result<(), String> {
             // The composition reuses the existing Presenter and adapter seam and
             // records minimal shell metadata (session/workspace) for harness printing.
             let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
+            // Also expose the orchestrator as a WorkspaceService for tiny shell actions.
+            let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> = orchestrator.clone();
             let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
             // Delegate refreshing to the tiny interface action introduced in Phase 14.
             if let Err(e) = zaroxi_interface_desktop::refresh_desktop(
@@ -141,6 +143,19 @@ async fn main() -> Result<(), String> {
                 }
             } else {
                 println!("Harness: composition contained no window after refresh");
+            }
+
+            // Demonstrate the new tiny shell action: move the cursor to document start and refresh composition.
+            if let Err(e) = zaroxi_interface_desktop::actions::move_cursor_to_start_and_refresh(
+                &mut composition,
+                service_dyn.clone(),
+                view_dyn.clone(),
+                boot_res.session.session_id.clone(),
+                Some(boot_res.session.workspace_id),
+            ).await {
+                println!("Harness: move cursor action failed: {}", e);
+            } else {
+                println!("Harness: move cursor action completed; composition refreshed.");
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
