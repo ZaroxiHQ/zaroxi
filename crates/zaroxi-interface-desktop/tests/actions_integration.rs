@@ -34,6 +34,7 @@ use std::sync::Arc as StdArc;
 use zaroxi_interface_desktop::{
     refresh_desktop, move_cursor_to_start_and_refresh, actions, DesktopComposition,
 };
+use zaroxi_interface_desktop::desktop::RefreshReason;
 use zaroxi_application_workspace::ports::{
     WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId,
     GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor,
@@ -271,7 +272,7 @@ async fn refresh_desktop_returns_action_result_and_updates_composition() {
 
     // ensure refresh reason recorded
     let rr = comp.latest_refresh_reason().expect("reason present");
-    assert_eq!(rr, crate::desktop::RefreshReason::RefreshAction);
+    assert_eq!(rr, RefreshReason::RefreshAction);
 }
 
 #[tokio::test]
@@ -297,7 +298,7 @@ async fn move_cursor_action_calls_service_and_refreshes() {
 
     // Cursor-move recorded
     let rr = comp.latest_refresh_reason().expect("reason present");
-    assert_eq!(rr, crate::desktop::RefreshReason::CursorMoved);
+    assert_eq!(rr, RefreshReason::CursorMoved);
 
     // Cursor move should be recorded as the refresh reason.
     let rr = comp.latest_refresh_reason().expect("reason present");
@@ -327,7 +328,7 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
 
     // Buffer update recorded
     let rr = comp.latest_refresh_reason().expect("reason present");
-    assert_eq!(rr, crate::desktop::RefreshReason::BufferUpdated);
+    assert_eq!(rr, RefreshReason::BufferUpdated);
 
     // Insert-line should be recorded as a buffer update refresh.
     let rr = comp.latest_refresh_reason().expect("reason present");
