@@ -3,6 +3,8 @@
 pub mod state;
 pub mod commands;
 pub mod compose;
+pub mod view_adapter;
 
 pub use state::EditorState;
 pub use commands::EditorCommand;
+pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind, fetch_renderable_window};

@@ -38,6 +38,7 @@ async fn main() -> Result<(), String> {
  
     // Compose the application orchestrator (implementation owned by application layer).
     let orchestrator = WorkspaceOrchestrator::new_with_history_and_durability(repo_dyn, buffer_dyn, ai_dyn, history_dyn.clone(), checkpoint_dyn.clone());
+    let orchestrator = std::sync::Arc::new(orchestrator);
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
