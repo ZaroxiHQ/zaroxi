@@ -75,74 +75,60 @@ async fn main() -> Result<(), String> {
             } else {
                 println!("Harness: editor state: <none>");
             }
-        }
-        Err(e) => println!("Harness: failed to read editor state: {}", e),
-    }
+            Ok(resp) => {
+                let doc = resp.document;
+                println!("Harness: editor document summary for session {}:", boot_res.session.session_id);
+                println!(" - buffer: {}", doc.buffer_id);
+                println!(" - cursor: {}:{}", doc.cursor.line, doc.cursor.column);
+                println!(" - selection: {:?}", doc.selection);
+                println!(" - line_count: {}", doc.line_count);
+                if let Some(ref line) = doc.current_line {
+                    let snippet = if line.len() > 200 { format!(\"{}...\", &line[..200]) } else { line.to_owned() };
+                    println!(\" - current line snippet: {}\", snippet);
+                }
 
-    // Phase 6: fetch the structured editor document/view model for the active buffer.
-    match orchestrator.get_active_editor_document(GetActiveEditorDocumentRequest { session_id: boot_res.session.session_id.clone() }).await {
-        Ok(resp) => {
-            let doc = resp.document;
-            println!("Harness: editor document summary for session {}:", boot_res.session.session_id);
-            println!(" - buffer: {}", doc.buffer_id);
-            println!(" - cursor: {}:{}", doc.cursor.line, doc.cursor.column);
-            println!(" - selection: {:?}", doc.selection);
-            println!(" - line_count: {}", doc.line_count);
-            if let Some(ref line) = doc.current_line {
-                let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.to_owned() };
-                println!(" - current line snippet: {}", snippet);
-            }
+                // Phase 7 (new): set a small default viewport so the application view seam
+                // computes a predictable visible window before the interface adapter fetches it.
+                let vp = zaroxi_application_workspace::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: true };
+                let _ = orchestrator.set_viewport_state(zaroxi_application_workspace::ports::SetViewportRequest {
+                    session_id: boot_res.session.session_id.clone(),
+                    buffer_id: doc.buffer_id.clone(),
+                    viewport: vp.clone(),
+                }).await.map_err(|e| e.to_string())?;
 
-            // Phase 7 (new): project a deterministic, presentation-only visible lines window
-            // using the typed viewport seam. We compose a small default viewport and set it
-            // via the orchestrator, then request the projected lines from the view seam.
-            let vp = zaroxi_application_workspace::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: true };
-            let _ = orchestrator.set_viewport_state(zaroxi_application_workspace::ports::SetViewportRequest {
-                session_id: boot_res.session.session_id.clone(),
-                buffer_id: doc.buffer_id.clone(),
-                viewport: vp.clone(),
-            }).await.map_err(|e| e.to_string())?;
- 
-            let win_res = orchestrator.get_visible_lines(zaroxi_application_workspace::ports::GetVisibleLinesRequest {
-                session_id: boot_res.session.session_id.clone(),
-                buffer_id: doc.buffer_id.clone(),
-            }).await.map_err(|e| e.to_string())?;
-            let visible = win_res.window;
-            println!("Harness: visible lines (span-based): top_line={} total_lines={}", visible.top_line, visible.total_lines);
-
-            // Project visible lines into a small typed render model (line -> spans).
-            let render_lines = zaroxi_application_workspace::view::project_renderable_lines(&visible);
-
-            // Print compact, span-based representation:
-            // - Normal text is printed raw.
-            // - Selection spans are wrapped as [ ... ].
-            // - Cursor spans are wrapped as |...|; zero-width cursor is printed as |^|.
-            // - SelectionCursor (cursor inside selection) is printed as [|...|].
-            for rl in render_lines.iter() {
-                let mut out = String::new();
-                for sp in rl.spans.iter() {
-                    match &sp.kind {
-                        zaroxi_application_workspace::view::SpanKind::Normal => out.push_str(&sp.text),
-                        zaroxi_application_workspace::view::SpanKind::Selection => {
-                            out.push_str(&format!("[{}]", sp.text));
-                        }
-                        zaroxi_application_workspace::view::SpanKind::Cursor => {
-                            if sp.text.is_empty() {
-                                out.push_str("|^|");
-                            } else {
-                                out.push_str(&format!("|{}|", sp.text));
+                // Use the thin interface adapter seam to obtain the character-span render model.
+                let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
+                match zaroxi_interface_desktop::view_adapter::fetch_renderable_window(view_dyn, boot_res.session.session_id.clone()).await {
+                    Ok(win) => {
+                        println!("Harness: visible render window: top_line={} total_lines={}", win.top_line, win.total_lines);
+                        for rl in win.lines.iter() {
+                            let mut out = String::new();
+                            for sp in rl.spans.iter() {
+                                match sp.kind {
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
+                                        out.push_str(&format!("[{}]", sp.text));
+                                    }
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
+                                        if sp.text.is_empty() {
+                                            out.push_str("|^|");
+                                        } else {
+                                            out.push_str(&format!("|{}|", sp.text));
+                                        }
+                                    }
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                                        out.push_str(&format!("[|{}|]", sp.text));
+                                    }
+                                }
                             }
-                        }
-                        zaroxi_application_workspace::view::SpanKind::SelectionCursor => {
-                            out.push_str(&format!("[|{}|]", sp.text));
+                            println!("{:4} | {}", rl.line_number, out);
                         }
                     }
+                    Err(e) => println!("Harness: failed to fetch renderable window: {}", e),
                 }
-                println!("{:4} | {}", rl.line_number, out);
             }
+            Err(e) => println!("Harness: failed to get editor document: {}", e),
         }
-        Err(e) => println!("Harness: failed to get editor document: {}", e),
-    }
 
     let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };
     let open2_res = orchestrator.open_buffer(open2).await.map_err(|e| e.to_string())?;
