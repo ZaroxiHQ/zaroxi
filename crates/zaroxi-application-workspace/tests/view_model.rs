@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, GetActiveEditorDocumentRequest,
-    SetEditorCursorRequest, SetSelectionRequest, EditorCursor, Selection,
+    SetEditorCursorRequest, SetSelectionRequest, EditorCursor, Selection, WorkspaceView,
 };
 use zaroxi_application_workspace::ports as ports;
 use zaroxi_application_workspace::ports::WorkspaceService;
