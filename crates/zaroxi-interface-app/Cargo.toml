@@ -13,7 +13,10 @@ log = "0.4"
 
 # Interface and workspace-local crates consumed by this crate.
 zaroxi-interface-desktop = { workspace = true }
-zaroxi-config = { workspace = true }
+# The workspace does not declare a workspace-level pin for `zaroxi-config`, avoid inheriting
+# a missing workspace dependency by pinning a local version. If the actual package is a
+# workspace member under a different path/name, convert this entry to a path = "../..." form.
+zaroxi-config = "0.1.0"
 zaroxi-editor-core = { workspace = true }
 zaroxi-editor-buffer = { workspace = true }
 zaroxi-workspace = { workspace = true }
