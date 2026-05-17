@@ -435,7 +435,8 @@ impl DesktopComposition {
         let metadata = DesktopMetadata {
             session_id: Some(session_id),
             workspace_id: self.workspace_id.clone(),
-            active_buffer: active_buf_opt.clone(),
+            // Prefer service-provided opened-buffer active marker when present; fall back to presenter's active buffer.
+            active_buffer: authoritative_active.clone(),
             opened_buffer_count: opened_count,
             opened_buffers: opened_list.clone(),
             active_buffer_details: active_buffer_details.clone(),
