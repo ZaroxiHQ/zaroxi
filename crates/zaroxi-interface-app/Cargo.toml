@@ -7,7 +7,9 @@ license = "MIT"
 
 [dependencies]
 serde = { workspace = true }
-log = { workspace = true }
+# `log` is not declared in the workspace dependencies; depend on a specific compatible
+# version here to avoid inheriting an absent workspace dependency.
+log = "0.4"
 
 # Interface and workspace-local crates consumed by this crate.
 zaroxi-interface-desktop = { workspace = true }
@@ -17,3 +19,5 @@ zaroxi-editor-buffer = { workspace = true }
 zaroxi-workspace = { workspace = true }
 zaroxi-theme = { workspace = true }
 zaroxi-foundation = { workspace = true }
+
+# Validation hint (comment): run `cargo test -p zaroxi-interface-app` to confirm build.
