@@ -12,8 +12,22 @@ use zaroxi_kernel_types::Id;
 /// workspace/session lifecycle, events, or history storage policy.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AppCommand {
+    /// Request an AI explanation for a buffer (existing).
     AiExplain { buffer_id: BufferId },
-    InsertText { buffer_id: BufferId, offset: usize, text: String },
+
+    /// Insert text at the current editor cursor for the session/buffer.
+    /// The orchestrator will resolve the session cursor/selection to a character index.
+    InsertText { buffer_id: BufferId, text: String },
+
+    /// Delete the current selection in the given buffer (requires selection present).
+    DeleteSelection { buffer_id: BufferId },
+
+    /// Replace the current selection with `text`. If no selection is present this
+    /// is equivalent to an insert at the cursor.
+    ReplaceSelection { buffer_id: BufferId, text: String },
+
+    /// Indent the current line (insert a small indent, e.g. four spaces at line start).
+    IndentLine { buffer_id: BufferId },
 }
 
 /// Command kind for history records (typed minimal).
