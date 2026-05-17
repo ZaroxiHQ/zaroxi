@@ -164,7 +164,7 @@ impl DesktopComposition {
         let mut opened_list: Vec<OpenedBufferItem> = Vec::new();
 
         // 3) If a WorkspaceService is provided, attempt to obtain the authoritative opened buffer list.
-        if let Some(svc) = service {
+        if let Some(svc) = &service {
             // Request list of opened buffers for the session (application-owned use-case).
             match svc.list_open_buffers(crate::ports::ListBuffersRequest { session_id: session_id.clone() }).await {
                 Ok(list_res) => {
@@ -217,7 +217,7 @@ impl DesktopComposition {
         // the most recent ExplainExecuted event if present. This keeps composition purely read-only
         // and avoids duplicating AI orchestration logic.
         let mut ai_proj: Option<AiProjection> = None;
-        if let Some(svc) = service {
+        if let Some(svc) = &service {
             if let Ok(ev_res) = svc.get_recent_events(crate::ports::GetRecentEventsRequest { session_id: session_id.clone(), limit: 20 }).await {
                 // Iterate from newest to oldest and pick the first ExplainExecuted we find.
                 for ev in ev_res.events.iter().rev() {
