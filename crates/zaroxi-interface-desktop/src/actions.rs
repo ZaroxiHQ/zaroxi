@@ -24,7 +24,7 @@ This file implements two tiny actions that return the normalized ActionResult.
 
 use std::sync::Arc;
 
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, EditorCursor};
+use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, ApplyTextTransactionResponse, EditorCursor, TextEdit};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::DesktopComposition;
@@ -112,6 +112,50 @@ pub async fn move_cursor_to_start_and_refresh(
     Ok(refresh_result)
 }
 
+/// Small shell action: insert a blank line at the start of the active buffer
+/// (line 0) and refresh the desktop composition.
+///
+/// Behavior:
+/// - Resolve active buffer via WorkspaceService::get_active_buffer
+/// - Apply a single character-indexed Insert transaction at index 0 using the
+///   existing ApplyTextTransaction use-case (reuses application mutation pathway).
+/// - Refresh the DesktopComposition and return the ActionResult from refresh.
+///
+/// Error handling:
+/// - If get_active_buffer or apply_text_transaction return an error, return ActionResult with success=false
+///   and the mapped message (stringified).
+/// - The final result reflects whether the refresh completed (refreshed flag).
+pub async fn insert_line_at_start_and_refresh(
+    comp: &mut crate::desktop::DesktopComposition,
+    service: Arc<dyn WorkspaceService>,
+    view: Arc<dyn WorkspaceView>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+) -> Result<ActionResult, String> {
+    // Resolve active buffer id from the service (explicit small use-case).
+    let active_resp = match service.get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+        Ok(r) => r,
+        Err(e) => return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+    };
+
+    let buffer_id = active_resp.buffer_id;
+
+    // Build and issue a typed Insert transaction at character index 0.
+    let txn_req = ApplyTextTransactionRequest {
+        session_id: session_id.clone(),
+        buffer_id: buffer_id.clone(),
+        transaction: TextEdit::Insert { index: 0, text: "\n".to_string() },
+    };
+
+    if let Err(e) = service.apply_text_transaction(txn_req).await {
+        return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
+    }
+
+    // Refresh composition via existing tiny action and return its result.
+    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id).await?;
+    Ok(refresh_result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,11 +228,12 @@ mod tests {
     struct FakeService {
         buffer_id: BufferId,
         set_called: StdArc<AtomicBool>,
+        apply_called: StdArc<AtomicBool>,
     }
 
     impl FakeService {
         fn new(buffer_id: BufferId) -> Self {
-            Self { buffer_id, set_called: StdArc::new(AtomicBool::new(false)) }
+            Self { buffer_id, set_called: StdArc::new(AtomicBool::new(false)), apply_called: StdArc::new(AtomicBool::new(false)) }
         }
     }
 
@@ -249,7 +294,11 @@ mod tests {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
         fn apply_text_transaction(&self, _req: crate::ports::ApplyTextTransactionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
-            Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            let apply_called = self.apply_called.clone();
+            Box::pin(async move {
+                apply_called.store(true, Ordering::SeqCst);
+                Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: None })
+            })
         }
 
         fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
@@ -320,5 +369,30 @@ mod tests {
 
         // There is no direct observable cursor state on the composition beyond refresh success,
         // but success indicates the orchestration path executed (get_active_buffer -> set_editor_cursor -> refresh).
+    }
+
+    #[tokio::test]
+    async fn insert_line_action_inserts_and_refreshes() {
+        // Set up a fake view and fake service that cooperatively simulate a running orchestrator.
+        let v = FakeView::new();
+        let view_arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+
+        // Fake service uses the same buffer id as the FakeView (buf:fake).
+        let fake_service = FakeService::new(BufferId::from("buf:fake"));
+        let service_arc: StdArc<dyn crate::ports::WorkspaceService> = StdArc::new(fake_service);
+
+        let mut comp = crate::desktop::DesktopComposition::new();
+
+        // First refresh to populate presenter state
+        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+
+        // Execute the insert-line action which should call apply_text_transaction on the service
+        // and then refresh the composition again.
+        let res = insert_line_at_start_and_refresh(&mut comp, service_arc.clone(), view_arc.clone(), sid.clone(), None).await;
+        assert!(res.is_ok(), "insert-line action should succeed");
+        let ar = res.unwrap();
+        assert!(ar.success);
+        assert!(ar.refreshed);
     }
 }

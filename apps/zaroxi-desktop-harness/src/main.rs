@@ -166,6 +166,22 @@ async fn main() -> Result<(), String> {
                     println!("Harness: move cursor action failed: {}", e);
                 }
             }
+
+            // New tiny shell action: insert a blank line at start of active buffer and refresh composition.
+            match zaroxi_interface_desktop::actions::insert_line_at_start_and_refresh(
+                &mut composition,
+                service_dyn.clone(),
+                view_dyn.clone(),
+                boot_res.session.session_id.clone(),
+                Some(boot_res.session.workspace_id),
+            ).await {
+                Ok(action_result) => {
+                    println!("Harness: insert-line-at-start action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                }
+                Err(e) => {
+                    println!("Harness: insert-line action failed: {}", e);
+                }
+            }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
     }
