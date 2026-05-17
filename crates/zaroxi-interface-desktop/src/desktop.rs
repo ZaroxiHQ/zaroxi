@@ -310,6 +310,37 @@ pub struct ShellContext {
     pub has_ai_projection: bool,
 }
 
+/// Tiny, read-only aggregate snapshot aimed at shells and harnesses.
+///
+/// Purpose:
+/// - Provide a single convenient read-only projection that composes the existing
+///   shell-facing summaries already present on DesktopComposition:
+///     - ShellContext
+///     - ActiveDocumentSummary
+///     - ViewportSummary
+///     - AiProjectionSummary
+///     - OpenedBuffersSummary
+/// - The ShellSnapshot is purely an adapter-local convenience. It does not
+///   duplicate logic; it simply calls the existing latest_* accessors and
+///   packages their results. It is small and shallow.
+#[derive(Clone, Debug)]
+pub struct ShellSnapshot {
+    /// Small shell context (required for the snapshot; snapshot absent when no context).
+    pub context: ShellContext,
+
+    /// Active document summary (when available).
+    pub active_document: Option<ActiveDocumentSummary>,
+
+    /// Viewport summary (when available).
+    pub viewport: Option<ViewportSummary>,
+
+    /// AI projection summary (when available).
+    pub ai_summary: Option<AiProjectionSummary>,
+
+    /// Opened buffers summary (always present as a small projection).
+    pub opened_buffers: OpenedBuffersSummary,
+}
+
 /// Small, shell-facing consistency report for a DesktopComposition.
 ///
 /// Purpose:
