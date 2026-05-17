@@ -126,7 +126,29 @@ pub struct DesktopStatus {
     /// Is there an AI projection available?
     pub has_ai_projection: bool,
 }
-
+ 
+/// Small, shell-facing summary of the composition.
+///
+/// Purpose:
+/// - Provide a compact, read-only projection that combines a few frequently used
+///   composition facts for outer shells / harnesses.
+/// - This is intentionally derivative (reads existing composition fields) and
+///   tiny: revision, refresh_reason, optional status snapshot and active buffer id.
+///
+/// The summary is not a replacement for the richer metadata/status APIs; it is
+/// a convenience accessor for small shells that only need a compact snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesktopSummary {
+    /// Monotonic composition revision.
+    pub revision: u64,
+    /// The most recent refresh reason recorded in metadata (when available).
+    pub refresh_reason: Option<RefreshReason>,
+    /// A compact status snapshot (may be None if not populated).
+    pub status: Option<DesktopStatus>,
+    /// Optional active buffer id (when available).
+    pub active_buffer: Option<crate::ports::BufferId>,
+}
+ 
 /// Minimal desktop-level composition state.
 ///
 /// Mostly read-only: composition is updated via `refresh` which delegates to the
@@ -449,6 +471,25 @@ impl DesktopComposition {
     pub fn latest_refresh_reason(&self) -> Option<RefreshReason> {
         self.metadata.as_ref().and_then(|m| m.refresh_reason.clone())
     }
+
+    /// Return a compact, read-only summary of the composition suitable for shells.
+    ///
+    /// The summary is derived from existing composition fields and is intentionally
+    /// small and readonly. It does not duplicate underlying state — it merely
+    /// projects a few commonly-used values into a convenient struct.
+    pub fn latest_summary(&self) -> Option<DesktopSummary> {
+        // Always return a summary after at least one refresh; we base presence on revision > 0.
+        if self.revision == 0 && self.metadata.is_none() && self.status.is_none() {
+            return None;
+        }
+
+        Some(DesktopSummary {
+            revision: self.revision,
+            refresh_reason: self.latest_refresh_reason(),
+            status: self.status.clone(),
+            active_buffer: self.metadata.as_ref().and_then(|m| m.active_buffer.clone()),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -698,5 +739,24 @@ mod tests {
         assert!(status.has_active_buffer_details, "active buffer details should be present");
         assert!(status.has_opened_buffers, "opened buffers projection should be non-empty");
         assert!(status.has_ai_projection, "AI projection should be reported present");
+    }
+
+    #[tokio::test]
+    async fn latest_summary_reflects_composition_state() {
+        let v = FakeView::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let wid = zaroxi_kernel_types::Id::new();
+
+        let mut comp = DesktopComposition::new();
+        comp.refresh(arc.clone(), sid.clone(), Some(wid.clone())).await.expect("refresh ok");
+
+        let summary = comp.latest_summary().expect("summary present");
+        assert_eq!(summary.revision, comp.latest_revision());
+        assert_eq!(summary.refresh_reason, comp.latest_refresh_reason());
+        let status = comp.latest_status().expect("status present");
+        assert!(summary.status.is_some());
+        assert_eq!(summary.status.unwrap().has_render_window, status.has_render_window);
+        assert_eq!(summary.active_buffer, comp.latest_metadata().and_then(|m| m.active_buffer));
     }
 }
