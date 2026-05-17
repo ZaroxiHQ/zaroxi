@@ -193,20 +193,17 @@ async fn main() -> Result<(), String> {
                             println!("Harness: active buffer details: <none>");
                         }
 
-                        // Print the tiny opened-buffers projection (explicit and shell-oriented).
-                        if let Some(meta) = composition.latest_metadata() {
-                            if !meta.opened_buffers.is_empty() {
-                                println!("Harness: opened buffers projection (count={}):", meta.opened_buffers.len());
-                                for item in meta.opened_buffers.iter() {
-                                    let display = item.display.as_deref().unwrap_or("<no-display>");
-                                    let active_mark = if item.active { "*" } else { " " };
-                                    println!("  {} {} ({})", active_mark, item.buffer_id, display);
-                                }
-                            } else {
-                                println!("Harness: opened buffers projection: <empty>");
+                        // Print the tiny opened-buffers summary (shell-facing, derived projection).
+                        let obs = composition.latest_opened_buffers_summary();
+                        if obs.count > 0 {
+                            println!("Harness: opened buffers summary (count={}):", obs.count);
+                            for item in obs.items.iter() {
+                                let display = item.display.as_deref().unwrap_or("<no-display>");
+                                let active_mark = if item.active { "*" } else { " " };
+                                println!("  {} {} ({}) lines={}", active_mark, item.buffer_id, display, item.line_count);
                             }
                         } else {
-                            println!("Harness: opened buffers projection: <none>");
+                            println!("Harness: opened buffers summary: <empty>");
                         }
                     } else {
                         println!("Harness: no composition metadata available");

@@ -231,6 +231,41 @@ pub struct DesktopStatus {
     /// Is there an AI projection available?
     pub has_ai_projection: bool,
 }
+
+/// Tiny read-only summary item for a single opened buffer exposed to shells.
+///
+/// Purpose:
+/// - Small, shell-facing immutable DTO used by OpenedBuffersSummary.
+/// - Reuses BufferId canonical type from core via `crate::ports`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedBufferItemSummary {
+    /// Canonical buffer id (core BufferId).
+    pub buffer_id: crate::ports::BufferId,
+    /// Optional display label (e.g. path or file name).
+    pub display: Option<String>,
+    /// Optional line-count when available (0 when unknown).
+    pub line_count: usize,
+    /// Whether this buffer is currently active.
+    pub active: bool,
+}
+
+/// Tiny read-only projection summarizing opened buffers for shell consumption.
+///
+/// Purpose:
+/// - Provide a compact, deterministic view of opened buffers:
+///   - total count
+///   - per-buffer id/display/line-count/active flag
+///   - optional currently active buffer id for quick shell checks
+/// - Constructed from existing composition metadata; purely read-only and local to the interface crate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedBuffersSummary {
+    /// Number of opened buffers (conservative projection from metadata).
+    pub count: usize,
+    /// Small per-buffer items.
+    pub items: Vec<OpenedBufferItemSummary>,
+    /// Optional active buffer id when available.
+    pub active: Option<crate::ports::BufferId>,
+}
  
 /// Small, shell-facing summary of the composition.
 ///
@@ -749,6 +784,45 @@ impl DesktopComposition {
     /// Tiny read-only status snapshot indicating which composition projections are populated.
     pub fn latest_status(&self) -> Option<DesktopStatus> {
         self.status.clone()
+    }
+
+    /// Tiny, read-only opened-buffers summary derived from the composition metadata.
+    ///
+    /// Characteristics:
+    /// - Always returns an OpenedBuffersSummary (empty when metadata absent).
+    /// - Prefers data already present in `metadata.opened_buffers` and `metadata.active_buffer_details`.
+    /// - Does not perform any IO or call application ports; purely projection-only.
+    pub fn latest_opened_buffers_summary(&self) -> OpenedBuffersSummary {
+        if let Some(meta) = &self.metadata {
+            // Build per-item summaries. Prefer line_count from active_buffer_details when it matches.
+            let mut items: Vec<OpenedBufferItemSummary> = Vec::with_capacity(meta.opened_buffers.len());
+            for it in meta.opened_buffers.iter() {
+                // Try to obtain line_count from active_buffer_details when it matches the buffer id.
+                let mut line_count: usize = 0;
+                if let Some(abd) = &meta.active_buffer_details {
+                    if abd.buffer_id == it.buffer_id {
+                        line_count = abd.line_count;
+                    }
+                }
+                items.push(OpenedBufferItemSummary {
+                    buffer_id: it.buffer_id.clone(),
+                    display: it.display.clone(),
+                    line_count,
+                    active: it.active,
+                });
+            }
+            OpenedBuffersSummary {
+                count: meta.opened_buffer_count,
+                items,
+                active: meta.active_buffer.clone(),
+            }
+        } else {
+            OpenedBuffersSummary {
+                count: 0,
+                items: Vec::new(),
+                active: None,
+            }
+        }
     }
 
     /// Return the small, read-only AI projection (if any) obtained during the last refresh.
