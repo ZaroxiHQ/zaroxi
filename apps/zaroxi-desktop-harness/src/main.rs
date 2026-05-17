@@ -217,6 +217,22 @@ async fn main() -> Result<(), String> {
                         crep.active_buffer_matches_details,
                         crep.active_buffer_in_opened_buffers,
                         crep.presenter_window_matches_status);
+
+                    // Small, convenient shell snapshot print for harness diagnostics (Phase 38).
+                    if let Some(ss) = composition.latest_shell_snapshot() {
+                        println!("Harness: ShellSnapshot: rev={} active_buffer={:?} active_display={:?} cursor_line={:?} cursor_col={:?} selection_present={} viewport_top={} viewport_visible={} ai_present={} opened_count={}",
+                            ss.context.latest_revision,
+                            ss.context.active_buffer,
+                            ss.context.active_display,
+                            ss.active_document.as_ref().and_then(|d| d.cursor_line),
+                            ss.active_document.as_ref().and_then(|d| d.cursor_column),
+                            ss.active_document.as_ref().map(|d| d.selection_present).unwrap_or(false),
+                            ss.viewport.as_ref().map(|v| v.top_visible_line).unwrap_or(0),
+                            ss.viewport.as_ref().map(|v| v.visible_line_count).unwrap_or(0),
+                            ss.ai_summary.as_ref().map(|a| a.present).unwrap_or(false),
+                            ss.opened_buffers.count,
+                        );
+                    }
                 }
                 Err(e) => {
                     println!("Harness: failed to refresh desktop composition: {}", e);
