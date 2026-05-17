@@ -124,13 +124,14 @@ pub async fn fetch_renderable_window(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument};
+    use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor};
+    use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
     use zaroxi_core_editor_buffer::ports::BufferId;
 
     /// Minimal in-test WorkspaceView stub that returns a tiny document and a prebuilt visible window.
     struct FakeView {
         doc: EditorDocument,
-        window: crate::super::super::view::VisibleLinesWindow,
+        window: VisibleLinesWindow,
     }
 
     impl FakeView {
@@ -140,15 +141,14 @@ mod tests {
             let ed = EditorDocument {
                 buffer_id: BufferId::from("buf:fake"),
                 content: content.clone(),
-                cursor: crate::super::super::ports::EditorCursor { line: 0, column: 2 },
+                cursor: EditorCursor { line: 0, column: 2 },
                 selection: None,
                 line_count: 1,
                 current_line: content.and_then(|c| c.lines().nth(0).map(|s| s.to_string())),
             };
 
-            // Build a VisibleLinesWindow of one line using view::project_visible_lines_for_viewport would be overkill;
-            // create the VisibleLinesWindow directly (it mirrors small projection semantics).
-            let vl = crate::super::super::view::VisibleLine {
+            // Build a VisibleLinesWindow of one line (it mirrors small projection semantics).
+            let vl = VisibleLine {
                 line_number: 1,
                 text: "abcd".to_string(),
                 is_cursor_line: true,
@@ -157,7 +157,7 @@ mod tests {
                 selection_start_column: None,
                 selection_end_column: None,
             };
-            let vw = crate::super::super::view::VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
+            let vw = VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
 
             FakeView { doc: ed, window: vw }
         }
