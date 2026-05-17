@@ -161,8 +161,9 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     use zaroxi_application_workspace::ports::{
-        WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument,
+        WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor,
     };
+    use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
     use zaroxi_core_editor_buffer::ports::BufferId;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc as StdArc;
@@ -170,7 +171,7 @@ mod tests {
     /// Minimal in-test WorkspaceView stub that returns a tiny document and a prebuilt visible window.
     struct FakeView {
         doc: EditorDocument,
-        window: crate::super::view::VisibleLinesWindow,
+        window: VisibleLinesWindow,
     }
 
     impl FakeView {
@@ -180,14 +181,14 @@ mod tests {
             let ed = EditorDocument {
                 buffer_id: BufferId::from("buf:fake"),
                 content: content.clone(),
-                cursor: crate::super::ports::EditorCursor { line: 0, column: 2 },
+                cursor: EditorCursor { line: 0, column: 2 },
                 selection: None,
                 line_count: 1,
                 current_line: content.and_then(|c| c.lines().nth(0).map(|s| s.to_string())),
             };
 
             // Build a VisibleLinesWindow of one line.
-            let vl = crate::super::view::VisibleLine {
+            let vl = VisibleLine {
                 line_number: 1,
                 text: "abcd".to_string(),
                 is_cursor_line: true,
@@ -196,7 +197,7 @@ mod tests {
                 selection_start_column: None,
                 selection_end_column: None,
             };
-            let vw = crate::super::view::VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
+            let vw = VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
 
             FakeView { doc: ed, window: vw }
         }
