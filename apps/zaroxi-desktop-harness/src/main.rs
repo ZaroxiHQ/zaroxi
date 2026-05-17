@@ -39,6 +39,12 @@ async fn main() -> Result<(), String> {
     // Compose the application orchestrator (implementation owned by application layer).
     let orchestrator = WorkspaceOrchestrator::new_with_history_and_durability(repo_dyn, buffer_dyn, ai_dyn, history_dyn.clone(), checkpoint_dyn.clone());
     let orchestrator = std::sync::Arc::new(orchestrator);
+    // Prepare shared composition, view and service handles for reuse across scopes.
+    // These are created once here so they are available both inside the `get_active_editor_document`
+    // match arm and later in the function (e.g. after explain/other use-cases).
+    let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
+    let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
+    let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> = orchestrator.clone();
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
@@ -105,10 +111,7 @@ async fn main() -> Result<(), String> {
             // Use a tiny desktop composition to fetch and hold the renderable window.
             // The composition reuses the existing Presenter and adapter seam and
             // records minimal shell metadata (session/workspace) for harness printing.
-            let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
-            // Also expose the orchestrator as a WorkspaceService for tiny shell actions.
-            let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> = orchestrator.clone();
-            let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
+            // `view_dyn`, `service_dyn` and `composition` are created above and reused here.
             // Delegate refreshing to the tiny interface action introduced in Phase 14.
             match zaroxi_interface_desktop::refresh_desktop(
                 &mut composition,
