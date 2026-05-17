@@ -209,6 +209,37 @@ pub async fn refresh_and_get_shell_context(
     Ok(ShellActionResult { action, context })
 }
 
+/// Tiny convenience shell action:
+/// - Set the active buffer via the provided WorkspaceService.
+/// - Mark the composition pending reason as ActiveBufferChanged.
+/// - Refresh the DesktopComposition (using the service when present) and return the ShellActionResult.
+///
+/// Errors from the service are mapped into a failed ActionResult (returned inside Ok(ShellActionResult))
+/// rather than being propagated as Err(String) — keeping parity with other small action semantics.
+pub async fn set_active_buffer_and_get_shell_context(
+    comp: &mut crate::desktop::DesktopComposition,
+    service: std::sync::Arc<dyn WorkspaceService>,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    buffer_id: crate::ports::BufferId,
+) -> Result<ShellActionResult, String> {
+    // Ask the service to set the active buffer.
+    if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+        return Ok(ShellActionResult {
+            action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+            context: None,
+        });
+    }
+
+    // Indicate reason for upcoming refresh.
+    comp.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+
+    // Delegate to the existing refresh_and_get_shell_context helper so we reuse projection/consistency logic.
+    let res = refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
+    Ok(res)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

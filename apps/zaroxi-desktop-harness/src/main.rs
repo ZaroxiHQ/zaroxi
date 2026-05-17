@@ -288,6 +288,24 @@ async fn main() -> Result<(), String> {
     let set_res = orchestrator.set_active_buffer(set_active).await.map_err(|e| e.to_string())?;
     println!("Harness: set active ok: {}", set_res.ok);
 
+    // New tiny convenience action: set active buffer via service and refresh composition, returning shell context.
+    match zaroxi_interface_desktop::actions::set_active_buffer_and_get_shell_context(
+        &mut composition,
+        service_dyn.clone(),
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+        Some(boot_res.session.workspace_id),
+        open2_res.buffer_id.clone(),
+    ).await {
+        Ok(res) => {
+            println!("Harness: set_active_and_get_shell_context: action.success={} refreshed={} message={:?}", res.action.success, res.action.refreshed, res.action.message);
+            if let Some(ctx) = res.context {
+                println!("Harness: shell context after set_active: rev={} active_buffer={:?} active_display={:?} refresh_reason={:?}", ctx.latest_revision, ctx.active_buffer, ctx.active_display, ctx.latest_refresh_reason);
+            }
+        }
+        Err(e) => println!("Harness: set_active_and_get_shell_context failed: {}", e),
+    }
+
     // Confirm active buffer
     let get_active = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
     let active_res = orchestrator.get_active_buffer(get_active).await.map_err(|e| e.to_string())?;
