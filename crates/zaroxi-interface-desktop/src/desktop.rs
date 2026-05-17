@@ -212,6 +212,27 @@ impl DesktopComposition {
             None
         };
 
+        // Attempt to read recent events to build a tiny AI projection when a WorkspaceService is available.
+        // We intentionally use the existing `get_recent_events` port (read-only) and only surface
+        // the most recent ExplainExecuted event if present. This keeps composition purely read-only
+        // and avoids duplicating AI orchestration logic.
+        let mut ai_proj: Option<AiProjection> = None;
+        if let Some(svc) = service {
+            if let Ok(ev_res) = svc.get_recent_events(crate::ports::GetRecentEventsRequest { session_id: session_id.clone(), limit: 20 }).await {
+                // Iterate from newest to oldest and pick the first ExplainExecuted we find.
+                for ev in ev_res.events.iter().rev() {
+                    if let crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id, result } = &ev.kind {
+                        ai_proj = Some(AiProjection {
+                            kind: Some("ExplainExecuted".to_string()),
+                            result: Some(result.clone()),
+                            target_buffer: Some(buffer_id.clone()),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
         self.metadata = Some(DesktopMetadata {
@@ -221,6 +242,7 @@ impl DesktopComposition {
             opened_buffer_count: opened_count,
             opened_buffers: opened_list,
             active_buffer_details,
+            ai_projection: ai_proj,
         });
 
         Ok(())
