@@ -235,6 +235,16 @@ async fn main() -> Result<(), String> {
                     } else {
                         println!("Harness: no visible window available for TextView");
                     }
+
+                    // Tiny read-only selection view: surface selection information for harnesses.
+                    if let Some(sv) = zaroxi_interface_desktop::SelectionView::from_composition(&composition) {
+                        println!(
+                            "Harness: selection present: start={}:{} end={}:{} visible_in_window={}",
+                            sv.start.line, sv.start.column, sv.end.line, sv.end.column, sv.visible_in_window
+                        );
+                    } else {
+                        println!("Harness: no selection present");
+                    }
                 }
                 Err(e) => {
                     println!("Harness: move cursor action failed: {}", e);
