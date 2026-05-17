@@ -4,7 +4,7 @@ use chrono::Utc;
 
 use zaroxi_interface_desktop::{DesktopComposition};
 use zaroxi_interface_desktop::desktop::{AiKind, AiState};
-use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor, GetRecentEventsRequest};
+use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_application_workspace::ports as aw_ports;
