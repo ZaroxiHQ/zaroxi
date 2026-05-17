@@ -83,8 +83,8 @@ async fn main() -> Result<(), String> {
                 println!(" - selection: {:?}", doc.selection);
                 println!(" - line_count: {}", doc.line_count);
                 if let Some(ref line) = doc.current_line {
-                    let snippet = if line.len() > 200 { format!(\"{}...\", &line[..200]) } else { line.to_owned() };
-                    println!(\" - current line snippet: {}\", snippet);
+                    let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.to_owned() };
+                    println!(" - current line snippet: {}", snippet);
                 }
 
                 // Phase 7 (new): set a small default viewport so the application view seam
