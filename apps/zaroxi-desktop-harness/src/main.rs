@@ -107,29 +107,37 @@ async fn main() -> Result<(), String> {
                 buffer_id: doc.buffer_id.clone(),
             }).await.map_err(|e| e.to_string())?;
             let visible = win_res.window;
-            println!("Harness: visible lines (top_line={}, total_lines={}):", visible.top_line, visible.total_lines);
-            for vl in visible.lines.iter() {
-                if vl.is_cursor_line {
-                    println!(
-                        "> {:4} | {} [cursor_col={:?} sel_intersects={} sel_start={:?} sel_end={:?}]",
-                        vl.line_number,
-                        vl.text,
-                        vl.cursor_column,
-                        vl.selection_intersects,
-                        vl.selection_start_column,
-                        vl.selection_end_column
-                    );
-                } else {
-                    println!(
-                        "  {:4} | {} [cursor_col={:?} sel_intersects={} sel_start={:?} sel_end={:?}]",
-                        vl.line_number,
-                        vl.text,
-                        vl.cursor_column,
-                        vl.selection_intersects,
-                        vl.selection_start_column,
-                        vl.selection_end_column
-                    );
+            println!("Harness: visible lines (span-based): top_line={} total_lines={}", visible.top_line, visible.total_lines);
+
+            // Project visible lines into a small typed render model (line -> spans).
+            let render_lines = zaroxi_application_workspace::view::project_renderable_lines(&visible);
+
+            // Print compact, span-based representation:
+            // - Normal text is printed raw.
+            // - Selection spans are wrapped as [ ... ].
+            // - Cursor spans are wrapped as |...|; zero-width cursor is printed as |^|.
+            // - SelectionCursor (cursor inside selection) is printed as [|...|].
+            for rl in render_lines.iter() {
+                let mut out = String::new();
+                for sp in rl.spans.iter() {
+                    match &sp.kind {
+                        zaroxi_application_workspace::view::SpanKind::Normal => out.push_str(&sp.text),
+                        zaroxi_application_workspace::view::SpanKind::Selection => {
+                            out.push_str(&format!("[{}]", sp.text));
+                        }
+                        zaroxi_application_workspace::view::SpanKind::Cursor => {
+                            if sp.text.is_empty() {
+                                out.push_str("|^|");
+                            } else {
+                                out.push_str(&format!("|{}|", sp.text));
+                            }
+                        }
+                        zaroxi_application_workspace::view::SpanKind::SelectionCursor => {
+                            out.push_str(&format!("[|{}|]", sp.text));
+                        }
+                    }
                 }
+                println!("{:4} | {}", rl.line_number, out);
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),

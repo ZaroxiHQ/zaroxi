@@ -114,6 +114,105 @@ pub struct VisibleLinesWindow {
     pub lines: Vec<VisibleLine>,
 }
 
+/// -- Render model: typed line/span DTOs for the first rendering phase.
+/// This model is presentation-focused, line-based and character-column aware.
+/// It is intentionally small and purely derived from VisibleLine (no state mutation).
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpanKind {
+    /// Regular text span.
+    Normal,
+    /// Text covered by a selection.
+    Selection,
+    /// Cursor position (single character or zero-width at line end).
+    Cursor,
+    /// Cursor located inside a selection span.
+    SelectionCursor,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderSpan {
+    pub kind: SpanKind,
+    /// Text for this span (Unicode-safe).
+    pub text: String,
+    /// 0-based start column (inclusive).
+    pub start_col: usize,
+    /// 0-based end column (exclusive).
+    pub end_col: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenderableLine {
+    pub line_number: usize,
+    pub spans: Vec<RenderSpan>,
+    pub total_columns: usize,
+}
+
+/// Project a list of renderable lines (spans) from a visible-lines window.
+/// - Deterministic, character-indexed, no layout or pixel metrics.
+/// - Produces disjoint, ordered spans that cover line characters. Zero-width
+///   cursor at end-of-line is represented as a zero-length Cursor span.
+pub fn project_renderable_lines(window: &VisibleLinesWindow) -> Vec<RenderableLine> {
+    window
+        .lines
+        .iter()
+        .map(|vl| {
+            // Build char vector for Unicode-safe slicing.
+            let chars: Vec<char> = vl.text.chars().collect();
+            let n = chars.len();
+            let sel_start = vl.selection_start_column;
+            let sel_end = vl.selection_end_column;
+            let cursor = vl.cursor_column;
+            let mut spans: Vec<RenderSpan> = Vec::new();
+
+            let mut idx = 0usize;
+            while idx < n {
+                // decide kind at idx (borrowed so we don't move)
+                let in_sel = if let (Some(s), Some(e)) = (sel_start, sel_end) { idx >= s && idx < e } else { false };
+                let is_cursor = if let Some(c) = cursor { idx == c } else { false };
+
+                let kind = match (in_sel, is_cursor) {
+                    (true, true) => SpanKind::SelectionCursor,
+                    (true, false) => SpanKind::Selection,
+                    (false, true) => SpanKind::Cursor,
+                    (false, false) => SpanKind::Normal,
+                };
+
+                // gather chars while kind stays same
+                let start = idx;
+                idx += 1;
+                while idx < n {
+                    let in_sel2 = if let (Some(s), Some(e)) = (sel_start, sel_end) { idx >= s && idx < e } else { false };
+                    let is_cursor2 = if let Some(c) = cursor { idx == c } else { false };
+                    let kind2 = match (in_sel2, is_cursor2) {
+                        (true, true) => SpanKind::SelectionCursor,
+                        (true, false) => SpanKind::Selection,
+                        (false, true) => SpanKind::Cursor,
+                        (false, false) => SpanKind::Normal,
+                    };
+                    // compare discriminants to detect kind change
+                    if std::mem::discriminant(&kind) != std::mem::discriminant(&kind2) {
+                        break;
+                    }
+                    idx += 1;
+                }
+                let text: String = chars[start..idx].iter().collect();
+                spans.push(RenderSpan { kind, text, start_col: start, end_col: idx });
+            }
+
+            // handle zero-width cursor at end of line (cursor at column == n)
+            if let Some(c) = cursor {
+                if c == n {
+                    // append zero-width cursor span to represent caret at line end
+                    spans.push(RenderSpan { kind: SpanKind::Cursor, text: String::new(), start_col: n, end_col: n });
+                }
+            }
+
+            RenderableLine { line_number: vl.line_number, spans, total_columns: chars.len() }
+        })
+        .collect()
+}
+
 /// Project a deterministic, presentation-only window of visible lines from an EditorDocument.
 ///
 /// - `doc`: reference to an EditorDocument read-model (pure input).
