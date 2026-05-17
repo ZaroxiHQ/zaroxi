@@ -152,6 +152,13 @@ async fn main() -> Result<(), String> {
                         let active_buf = meta.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
                         println!("Harness: composition metadata: session={:?} workspace={:?} active_buffer={} opened_count={}", meta.session_id, meta.workspace_id, active_buf, meta.opened_buffer_count);
 
+                        if let Some(abd) = composition.latest_active_buffer_details() {
+                            let disp = abd.display.as_deref().unwrap_or("<no-display>");
+                            println!("Harness: active buffer details: id={} display={} line_count={}", abd.buffer_id, disp, abd.line_count);
+                        } else {
+                            println!("Harness: active buffer details: <none>");
+                        }
+
                         // Print the tiny opened-buffers projection (explicit and shell-oriented).
                         if !meta.opened_buffers.is_empty() {
                             println!("Harness: opened buffers projection (count={}):", meta.opened_buffers.len());
