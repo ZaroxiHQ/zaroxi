@@ -317,9 +317,15 @@ impl DesktopComposition {
         }
 
         // 4) Update composition metadata and simple recorded ids.
-        // Compute a tiny active-buffer details projection by reusing the presenter's
-        // latest renderable window (this avoids duplicating application logic).
-        let active_buffer_details: Option<ActiveBufferDetails> = if let Some(bid) = active_buf_opt.clone() {
+        // Compute authoritative active buffer: prefer service-provided opened-buffer active marker when present.
+        // `opened_list` is already built above and is authoritative when `service` was provided.
+        let current_opened_active = opened_list.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
+
+        // Determine authoritative active buffer for metadata and details: service (opened list) wins, else presenter-derived active.
+        let authoritative_active = current_opened_active.clone().or(active_buf_opt.clone());
+
+        // Compute a tiny active-buffer details projection using the authoritative active buffer.
+        let active_buffer_details: Option<ActiveBufferDetails> = if let Some(bid) = authoritative_active.clone() {
             // Prefer the display label from the opened_buffers projection if available.
             let display_label = opened_list.iter().find(|i| i.buffer_id == bid).and_then(|i| i.display.clone())
                 .or_else(|| bid.path().map(|p| p.to_string_lossy().to_string()));
