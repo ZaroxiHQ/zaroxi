@@ -327,6 +327,16 @@ async fn main() -> Result<(), String> {
                             println!("Harness: shell chrome: <absent>");
                         }
                     }
+
+                    // Compose and print the tiny new ShellFrameModel (semantic, non-visual).
+                    match zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel::from_composition(&composition) {
+                        Some(frame) => {
+                            println!("Harness: ShellFrameModel: {}", frame.compact_summary());
+                        }
+                        None => {
+                            println!("Harness: ShellFrameModel: <absent>");
+                        }
+                    }
                 }
                 Err(e) => {
                     println!("Harness: failed to refresh desktop composition: {}", e);
