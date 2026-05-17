@@ -238,6 +238,28 @@ async fn main() -> Result<(), String> {
     let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
     let explain_res = orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
     println!("Harness: explain result: {}", explain_res.result.message);
+
+    // Refresh composition so the thin interface projection can pick up the latest AI projection
+    // (we use the existing read pathway: DesktopComposition::refresh_with_service will consult
+    // the WorkspaceService for recent events/commands and populate the AI projection).
+    match zaroxi_interface_desktop::refresh_desktop(
+        &mut composition,
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+        Some(boot_res.session.workspace_id),
+        Some(service_dyn.clone()),
+    ).await {
+        Ok(_action_result) => {
+            if let Some(ai) = composition.latest_ai_projection() {
+                println!("Harness: AI projection: kind={:?} result={:?} target_buffer={:?}", ai.kind, ai.result, ai.target_buffer);
+            } else {
+                println!("Harness: AI projection: <none>");
+            }
+        }
+        Err(e) => {
+            println!("Harness: failed to refresh composition for AI projection: {}", e);
+        }
+    }
     // Query and print a compact session snapshot (Phase 7)
     let snap_req = GetSessionSnapshotRequest { session_id: boot_res.session.session_id.clone(), recent_limit: 10 };
     let snap_res = orchestrator.get_session_snapshot(snap_req).await.map_err(|e| e.to_string())?;
