@@ -12,6 +12,10 @@ pub mod actions;
 // This keeps the interface crate surface small while enabling test modules to implement
 // application traits without repetitively importing the application crate paths.
 pub use zaroxi_application_workspace::ports;
+// Re-export the BoxFuture alias from the application ports at the crate root so
+// test modules and internal helpers can refer to `crate::BoxFuture` and avoid
+// verbose `crate::ports::BoxFuture` occurrences in inline test stubs.
+pub use crate::ports::BoxFuture;
 
 pub use state::EditorState;
 pub use commands::EditorCommand;
