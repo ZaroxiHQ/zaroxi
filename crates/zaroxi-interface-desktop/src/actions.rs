@@ -66,9 +66,19 @@ pub async fn refresh_desktop(
     // Delegate to the richer refresh variant which can optionally use a WorkspaceService
     // to populate the opened-buffer list for the shell. When `service` is None the
     // implementation falls back to the conservative projection.
-    // If callers haven't provided a specific pending reason, mark this as a generic refresh action.
+    //
+    // Important change:
+    // - Do NOT preempt more specific shell-facing detections (like ActiveBufferChanged)
+    //   when a WorkspaceService is provided. If a service is supplied, the composition
+    //   can observe authoritative opened-buffer changes; setting a pending generic
+    //   RefreshAction would incorrectly override those detections.
+    // - Preserve previous behavior for the "no-service" path: when service is None
+    //   we still mark the explicit action as RefreshAction so tests and harnesses
+    //   that expect a generic refresh reason keep working.
     if !comp.has_pending_refresh_reason() {
-        comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+        if service.is_none() {
+            comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+        }
     }
 
     match comp.refresh_with_service(view, session_id, workspace_id, service).await {
