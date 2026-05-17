@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use zaroxi_interface_desktop::{refresh_desktop, actions, DesktopComposition};
-use zaroxi_application_workspace::ports::{WorkspaceView, WorkspaceService, SetActiveBufferRequest, ListBuffersRequest, GetActiveBufferRequest, GetActiveBufferResponse, SetActiveBufferResponse, ListBuffersResponse, SessionId};
+use zaroxi_application_workspace::ports::{WorkspaceView, WorkspaceService, SessionId};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_application_workspace::ports as aw_ports;
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
