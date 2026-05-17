@@ -171,15 +171,19 @@ async fn main() -> Result<(), String> {
                         }
 
                         // Print the tiny opened-buffers projection (explicit and shell-oriented).
-                        if !meta.opened_buffers.is_empty() {
-                            println!("Harness: opened buffers projection (count={}):", meta.opened_buffers.len());
-                            for item in meta.opened_buffers.iter() {
-                                let display = item.display.as_deref().unwrap_or("<no-display>");
-                                let active_mark = if item.active { "*" } else { " " };
-                                println!("  {} {} ({})", active_mark, item.buffer_id, display);
+                        if let Some(meta) = composition.latest_metadata() {
+                            if !meta.opened_buffers.is_empty() {
+                                println!("Harness: opened buffers projection (count={}):", meta.opened_buffers.len());
+                                for item in meta.opened_buffers.iter() {
+                                    let display = item.display.as_deref().unwrap_or("<no-display>");
+                                    let active_mark = if item.active { "*" } else { " " };
+                                    println!("  {} {} ({})", active_mark, item.buffer_id, display);
+                                }
+                            } else {
+                                println!("Harness: opened buffers projection: <empty>");
                             }
                         } else {
-                            println!("Harness: opened buffers projection: <empty>");
+                            println!("Harness: opened buffers projection: <none>");
                         }
                     } else {
                         println!("Harness: no composition metadata available");
