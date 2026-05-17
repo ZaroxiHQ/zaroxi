@@ -224,16 +224,40 @@ pub async fn set_active_buffer_and_get_shell_context(
     workspace_id: Option<zaroxi_kernel_types::Id>,
     buffer_id: crate::ports::BufferId,
 ) -> Result<ShellActionResult, String> {
-    // Ask the service to set the active buffer.
-    if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
-        return Ok(ShellActionResult {
-            action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
-            context: None,
-        });
+    // Try to read the current active buffer first. If the service reports the
+    // requested buffer is already active we avoid calling set_active_buffer to
+    // prevent redundant commands/events. If we cannot read the active buffer we
+    // conservatively attempt to set it (preserve existing behavior).
+    match service.get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() }).await {
+        Ok(get_res) => {
+            if get_res.buffer_id == buffer_id {
+                // Already active: do not call set_active_buffer. Use a generic refresh
+                // reason instead of ActiveBufferChanged so we avoid emitting duplicate
+                // ActiveBufferChanged events caused by a noop set.
+                comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+            } else {
+                // Different buffer: proceed to set active and mark ActiveBufferChanged.
+                if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+                    return Ok(ShellActionResult {
+                        action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                        context: None,
+                    });
+                }
+                comp.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+            }
+        }
+        Err(_e) => {
+            // Could not determine current active buffer (e.g. UnknownSession). Fall back
+            // to attempting to set the active buffer to preserve previous semantics.
+            if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+                return Ok(ShellActionResult {
+                    action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                    context: None,
+                });
+            }
+            comp.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+        }
     }
-
-    // Indicate reason for upcoming refresh.
-    comp.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
 
     // Delegate to the existing refresh_and_get_shell_context helper so we reuse projection/consistency logic.
     let res = refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
