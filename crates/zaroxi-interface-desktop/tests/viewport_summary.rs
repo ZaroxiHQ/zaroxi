@@ -95,7 +95,10 @@ async fn move_cursor_action_updates_viewport_summary() {
     impl aw_ports::WorkspaceService for FakeSvc {
         fn boot_workspace(&self, _req: aw_ports::WorkspaceBootRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownWorkspace) }) }
         fn open_buffer(&self, _req: aw_ports::OpenBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) }) }
-        fn list_open_buffers(&self, _req: aw_ports::ListBuffersRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>> { Box::pin(async { Ok(aw_ports::ListBuffersResponse { buffer_ids: vec![self.buf.clone()], active_buffer: Some(self.buf.clone()) }) }) }
+        fn list_open_buffers(&self, _req: aw_ports::ListBuffersRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>> {
+            let buf = self.buf.clone();
+            Box::pin(async move { Ok(aw_ports::ListBuffersResponse { buffer_ids: vec![buf.clone()], active_buffer: Some(buf.clone()) }) })
+        }
         fn set_active_buffer(&self, _req: aw_ports::SetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetActiveBufferResponse, aw_ports::UseCaseError>> { Box::pin(async { Ok(aw_ports::SetActiveBufferResponse { ok: true }) }) }
         fn get_active_buffer(&self, _req: aw_ports::GetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetActiveBufferResponse, aw_ports::UseCaseError>> { let b = self.buf.clone(); Box::pin(async move { Ok(aw_ports::GetActiveBufferResponse { buffer_id: b }) }) }
         fn set_editor_cursor(&self, _req: aw_ports::SetEditorCursorRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetEditorCursorResponse, aw_ports::UseCaseError>> { Box::pin(async { Ok(aw_ports::SetEditorCursorResponse { ok: true }) }) }
