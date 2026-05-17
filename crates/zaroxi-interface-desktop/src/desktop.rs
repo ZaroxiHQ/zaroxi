@@ -107,6 +107,26 @@ pub struct DesktopMetadata {
     pub refresh_reason: Option<RefreshReason>,
 }
 
+/// Tiny read-only status snapshot indicating which composition projections are currently populated.
+///
+/// Purpose:
+/// - Very small, shell-facing struct summarizing presence/availability of
+///   key projections without exposing their full contents.
+/// - Values are booleans to remain compact and deterministic for the harness.
+#[derive(Clone, Debug)]
+pub struct DesktopStatus {
+    /// Is there a presenter render window available?
+    pub has_render_window: bool,
+    /// Is the desktop metadata projection present?
+    pub has_metadata: bool,
+    /// Is the active-buffer details projection present?
+    pub has_active_buffer_details: bool,
+    /// Is the opened-buffers projection present and non-empty?
+    pub has_opened_buffers: bool,
+    /// Is there an AI projection available?
+    pub has_ai_projection: bool,
+}
+
 /// Minimal desktop-level composition state.
 ///
 /// Mostly read-only: composition is updated via `refresh` which delegates to the
@@ -121,6 +141,8 @@ pub struct DesktopComposition {
     pub workspace_id: Option<Id>,
     /// Small cached metadata projection for shell consumption.
     metadata: Option<DesktopMetadata>,
+    /// Small cached status snapshot summarizing which projections are populated.
+    status: Option<DesktopStatus>,
     /// Optional pending refresh reason set by callers which will be consumed by `refresh_with_service`.
     pending_refresh_reason: Option<RefreshReason>,
 }
@@ -133,6 +155,7 @@ impl DesktopComposition {
             session_id: None,
             workspace_id: None,
             metadata: None,
+            status: None,
             pending_refresh_reason: None,
         }
     }
@@ -333,16 +356,30 @@ impl DesktopComposition {
 
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
-        self.metadata = Some(DesktopMetadata {
+
+        // Compute metadata and status snapshots derived from the refresh work above.
+        let metadata = DesktopMetadata {
             session_id: Some(session_id),
             workspace_id: self.workspace_id.clone(),
-            active_buffer: active_buf_opt,
+            active_buffer: active_buf_opt.clone(),
             opened_buffer_count: opened_count,
-            opened_buffers: opened_list,
-            active_buffer_details,
-            ai_projection: ai_proj,
+            opened_buffers: opened_list.clone(),
+            active_buffer_details: active_buffer_details.clone(),
+            ai_projection: ai_proj.clone(),
             refresh_reason: Some(reason),
-        });
+        };
+
+        // Status summarizes availability of key projections: presenter window, metadata, active details, opened list, AI projection.
+        let status = DesktopStatus {
+            has_render_window: self.presenter.latest().is_some(),
+            has_metadata: true,
+            has_active_buffer_details: active_buffer_details.is_some(),
+            has_opened_buffers: !metadata.opened_buffers.is_empty(),
+            has_ai_projection: ai_proj.is_some(),
+        };
+
+        self.metadata = Some(metadata);
+        self.status = Some(status);
 
         Ok(())
     }
@@ -374,6 +411,11 @@ impl DesktopComposition {
     /// display a concise summary without touching application logic.
     pub fn latest_active_buffer_details(&self) -> Option<ActiveBufferDetails> {
         self.metadata.as_ref().and_then(|m| m.active_buffer_details.clone())
+    }
+
+    /// Tiny read-only status snapshot indicating which composition projections are populated.
+    pub fn latest_status(&self) -> Option<DesktopStatus> {
+        self.status.clone()
     }
 
     /// Return the small, read-only AI projection (if any) obtained during the last refresh.
@@ -491,6 +533,14 @@ mod tests {
         assert_eq!(abd.buffer_id, crate::ports::BufferId::from("buf:fake"));
         assert_eq!(abd.line_count, 1);
         assert_eq!(abd.display.unwrap(), "fake".to_string());
+
+        // Status snapshot must be present and reflect available projections.
+        let status = comp.latest_status().expect("status present");
+        assert!(status.has_render_window, "presenter window should be available after refresh");
+        assert!(status.has_metadata, "metadata should be present after refresh");
+        assert!(status.has_active_buffer_details, "active buffer details should be present");
+        assert!(status.has_opened_buffers, "opened buffers projection should be non-empty");
+        assert!(!status.has_ai_projection, "AI projection should not be present in this path");
     }
 
     #[tokio::test]
@@ -618,5 +668,14 @@ mod tests {
         // Ensure the composition recorded that the AI projection was updated.
         let rr = comp.latest_refresh_reason().expect("reason present");
         assert_eq!(rr, RefreshReason::AiProjectionUpdated);
+
+        // Status snapshot must be present and reflect AI projection availability.
+        let status = comp.latest_status().expect("status present");
+        assert!(status.has_render_window, "presenter window should be available after refresh");
+        assert!(status.has_metadata, "metadata should be present after refresh");
+        // active buffer details available in this test too
+        assert!(status.has_active_buffer_details, "active buffer details should be present");
+        assert!(status.has_opened_buffers, "opened buffers projection should be non-empty");
+        assert!(status.has_ai_projection, "AI projection should be reported present");
     }
 }

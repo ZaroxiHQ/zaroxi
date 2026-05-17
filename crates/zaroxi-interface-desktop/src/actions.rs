@@ -371,6 +371,13 @@ mod tests {
         // Composition should record a refresh reason for this explicit refresh action.
         let rr = comp.latest_refresh_reason().expect("reason present");
         assert_eq!(rr, RefreshReason::RefreshAction);
+
+        // Status snapshot should be available for shell consumption.
+        let status = comp.latest_status().expect("status present");
+        assert!(status.has_render_window);
+        assert!(status.has_metadata);
+        assert!(status.has_opened_buffers);
+        assert!(!status.has_ai_projection);
     }
 
     #[tokio::test]

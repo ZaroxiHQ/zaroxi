@@ -159,6 +159,14 @@ async fn main() -> Result<(), String> {
                         let rr = meta.refresh_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
                         println!("Harness: composition refresh reason: {}", rr);
 
+                        // Print compact status snapshot for shell consumption.
+                        if let Some(status) = composition.latest_status() {
+                            println!("Harness: composition status: render_window={} metadata={} active_buffer_details={} opened_buffers={} ai_projection={}",
+                                status.has_render_window, status.has_metadata, status.has_active_buffer_details, status.has_opened_buffers, status.has_ai_projection);
+                        } else {
+                            println!("Harness: composition status: <none>");
+                        }
+
                         if let Some(abd) = composition.latest_active_buffer_details() {
                             let disp = abd.display.as_deref().unwrap_or("<no-display>");
                             println!("Harness: active buffer details: id={} display={} line_count={}", abd.buffer_id, disp, abd.line_count);
