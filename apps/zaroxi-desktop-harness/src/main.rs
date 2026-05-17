@@ -280,6 +280,31 @@ async fn main() -> Result<(), String> {
                             ss.ai_summary.as_ref().map(|a| a.present).unwrap_or(false),
                             ss.opened_buffers.count,
                         );
+
+                        // Compose and print the tiny ShellChromeSnapshot (aggregates existing shell lines).
+                        // Lifecycle rule: present only when all mandatory lines are present
+                        // (SessionIdentityLine, ActiveBufferLine, LocationLine, StatusBarLine).
+                        let chrome = zaroxi_interface_desktop::projections::shell_chrome_snapshot::ShellChromeSnapshot::compose(
+                            // session identity: create a rendered session identity string (harness uses boot_res earlier).
+                            Some(SessionIdentityLine::new(
+                                Some(boot_res.session.session_id.to_string()),
+                                Some(boot_res.session.workspace_id.to_string()),
+                                None,
+                            ).render()),
+                            // active buffer and location derived from shell snapshot
+                            ActiveBufferLine::from_shell_snapshot(&ss).map(|l| l.render()),
+                            LocationLine::from_shell_snapshot(&ss).map(|l| l.render()),
+                            // status text from latest status bar line when present
+                            composition.latest_status_bar_line().map(|s| s.text.clone()),
+                            // last command is optional here; harness does not require it for presence
+                            None,
+                        );
+
+                        if let Some(c) = chrome {
+                            println!("Harness: shell chrome: {}", c.render());
+                        } else {
+                            println!("Harness: shell chrome: <absent>");
+                        }
                     }
                 }
                 Err(e) => {
