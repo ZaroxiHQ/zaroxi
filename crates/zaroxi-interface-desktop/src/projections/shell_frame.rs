@@ -123,10 +123,9 @@ impl ShellFrameModel {
             .map(|c| c.render())
         });
 
-        // session identity: try to extract a compact identity from the shell snapshot context when available.
-        let session_identity = comp
-            .latest_shell_snapshot()
-            .and_then(|ss| ss.context.session_id.clone());
+        // session identity: ShellContext does not expose session_id. Leave absent to avoid coupling.
+        // Composition may expose session identity elsewhere; keep this optional and conservative.
+        let session_identity = None;
 
         Self::from_parts(tv, sel, viewport_summary, status_text, last_command, last_event, shell_chrome, session_identity)
     }
