@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use zaroxi_interface_desktop::desktop::StatusBarLine;
 use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
@@ -115,7 +114,7 @@ async fn status_bar_prefers_ai_projection_when_present() {
         fn get_recent_commands(&self, _req: zaroxi_application_workspace::ports::GetRecentCommandsRequest) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<zaroxi_application_workspace::ports::GetRecentCommandsResponse, zaroxi_application_workspace::ports::UseCaseError>> { Box::pin(async { Ok(zaroxi_application_workspace::ports::GetRecentCommandsResponse { commands: Vec::new() }) }) }
         fn get_recent_events(&self, req: zaroxi_application_workspace::ports::GetRecentEventsRequest) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<zaroxi_application_workspace::ports::GetRecentEventsResponse, zaroxi_application_workspace::ports::UseCaseError>> {
             let buf = zaroxi_application_workspace::ports::BufferId::from("buf:fake");
-            let wid = zid();
+            let wid = zaroxi_kernel_types::Id::new();
             Box::pin(async move {
                 let ev = zaroxi_application_workspace::ports::WorkspaceEvent {
                     id: Uuid::new_v4(),
