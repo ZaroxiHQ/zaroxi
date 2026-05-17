@@ -762,7 +762,7 @@
 
                      // Delegate to the shared helper implementation to apply transaction and update state.
                      match apply_text_transaction_impl(store.clone(), sessions.clone(), history.clone(), txn_req).await {
-                         Ok(resp) => {
+                         Ok(_resp) => {
                              let cmd = CommandRecord::new_success(
                                  CommandKind::DispatchAppCommand { command: AppCommand::InsertText { buffer_id: buffer_id.clone(), text: text.clone() } },
                                  Some(req.session_id.0),
