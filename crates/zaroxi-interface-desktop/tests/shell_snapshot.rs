@@ -77,7 +77,8 @@ async fn shell_snapshot_present_after_refresh() {
 
     // Basic coherence checks
     assert_eq!(snap.context.latest_revision, comp.latest_revision());
-    assert!(snap.opened_buffers.count >= 0);
+    // count should match the number of items in the opened_buffers projection
+    assert_eq!(snap.opened_buffers.count, snap.opened_buffers.items.len());
     // Active document and viewport should be present for this simple view
     assert!(snap.active_document.is_some());
     assert!(snap.viewport.is_some());
