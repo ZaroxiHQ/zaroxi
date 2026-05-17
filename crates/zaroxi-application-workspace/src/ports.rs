@@ -381,6 +381,36 @@
  pub struct GetEditorStateResponse {
      pub state: Option<EditorState>,
  }
+
+ /// Editor document/view model returned by the view seam.
+ /// Combines current buffer content with editor transient state for presentation.
+ #[derive(Clone, Debug)]
+ pub struct EditorDocument {
+     /// Buffer identifier (core canonical BufferId).
+     pub buffer_id: BufferId,
+     /// Current buffer content (if available).
+     pub content: Option<String>,
+     /// Current caret/cursor position.
+     pub cursor: EditorCursor,
+     /// Optional selection state.
+     pub selection: Option<Selection>,
+     /// Number of lines in the content snapshot.
+     pub line_count: usize,
+     /// The specific line string at `cursor.line` when available.
+     pub current_line: Option<String>,
+ }
+
+ /// Request to obtain the editor document for the active buffer in a session.
+ #[derive(Clone, Debug)]
+ pub struct GetActiveEditorDocumentRequest {
+     pub session_id: SessionId,
+ }
+
+ /// Response carrying the editor document.
+ #[derive(Clone, Debug)]
+ pub struct GetActiveEditorDocumentResponse {
+     pub document: EditorDocument,
+ }
  
  /// Read-model representing the current workspace session state.
  #[derive(Clone, Debug)]
@@ -562,10 +592,20 @@
      /// Returns Ok(Some(text)) when present, Ok(None) when the buffer has no text,
      /// or an Err(UseCaseError) for session/workspace-related errors when applicable.
      fn get_buffer_content(&self, buffer_id: BufferId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>>;
-
+ 
      /// Get the content of the currently active buffer for the provided session.
      /// Returns NoActiveBuffer or UnknownSession as appropriate.
      fn get_active_buffer_content(&self, session_id: SessionId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>>;
+ 
+     /// Read-only query returning a structured editor document for the active buffer
+     /// in the given session. The returned document merges the content snapshot with
+     /// the transient editor state (cursor + selection) to enable presentation-only
+     /// consumers to render or inspect a deterministic view model.
+     ///
+     /// Errors:
+     /// - UnknownSession if the session is not known.
+     /// - NoActiveBuffer if the session has no active buffer.
+     fn get_active_editor_document(&self, req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>>;
  }
-
+ 
  pub type DynWorkspaceView = Arc<dyn WorkspaceView>;

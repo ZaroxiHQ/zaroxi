@@ -50,7 +50,7 @@ async fn main() -> Result<(), String> {
     println!("Harness: opened buffer id: {}", open1_res.buffer_id);
 
     // Phase 3: set a cursor for this buffer (editor-state seam) and read it back.
-    use zaroxi_application_workspace::ports::{SetEditorCursorRequest, EditorCursor, GetEditorStateRequest};
+    use zaroxi_application_workspace::ports::{SetEditorCursorRequest, EditorCursor, GetEditorStateRequest, GetActiveEditorDocumentRequest};
     let _ = orchestrator.set_editor_cursor(SetEditorCursorRequest {
         session_id: boot_res.session.session_id.clone(),
         buffer_id: open1_res.buffer_id.clone(),
@@ -76,6 +76,23 @@ async fn main() -> Result<(), String> {
             }
         }
         Err(e) => println!("Harness: failed to read editor state: {}", e),
+    }
+
+    // Phase 6: fetch the structured editor document/view model for the active buffer.
+    match orchestrator.get_active_editor_document(GetActiveEditorDocumentRequest { session_id: boot_res.session.session_id.clone() }).await {
+        Ok(resp) => {
+            let doc = resp.document;
+            println!("Harness: editor document summary for session {}:", boot_res.session.session_id);
+            println!(" - buffer: {}", doc.buffer_id);
+            println!(" - cursor: {}:{}", doc.cursor.line, doc.cursor.column);
+            println!(" - selection: {:?}", doc.selection);
+            println!(" - line_count: {}", doc.line_count);
+            if let Some(line) = doc.current_line {
+                let snippet = if line.len() > 200 { format!(\"{}...\", &line[..200]) } else { line.clone() };
+                println!(\" - current line snippet: {}\", snippet);
+            }
+        }
+        Err(e) => println!(\"Harness: failed to get editor document: {}\", e),
     }
 
     let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };

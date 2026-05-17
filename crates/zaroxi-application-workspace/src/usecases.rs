@@ -19,6 +19,8 @@
      // Editor-state types (Phase 3)
      EditorCursor, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
      ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
+     // Editor document/view model (Phase 6)
+     EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
      SessionId,
  };
  
@@ -1629,6 +1631,40 @@
              } else {
                  Err(crate::ports::UseCaseError::NoActiveBuffer)
              }
+         })
+     }
+
+     fn get_active_editor_document(&self, req: crate::ports::GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+         let sessions = self.sessions.clone();
+         let store = self.buffer_store.clone();
+         Box::pin(async move {
+             // Resolve session synchronously
+             let info_opt = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).cloned()
+             };
+             let info = info_opt.ok_or(crate::ports::UseCaseError::UnknownSession)?;
+             let active = info.active_buffer.ok_or(crate::ports::UseCaseError::NoActiveBuffer)?;
+
+             // Snapshot content for the active buffer (sync read path).
+             let content = store.get_text(&active);
+
+             // Editor transient state for the buffer (if present)
+             let state = info.editor_states.get(&active).cloned().unwrap_or(crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None });
+
+             let line_count = content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
+             let current_line = content.as_ref().and_then(|c| c.lines().nth(state.cursor.line as usize).map(|s| s.to_string()));
+
+             let doc = crate::ports::EditorDocument {
+                 buffer_id: active.clone(),
+                 content,
+                 cursor: state.cursor,
+                 selection: state.selection,
+                 line_count,
+                 current_line,
+             };
+
+             Ok(crate::ports::GetActiveEditorDocumentResponse { document: doc })
          })
      }
  }
