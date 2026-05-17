@@ -524,7 +524,7 @@ mod tests {
         let wid = zaroxi_kernel_types::Id::new();
 
         let mut comp = DesktopComposition::new();
-        comp.refresh(arc, sid.clone(), Some(wid.clone())).await.expect("refresh ok");
+        comp.refresh(arc.clone(), sid.clone(), Some(wid.clone())).await.expect("refresh ok");
 
         assert_eq!(comp.get_session_id().unwrap(), sid);
         assert_eq!(comp.get_workspace_id().unwrap(), wid);
