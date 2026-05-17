@@ -8,6 +8,11 @@ pub mod presenter;
 pub mod desktop;
 pub mod actions;
 
+// Re-export application ports so tests and internal modules can refer to `crate::ports`.
+// This keeps the interface crate surface small while enabling test modules to implement
+// application traits without repetitively importing the application crate paths.
+pub use zaroxi_application_workspace::ports;
+
 pub use state::EditorState;
 pub use commands::EditorCommand;
 pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind, fetch_renderable_window};
