@@ -982,6 +982,32 @@ impl DesktopComposition {
         })
     }
 
+    /// Build a small, convenience ShellSnapshot that aggregates existing shell-facing projections.
+    ///
+    /// Notes:
+    /// - This method is intentionally tiny and calls the existing accessors:
+    ///   latest_shell_context(), latest_active_document_summary(), latest_viewport_summary(),
+    ///   latest_ai_projection_summary(), latest_opened_buffers_summary().
+    /// - Returns None when no shell context is available (mirrors latest_shell_context semantics).
+    /// - The ShellSnapshot is a read-only convenience for shells and harnesses; it does not
+    ///   duplicate or re-derive any projection logic.
+    pub fn latest_shell_snapshot(&self) -> Option<ShellSnapshot> {
+        // Require at least the shell context to produce a snapshot.
+        let ctx = self.latest_shell_context()?;
+        let active_document = self.latest_active_document_summary();
+        let viewport = self.latest_viewport_summary();
+        let ai_summary = self.latest_ai_projection_summary();
+        let opened_buffers = self.latest_opened_buffers_summary();
+
+        Some(ShellSnapshot {
+            context: ctx,
+            active_document,
+            viewport,
+            ai_summary,
+            opened_buffers,
+        })
+    }
+
     /// Produce a tiny, read-only consistency report derived from the current composition state.
     ///
     /// This function intentionally performs only a few conservative checks that are cheap
