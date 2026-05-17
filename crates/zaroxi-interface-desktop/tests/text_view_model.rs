@@ -1,6 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::pin::Pin;
-use std::future::Future;
 
 use zaroxi_interface_desktop::{DesktopComposition, TextView, actions};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
