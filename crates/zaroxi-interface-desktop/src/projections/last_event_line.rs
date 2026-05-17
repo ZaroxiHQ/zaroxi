@@ -1,5 +1,4 @@
 use crate::ports::{WorkspaceEvent, WorkspaceEventKind, BufferId};
-use std::path::PathBuf;
 
 /// Tiny shell-facing one-line projection that answers "what was the last event?"
 /// The projection is intentionally minimal and adapter-local; it only exposes a
