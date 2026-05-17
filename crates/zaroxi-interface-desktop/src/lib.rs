@@ -21,5 +21,5 @@ pub use state::EditorState;
 pub use commands::EditorCommand;
 pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind, fetch_renderable_window};
 pub use presenter::Presenter;
-pub use desktop::{DesktopComposition, DesktopSummary, DesktopConsistencyReport};
+pub use desktop::{DesktopComposition, DesktopSummary, DesktopConsistencyReport, ShellContext};
 pub use actions::{refresh_desktop, move_cursor_to_start_and_refresh, ActionResult};

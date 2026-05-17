@@ -149,6 +149,27 @@ pub struct DesktopSummary {
     pub active_buffer: Option<crate::ports::BufferId>,
 }
 
+/// Tiny, shell-facing current context accessor used by simple UI shells and the harness.
+///
+/// Purpose:
+/// - Very small, read-only, derived view aggregating the most immediately useful
+///   facts for a shell: active buffer id, a display label when available, last revision,
+///   latest refresh reason, and a quick flag indicating whether an AI projection exists.
+/// - Kept intentionally minimal to remain shell-facing and presentation-only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShellContext {
+    /// Canonical active buffer id when available.
+    pub active_buffer: Option<crate::ports::BufferId>,
+    /// Optional human-friendly display label for the active buffer (when available).
+    pub active_display: Option<String>,
+    /// Latest composition revision (monotonic).
+    pub latest_revision: u64,
+    /// Latest recorded refresh reason (when available).
+    pub latest_refresh_reason: Option<RefreshReason>,
+    /// Whether the composition currently contains an AI projection.
+    pub has_ai_projection: bool,
+}
+
 /// Small, shell-facing consistency report for a DesktopComposition.
 ///
 /// Purpose:
@@ -516,6 +537,44 @@ impl DesktopComposition {
             refresh_reason: self.latest_refresh_reason(),
             status: self.status.clone(),
             active_buffer: self.metadata.as_ref().and_then(|m| m.active_buffer.clone()),
+        })
+    }
+
+    /// Return a tiny, derived shell-facing context object containing the most
+    /// immediately useful composition facts for simple shells or UI consumers.
+    ///
+    /// This accessor is intentionally read-only and derived from existing composition
+    /// projections (`metadata`, `status`, and `revision`). It never mutates state.
+    pub fn latest_shell_context(&self) -> Option<ShellContext> {
+        // Mirror latest_summary presence semantics: require at least one refresh to return a context.
+        if self.revision == 0 && self.metadata.is_none() && self.status.is_none() {
+            return None;
+        }
+
+        // Determine active_display: prefer active_buffer_details.display, fall back to opened_buffers item display.
+        let active_display = self
+            .metadata
+            .as_ref()
+            .and_then(|m| {
+                m.active_buffer_details
+                    .as_ref()
+                    .and_then(|d| d.display.clone())
+                    .or_else(|| {
+                        m.opened_buffers
+                            .iter()
+                            .find(|i| i.active)
+                            .and_then(|i| i.display.clone())
+                    })
+            });
+
+        let has_ai = self.metadata.as_ref().and_then(|m| m.ai_projection.as_ref()).is_some();
+
+        Some(ShellContext {
+            active_buffer: self.metadata.as_ref().and_then(|m| m.active_buffer.clone()),
+            active_display,
+            latest_revision: self.revision,
+            latest_refresh_reason: self.metadata.as_ref().and_then(|m| m.refresh_reason.clone()),
+            has_ai_projection: has_ai,
         })
     }
 
@@ -967,5 +1026,128 @@ mod tests {
         assert!(report.active_buffer_matches_details);
         assert!(report.active_buffer_in_opened_buffers);
         assert!(report.presenter_window_matches_status);
+    }
+
+    #[tokio::test]
+    async fn latest_shell_context_is_composed() {
+        use std::sync::Arc;
+        use uuid::Uuid;
+        use chrono::Utc;
+
+        let v = FakeView::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let wid = zaroxi_kernel_types::Id::new();
+
+        // Minimal fake service that returns a single opened buffer and a single ExplainExecuted event.
+        struct FakeSvc {
+            buf: crate::ports::BufferId,
+            wid: zaroxi_kernel_types::Id,
+        }
+
+        impl FakeSvc {
+            fn new(buf: crate::ports::BufferId, wid: zaroxi_kernel_types::Id) -> Self {
+                Self { buf, wid }
+            }
+        }
+
+        impl crate::ports::WorkspaceService for FakeSvc {
+            fn boot_workspace(&self, _req: crate::ports::WorkspaceBootRequest) -> crate::BoxFuture<'static, Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownWorkspace) })
+            }
+            fn open_buffer(&self, _req: crate::ports::OpenBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn list_open_buffers(&self, _req: crate::ports::ListBuffersRequest) -> crate::BoxFuture<'static, Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>> {
+                let b = self.buf.clone();
+                Box::pin(async move { Ok(crate::ports::ListBuffersResponse { buffer_ids: vec![b], active_buffer: Some(crate::ports::BufferId::from("buf:fake")) }) })
+            }
+            fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn get_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetActiveBufferResponse, crate::ports::UseCaseError>> {
+                let bid = self.buf.clone();
+                Box::pin(async move { Ok(crate::ports::GetActiveBufferResponse { buffer_id: bid }) })
+            }
+            fn set_editor_cursor(&self, _req: crate::ports::SetEditorCursorRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn set_editor_selection(&self, _req: crate::ports::SetSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn clear_editor_selection(&self, _req: crate::ports::ClearSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn get_editor_state(&self, _req: crate::ports::GetEditorStateRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::NoActiveBuffer) })
+            }
+            fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn update_buffer(&self, _req: crate::ports::UpdateBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn apply_text_transaction(&self, _req: crate::ports::ApplyTextTransactionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: None }) })
+            }
+            fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+            }
+
+            fn get_recent_events(&self, req: crate::ports::GetRecentEventsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>> {
+                let buf = self.buf.clone();
+                let wid = self.wid.clone();
+                Box::pin(async move {
+                    let ev = crate::ports::WorkspaceEvent {
+                        id: Uuid::new_v4(),
+                        timestamp: Utc::now(),
+                        session_id: req.session_id.clone(),
+                        workspace_id: wid,
+                        kind: crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id: buf.clone(), result: "ctx-explain".to_string() },
+                    };
+                    Ok(crate::ports::GetRecentEventsResponse { events: vec![ev] })
+                })
+            }
+
+            fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+
+            fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+
+            fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn load_checkpoint(&self, _req: crate::ports::LoadCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+        }
+
+        let fake_service = std::sync::Arc::new(FakeSvc::new(crate::ports::BufferId::from("buf:fake"), wid.clone())) as std::sync::Arc<dyn crate::ports::WorkspaceService>;
+
+        let mut comp = DesktopComposition::new();
+        // Use refresh_with_service so the composition will consult the fake service and recent events.
+        comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service)).await.expect("refresh ok");
+
+        let ctx = comp.latest_shell_context().expect("context present");
+        assert_eq!(ctx.latest_revision, comp.latest_revision());
+        assert_eq!(ctx.active_buffer.unwrap(), crate::ports::BufferId::from("buf:fake"));
+        assert_eq!(ctx.active_display.unwrap(), "fake".to_string());
+        assert_eq!(ctx.latest_refresh_reason.unwrap(), RefreshReason::AiProjectionUpdated);
+        assert!(ctx.has_ai_projection);
     }
 }

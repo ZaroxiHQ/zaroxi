@@ -163,6 +163,15 @@ async fn main() -> Result<(), String> {
                             println!("Harness: composition status: <none>");
                         }
 
+                        // Print the tiny current shell context (Phase 29): compact summary useful to shells.
+                        if let Some(ctx) = composition.latest_shell_context() {
+                            let active = ctx.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
+                            println!("Harness: shell context: rev={} active_buffer={} active_display={:?} refresh_reason={:?} ai_present={}",
+                                ctx.latest_revision, active, ctx.active_display, ctx.latest_refresh_reason, ctx.has_ai_projection);
+                        } else {
+                            println!("Harness: shell context: <none>");
+                        }
+
                         if let Some(abd) = composition.latest_active_buffer_details() {
                             let disp = abd.display.as_deref().unwrap_or("<no-display>");
                             println!("Harness: active buffer details: id={} display={} line_count={}", abd.buffer_id, disp, abd.line_count);
