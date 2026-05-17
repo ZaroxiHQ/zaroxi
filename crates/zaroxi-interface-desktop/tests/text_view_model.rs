@@ -96,15 +96,15 @@ impl zaroxi_application_workspace::ports::WorkspaceService for FakeService {
         let b = self.shared.doc.lock().unwrap().buffer_id.clone();
         Box::pin(async move { Ok(aw::ListBuffersResponse { buffer_ids: vec![b], active_buffer: Some(aw::BufferId::from("buf:fake")) }) })
     }
-    fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn set_active_buffer(&self, _req: aw::SetActiveBufferRequest) -> aw::BoxFuture<'static, Result<aw::SetActiveBufferResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn get_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetActiveBufferResponse, crate::ports::UseCaseError>> {
+    fn get_active_buffer(&self, _req: aw::GetActiveBufferRequest) -> aw::BoxFuture<'static, Result<aw::GetActiveBufferResponse, aw::UseCaseError>> {
         let bid = self.shared.doc.lock().unwrap().buffer_id.clone();
-        Box::pin(async move { Ok(crate::ports::GetActiveBufferResponse { buffer_id: bid }) })
+        Box::pin(async move { Ok(aw::GetActiveBufferResponse { buffer_id: bid }) })
     }
 
-    fn set_editor_cursor(&self, req: crate::ports::SetEditorCursorRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>> {
+    fn set_editor_cursor(&self, req: aw::SetEditorCursorRequest) -> aw::BoxFuture<'static, Result<aw::SetEditorCursorResponse, aw::UseCaseError>> {
         let shared = self.shared.clone();
         Box::pin(async move {
             // Update the shared editor document and visible window to reflect the new cursor.
@@ -120,41 +120,41 @@ impl zaroxi_application_workspace::ports::WorkspaceService for FakeService {
                     line.cursor_column = Some(req.cursor.column as usize);
                 }
             }
-            Ok(crate::ports::SetEditorCursorResponse { ok: true })
+            Ok(aw::SetEditorCursorResponse { ok: true })
         })
     }
 
-    fn set_editor_selection(&self, _req: crate::ports::SetSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn set_editor_selection(&self, _req: aw::SetSelectionRequest) -> aw::BoxFuture<'static, Result<aw::SetSelectionResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn clear_editor_selection(&self, _req: crate::ports::ClearSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn clear_editor_selection(&self, _req: aw::ClearSelectionRequest) -> aw::BoxFuture<'static, Result<aw::ClearSelectionResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn get_editor_state(&self, _req: crate::ports::GetEditorStateRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn get_editor_state(&self, _req: aw::GetEditorStateRequest) -> aw::BoxFuture<'static, Result<aw::GetEditorStateResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn set_viewport_state(&self, _req: aw::SetViewportRequest) -> aw::BoxFuture<'static, Result<aw::SetViewportResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn scroll_viewport(&self, _req: aw::ScrollViewportRequest) -> aw::BoxFuture<'static, Result<aw::ScrollViewportResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::NoActiveBuffer) })
+    fn explain_active_buffer(&self, _req: aw::GetActiveBufferRequest) -> aw::BoxFuture<'static, Result<aw::DispatchCommandResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::NoActiveBuffer) })
     }
-    fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn dispatch_command(&self, _req: aw::DispatchCommandRequest) -> aw::BoxFuture<'static, Result<aw::DispatchCommandResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn update_buffer(&self, _req: crate::ports::UpdateBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn update_buffer(&self, _req: aw::UpdateBufferRequest) -> aw::BoxFuture<'static, Result<aw::UpdateBufferResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
 
-    fn apply_text_transaction(&self, req: crate::ports::ApplyTextTransactionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
+    fn apply_text_transaction(&self, req: aw::ApplyTextTransactionRequest) -> aw::BoxFuture<'static, Result<aw::ApplyTextTransactionResponse, aw::UseCaseError>> {
         let shared = self.shared.clone();
         Box::pin(async move {
             // Very small simulated mutation: if Insert at index 0 with "\n", insert a blank first line.
             match &req.transaction {
-                crate::ports::TextEdit::Insert { index: 0, text } if text == "\n" => {
+                aw::TextEdit::Insert { index: 0, text } if text == "\n" => {
                     // Mutate document content and update visible window for the test.
                     {
                         let mut doc = shared.doc.lock().unwrap();
@@ -185,34 +185,42 @@ impl zaroxi_application_workspace::ports::WorkspaceService for FakeService {
                             win.total_lines = shared.doc.lock().unwrap().line_count;
                         }
                     }
-                    Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: shared.doc.lock().unwrap().content.clone() })
+                    Ok(aw::ApplyTextTransactionResponse { ok: true, state: aw::EditorState { cursor: aw::EditorCursor::zero(), selection: None }, content: shared.doc.lock().unwrap().content.clone() })
                 }
                 _ => {
                     // No-op success
-                    Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: shared.doc.lock().unwrap().content.clone() })
+                    Ok(aw::ApplyTextTransactionResponse { ok: true, state: aw::EditorState { cursor: aw::EditorCursor::zero(), selection: None }, content: shared.doc.lock().unwrap().content.clone() })
                 }
             }
         })
     }
 
-    fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+    fn get_recent_commands(&self, _req: aw::GetRecentCommandsRequest) -> aw::BoxFuture<'static, Result<aw::GetRecentCommandsResponse, aw::UseCaseError>> {
+        Box::pin(async { Ok(aw::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
 
-    fn get_recent_events(&self, _req: crate::ports::GetRecentEventsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Ok(crate::ports::GetRecentEventsResponse { events: Vec::new() }) })
+    fn get_recent_events(&self, _req: aw::GetRecentEventsRequest) -> aw::BoxFuture<'static, Result<aw::GetRecentEventsResponse, aw::UseCaseError>> {
+        Box::pin(async { Ok(aw::GetRecentEventsResponse { events: Vec::new() }) })
     }
 
-    fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn get_session_snapshot(&self, _req: aw::GetSessionSnapshotRequest) -> aw::BoxFuture<'static, Result<aw::GetSessionSnapshotResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
 
-    fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn create_checkpoint(&self, _req: aw::CreateCheckpointRequest) -> aw::BoxFuture<'static, Result<aw::CreateCheckpointResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
 
-    fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn save_checkpoint(&self, _req: aw::SaveCheckpointRequest) -> aw::BoxFuture<'static, Result<aw::SaveCheckpointResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
+    }
+
+    fn load_checkpoint(&self, _req: aw::LoadCheckpointRequest) -> aw::BoxFuture<'static, Result<aw::LoadCheckpointResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
+    }
+
+    fn restore_checkpoint(&self, _req: aw::RestoreCheckpointRequest) -> aw::BoxFuture<'static, Result<aw::RestoreCheckpointResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
 }
 
