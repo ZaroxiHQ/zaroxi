@@ -1,10 +1,9 @@
 use std::sync::Arc;
-use zaroxi_interface_desktop::{DesktopComposition, actions, ViewportAnchoring};
+use zaroxi_interface_desktop::{DesktopComposition, ViewportAnchoring};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_application_workspace::ports as aw_ports;
-use zaroxi_interface_desktop::view_adapter::InterfaceSpanKind;
 use zaroxi_kernel_types::Id;
 
 /// Minimal in-test WorkspaceView that returns a tiny document and a one-line visible window.
@@ -167,6 +166,7 @@ async fn content_mutation_reflects_in_viewport_total_lines() {
             Self { doc: std::sync::Arc::new(std::sync::Mutex::new(doc)), window: std::sync::Arc::new(std::sync::Mutex::new(vw)) }
         }
 
+        #[allow(dead_code)]
         fn set_content(&self, content: Option<String>) {
             {
                 let mut d = self.doc.lock().unwrap();
