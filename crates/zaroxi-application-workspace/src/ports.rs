@@ -381,7 +381,63 @@
  pub struct GetEditorStateResponse {
      pub state: Option<EditorState>,
  }
-
+ 
+ /// Line-based viewport state for an open buffer.
+ /// - `top_line` is 1-based index of the first visible line in the viewport.
+ /// - `window_height` is the number of lines visible in the viewport.
+ /// - `center_cursor` when true indicates that projection should prefer centering
+ ///   the cursor into the viewport when computing the visible window; otherwise
+ ///   the explicit `top_line` is authoritative.
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+ pub struct ViewportState {
+     pub top_line: usize,
+     pub window_height: usize,
+     pub center_cursor: bool,
+ }
+ 
+ /// Request to set the viewport state for a buffer in a session.
+ #[derive(Clone, Debug)]
+ pub struct SetViewportRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+     pub viewport: ViewportState,
+ }
+ 
+ /// Response for set viewport request.
+ #[derive(Clone, Debug)]
+ pub struct SetViewportResponse {
+     pub ok: bool,
+ }
+ 
+ /// Request to scroll the viewport by a signed line delta (positive => down).
+ #[derive(Clone, Debug)]
+ pub struct ScrollViewportRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+     /// Signed line delta: positive scrolls down, negative scrolls up.
+     pub delta_lines: isize,
+ }
+ 
+ /// Response for scroll request (returns new viewport state).
+ #[derive(Clone, Debug)]
+ pub struct ScrollViewportResponse {
+     pub ok: bool,
+     pub new_viewport: ViewportState,
+ }
+ 
+ /// Request to obtain visible lines for a specific buffer/session using the stored viewport state.
+ #[derive(Clone, Debug)]
+ pub struct GetVisibleLinesRequest {
+     pub session_id: SessionId,
+     pub buffer_id: BufferId,
+ }
+ 
+ /// Response carrying a VisibleLinesWindow coming from the view seam.
+ #[derive(Clone, Debug)]
+ pub struct GetVisibleLinesResponse {
+     pub window: crate::view::VisibleLinesWindow,
+ }
+ 
  /// Editor document/view model returned by the view seam.
  /// Combines current buffer content with editor transient state for presentation.
  #[derive(Clone, Debug)]
@@ -541,6 +597,12 @@
 
      fn get_editor_state(&self, req: GetEditorStateRequest) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>>;
 
+     /// Viewport APIs: minimal typed viewport state seam for line-based scrolling and explicit control.
+     /// - set_viewport_state: replace the stored viewport state for a buffer in a session.
+     /// - scroll_viewport: adjust the stored top_line by a signed line delta (clamped to >= 1).
+     fn set_viewport_state(&self, req: SetViewportRequest) -> BoxFuture<'static, Result<SetViewportResponse, UseCaseError>>;
+     fn scroll_viewport(&self, req: ScrollViewportRequest) -> BoxFuture<'static, Result<ScrollViewportResponse, UseCaseError>>;
+
      /// Shorthand use-case: explain the currently active buffer (uses the AiClient).
      fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>>;
 
@@ -606,6 +668,9 @@
      /// - UnknownSession if the session is not known.
      /// - NoActiveBuffer if the session has no active buffer.
      fn get_active_editor_document(&self, req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>>;
+ 
+     /// Get visible lines for a buffer using the stored viewport state managed by the orchestrator.
+     fn get_visible_lines(&self, req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>>;
  }
  
  pub type DynWorkspaceView = Arc<dyn WorkspaceView>;

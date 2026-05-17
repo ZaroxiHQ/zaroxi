@@ -53,6 +53,8 @@
      active_buffer: Option<buffer_ports::BufferId>, // currently selected buffer id
      /// Editor transient state per buffer (cursor + optional selection).
      editor_states: std::collections::HashMap<buffer_ports::BufferId, EditorState>,
+     /// Per-buffer viewport state (line-based). Managed by the orchestrator.
+     viewport_states: std::collections::HashMap<buffer_ports::BufferId, crate::ports::ViewportState>,
  }
  
  use zaroxi_domain_buffer::rules as buffer_rules;
@@ -377,6 +379,8 @@
                      info.open_buffers.push(buffer_id.clone());
                      // initialize lightweight editor state for this buffer as empty cursor at (0,0)
                      info.editor_states.entry(buffer_id.clone()).or_insert(EditorState { cursor: EditorCursor::zero(), selection: None });
+                     // initialize a default viewport for this buffer (1-based top_line).
+                     info.viewport_states.entry(buffer_id.clone()).or_insert(crate::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: true });
                      if info.active_buffer.is_none() {
                          info.active_buffer = Some(buffer_id.clone());
                      }
@@ -545,7 +549,42 @@
              Ok(GetEditorStateResponse { state })
          })
      }
-
+ 
+     fn set_viewport_state(&self, req: SetViewportRequest) -> BoxFuture<'static, Result<SetViewportResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             // Validate session and membership
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+             info.viewport_states.insert(req.buffer_id.clone(), req.viewport.clone());
+             Ok(SetViewportResponse { ok: true })
+         })
+     }
+ 
+     fn scroll_viewport(&self, req: ScrollViewportRequest) -> BoxFuture<'static, Result<ScrollViewportResponse, UseCaseError>> {
+         let sessions = self.sessions.clone();
+         Box::pin(async move {
+             let mut s = sessions.lock().unwrap();
+             let info = s.get_mut(&req.session_id.0).ok_or(UseCaseError::UnknownSession)?;
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+ 
+             // Update viewport state with clamped top_line (1-based).
+             let vp = info.viewport_states.entry(req.buffer_id.clone()).or_insert(crate::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: false });
+             let current = vp.top_line as isize;
+             let mut new_top = current.saturating_add(req.delta_lines);
+             if new_top < 1 {
+                 new_top = 1;
+             }
+             vp.top_line = new_top as usize;
+ 
+             Ok(ScrollViewportResponse { ok: true, new_viewport: vp.clone() })
+         })
+     }
      fn explain_active_buffer(&self, req: GetActiveBufferRequest) -> BoxFuture<'static, Result<DispatchCommandResponse, UseCaseError>> {
          let ai = self.ai_client.clone();
          let store = self.buffer_store.clone();
@@ -1643,16 +1682,16 @@
              };
              let info = info_opt.ok_or(crate::ports::UseCaseError::UnknownSession)?;
              let active = info.active_buffer.ok_or(crate::ports::UseCaseError::NoActiveBuffer)?;
-
+ 
              // Snapshot content for the active buffer (sync read path).
              let content = store.get_text(&active);
-
+ 
              // Editor transient state for the buffer (if present)
              let state = info.editor_states.get(&active).cloned().unwrap_or(crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None });
-
+ 
              let line_count = content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
              let current_line = content.as_ref().and_then(|c| c.lines().nth(state.cursor.line as usize).map(|s| s.to_string()));
-
+ 
              let doc = crate::ports::EditorDocument {
                  buffer_id: active.clone(),
                  content,
@@ -1661,8 +1700,47 @@
                  line_count,
                  current_line,
              };
-
+ 
              Ok(crate::ports::GetActiveEditorDocumentResponse { document: doc })
+         })
+     }
+ 
+     fn get_visible_lines(&self, req: crate::ports::GetVisibleLinesRequest) -> BoxFuture<'static, Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+         let sessions = self.sessions.clone();
+         let store = self.buffer_store.clone();
+         Box::pin(async move {
+             // Resolve session info
+             let info = {
+                 let s = sessions.lock().unwrap();
+                 s.get(&req.session_id.0).cloned().ok_or(crate::ports::UseCaseError::UnknownSession)?
+             };
+ 
+             // Ensure buffer is opened in session
+             if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                 return Err(crate::ports::UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+             }
+ 
+             // Snapshot content
+             let content = store.get_text(&req.buffer_id);
+             let state = info.editor_states.get(&req.buffer_id).cloned().unwrap_or(crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None });
+             let viewport = info.viewport_states.get(&req.buffer_id).cloned().unwrap_or(crate::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: false });
+ 
+             let line_count = content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
+             let current_line = content.as_ref().and_then(|c| c.lines().nth(state.cursor.line as usize).map(|s| s.to_string()));
+ 
+             let doc = crate::ports::EditorDocument {
+                 buffer_id: req.buffer_id.clone(),
+                 content,
+                 cursor: state.cursor,
+                 selection: state.selection,
+                 line_count,
+                 current_line,
+             };
+ 
+             // Delegate to view seam for projection using viewport state.
+             let window = crate::view::project_visible_lines_for_viewport(&doc, &viewport);
+ 
+             Ok(crate::ports::GetVisibleLinesResponse { window })
          })
      }
  }

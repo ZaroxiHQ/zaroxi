@@ -176,3 +176,69 @@ pub fn project_visible_lines(doc: &EditorDocument, window_size: usize, center_on
 
     VisibleLinesWindow { top_line: start + 1, total_lines: total, lines: out }
 }
+ 
+/// Project visible lines given an explicit stored viewport state.
+///
+/// Semantics:
+/// - If `viewport.center_cursor == true` then prefer centering the cursor similar to
+///   the previous centering policy; otherwise use `viewport.top_line` as authoritative
+///   (clamped to the document size).
+pub fn project_visible_lines_for_viewport(doc: &EditorDocument, viewport: &crate::ports::ViewportState) -> VisibleLinesWindow {
+    // Defensive: empty window_height treated as zero -> return empty projection.
+    if viewport.window_height == 0 {
+        return VisibleLinesWindow { top_line: 1, total_lines: 0, lines: Vec::new() };
+    }
+ 
+    let lines_vec: Vec<String> = doc.content
+        .as_ref()
+        .map(|s| s.lines().map(|l| l.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+ 
+    let total = lines_vec.len();
+ 
+    if total == 0 {
+        return VisibleLinesWindow { top_line: 1, total_lines: 0, lines: Vec::new() };
+    }
+ 
+    let cursor_line = doc.cursor.line as usize;
+ 
+    // Compute start using viewport state.
+    let mut start = if viewport.center_cursor {
+        // Centering policy similar to earlier function.
+        let half = viewport.window_height / 2;
+        if cursor_line > half {
+            cursor_line.saturating_sub(half).saturating_add(1)
+        } else {
+            0
+        }
+    } else {
+        // Convert 1-based top_line to 0-based start, clamp to valid range.
+        if viewport.top_line == 0 {
+            0
+        } else {
+            viewport.top_line.saturating_sub(1)
+        }
+    };
+ 
+    // Clamp start so that window fits within document.
+    if start + viewport.window_height > total {
+        if total >= viewport.window_height {
+            start = total - viewport.window_height;
+        } else {
+            start = 0;
+        }
+    }
+ 
+    let end = std::cmp::min(start + viewport.window_height, total);
+ 
+    let mut out: Vec<VisibleLine> = Vec::with_capacity(end - start);
+    for (idx, line) in lines_vec.iter().enumerate().take(end).skip(start) {
+        out.push(VisibleLine {
+            line_number: idx + 1,
+            text: line.clone(),
+            is_cursor_line: idx == cursor_line,
+        });
+    }
+ 
+    VisibleLinesWindow { top_line: start + 1, total_lines: total, lines: out }
+}

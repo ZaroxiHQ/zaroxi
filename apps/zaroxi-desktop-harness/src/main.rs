@@ -94,9 +94,20 @@ async fn main() -> Result<(), String> {
             }
 
             // Phase 7 (new): project a deterministic, presentation-only visible lines window
-            // based on the EditorDocument. We choose a small default window (10 lines)
-            // and center it on the cursor for the harness demonstration.
-            let visible = project_visible_lines(&doc, 10, true);
+            // using the typed viewport seam. We compose a small default viewport and set it
+            // via the orchestrator, then request the projected lines from the view seam.
+            let vp = zaroxi_application_workspace::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: true };
+            let _ = orchestrator.set_viewport_state(zaroxi_application_workspace::ports::SetViewportRequest {
+                session_id: boot_res.session.session_id.clone(),
+                buffer_id: doc.buffer_id.clone(),
+                viewport: vp.clone(),
+            }).await.map_err(|e| e.to_string())?;
+ 
+            let win_res = orchestrator.get_visible_lines(zaroxi_application_workspace::ports::GetVisibleLinesRequest {
+                session_id: boot_res.session.session_id.clone(),
+                buffer_id: doc.buffer_id.clone(),
+            }).await.map_err(|e| e.to_string())?;
+            let visible = win_res.window;
             println!("Harness: visible lines (top_line={}, total_lines={}):", visible.top_line, visible.total_lines);
             for vl in visible.lines.iter() {
                 if vl.is_cursor_line {
