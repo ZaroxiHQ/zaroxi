@@ -34,3 +34,4 @@ pub mod projections;
 pub use projections::last_event_line::LastEventLine;
 pub use projections::last_event_line::summarize_last_event;
 pub use projections::active_buffer_line::ActiveBufferLine;
+pub use projections::location_line::LocationLine;

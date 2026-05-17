@@ -9,6 +9,7 @@ use zaroxi_application_workspace::ports::{
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
 use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
 use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
+use zaroxi_interface_desktop::projections::location_line::LocationLine;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -147,8 +148,15 @@ async fn main() -> Result<(), String> {
                             } else {
                                 println!("Harness: active buffer line: <absent>");
                             }
+                            // LocationLine: present only after first refresh when a cursor/document exists.
+                            if let Some(loc) = LocationLine::from_shell_snapshot(&ss) {
+                                println!("Harness: location line: {}", loc.render());
+                            } else {
+                                println!("Harness: location line: <absent>");
+                            }
                         } else {
                             println!("Harness: active buffer line: <none> (no shell snapshot)");
+                            println!("Harness: location line: <none> (no shell snapshot)");
                         }
                     } else {
                         println!("Harness: session identity: <none> (no composition metadata)");
