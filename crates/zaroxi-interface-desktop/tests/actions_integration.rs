@@ -1,0 +1,288 @@
+/*!
+Interface-desktop action integration tests (Phase 18)
+
+Rationale:
+- Provide a small, focused integration-style test suite at the interface-desktop
+  boundary that verifies the three tiny shell actions:
+    - refresh_desktop
+    - move_cursor_to_start_and_refresh
+    - insert_line_at_start_and_refresh
+- Tests exercise the public seam only. They use minimal in-test fakes that
+  implement the application-level ports (WorkspaceView / WorkspaceService) so
+  the adapter/presenter/composition pipeline is exercised end-to-end.
+- Keep tests deterministic, small, and seam-focused (no infra wiring, no harness).
+- This file intentionally lives in `crates/zaroxi-interface-desktop/tests` so the
+  crate's public API is verified as an external consumer would use it.
+
+Files added:
+- crates/zaroxi-interface-desktop/tests/actions_integration.rs (this file)
+
+Validation (run these from the workspace root):
+# cargo test -p zaroxi-interface-desktop
+# cargo run -p zaroxi-desktop-harness
+# cargo test -p zaroxi-application-workspace
+# cargo test -p zaroxi-application-ai
+# bash scripts/architecture_check.sh
+
+The shell commands are included here for convenience; run them after applying the test file.
+*/
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc as StdArc;
+
+use zaroxi_interface_desktop::{
+    refresh_desktop, move_cursor_to_start_and_refresh, actions, DesktopComposition,
+    // ActionResult is re-exported by the crate root
+    ActionResult,
+};
+use zaroxi_application_workspace::ports::{
+    WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId,
+    GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor,
+    WorkspaceService, GetActiveBufferRequest, GetActiveBufferResponse, SetEditorCursorRequest,
+    ApplyTextTransactionRequest, ApplyTextTransactionResponse, UseCaseError,
+};
+use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
+use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_kernel_types::Id;
+
+use std::pin::Pin;
+use std::future::Future;
+use std::boxed::Box;
+
+/// Helper boxed future alias matching the application port signature used in tests.
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Minimal in-test WorkspaceView that returns a tiny document and a one-line visible window.
+///
+/// This test-local fake is intentionally small and deterministic.
+struct FakeView {
+    doc: EditorDocument,
+    window: VisibleLinesWindow,
+}
+
+impl FakeView {
+    fn new() -> Self {
+        let content = Some("abcd".to_string());
+        let ed = EditorDocument {
+            buffer_id: BufferId::from("buf:fake"),
+            content: content.clone(),
+            cursor: EditorCursor { line: 0, column: 2 },
+            selection: None,
+            line_count: 1,
+            current_line: content.and_then(|c| c.lines().nth(0).map(|s| s.to_string())),
+        };
+
+        let vl = VisibleLine {
+            line_number: 1,
+            text: "abcd".to_string(),
+            is_cursor_line: true,
+            cursor_column: Some(2),
+            selection_intersects: false,
+            selection_start_column: None,
+            selection_end_column: None,
+        };
+        let vw = VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
+
+        FakeView { doc: ed, window: vw }
+    }
+}
+
+impl WorkspaceView for FakeView {
+    fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        Box::pin(async move { Ok(Some("".to_string())) })
+    }
+
+    fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        Box::pin(async move { Ok(Some("".to_string())) })
+    }
+
+    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
+        let d = self.doc.clone();
+        Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
+    }
+
+    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>> {
+        let w = self.window.clone();
+        Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
+    }
+}
+
+/// Minimal fake WorkspaceService implementing only the tiny surface required by the actions.
+///
+/// Other methods return UnknownSession/UnknownWorkspace as appropriate to keep the fake small.
+struct FakeService {
+    buffer_id: BufferId,
+    set_called: StdArc<AtomicBool>,
+    apply_called: StdArc<AtomicBool>,
+}
+
+impl FakeService {
+    fn new(buffer_id: BufferId) -> Self {
+        Self { buffer_id, set_called: StdArc::new(AtomicBool::new(false)), apply_called: StdArc::new(AtomicBool::new(false)) }
+    }
+}
+
+impl WorkspaceService for FakeService {
+    fn boot_workspace(&self, _req: crate::ports::WorkspaceBootRequest) -> BoxFuture<'static, Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownWorkspace) })
+    }
+
+    fn open_buffer(&self, _req: crate::ports::OpenBufferRequest) -> BoxFuture<'static, Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn list_open_buffers(&self, _req: crate::ports::ListBuffersRequest) -> BoxFuture<'static, Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn get_active_buffer(&self, _req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, crate::ports::UseCaseError>> {
+        let bid = self.buffer_id.clone();
+        Box::pin(async move { Ok(GetActiveBufferResponse { buffer_id: bid }) })
+    }
+
+    fn set_editor_cursor(&self, req: SetEditorCursorRequest) -> BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>> {
+        let expected = self.buffer_id.clone();
+        let set_called = self.set_called.clone();
+        Box::pin(async move {
+            if req.buffer_id == expected && req.cursor.line == 0 && req.cursor.column == 0 {
+                set_called.store(true, Ordering::SeqCst);
+                Ok(crate::ports::SetEditorCursorResponse { ok: true })
+            } else {
+                Err(crate::ports::UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()))
+            }
+        })
+    }
+
+    fn set_editor_selection(&self, _req: crate::ports::SetSelectionRequest) -> BoxFuture<'static, Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn clear_editor_selection(&self, _req: crate::ports::ClearSelectionRequest) -> BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn get_editor_state(&self, _req: crate::ports::GetEditorStateRequest) -> BoxFuture<'static, Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> BoxFuture<'static, Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::NoActiveBuffer) })
+    }
+
+    fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn update_buffer(&self, _req: crate::ports::UpdateBufferRequest) -> BoxFuture<'static, Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn apply_text_transaction(&self, _req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
+        let apply_called = self.apply_called.clone();
+        Box::pin(async move {
+            apply_called.store(true, Ordering::SeqCst);
+            Ok(ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: None })
+        })
+    }
+
+    fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+    }
+
+    fn get_recent_events(&self, _req: crate::ports::GetRecentEventsRequest) -> BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Ok(crate::ports::GetRecentEventsResponse { events: Vec::new() }) })
+    }
+
+    fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn load_checkpoint(&self, _req: crate::ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+
+    fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>> {
+        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    }
+}
+
+#[tokio::test]
+async fn refresh_desktop_returns_action_result_and_updates_composition() {
+    let v = FakeView::new();
+    let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+    let sid = SessionId(Id::new());
+    let mut comp = DesktopComposition::new();
+
+    let ar = refresh_desktop(&mut comp, arc, sid.clone(), None).await.expect("refresh ok");
+    assert!(ar.success);
+    assert!(ar.refreshed);
+    assert_eq!(comp.get_session_id().unwrap(), sid);
+    let win = comp.latest_window().expect("window present");
+    assert_eq!(win.total_lines, 1);
+    assert_eq!(win.lines.len(), 1);
+}
+
+#[tokio::test]
+async fn move_cursor_action_calls_service_and_refreshes() {
+    let v = FakeView::new();
+    let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+    let sid = SessionId(Id::new());
+
+    let fake_service = FakeService::new(BufferId::from("buf:fake"));
+    let set_called = fake_service.set_called.clone();
+    let service_arc: StdArc<dyn WorkspaceService> = StdArc::new(fake_service);
+
+    let mut comp = DesktopComposition::new();
+    // pre-refresh to populate presenter (not required but realistic)
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+
+    let res = move_cursor_to_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
+    assert!(res.is_ok());
+    let ar = res.unwrap();
+    assert!(ar.success);
+    assert!(ar.refreshed);
+    assert!(set_called.load(Ordering::SeqCst), "set_editor_cursor should have been called on the service");
+}
+
+#[tokio::test]
+async fn insert_line_action_applies_transaction_and_refreshes() {
+    let v = FakeView::new();
+    let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+    let sid = SessionId(Id::new());
+
+    let fake_service = FakeService::new(BufferId::from("buf:fake"));
+    let apply_called = fake_service.apply_called.clone();
+    let service_arc: StdArc<dyn WorkspaceService> = StdArc::new(fake_service);
+
+    let mut comp = DesktopComposition::new();
+    // pre-refresh
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+
+    let res = actions::insert_line_at_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
+    assert!(res.is_ok());
+    let ar = res.unwrap();
+    assert!(ar.success);
+    assert!(ar.refreshed);
+    assert!(apply_called.load(Ordering::SeqCst), "apply_text_transaction should have been called on the service");
+}
