@@ -55,7 +55,7 @@ async fn main() -> Result<(), String> {
     // Tiny shell-facing SessionIdentityLine: compose and print a concise identity line for shells.
     // We only shape and present existing session/workspace identifiers here; no identity mechanisms are created.
     let session_id_str = Some(boot_res.session.session_id.to_string());
-    let workspace_id_str = boot_res.session.workspace_id.as_ref().map(|w| w.to_string());
+    let workspace_id_str = Some(boot_res.session.workspace_id.to_string());
     let session_identity = SessionIdentityLine::new(session_id_str, workspace_id_str, None);
     println!("Harness: session identity: {}", session_identity.render());
 
