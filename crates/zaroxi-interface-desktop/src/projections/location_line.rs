@@ -43,8 +43,16 @@ impl LocationLine {
     /// is taken from the shell context (snapshot.context.active_display) when available.
     pub fn from_shell_snapshot(snapshot: &crate::ShellSnapshot) -> Option<Self> {
         let rev = snapshot.context.latest_revision;
-        let line = snapshot.active_document.as_ref().and_then(|d| d.cursor_line);
-        let column = snapshot.active_document.as_ref().and_then(|d| d.cursor_column);
+        // Some upstream types encode cursor positions as usize; convert to u32 to
+        // match this projection's compact representation. Use map to preserve Option.
+        let line = snapshot
+            .active_document
+            .as_ref()
+            .and_then(|d| d.cursor_line.map(|l| l as u32));
+        let column = snapshot
+            .active_document
+            .as_ref()
+            .and_then(|d| d.cursor_column.map(|c| c as u32));
         let display = snapshot.context.active_display.clone();
         Self::from_parts(rev, line, column, display)
     }
