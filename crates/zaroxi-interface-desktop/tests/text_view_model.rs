@@ -4,6 +4,7 @@ use std::future::Future;
 
 use zaroxi_interface_desktop::{DesktopComposition, TextView, actions};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
+use zaroxi_application_workspace::ports as aw;
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
 
@@ -52,22 +53,22 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_buffer_content(&self, _buffer_id: aw::BufferId) -> aw::BoxFuture<'static, Result<Option<String>, aw::UseCaseError>> {
         let s = self.shared.doc.lock().unwrap().content.clone();
         Box::pin(async move { Ok(s) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_active_buffer_content(&self, _session_id: aw::SessionId) -> aw::BoxFuture<'static, Result<Option<String>, aw::UseCaseError>> {
         let s = self.shared.doc.lock().unwrap().content.clone();
         Box::pin(async move { Ok(s) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> aw::BoxFuture<'static, Result<GetActiveEditorDocumentResponse, aw::UseCaseError>> {
         let d = self.shared.doc.lock().unwrap().clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> aw::BoxFuture<'static, Result<GetVisibleLinesResponse, aw::UseCaseError>> {
         let w = self.shared.window.lock().unwrap().clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }
@@ -85,15 +86,15 @@ impl FakeService {
 }
 
 impl zaroxi_application_workspace::ports::WorkspaceService for FakeService {
-    fn boot_workspace(&self, _req: crate::ports::WorkspaceBootRequest) -> crate::BoxFuture<'static, Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownWorkspace) })
+    fn boot_workspace(&self, _req: aw::WorkspaceBootRequest) -> aw::BoxFuture<'static, Result<aw::WorkspaceBootResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownWorkspace) })
     }
-    fn open_buffer(&self, _req: crate::ports::OpenBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>> {
-        Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+    fn open_buffer(&self, _req: aw::OpenBufferRequest) -> aw::BoxFuture<'static, Result<aw::OpenBufferResponse, aw::UseCaseError>> {
+        Box::pin(async { Err(aw::UseCaseError::UnknownSession) })
     }
-    fn list_open_buffers(&self, _req: crate::ports::ListBuffersRequest) -> crate::BoxFuture<'static, Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>> {
+    fn list_open_buffers(&self, _req: aw::ListBuffersRequest) -> aw::BoxFuture<'static, Result<aw::ListBuffersResponse, aw::UseCaseError>> {
         let b = self.shared.doc.lock().unwrap().buffer_id.clone();
-        Box::pin(async move { Ok(crate::ports::ListBuffersResponse { buffer_ids: vec![b], active_buffer: Some(crate::ports::BufferId::from("buf:fake")) }) })
+        Box::pin(async move { Ok(aw::ListBuffersResponse { buffer_ids: vec![b], active_buffer: Some(aw::BufferId::from("buf:fake")) }) })
     }
     fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
         Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
