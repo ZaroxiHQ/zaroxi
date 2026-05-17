@@ -150,6 +150,20 @@ async fn main() -> Result<(), String> {
                         println!("Harness: composition contained no window after refresh");
                     }
 
+                    // Print the small viewport summary derived from the presenter's window.
+                    if let Some(vs) = composition.latest_viewport_summary() {
+                        println!(
+                            "Harness: viewport summary: top_visible_line={} visible_line_count={} total_lines={} cursor_visible={} anchoring={:?}",
+                            vs.top_visible_line,
+                            vs.visible_line_count,
+                            vs.total_lines,
+                            vs.cursor_visible,
+                            vs.anchoring
+                        );
+                    } else {
+                        println!("Harness: viewport summary: <none>");
+                    }
+
                     // Print a compact composition summary via the new summary accessor.
                     if let Some(summary) = composition.latest_summary() {
                         let active_buf = summary.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");

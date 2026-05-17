@@ -81,6 +81,43 @@ pub struct ActiveDocumentSummary {
     pub current_line_snippet: Option<String>,
 }
 
+/// Small, read-only viewport anchoring hint. This is intentionally a tiny, best-effort
+/// indicator derived from the presenter's renderable window and the observed cursor line.
+/// It is heuristic-only and purely advisory for shells; Unknown is returned when no
+/// reliable inference can be made.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ViewportAnchoring {
+    Top,
+    Centered,
+    Unknown,
+}
+
+/// Tiny readonly viewport summary for the active editor surface.
+///
+/// Purpose:
+/// - Expose a compact, deterministic summary of the presenter's window useful to
+///   shells/harnesses (top visible line, visible count, total projected lines).
+/// - Indicate whether the caret/cursor is visible in the current window.
+/// - Provide a best-effort anchoring hint (Top / Centered / Unknown) derived from
+///   the window and cursor location when available.
+///
+/// Constraints:
+/// - Purely read-only and derived from the presenter's InterfaceRenderableWindow.
+/// - No mutation, no scrolling or viewport control, and no rendering semantics.
+#[derive(Clone, Debug)]
+pub struct ViewportSummary {
+    /// 1-based top visible line number.
+    pub top_visible_line: usize,
+    /// Number of visible lines currently in the window.
+    pub visible_line_count: usize,
+    /// Total projected/rendered line count when available (0 if unknown).
+    pub total_lines: usize,
+    /// Whether the cursor (caret) is visible somewhere in the current window.
+    pub cursor_visible: bool,
+    /// Best-effort anchoring hint for the window (top-anchored, centered, or unknown).
+    pub anchoring: ViewportAnchoring,
+}
+
 /// Tiny AI projection: a small, shell-facing read-only snapshot of the most recent AI outcome.
 ///
 /// Keep this intentionally minimal:
@@ -610,6 +647,63 @@ impl DesktopComposition {
             cursor_column,
             selection_present,
             current_line_snippet,
+        })
+    }
+
+    /// Tiny read-only viewport summary derived from the presenter's latest renderable window.
+    ///
+    /// - Returns None when the presenter has no latest window snapshot.
+    /// - The method performs a small deterministic scan of the InterfaceRenderableWindow
+    ///   to compute the top line, visible count, total lines, and whether any Cursor /
+    ///   SelectionCursor span is present in the visible lines (cursor_visible).
+    /// - Anchoring is a best-effort hint: when a cursor line is present and lies strictly
+    ///   inside the visible window (not equal to top and not equal to bottom) we prefer
+    ///   Centered; if the cursor is exactly at the top we report Top; otherwise Unknown.
+    pub fn latest_viewport_summary(&self) -> Option<ViewportSummary> {
+        let win = self.presenter.latest()?;
+        let top = win.top_line;
+        let visible_count = win.lines.len();
+        let total = win.total_lines;
+
+        // Determine if any span marks a cursor in the visible window and record its line number.
+        let mut cursor_visible = false;
+        let mut cursor_line_opt: Option<usize> = None;
+        for line in win.lines.iter() {
+            for sp in line.spans.iter() {
+                match sp.kind {
+                    crate::view_adapter::InterfaceSpanKind::Cursor | crate::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                        cursor_visible = true;
+                        cursor_line_opt = Some(line.line_number);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            if cursor_visible {
+                break;
+            }
+        }
+
+        // Heuristic anchoring inference
+        let anchoring = if let Some(cursor_line) = cursor_line_opt {
+            let bottom = top.saturating_add(visible_count.saturating_sub(1));
+            if cursor_line == top {
+                ViewportAnchoring::Top
+            } else if cursor_line > top && cursor_line < bottom {
+                ViewportAnchoring::Centered
+            } else {
+                ViewportAnchoring::Unknown
+            }
+        } else {
+            ViewportAnchoring::Unknown
+        };
+
+        Some(ViewportSummary {
+            top_visible_line: top,
+            visible_line_count: visible_count,
+            total_lines: total,
+            cursor_visible,
+            anchoring,
         })
     }
 
