@@ -29,11 +29,11 @@ fn translation_from_shell_frame_view_model_preserves_semantic_data() {
     vm.set(frame);
 
     let input = vm.to_engine_input();
-    assert_eq!(input.top_line, tv.top_line);
-    assert_eq!(input.total_lines, tv.total_lines);
+    assert_eq!(input.top_line, tv.top_line as u32);
+    assert_eq!(input.total_lines, tv.total_lines as u32);
     assert_eq!(input.lines, tv.lines);
-    assert_eq!(input.cursor_line, tv.cursor_line);
-    assert_eq!(input.cursor_column, tv.cursor_column);
+    assert_eq!(input.cursor_line, tv.cursor_line.map(|c| c as u32));
+    assert_eq!(input.cursor_column, tv.cursor_column.map(|c| c as u32));
     assert!(input.selection.is_none());
     assert_eq!(input.viewport_summary, vm.viewport());
     assert_eq!(input.status_text, vm.status_text());
