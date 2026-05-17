@@ -6,4 +6,14 @@ description = "zaroxi-interface-app (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+serde = { workspace = true }
+log = { workspace = true }
+
+# Interface and workspace-local crates consumed by this crate.
+zaroxi-interface-desktop = { workspace = true }
+zaroxi-config = { workspace = true }
+zaroxi-editor-core = { workspace = true }
+zaroxi-editor-buffer = { workspace = true }
+zaroxi-workspace = { workspace = true }
+zaroxi-theme = { workspace = true }
+zaroxi-foundation = { workspace = true }
