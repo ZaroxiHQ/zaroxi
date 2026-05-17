@@ -388,8 +388,15 @@ async fn main() -> Result<(), String> {
         Some(service_dyn.clone()),
     ).await {
         Ok(_action_result) => {
-            if let Some(ai) = composition.latest_ai_projection() {
-                println!("Harness: AI projection: kind={:?} result={:?} target_buffer={:?}", ai.kind, ai.result, ai.target_buffer);
+            // Prefer the tiny AiProjectionSummary for concise harness diagnostics.
+            if let Some(ai_sum) = composition.latest_ai_projection_summary() {
+                println!(
+                    "Harness: AI projection summary: present={} kind={:?} target_buffer={:?} state={:?}",
+                    ai_sum.present,
+                    ai_sum.kind,
+                    ai_sum.target_buffer,
+                    ai_sum.state
+                );
             } else {
                 println!("Harness: AI projection: <none>");
             }

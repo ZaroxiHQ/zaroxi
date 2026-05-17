@@ -131,6 +131,45 @@ pub struct AiProjection {
     pub target_buffer: Option<crate::ports::BufferId>,
 }
 
+/// Tiny, enumerated AI projection kind used by shell-facing summaries.
+///
+/// This enum intentionally covers a very small set of well-known kinds and
+/// falls back to Other(String) for unrecognized labels. It is strictly a
+/// presentation aid for shells/harnesses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AiKind {
+    Explain,
+    Suggest,
+    Refactor,
+    Other(String),
+}
+
+/// Small, coarse AI projection state exposed to shells.
+///
+/// We do not implement a runtime state machine here; this is a tiny hint
+/// derived from whether an AI result text is present. It keeps the surface
+/// minimal but useful for shell diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AiState {
+    Ready,
+    Running,
+    Failed,
+}
+
+/// Very small, read-only summary of the AI projection intended for shells.
+///
+/// - `present`: whether an AI projection exists at all.
+/// - `kind`: interpreted kind when available (small enum).
+/// - `target_buffer`: buffer the projection refers to when available.
+/// - `state`: a tiny readiness/running/failed hint derived from projection shape.
+#[derive(Clone, Debug)]
+pub struct AiProjectionSummary {
+    pub present: bool,
+    pub kind: Option<AiKind>,
+    pub target_buffer: Option<crate::ports::BufferId>,
+    pub state: AiState,
+}
+
 /// Small enum describing why the DesktopComposition was refreshed.
 ///
 /// This is a tiny, shell-facing model intended only to help outer layers (harness,
@@ -715,6 +754,49 @@ impl DesktopComposition {
     /// Return the small, read-only AI projection (if any) obtained during the last refresh.
     pub fn latest_ai_projection(&self) -> Option<AiProjection> {
         self.metadata.as_ref().and_then(|m| m.ai_projection.clone())
+    }
+
+    /// Return a tiny, read-only AI projection summary intended for shell consumption.
+    ///
+    /// This function composes the existing AiProjection (if present) into a small,
+    /// stable shape suitable for printing and simple diagnostics in shells/harnesses.
+    /// - Maps free-form `kind` strings to the small `AiKind` enum using a best-effort,
+    ///   case-insensitive substring match.
+    /// - Sets `AiState::Ready` when `result` is present; `Running` when a kind is
+    ///   declared but no result text is present; otherwise `Failed`.
+    ///
+    /// Returns None when no AI projection exists in the composition metadata.
+    pub fn latest_ai_projection_summary(&self) -> Option<AiProjectionSummary> {
+        let ap = self.latest_ai_projection()?;
+        // Map kind string to small enum
+        let kind_opt = ap.kind.as_ref().map(|k| {
+            let kl = k.to_lowercase();
+            if kl.contains("explain") {
+                AiKind::Explain
+            } else if kl.contains("suggest") || kl.contains("suggestion") {
+                AiKind::Suggest
+            } else if kl.contains("refactor") || kl.contains("refactoring") {
+                AiKind::Refactor
+            } else {
+                AiKind::Other(k.clone())
+            }
+        });
+
+        // Determine a minimal state hint
+        let state = if ap.result.is_some() {
+            AiState::Ready
+        } else if ap.kind.is_some() {
+            AiState::Running
+        } else {
+            AiState::Failed
+        };
+
+        Some(AiProjectionSummary {
+            present: true,
+            kind: kind_opt,
+            target_buffer: ap.target_buffer.clone(),
+            state,
+        })
     }
 
     /// Return the most recent composition revision (monotonic counter).
