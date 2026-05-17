@@ -113,7 +113,7 @@ pub struct DesktopMetadata {
 /// - Very small, shell-facing struct summarizing presence/availability of
 ///   key projections without exposing their full contents.
 /// - Values are booleans to remain compact and deterministic for the harness.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesktopStatus {
     /// Is there a presenter render window available?
     pub has_render_window: bool,
