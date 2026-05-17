@@ -52,12 +52,9 @@ async fn main() -> Result<(), String> {
     let boot_res = orchestrator.boot_workspace(boot_req).await.map_err(|e| e.to_string())?;
     println!("Harness: opened workspace session: {}", boot_res.session.session_id);
 
-    // Tiny shell-facing SessionIdentityLine: compose and print a concise identity line for shells.
-    // We only shape and present existing session/workspace identifiers here; no identity mechanisms are created.
-    let session_id_str = Some(boot_res.session.session_id.to_string());
-    let workspace_id_str = Some(boot_res.session.workspace_id.to_string());
-    let session_identity = SessionIdentityLine::new(session_id_str, workspace_id_str, None);
-    println!("Harness: session identity: {}", session_identity.render());
+    // SessionIdentityLine: intentionally not emitted until after the first composition refresh.
+    // The composition/refresh is the authoritative source for shell-facing projections;
+    // do not present session identity here (pre-refresh).
 
     // Open two buffers
     let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
@@ -130,6 +127,21 @@ async fn main() -> Result<(), String> {
             ).await {
                 Ok(action_result) => {
                     println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+
+                    // After the first successful refresh, the composition is authoritative and may
+                    // contain DesktopMetadata/shell snapshot information. Emit a tiny
+                    // shell-facing SessionIdentityLine only when the composition contains metadata.
+                    if composition.latest_summary().is_some() {
+                        let session_identity = SessionIdentityLine::new(
+                            Some(boot_res.session.session_id.to_string()),
+                            Some(boot_res.session.workspace_id.to_string()),
+                            None,
+                        );
+                        println!("Harness: session identity: {}", session_identity.render());
+                    } else {
+                        println!("Harness: session identity: <none> (no composition metadata)");
+                    }
+
                     // Print a tiny status bar line when present.
                     if let Some(sline) = composition.latest_status_bar_line() {
                         if let Some(s) = sline.sticky {
