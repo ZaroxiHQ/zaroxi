@@ -110,52 +110,61 @@ async fn main() -> Result<(), String> {
             let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> = orchestrator.clone();
             let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
             // Delegate refreshing to the tiny interface action introduced in Phase 14.
-            if let Err(e) = zaroxi_interface_desktop::refresh_desktop(
+            match zaroxi_interface_desktop::refresh_desktop(
                 &mut composition,
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
             ).await {
-                println!("Harness: failed to refresh desktop composition: {}", e);
-            } else if let Some(win) = composition.latest_window() {
-                println!("Harness: visible render window (composition): top_line={} total_lines={}", win.top_line, win.total_lines);
-                for rl in win.lines.iter() {
-                    let mut out = String::new();
-                    for sp in rl.spans.iter() {
-                        match sp.kind {
-                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
-                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
-                                out.push_str(&format!("[{}]", sp.text));
-                            }
-                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
-                                if sp.text.is_empty() {
-                                    out.push_str("|^|");
-                                } else {
-                                    out.push_str(&format!("|{}|", sp.text));
+                Ok(action_result) => {
+                    println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    if let Some(win) = composition.latest_window() {
+                        println!("Harness: visible render window (composition): top_line={} total_lines={}", win.top_line, win.total_lines);
+                        for rl in win.lines.iter() {
+                            let mut out = String::new();
+                            for sp in rl.spans.iter() {
+                                match sp.kind {
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
+                                        out.push_str(&format!("[{}]", sp.text));
+                                    }
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
+                                        if sp.text.is_empty() {
+                                            out.push_str("|^|");
+                                        } else {
+                                            out.push_str(&format!("|{}|", sp.text));
+                                        }
+                                    }
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                                        out.push_str(&format!("[|{}|]", sp.text));
+                                    }
                                 }
                             }
-                            zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
-                                out.push_str(&format!("[|{}|]", sp.text));
-                            }
+                            println!("{:4} | {}", rl.line_number, out);
                         }
+                    } else {
+                        println!("Harness: composition contained no window after refresh");
                     }
-                    println!("{:4} | {}", rl.line_number, out);
                 }
-            } else {
-                println!("Harness: composition contained no window after refresh");
+                Err(e) => {
+                    println!("Harness: failed to refresh desktop composition: {}", e);
+                }
             }
 
             // Demonstrate the new tiny shell action: move the cursor to document start and refresh composition.
-            if let Err(e) = zaroxi_interface_desktop::actions::move_cursor_to_start_and_refresh(
+            match zaroxi_interface_desktop::actions::move_cursor_to_start_and_refresh(
                 &mut composition,
                 service_dyn.clone(),
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
             ).await {
-                println!("Harness: move cursor action failed: {}", e);
-            } else {
-                println!("Harness: move cursor action completed; composition refreshed.");
+                Ok(action_result) => {
+                    println!("Harness: move-cursor action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                }
+                Err(e) => {
+                    println!("Harness: move cursor action failed: {}", e);
+                }
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),

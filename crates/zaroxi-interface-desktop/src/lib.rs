@@ -13,4 +13,4 @@ pub use commands::EditorCommand;
 pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind, fetch_renderable_window};
 pub use presenter::Presenter;
 pub use desktop::DesktopComposition;
-pub use actions::refresh_desktop;
+pub use actions::{refresh_desktop, move_cursor_to_start_and_refresh, ActionResult};
