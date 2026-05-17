@@ -159,7 +159,7 @@ pub async fn insert_line_at_start_and_refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use zaroxi_application_workspace::ports::{
         WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor,
     };
@@ -167,8 +167,6 @@ mod tests {
     use zaroxi_core_editor_buffer::ports::BufferId;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc as StdArc;
-    // Import the boxed-future alias from the re-exported application ports so test impls can use BoxFuture.
-    use crate::ports::BoxFuture;
 
     /// Minimal in-test WorkspaceView stub that returns a tiny document and a prebuilt visible window.
     struct FakeView {

@@ -33,8 +33,6 @@ use std::sync::Arc as StdArc;
 
 use zaroxi_interface_desktop::{
     refresh_desktop, move_cursor_to_start_and_refresh, actions, DesktopComposition,
-    // ActionResult is re-exported by the crate root
-    ActionResult,
 };
 use zaroxi_application_workspace::ports::{
     WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId,
