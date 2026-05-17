@@ -22,7 +22,7 @@ impl SharedState {
         let ed = EditorDocument {
             buffer_id: BufferId::from("buf:fake"),
             content: content.clone(),
-            cursor,
+            cursor: cursor.clone(),
             selection: None,
             line_count: initial_content.lines().count(),
             current_line: content.and_then(|c| c.lines().nth(0).map(|s| s.to_string())),

@@ -18,8 +18,7 @@ Design:
 */
 
 use crate::desktop::DesktopComposition;
-use crate::view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind};
-use std::cmp;
+use crate::view_adapter::{InterfaceRenderableWindow, InterfaceSpanKind};
 
 /// Tiny read-only visible-text view model.
 #[derive(Clone, Debug, PartialEq, Eq)]
