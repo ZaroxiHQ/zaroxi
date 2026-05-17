@@ -1,6 +1,5 @@
 use zaroxi_application_workspace::view::project_visible_lines;
-use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
-use zaroxi_application_workspace::ports::{EditorDocument, EditorCursor, Selection};
+use zaroxi_application_workspace::ports::{EditorDocument, EditorCursor};
 use zaroxi_core_editor_buffer::ports::BufferId;
 
 #[test]
