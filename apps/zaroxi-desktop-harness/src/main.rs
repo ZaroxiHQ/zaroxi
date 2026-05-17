@@ -7,6 +7,7 @@ use zaroxi_application_workspace::ports::{
     SaveCheckpointRequest, LoadCheckpointRequest,
 };
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
+use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -50,6 +51,13 @@ async fn main() -> Result<(), String> {
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
     let boot_res = orchestrator.boot_workspace(boot_req).await.map_err(|e| e.to_string())?;
     println!("Harness: opened workspace session: {}", boot_res.session.session_id);
+
+    // Tiny shell-facing SessionIdentityLine: compose and print a concise identity line for shells.
+    // We only shape and present existing session/workspace identifiers here; no identity mechanisms are created.
+    let session_id_str = Some(boot_res.session.session_id.to_string());
+    let workspace_id_str = boot_res.session.workspace_id.as_ref().map(|w| w.to_string());
+    let session_identity = SessionIdentityLine::new(session_id_str, workspace_id_str, None);
+    println!("Harness: session identity: {}", session_identity.render());
 
     // Open two buffers
     let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
