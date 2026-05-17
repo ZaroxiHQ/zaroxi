@@ -144,13 +144,13 @@ async fn main() -> Result<(), String> {
                         // ActiveBufferLine: present only after first refresh per lifecycle rule.
                         if let Some(ss) = composition.latest_shell_snapshot() {
                             if let Some(active_line) = ActiveBufferLine::from_shell_snapshot(&ss) {
-                                println!("Harness: active buffer line: {}", active_line.render());
+                                println!("Harness: active buffer line: {}", active_line.render().trim_end());
                             } else {
                                 println!("Harness: active buffer line: <absent>");
                             }
                             // LocationLine: present only after first refresh when a cursor/document exists.
                             if let Some(loc) = LocationLine::from_shell_snapshot(&ss) {
-                                println!("Harness: location line: {}", loc.render());
+                                println!("Harness: location line: {}", loc.render().trim_end());
                             } else {
                                 println!("Harness: location line: <absent>");
                             }
