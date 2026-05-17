@@ -14,7 +14,7 @@ use zaroxi_application_workspace::ports::{
     GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, WorkspaceView,
 };
 use zaroxi_application_workspace::view::{
-    project_renderable_lines, RenderableLine as AppRenderableLine, RenderSpan as AppRenderSpan, SpanKind as AppSpanKind,
+    project_renderable_lines, RenderableLine as AppRenderableLine, SpanKind as AppSpanKind,
 };
 
 /// Interface-facing span kind (very small, read-only).
