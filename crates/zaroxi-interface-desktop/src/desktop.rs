@@ -566,12 +566,12 @@ impl DesktopComposition {
         // Preference order:
         // 1) Explicit pending reason set by caller (actions).
         // 2) AI projection changed (new explain executed result became available).
-        // 3) Active buffer changed (shell cares which buffer is active).
+        // 3) First-ever refresh should be reported as InitialLoad (stable shell expectation).
+        // 4) Active buffer changed (shell cares which buffer is active).
         //    * When a WorkspaceService was provided prefer comparing the opened-buffer
         //      projection's active marker (service authoritative for opened buffers).
         //    * Otherwise fall back to comparing the presenter's active buffer (view).
-        // 4) Buffer content changed as observed by the presenter snapshot (BufferUpdated).
-        // 5) InitialLoad when composition had no prior session_id.
+        // 5) Buffer content changed as observed by the presenter snapshot (BufferUpdated).
         // 6) Generic RefreshAction otherwise.
         //
         // Note: comparisons are tiny and presentation-only (strings / buffer ids); we avoid
@@ -606,13 +606,19 @@ impl DesktopComposition {
         let current_opened_active = opened_list.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
 
         let reason = if let Some(pending) = self.pending_refresh_reason.take() {
+            // 1) Explicit caller-supplied reason wins.
             pending
         } else if prev_ai_result != new_ai_result {
-            // Prefer AI projection updates when a new ExplainExecuted result is present.
+            // 2) AI projection updates take precedence.
             RefreshReason::AiProjectionUpdated
+        } else if self.session_id.is_none() {
+            // 3) If this composition has never been refreshed before, treat this as InitialLoad.
+            //    This aligns the status bar semantics with shell/harness expectations for the
+            //    first refresh lifecycle event.
+            RefreshReason::InitialLoad
         } else if current_opened_active.is_some() || prev_opened_active.is_some() {
-            // When we have an opened-buffer projection (service used previously or now),
-            // compare the previous opened-active against the current opened-active.
+            // 4) When we have an opened-buffer projection (service used previously or now),
+            //    compare the previous opened-active against the current opened-active.
             if prev_opened_active != current_opened_active {
                 RefreshReason::ActiveBufferChanged
             } else if prev_active != active_buf_opt {
@@ -621,14 +627,14 @@ impl DesktopComposition {
             } else if prev_sig != new_sig {
                 RefreshReason::BufferUpdated
             } else {
-                if self.session_id.is_none() { RefreshReason::InitialLoad } else { RefreshReason::RefreshAction }
+                RefreshReason::RefreshAction
             }
         } else if prev_active != active_buf_opt {
             RefreshReason::ActiveBufferChanged
         } else if prev_sig != new_sig {
             RefreshReason::BufferUpdated
         } else {
-            if self.session_id.is_none() { RefreshReason::InitialLoad } else { RefreshReason::RefreshAction }
+            RefreshReason::RefreshAction
         };
 
         self.session_id = Some(session_id.clone());
