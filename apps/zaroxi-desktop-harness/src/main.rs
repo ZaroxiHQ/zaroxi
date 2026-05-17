@@ -122,6 +122,14 @@ async fn main() -> Result<(), String> {
             ).await {
                 Ok(action_result) => {
                     println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    // Print a tiny status bar line when present.
+                    if let Some(sline) = composition.latest_status_bar_line() {
+                        if let Some(s) = sline.sticky {
+                            println!("Harness: status: {} [{}]", sline.text, s);
+                        } else {
+                            println!("Harness: status: {}", sline.text);
+                        }
+                    }
                     if let Some(win) = composition.latest_window() {
                         println!("Harness: visible render window (composition): top_line={} total_lines={}", win.top_line, win.total_lines);
                         for rl in win.lines.iter() {

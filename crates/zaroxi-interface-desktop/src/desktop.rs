@@ -310,6 +310,20 @@ pub struct ShellContext {
     pub has_ai_projection: bool,
 }
 
+/// Tiny, one-line shell-facing status bar line.
+///
+/// Purpose:
+/// - Provide a minimal, read-only single-line status suitable for tiny shells/harnesses.
+/// - Prefer composing existing projections: AI projection result (preferred), then the
+///   last refresh reason. Optionally expose a small "sticky" hint (e.g. active buffer display).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusBarLine {
+    /// Primary single-line status text (human readable).
+    pub text: String,
+    /// Optional small sticky hint (e.g. active buffer display) shown alongside the text.
+    pub sticky: Option<String>,
+}
+
 /// Tiny, read-only aggregate snapshot aimed at shells and harnesses.
 ///
 /// Purpose:
@@ -980,6 +994,61 @@ impl DesktopComposition {
             latest_refresh_reason: self.metadata.as_ref().and_then(|m| m.refresh_reason.clone()),
             has_ai_projection: has_ai,
         })
+    }
+
+    /// Build a tiny, one-line StatusBarLine suitable for shells/harnesses.
+    ///
+    /// Composition policy (minimal, adapter-local):
+    /// - Prefer an AI projection textual result when present: "AI: <result (truncated)>".
+    /// - Otherwise present a short text mapped from the latest RefreshReason (e.g. "buffer updated").
+    /// - Optionally populate `sticky` with the active-buffer display label (when available).
+    /// - Return None when no meaningful status is available (composition not yet refreshed).
+    pub fn latest_status_bar_line(&self) -> Option<StatusBarLine> {
+        // Require metadata or presenter to have been populated to return a status.
+        let meta = match &self.metadata {
+            Some(m) => m,
+            None => return None,
+        };
+
+        // Helper to build sticky display (prefer active_buffer_details.display).
+        let sticky = meta
+            .active_buffer_details
+            .as_ref()
+            .and_then(|d| d.display.clone())
+            .or_else(|| {
+                meta.opened_buffers
+                    .iter()
+                    .find(|it| it.active)
+                    .and_then(|it| it.display.clone())
+            });
+
+        // Prefer AI projection result when present.
+        if let Some(ai) = meta.ai_projection.as_ref() {
+            if let Some(result) = ai.result.as_ref() {
+                // Truncate to keep status short and stable.
+                let snippet: String = if result.chars().count() > 120 {
+                    result.chars().take(120).collect::<String>() + "..."
+                } else {
+                    result.clone()
+                };
+                return Some(StatusBarLine { text: format!("AI: {}", snippet), sticky });
+            }
+        }
+
+        // Fallback to mapping refresh reason to a concise single-line message.
+        if let Some(rr) = meta.refresh_reason.as_ref() {
+            let text = match rr {
+                RefreshReason::InitialLoad => "initial load".to_string(),
+                RefreshReason::RefreshAction => "refreshed".to_string(),
+                RefreshReason::CursorMoved => "cursor moved".to_string(),
+                RefreshReason::BufferUpdated => "buffer updated".to_string(),
+                RefreshReason::ActiveBufferChanged => "active buffer changed".to_string(),
+                RefreshReason::AiProjectionUpdated => "AI projection updated".to_string(),
+            };
+            return Some(StatusBarLine { text, sticky });
+        }
+
+        None
     }
 
     /// Build a small, convenience ShellSnapshot that aggregates existing shell-facing projections.
