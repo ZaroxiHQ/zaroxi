@@ -231,10 +231,24 @@ pub async fn set_active_buffer_and_get_shell_context(
     match service.get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() }).await {
         Ok(get_res) => {
             if get_res.buffer_id == buffer_id {
-                // Already active: do not call set_active_buffer. Use a generic refresh
-                // reason instead of ActiveBufferChanged so we avoid emitting duplicate
-                // ActiveBufferChanged events caused by a noop set.
-                comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+                // Already active: previously we always used a generic RefreshAction here to
+                // avoid emitting duplicate ActiveBufferChanged events on a noop set. However,
+                // there is a distinct and useful case where the underlying service already
+                // reports the requested buffer as active but the composition has not yet
+                // observed that change (stale composition metadata). In that situation the
+                // action should prefer marking ActiveBufferChanged so the subsequent refresh
+                // records the change for the shell.
+                //
+                // Decide:
+                // - If the composition already thinks the requested buffer is active => noop -> RefreshAction.
+                // - Otherwise the service state indicates a change occurred externally or via a prior command:
+                //   mark ActiveBufferChanged so the refresh captures the authoritative change.
+                let comp_active = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
+                if comp_active != Some(buffer_id.clone()) {
+                    comp.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+                } else {
+                    comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+                }
             } else {
                 // Different buffer: proceed to set active and mark ActiveBufferChanged.
                 if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
@@ -514,5 +528,28 @@ mod tests {
         let ar = res.unwrap();
         assert!(ar.success);
         assert!(ar.refreshed);
+    }
+
+    #[tokio::test]
+    async fn set_active_buffer_detects_external_change() {
+        // Scenario:
+        // - Composition has not been refreshed (no metadata).
+        // - WorkspaceService reports the requested buffer is already active (external change).
+        // Expected:
+        // - The convenience action should mark ActiveBufferChanged so the upcoming refresh
+        //   records the authoritative active-buffer transition for the shell.
+        let v = FakeView::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let mut comp = crate::desktop::DesktopComposition::new();
+
+        // Fake service reports buf:two as the currently active buffer.
+        let fake_service = std::sync::Arc::new(FakeService::new(BufferId::from("buf:two"))) as std::sync::Arc<dyn crate::ports::WorkspaceService>;
+
+        let res = set_active_buffer_and_get_shell_context(&mut comp, fake_service.clone(), arc.clone(), sid.clone(), None, BufferId::from("buf:two")).await.expect("action ok");
+        assert!(res.action.success);
+
+        let rr = comp.latest_refresh_reason().expect("reason present");
+        assert_eq!(rr, crate::desktop::RefreshReason::ActiveBufferChanged);
     }
 }
