@@ -1,4 +1,4 @@
-use zaroxi_interface_desktop::{DesktopComposition, TextView, SelectionView};
+use zaroxi_interface_desktop::{DesktopComposition, TextView};
 use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel;
 
 #[test]
