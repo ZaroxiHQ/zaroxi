@@ -150,20 +150,13 @@ async fn main() -> Result<(), String> {
                         println!("Harness: composition contained no window after refresh");
                     }
 
-                    // Print the small, read-only metadata projection exposed by the composition.
-                    if let Some(meta) = composition.latest_metadata() {
-                        let active_buf = meta.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
-                        println!("Harness: composition metadata: session={:?} workspace={:?} active_buffer={} opened_count={}", meta.session_id, meta.workspace_id, active_buf, meta.opened_buffer_count);
-
-                        // Print the small composition revision counter for shell visibility.
-                        println!("Harness: composition revision: {}", composition.latest_revision());
-
-                        // Print the recorded refresh reason (shell-facing)
-                        let rr = meta.refresh_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
-                        println!("Harness: composition refresh reason: {}", rr);
-
-                        // Print compact status snapshot for shell consumption.
-                        if let Some(status) = composition.latest_status() {
+                    // Print a compact composition summary via the new summary accessor.
+                    if let Some(summary) = composition.latest_summary() {
+                        let active_buf = summary.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
+                        let rr = summary.refresh_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
+                        println!("Harness: composition summary: revision={} refresh_reason={} active_buffer={} status_present={}",
+                            summary.revision, rr, active_buf, summary.status.is_some());
+                        if let Some(status) = summary.status {
                             println!("Harness: composition status: render_window={} metadata={} active_buffer_details={} opened_buffers={} ai_projection={}",
                                 status.has_render_window, status.has_metadata, status.has_active_buffer_details, status.has_opened_buffers, status.has_ai_projection);
                         } else {
