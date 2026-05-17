@@ -304,8 +304,13 @@ async fn set_active_buffer_noop_when_already_active() {
     }
 
     // Create service with buf:two already active.
-    let svc = StdArc::new(FakeSvcCounting::new(BufferId::from("buf:two"))) as StdArc<dyn aw_ports::WorkspaceService>;
-    let set_count = svc.as_any().downcast_ref::<FakeSvcCounting>().map(|s| s.set_count.clone());
+    let fake_impl = StdArc::new(FakeSvcCounting::new(BufferId::from("buf:two")));
+    // Capture the counter before coercing to trait object so we can assert it later.
+    let set_count = fake_impl.set_count.clone();
+    let svc: StdArc<dyn aw_ports::WorkspaceService> = fake_impl.clone();
+
+    // Prepare a fresh composition for this test.
+    let mut comp = DesktopComposition::new();
 
     // pre-refresh to populate presenter (realistic)
     let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
@@ -318,7 +323,5 @@ async fn set_active_buffer_noop_when_already_active() {
     assert_eq!(ctx.active_buffer.unwrap(), BufferId::from("buf:two"));
 
     // Ensure set_active_buffer was not called on the service (counter remains 0).
-    if let Some(cnt) = set_count {
-        assert_eq!(cnt.load(Ordering::SeqCst), 0);
-    }
+    assert_eq!(set_count.load(Ordering::SeqCst), 0);
 }
