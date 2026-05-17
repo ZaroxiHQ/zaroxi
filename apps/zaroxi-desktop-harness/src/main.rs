@@ -107,7 +107,9 @@ async fn main() -> Result<(), String> {
             // records minimal shell metadata (session/workspace) for harness printing.
             let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
             let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
-            if let Err(e) = composition.refresh(
+            // Delegate refreshing to the tiny interface action introduced in Phase 14.
+            if let Err(e) = zaroxi_interface_desktop::refresh_desktop(
+                &mut composition,
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),

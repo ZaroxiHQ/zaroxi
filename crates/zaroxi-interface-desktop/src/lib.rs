@@ -6,9 +6,11 @@ pub mod compose;
 pub mod view_adapter;
 pub mod presenter;
 pub mod desktop;
+pub mod actions;
 
 pub use state::EditorState;
 pub use commands::EditorCommand;
 pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind, fetch_renderable_window};
 pub use presenter::Presenter;
 pub use desktop::DesktopComposition;
+pub use actions::refresh_desktop;
