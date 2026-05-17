@@ -278,7 +278,7 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
 
     let mut comp = DesktopComposition::new();
     // pre-refresh
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
 
     let res = actions::insert_line_at_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
     assert!(res.is_ok());
