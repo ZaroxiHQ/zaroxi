@@ -453,6 +453,13 @@ async fn main() -> Result<(), String> {
         println!("- {:?} at {}", e.kind, e.timestamp);
     }
 
+    // Tiny shell-facing last-command-line (when available via composition shell context).
+    if let Some(ctx) = composition.latest_shell_context() {
+        if let Some(lc) = ctx.last_command_line {
+            println!("Harness: last command: {}", lc);
+        }
+    }
+
     // Phase 8: create a checkpoint for the current session, then restore it into a fresh orchestrator.
     println!("Harness: creating and saving checkpoint for session {}", boot_res.session.session_id);
     let save_res = orchestrator.save_checkpoint(SaveCheckpointRequest { session_id: boot_res.session.session_id.clone() }).await.map_err(|e| e.to_string())?;

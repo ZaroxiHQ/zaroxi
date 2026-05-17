@@ -17,6 +17,20 @@ use std::sync::Arc;
 use crate::presenter::Presenter;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use zaroxi_kernel_types::Id;
+
+/// Helper: convert CommandKind to short name string for tiny shell-facing LastCommandLine.
+fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
+    match kind {
+        crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace",
+        crate::ports::CommandKind::OpenBuffer { .. } => "OpenBuffer",
+        crate::ports::CommandKind::UpdateBuffer { .. } => "UpdateBuffer",
+        crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer",
+        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
+        crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand",
+        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
+        _ => "Command",
+    }
+}
 use crate::view_adapter::InterfaceRenderableWindow;
 
 /// Single opened-buffer projection item exposed to the shell.
@@ -208,6 +222,8 @@ pub struct DesktopMetadata {
     pub active_buffer_details: Option<ActiveBufferDetails>,
     /// New: small AI projection exposing the last AI result relevant to this session (if any).
     pub ai_projection: Option<AiProjection>,
+    /// Tiny, read-only textual last command line (shell-facing): short command name + success marker.
+    pub last_command_line: Option<String>,
     /// New: the reason the composition was refreshed most recently (shell-facing).
     pub refresh_reason: Option<RefreshReason>,
 }
@@ -308,6 +324,8 @@ pub struct ShellContext {
     pub latest_refresh_reason: Option<RefreshReason>,
     /// Whether the composition currently contains an AI projection.
     pub has_ai_projection: bool,
+    /// Tiny, shell-facing last-command-line string when available (short command name + success marker).
+    pub last_command_line: Option<String>,
 }
 
 /// Tiny, one-line shell-facing status bar line.
@@ -544,6 +562,9 @@ impl DesktopComposition {
         // the most recent ExplainExecuted event if present. This keeps composition purely read-only
         // and avoids duplicating AI orchestration logic.
         let mut ai_proj: Option<AiProjection> = None;
+        // Tiny shell-facing last-command-line string (computed below when service present).
+        let mut last_command_line: Option<String> = None;
+
         if let Some(svc) = &service {
             if let Ok(ev_res) = svc.get_recent_events(crate::ports::GetRecentEventsRequest { session_id: session_id.clone(), limit: 20 }).await {
                 // Iterate from newest to oldest and pick the first ExplainExecuted we find.
@@ -556,6 +577,15 @@ impl DesktopComposition {
                         });
                         break;
                     }
+                }
+            }
+
+            // Attempt to obtain the most recent command (limit=1) and render a tiny one-line string.
+            if let Ok(cmd_res) = svc.get_recent_commands(crate::ports::GetRecentCommandsRequest { session_id: session_id.clone(), limit: 1 }).await {
+                if let Some(rec) = cmd_res.commands.last() {
+                    let kind_name = command_kind_short_name(&rec.kind);
+                    let suffix = if rec.success { " ✓" } else { " ✗" };
+                    last_command_line = Some(format!("{}{}", kind_name, suffix));
                 }
             }
         }
@@ -650,6 +680,7 @@ impl DesktopComposition {
             opened_buffers: opened_list.clone(),
             active_buffer_details: active_buffer_details.clone(),
             ai_projection: ai_proj.clone(),
+            last_command_line: last_command_line.clone(),
             refresh_reason: Some(reason),
         };
 
@@ -999,6 +1030,7 @@ impl DesktopComposition {
             latest_revision: self.revision,
             latest_refresh_reason: self.metadata.as_ref().and_then(|m| m.refresh_reason.clone()),
             has_ai_projection: has_ai,
+            last_command_line: self.metadata.as_ref().and_then(|m| m.last_command_line.clone()),
         })
     }
 
