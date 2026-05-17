@@ -362,7 +362,7 @@ mod tests {
         let mut comp = crate::desktop::DesktopComposition::new();
 
         // First refresh to populate presenter state
-        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
 
         // Execute the move-cursor action which should call set_editor_cursor on the service
         // and then refresh the composition again.
