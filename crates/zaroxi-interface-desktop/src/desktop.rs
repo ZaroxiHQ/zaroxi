@@ -52,6 +52,35 @@ pub struct ActiveBufferDetails {
     pub line_count: usize,
 }
 
+/// Tiny read-only active document summary exposed to shells.
+///
+/// Purpose: a minimal, derived, shell-facing projection answering:
+/// - active buffer display/name,
+/// - line count,
+/// - current cursor position (1-based line, 0-based column),
+/// - whether a selection exists,
+/// - optionally a current-line snippet when available.
+///
+/// This is intentionally small and purely read-only: derived from DesktopComposition
+/// projections (metadata + presenter's latest window). No mutation, no new ports.
+#[derive(Clone, Debug)]
+pub struct ActiveDocumentSummary {
+    /// Canonical active buffer id when available.
+    pub buffer_id: Option<crate::ports::BufferId>,
+    /// Optional human-friendly display label for the active buffer.
+    pub display: Option<String>,
+    /// Number of lines in the buffer snapshot (0 if unknown).
+    pub line_count: usize,
+    /// Cursor line number in 1-based coordinates (None when absent).
+    pub cursor_line: Option<usize>,
+    /// Cursor column (0-based character index) within the line (None when absent).
+    pub cursor_column: Option<usize>,
+    /// Whether any selection exists in the visible/projected window.
+    pub selection_present: bool,
+    /// Optional current line snippet (truncated, Unicode-safe).
+    pub current_line_snippet: Option<String>,
+}
+
 /// Tiny AI projection: a small, shell-facing read-only snapshot of the most recent AI outcome.
 ///
 /// Keep this intentionally minimal:
@@ -507,6 +536,81 @@ impl DesktopComposition {
     /// display a concise summary without touching application logic.
     pub fn latest_active_buffer_details(&self) -> Option<ActiveBufferDetails> {
         self.metadata.as_ref().and_then(|m| m.active_buffer_details.clone())
+    }
+
+    /// Tiny read-only projection summarizing the active document for shells.
+    ///
+    /// Derived from `metadata.active_buffer_details` and the presenter's latest window.
+    /// Returns None when no active buffer/details are available.
+    pub fn latest_active_document_summary(&self) -> Option<ActiveDocumentSummary> {
+        let meta = self.metadata.as_ref()?;
+        let abd = meta.active_buffer_details.clone()?;
+
+        // Derive cursor and selection info from the presenter's latest renderable window.
+        let win_opt = self.presenter.latest();
+        let mut cursor_line: Option<usize> = None;
+        let mut cursor_column: Option<usize> = None;
+        let mut selection_present = false;
+        let mut current_line_snippet: Option<String> = None;
+
+        if let Some(win) = win_opt {
+            // Scan spans to find a cursor or selection.
+            for line in win.lines.iter() {
+                for sp in line.spans.iter() {
+                    match sp.kind {
+                        crate::view_adapter::InterfaceSpanKind::SelectionCursor | crate::view_adapter::InterfaceSpanKind::Cursor => {
+                            cursor_line = Some(line.line_number);
+                            cursor_column = Some(sp.start_col);
+                        }
+                        crate::view_adapter::InterfaceSpanKind::Selection => {
+                            selection_present = true;
+                        }
+                        _ => {}
+                    }
+                    // stop early if we found both
+                    if cursor_line.is_some() && selection_present {
+                        break;
+                    }
+                }
+                if cursor_line.is_some() && selection_present {
+                    break;
+                }
+            }
+
+            // If we didn't detect selection while scanning for cursor, do a secondary lightweight check.
+            if !selection_present {
+                'outer: for line in win.lines.iter() {
+                    for sp in line.spans.iter() {
+                        if let crate::view_adapter::InterfaceSpanKind::Selection = sp.kind {
+                            selection_present = true;
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
+            let snippet_line_no = cursor_line.unwrap_or(win.top_line);
+            if let Some(l) = win.lines.iter().find(|l| l.line_number == snippet_line_no) {
+                let mut s = String::new();
+                for sp in l.spans.iter() {
+                    s.push_str(&sp.text);
+                }
+                // Truncate to 120 Unicode scalars for compactness.
+                let snippet: String = s.chars().take(120).collect();
+                current_line_snippet = Some(snippet);
+            }
+        }
+
+        Some(ActiveDocumentSummary {
+            buffer_id: meta.active_buffer.clone(),
+            display: abd.display,
+            line_count: abd.line_count,
+            cursor_line,
+            cursor_column,
+            selection_present,
+            current_line_snippet,
+        })
     }
 
     /// Tiny read-only status snapshot indicating which composition projections are populated.

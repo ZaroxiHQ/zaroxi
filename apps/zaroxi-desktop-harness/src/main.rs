@@ -245,6 +245,23 @@ async fn main() -> Result<(), String> {
                     } else {
                         println!("Harness: no selection present");
                     }
+
+                    // ActiveDocumentSummary: a tiny, read-only shell-facing projection with
+                    // active buffer name/display, line count, cursor, selection presence, and a small snippet.
+                    if let Some(ads) = composition.latest_active_document_summary() {
+                        let buf_display = ads.buffer_id.as_ref().map(|b| b.as_str().to_string()).unwrap_or_else(|| "<none>".to_string());
+                        println!("Harness: active document summary: buffer={} display={:?} lines={} cursor={:?}:{:?} selection_present={} snippet={:?}",
+                            buf_display,
+                            ads.display,
+                            ads.line_count,
+                            ads.cursor_line,
+                            ads.cursor_column,
+                            ads.selection_present,
+                            ads.current_line_snippet,
+                        );
+                    } else {
+                        println!("Harness: active document summary: <none>");
+                    }
                 }
                 Err(e) => {
                     println!("Harness: move cursor action failed: {}", e);
