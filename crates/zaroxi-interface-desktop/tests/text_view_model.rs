@@ -8,8 +8,6 @@ use zaroxi_application_workspace::ports as aw;
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
 
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
 /// Shared in-test state: editor document + visible window that can be updated by the fake service.
 struct SharedState {
     doc: Mutex<EditorDocument>,
