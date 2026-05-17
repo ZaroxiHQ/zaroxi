@@ -10,7 +10,7 @@ use zaroxi_kernel_types::Id;
 /// Minimal fake view that exposes a mutable EditorDocument so tests can mutate cursor/content.
 struct MutableFakeView {
     inner: Arc<Mutex<EditorDocument>>,
-    window: VisibleLinesWindow,
+    window: Arc<Mutex<VisibleLinesWindow>>,
 }
 
 impl MutableFakeView {
@@ -34,17 +34,40 @@ impl MutableFakeView {
             line_count: vw.total_lines,
             current_line: None,
         };
-        Self { inner: Arc::new(Mutex::new(doc)), window: vw }
+        Self { inner: Arc::new(Mutex::new(doc)), window: Arc::new(Mutex::new(vw)) }
     }
 
     fn set_cursor(&self, cursor: EditorCursor) {
-        let mut d = self.inner.lock().unwrap();
-        d.cursor = cursor;
+        {
+            let mut d = self.inner.lock().unwrap();
+            d.cursor = cursor.clone();
+        }
+        // Update the visible window to reflect the cursor change.
+        if let Ok(mut w) = self.window.lock() {
+            if let Some(line) = w.lines.get_mut(0) {
+                line.is_cursor_line = true;
+                line.cursor_column = Some(cursor.column as usize);
+            }
+        }
     }
 
     fn set_content(&self, content: Option<String>) {
-        let mut d = self.inner.lock().unwrap();
-        d.content = content;
+        {
+            let mut d = self.inner.lock().unwrap();
+            d.content = content.clone();
+        }
+        // Keep the visible window in-sync with the underlying document snapshot.
+        if let Ok(mut w) = self.window.lock() {
+            let txt = content.clone().unwrap_or_default();
+            if let Some(line) = w.lines.get_mut(0) {
+                line.text = txt.clone();
+                // If no explicit cursor info, preserve existing cursor_column (or default to 0).
+                if line.cursor_column.is_none() {
+                    line.cursor_column = Some(0);
+                }
+            }
+            w.total_lines = content.as_ref().map(|s| s.lines().count()).unwrap_or(0);
+        }
     }
 }
 
@@ -65,7 +88,7 @@ impl WorkspaceView for MutableFakeView {
     }
 
     fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<GetVisibleLinesResponse, zaroxi_application_workspace::ports::UseCaseError>> {
-        let w = self.window.clone();
+        let w = self.window.lock().unwrap().clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }
 }
