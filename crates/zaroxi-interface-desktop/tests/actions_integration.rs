@@ -379,4 +379,8 @@ async fn opened_buffers_projection_refreshes() {
     let active_items: Vec<_> = meta2.opened_buffers.iter().filter(|i| i.active).collect();
     assert_eq!(active_items.len(), 1);
     assert_eq!(active_items[0].buffer_id, BufferId::from("buf:two"));
+
+    // Refresh reason should indicate the active buffer changed.
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, RefreshReason::ActiveBufferChanged);
 }

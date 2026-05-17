@@ -196,6 +196,9 @@ async fn main() -> Result<(), String> {
             ).await {
                 Ok(action_result) => {
                     println!("Harness: move-cursor action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    if let Some(rr) = composition.latest_refresh_reason() {
+                        println!("Harness: composition refresh reason after move-cursor: {:?}", rr);
+                    }
                 }
                 Err(e) => {
                     println!("Harness: move cursor action failed: {}", e);
@@ -212,6 +215,9 @@ async fn main() -> Result<(), String> {
             ).await {
                 Ok(action_result) => {
                     println!("Harness: insert-line-at-start action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    if let Some(rr) = composition.latest_refresh_reason() {
+                        println!("Harness: composition refresh reason after insert-line: {:?}", rr);
+                    }
                 }
                 Err(e) => {
                     println!("Harness: insert-line action failed: {}", e);

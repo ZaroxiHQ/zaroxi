@@ -170,8 +170,15 @@ impl DesktopComposition {
         workspace_id: Option<Id>,
         service: Option<Arc<dyn crate::ports::WorkspaceService>>,
     ) -> Result<(), String> {
+        // Capture previous presenter snapshot to detect content changes.
+        let prev_presenter_snapshot = self.presenter.latest();
+
         // 1) Refresh presenter snapshot (reuses adapter seam and existing projection).
         self.presenter.refresh(view.clone(), session_id.clone()).await?;
+
+        // Capture the new presenter snapshot so we can detect buffer content changes
+        // (shell-facing, presentation-only signal).
+        let new_presenter_snapshot = self.presenter.latest();
 
         // 2) Attempt to read the active editor document via the WorkspaceView seam.
         let active_buf_opt = match view.get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest { session_id: session_id.clone() }).await {
@@ -253,11 +260,54 @@ impl DesktopComposition {
             }
         }
 
-        // Determine final refresh reason: prefer any pending reason set by callers,
-        // otherwise pick InitialLoad when we had no previous session_id or a generic RefreshAction.
-        let reason = self.pending_refresh_reason.take().unwrap_or_else(|| {
+        // --- Refresh reason detection ---
+        //
+        // Compute a small set of lightweight change-detections that the shell cares about.
+        // Preference order:
+        // 1) Explicit pending reason set by caller (actions).
+        // 2) Active buffer changed (shell cares which buffer is active).
+        // 3) AI projection changed (new explain executed result became available).
+        // 4) Buffer content changed as observed by the presenter snapshot (BufferUpdated).
+        // 5) InitialLoad when composition had no prior session_id.
+        // 6) Generic RefreshAction otherwise.
+        //
+        // Note: comparisons are tiny and presentation-only (strings / buffer ids); we avoid
+        // introducing an event stream or mirroring application internals.
+        let prev_active = self.metadata.as_ref().and_then(|m| m.active_buffer.clone());
+        let prev_ai_result = self.metadata.as_ref().and_then(|m| m.ai_projection.as_ref().and_then(|a| a.result.clone()));
+
+        // signature helper for presenter snapshots (concatenate span texts)
+        let make_presenter_sig = |opt: Option<InterfaceRenderableWindow>| -> String {
+            if let Some(w) = opt {
+                let mut out = String::new();
+                for line in w.lines.iter() {
+                    for sp in line.spans.iter() {
+                        out.push_str(&sp.text);
+                        out.push('|');
+                    }
+                    out.push('\n');
+                }
+                out
+            } else {
+                String::new()
+            }
+        };
+
+        let prev_sig = make_presenter_sig(prev_presenter_snapshot.clone());
+        let new_sig = make_presenter_sig(new_presenter_snapshot.clone());
+        let new_ai_result = ai_proj.as_ref().and_then(|a| a.result.clone());
+
+        let reason = if let Some(pending) = self.pending_refresh_reason.take() {
+            pending
+        } else if prev_active != active_buf_opt {
+            RefreshReason::ActiveBufferChanged
+        } else if prev_ai_result != new_ai_result {
+            RefreshReason::AiProjectionUpdated
+        } else if prev_sig != new_sig {
+            RefreshReason::BufferUpdated
+        } else {
             if self.session_id.is_none() { RefreshReason::InitialLoad } else { RefreshReason::RefreshAction }
-        });
+        };
 
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
@@ -542,5 +592,9 @@ mod tests {
         let ai = meta.ai_projection.unwrap();
         assert_eq!(ai.result.unwrap(), "mocked explain".to_string());
         assert_eq!(ai.target_buffer.unwrap(), crate::ports::BufferId::from("buf:fake"));
+
+        // Ensure the composition recorded that the AI projection was updated.
+        let rr = comp.latest_refresh_reason().expect("reason present");
+        assert_eq!(rr, RefreshReason::AiProjectionUpdated);
     }
 }
