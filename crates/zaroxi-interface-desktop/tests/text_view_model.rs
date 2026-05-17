@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use tokio::time::{timeout, Duration};
 
 use zaroxi_interface_desktop::{DesktopComposition, TextView, actions};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
@@ -230,22 +231,31 @@ async fn text_view_reflects_cursor_move_and_insert() {
     let svc = Arc::new(FakeService::new(shared.clone())) as Arc<dyn zaroxi_application_workspace::ports::WorkspaceService>;
     let mut comp = DesktopComposition::new();
 
-    // Initial refresh
-    comp.refresh_with_service(arc.clone(), sid.clone(), None, Some(svc.clone())).await.expect("initial refresh ok");
+    // Initial refresh (guarded by a timeout to avoid hanging tests)
+    timeout(Duration::from_secs(5), comp.refresh_with_service(arc.clone(), sid.clone(), None, Some(svc.clone())))
+        .await
+        .expect("initial refresh timed out")
+        .expect("initial refresh ok");
     let tv1 = TextView::from_composition(&comp).expect("tv present");
     assert_eq!(tv1.lines.len(), 1);
     assert_eq!(tv1.cursor_line, Some(1));
     assert_eq!(tv1.cursor_column, Some(2));
 
     // Move cursor -> set_editor_cursor on service will update shared state and refresh consumes it.
-    let res = actions::move_cursor_to_start_and_refresh(&mut comp, svc.clone(), arc.clone(), sid.clone(), None).await.expect("move ok");
+    let res = timeout(Duration::from_secs(5), actions::move_cursor_to_start_and_refresh(&mut comp, svc.clone(), arc.clone(), sid.clone(), None))
+        .await
+        .expect("move-cursor action timed out")
+        .expect("move ok");
     assert!(res.success);
     let tv2 = TextView::from_composition(&comp).expect("tv present after move");
     assert_eq!(tv2.cursor_line, Some(1));
     assert_eq!(tv2.cursor_column, Some(0));
 
     // Insert line at start -> service.apply_text_transaction will mutate shared content and window.
-    let res2 = actions::insert_line_at_start_and_refresh(&mut comp, svc.clone(), arc.clone(), sid.clone(), None).await.expect("insert ok");
+    let res2 = timeout(Duration::from_secs(5), actions::insert_line_at_start_and_refresh(&mut comp, svc.clone(), arc.clone(), sid.clone(), None))
+        .await
+        .expect("insert-line action timed out")
+        .expect("insert ok");
     assert!(res2.success);
     let tv3 = TextView::from_composition(&comp).expect("tv present after insert");
     // After inserting a leading newline the first visible line should be empty.
