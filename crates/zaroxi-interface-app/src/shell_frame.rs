@@ -83,19 +83,19 @@ impl ShellFrameViewModel {
         if let Some(tv) = self.active_text_view() {
             let selection = self.selection_view().map(|s| {
                 zaroxi_core_engine_view::EngineSelection {
-                    start_line: s.start.line,
-                    start_column: s.start.column,
-                    end_line: s.end.line,
-                    end_column: s.end.column,
+                    start_line: s.start.line as u32,
+                    start_column: s.start.column as u32,
+                    end_line: s.end.line as u32,
+                    end_column: s.end.column as u32,
                 }
             });
 
             zaroxi_core_engine_view::EngineShellViewInput {
-                top_line: tv.top_line,
-                total_lines: tv.total_lines,
+                top_line: tv.top_line as u32,
+                total_lines: tv.total_lines as u32,
                 lines: tv.lines.clone(),
-                cursor_line: tv.cursor_line,
-                cursor_column: tv.cursor_column,
+                cursor_line: tv.cursor_line.map(|c| c as u32),
+                cursor_column: tv.cursor_column.map(|c| c as u32),
                 selection,
                 viewport_summary: self.viewport(),
                 status_text: self.status_text(),
