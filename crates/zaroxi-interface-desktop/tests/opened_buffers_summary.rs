@@ -1,8 +1,6 @@
 use std::sync::Arc;
-use uuid::Uuid;
 
 use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_interface_desktop::desktop::{OpenedBuffersSummary, OpenedBufferItemSummary};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor, ListBuffersRequest, ListBuffersResponse, GetActiveBufferRequest, GetActiveBufferResponse};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
