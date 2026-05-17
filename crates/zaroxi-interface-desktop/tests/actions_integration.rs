@@ -126,13 +126,15 @@ struct FakeService {
 
 impl FakeService {
     fn new(buffer_id: BufferId) -> Self {
+        // Clone early to avoid moving `buffer_id` before using clones for initializers.
         let v = vec![buffer_id.clone()];
+        let active_init = Some(buffer_id.clone());
         Self {
             buffer_id,
             set_called: StdArc::new(AtomicBool::new(false)),
             apply_called: StdArc::new(AtomicBool::new(false)),
             opened: StdArc::new(std::sync::Mutex::new(v)),
-            active: StdArc::new(std::sync::Mutex::new(Some(buffer_id.clone()))),
+            active: StdArc::new(std::sync::Mutex::new(active_init)),
         }
     }
 }
