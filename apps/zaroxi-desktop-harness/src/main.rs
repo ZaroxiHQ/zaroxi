@@ -8,6 +8,7 @@ use zaroxi_application_workspace::ports::{
 };
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
 use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
+use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -138,6 +139,17 @@ async fn main() -> Result<(), String> {
                             None,
                         );
                         println!("Harness: session identity: {}", session_identity.render());
+
+                        // ActiveBufferLine: present only after first refresh per lifecycle rule.
+                        if let Some(ss) = composition.latest_shell_snapshot() {
+                            if let Some(active_line) = ActiveBufferLine::from_shell_snapshot(&ss) {
+                                println!("Harness: active buffer line: {}", active_line.render());
+                            } else {
+                                println!("Harness: active buffer line: <absent>");
+                            }
+                        } else {
+                            println!("Harness: active buffer line: <none> (no shell snapshot)");
+                        }
                     } else {
                         println!("Harness: session identity: <none> (no composition metadata)");
                     }
