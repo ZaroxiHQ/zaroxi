@@ -102,15 +102,19 @@ async fn main() -> Result<(), String> {
                 viewport: vp.clone(),
             }).await.map_err(|e| e.to_string())?;
 
-            // Use a tiny presenter to fetch and hold the renderable window.
-            // This decouples harness printing from the raw adapter output and
-            // demonstrates a minimal read-only presenter flow (Phase 12).
+            // Use a tiny desktop composition to fetch and hold the renderable window.
+            // The composition reuses the existing Presenter and adapter seam and
+            // records minimal shell metadata (session/workspace) for harness printing.
             let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
-            let mut presenter = zaroxi_interface_desktop::Presenter::new();
-            if let Err(e) = presenter.refresh(view_dyn.clone(), boot_res.session.session_id.clone()).await {
-                println!("Harness: failed to refresh presenter: {}", e);
-            } else if let Some(win) = presenter.latest() {
-                println!("Harness: visible render window (presenter): top_line={} total_lines={}", win.top_line, win.total_lines);
+            let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
+            if let Err(e) = composition.refresh(
+                view_dyn.clone(),
+                boot_res.session.session_id.clone(),
+                Some(boot_res.session.workspace_id),
+            ).await {
+                println!("Harness: failed to refresh desktop composition: {}", e);
+            } else if let Some(win) = composition.latest_window() {
+                println!("Harness: visible render window (composition): top_line={} total_lines={}", win.top_line, win.total_lines);
                 for rl in win.lines.iter() {
                     let mut out = String::new();
                     for sp in rl.spans.iter() {
@@ -134,7 +138,7 @@ async fn main() -> Result<(), String> {
                     println!("{:4} | {}", rl.line_number, out);
                 }
             } else {
-                println!("Harness: presenter contained no window after refresh");
+                println!("Harness: composition contained no window after refresh");
             }
         }
         Err(e) => println!("Harness: failed to get editor document: {}", e),
