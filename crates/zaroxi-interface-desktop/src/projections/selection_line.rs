@@ -9,7 +9,7 @@
 //
 // Implementation notes:
 // - This adapter-local projection does not introduce any new framework.
-// - It purposefully accepts primitive bounds (u32,u32) so callers can adapt
+// - It purposefully accepts primitive bounds (usize,usize) so callers can adapt
 //   from existing SelectionView or other adapter-local read-only accessors.
 // - Minimal surface: from_bounds, compose_from_optional_bounds, render.
 
@@ -23,10 +23,10 @@ impl SelectionLine {
     /// start_line/start_column and end_line/end_column are expressed as-is (no conversion).
     /// visible_in_window is optional presentation info; when true we append " (visible)".
     pub fn from_bounds(
-        start_line: u32,
-        start_column: u32,
-        end_line: u32,
-        end_column: u32,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
         visible_in_window: bool,
     ) -> Self {
         let mut text = format!(
@@ -44,7 +44,7 @@ impl SelectionLine {
     /// This helper makes it easy for callers to map existing Option<SelectionView>
     /// into the small, adapter-local projection without introducing a trait.
     pub fn compose_from_optional_bounds(
-        bounds: Option<(u32, u32, u32, u32, bool)>,
+        bounds: Option<(usize, usize, usize, usize, bool)>,
     ) -> Option<Self> {
         match bounds {
             Some((sl, sc, el, ec, vis)) => Some(Self::from_bounds(sl, sc, el, ec, vis)),
