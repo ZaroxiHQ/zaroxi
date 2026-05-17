@@ -19,6 +19,9 @@
      // Editor-state types (Phase 3)
      EditorCursor, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
      ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
+     // Viewport/viewport APIs (Phase 8)
+     ViewportState, SetViewportRequest, SetViewportResponse, ScrollViewportRequest, ScrollViewportResponse,
+     GetVisibleLinesRequest, GetVisibleLinesResponse,
      SessionId,
  };
  
@@ -300,7 +303,7 @@
              // Store session info: workspace id, empty buffer list.
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(session_id, SessionInfo { workspace_id: dto.id, open_buffers: Vec::new(), active_buffer: None, editor_states: std::collections::HashMap::new() });
+                 s.insert(session_id, SessionInfo { workspace_id: dto.id, open_buffers: Vec::new(), active_buffer: None, editor_states: std::collections::HashMap::new(), viewport_states: std::collections::HashMap::new() });
              }
              let session = WorkspaceSessionDTO { session_id: crate::ports::SessionId(session_id), workspace_id: dto.id };
 
@@ -1567,7 +1570,7 @@
              // Insert session info
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new() });
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new(), viewport_states: std::collections::HashMap::new() });
              }
  
              // Record provided recent commands and events into history (best-effort).
@@ -1626,7 +1629,7 @@
              // Insert session info
              {
                  let mut s = sessions.lock().unwrap();
-                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new() });
+                 s.insert(ck.session_id.0, SessionInfo { workspace_id: ck.workspace_id, open_buffers: ck.opened_buffers.clone(), active_buffer: ck.active_buffer.clone(), editor_states: std::collections::HashMap::new(), viewport_states: std::collections::HashMap::new() });
              }
  
              // Record provided recent commands and events into history (best-effort).
