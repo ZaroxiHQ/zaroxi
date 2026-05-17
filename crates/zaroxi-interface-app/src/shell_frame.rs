@@ -65,3 +65,47 @@ impl ShellFrameViewModel {
         self.frame.as_ref().and_then(|f| f.selection_view.as_ref())
     }
 }
+
+impl ShellFrameViewModel {
+    /// Convert this application-facing ShellFrameViewModel into the engine-facing,
+    /// non-visual EngineShellViewInput.
+    ///
+    /// The conversion preserves only semantic, non-visual pieces:
+    /// - visible text lines and simple document metrics,
+    /// - optional cursor line/column,
+    /// - optional selection bounds (start/end line+column),
+    /// - viewport summary, status text, shell chrome text, last command,
+    /// - a small ai_present boolean (false here; presenter may set true when appropriate).
+    ///
+    /// If no active text view is present the function returns EngineShellViewInput::absent().
+    pub fn to_engine_input(&self) -> zaroxi_core_engine_view::EngineShellViewInput {
+        // Use active_text_view as the mandatory piece for a meaningful input.
+        if let Some(tv) = self.active_text_view() {
+            let selection = self.selection_view().map(|s| {
+                zaroxi_core_engine_view::EngineSelection {
+                    start_line: s.start.line,
+                    start_column: s.start.column,
+                    end_line: s.end.line,
+                    end_column: s.end.column,
+                }
+            });
+
+            zaroxi_core_engine_view::EngineShellViewInput {
+                top_line: tv.top_line,
+                total_lines: tv.total_lines,
+                lines: tv.lines.clone(),
+                cursor_line: tv.cursor_line,
+                cursor_column: tv.cursor_column,
+                selection,
+                viewport_summary: self.viewport(),
+                status_text: self.status_text(),
+                shell_chrome: self.shell_chrome(),
+                last_command: self.last_command(),
+                // Interface-level code knows whether an AI projection is present; for now keep conservative.
+                ai_present: false,
+            }
+        } else {
+            zaroxi_core_engine_view::EngineShellViewInput::absent()
+        }
+    }
+}
