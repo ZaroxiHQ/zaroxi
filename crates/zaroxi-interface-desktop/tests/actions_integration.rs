@@ -311,3 +311,49 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
     assert!(ar.refreshed);
     assert!(apply_called.load(Ordering::SeqCst), "apply_text_transaction should have been called on the service");
 }
+
+#[tokio::test]
+async fn opened_buffers_projection_refreshes() {
+    // Use the real tiny presenter/composition flow with a mutable fake service that
+    // returns an authoritative opened-buffer list. We verify composition metadata
+    // reflects the service-provided list and updates after the service list changes.
+    let v = FakeView::new();
+    let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+    let sid = SessionId(Id::new());
+
+    // Create a shared fake service wrapped in Arc so tests can mutate its internal list.
+    let fake = StdArc::new(FakeService::new(BufferId::from("buf:one")));
+    // initial state: opened = ["buf:one"], active = Some("buf:one")
+    let service_trait: StdArc<dyn WorkspaceService> = fake.clone();
+
+    let mut comp = DesktopComposition::new();
+
+    // First refresh with service: should reflect single opened buffer
+    let ar = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone())).await.expect("refresh ok");
+    assert!(ar.success);
+    let meta1 = comp.latest_metadata().expect("meta present");
+    assert_eq!(meta1.opened_buffer_count, 1);
+    assert_eq!(meta1.opened_buffers.len(), 1);
+    assert!(meta1.opened_buffers.iter().any(|i| i.active && i.buffer_id == BufferId::from("buf:one")));
+
+    // Mutate the fake service: add second buffer and mark it active
+    {
+        let mut o = fake.opened.lock().unwrap();
+        o.push(BufferId::from("buf:two"));
+    }
+    {
+        let mut a = fake.active.lock().unwrap();
+        *a = Some(BufferId::from("buf:two"));
+    }
+
+    // Second refresh should pick up updated opened buffer list and active marker
+    let ar2 = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone())).await.expect("refresh ok");
+    assert!(ar2.success);
+    let meta2 = comp.latest_metadata().expect("meta present");
+    assert_eq!(meta2.opened_buffer_count, 2);
+    assert_eq!(meta2.opened_buffers.len(), 2);
+    // ensure exactly one active buffer and that it is buf:two
+    let active_items: Vec<_> = meta2.opened_buffers.iter().filter(|i| i.active).collect();
+    assert_eq!(active_items.len(), 1);
+    assert_eq!(active_items[0].buffer_id, BufferId::from("buf:two"));
+}
