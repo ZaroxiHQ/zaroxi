@@ -7,7 +7,6 @@ use zaroxi_application_workspace::ports::{
     SaveCheckpointRequest, LoadCheckpointRequest,
 };
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
-use zaroxi_application_workspace::view::project_visible_lines;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;

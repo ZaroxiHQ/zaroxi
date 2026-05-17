@@ -20,8 +20,7 @@
      EditorCursor, EditorState, SetEditorCursorRequest, SetEditorCursorResponse, SetSelectionRequest, SetSelectionResponse,
      ClearSelectionRequest, ClearSelectionResponse, GetEditorStateRequest, GetEditorStateResponse,
      // Viewport/viewport APIs (Phase 8)
-     ViewportState, SetViewportRequest, SetViewportResponse, ScrollViewportRequest, ScrollViewportResponse,
-     GetVisibleLinesRequest, GetVisibleLinesResponse,
+     SetViewportRequest, SetViewportResponse, ScrollViewportRequest, ScrollViewportResponse,
      SessionId,
  };
  
