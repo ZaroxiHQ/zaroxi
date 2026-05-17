@@ -265,8 +265,11 @@ impl DesktopComposition {
         // Compute a small set of lightweight change-detections that the shell cares about.
         // Preference order:
         // 1) Explicit pending reason set by caller (actions).
-        // 2) Active buffer changed (shell cares which buffer is active).
-        // 3) AI projection changed (new explain executed result became available).
+        // 2) AI projection changed (new explain executed result became available).
+        // 3) Active buffer changed (shell cares which buffer is active).
+        //    * When a WorkspaceService was provided prefer comparing the opened-buffer
+        //      projection's active marker (service authoritative for opened buffers).
+        //    * Otherwise fall back to comparing the presenter's active buffer (view).
         // 4) Buffer content changed as observed by the presenter snapshot (BufferUpdated).
         // 5) InitialLoad when composition had no prior session_id.
         // 6) Generic RefreshAction otherwise.
@@ -274,6 +277,7 @@ impl DesktopComposition {
         // Note: comparisons are tiny and presentation-only (strings / buffer ids); we avoid
         // introducing an event stream or mirroring application internals.
         let prev_active = self.metadata.as_ref().and_then(|m| m.active_buffer.clone());
+        let prev_opened_active = self.metadata.as_ref().and_then(|m| m.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone()));
         let prev_ai_result = self.metadata.as_ref().and_then(|m| m.ai_projection.as_ref().and_then(|a| a.result.clone()));
 
         // signature helper for presenter snapshots (concatenate span texts)
@@ -297,11 +301,28 @@ impl DesktopComposition {
         let new_sig = make_presenter_sig(new_presenter_snapshot.clone());
         let new_ai_result = ai_proj.as_ref().and_then(|a| a.result.clone());
 
+        // If the composition consulted a WorkspaceService, prefer the service-provided
+        // opened-buffer active marker as the source of truth for "ActiveBufferChanged".
+        let current_opened_active = opened_list.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
+
         let reason = if let Some(pending) = self.pending_refresh_reason.take() {
             pending
         } else if prev_ai_result != new_ai_result {
             // Prefer AI projection updates when a new ExplainExecuted result is present.
             RefreshReason::AiProjectionUpdated
+        } else if current_opened_active.is_some() || prev_opened_active.is_some() {
+            // When we have an opened-buffer projection (service used previously or now),
+            // compare the previous opened-active against the current opened-active.
+            if prev_opened_active != current_opened_active {
+                RefreshReason::ActiveBufferChanged
+            } else if prev_active != active_buf_opt {
+                // Fallback: also consider presenter-level active buffer changes if they differ.
+                RefreshReason::ActiveBufferChanged
+            } else if prev_sig != new_sig {
+                RefreshReason::BufferUpdated
+            } else {
+                if self.session_id.is_none() { RefreshReason::InitialLoad } else { RefreshReason::RefreshAction }
+            }
         } else if prev_active != active_buf_opt {
             RefreshReason::ActiveBufferChanged
         } else if prev_sig != new_sig {
