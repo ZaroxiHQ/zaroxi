@@ -1,7 +1,6 @@
 use std::sync::Arc;
-use uuid::Uuid;
+use zaroxi_kernel_types::Id;
 use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_interface_desktop::desktop::{ShellSnapshot};
 use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
@@ -67,7 +66,7 @@ impl WorkspaceView for FakeView {
 async fn shell_snapshot_present_after_refresh() {
     let v = FakeView::new();
     let arc: Arc<dyn WorkspaceView> = Arc::new(v);
-    let sid = SessionId(Uuid::new_v4().into());
+    let sid = SessionId(Id::new());
     let mut comp = DesktopComposition::new();
 
     comp.refresh(arc, sid.clone(), None).await.expect("refresh ok");
