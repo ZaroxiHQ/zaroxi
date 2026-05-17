@@ -10,6 +10,7 @@ use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
 use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
 use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
 use zaroxi_interface_desktop::projections::location_line::LocationLine;
+use zaroxi_interface_desktop::projections::selection_line::SelectionLine;
 
 // Infra adapters
 use zaroxi_infrastructure_ai_mock;
@@ -154,9 +155,29 @@ async fn main() -> Result<(), String> {
                             } else {
                                 println!("Harness: location line: <absent>");
                             }
+
+                            // SelectionLine (Phase 46): lifecycle rule:
+                            // "SelectionLine is absent before first refresh and absent after refresh
+                            // when no selection exists; present only after refresh when a selection exists".
+                            // We map the existing adapter-local SelectionView into primitive bounds
+                            // and then render a tiny shell-facing line. Keep this adapter-local and
+                            // read-only; do not introduce any new framework.
+                            if let Some(sv) = zaroxi_interface_desktop::SelectionView::from_composition(&composition) {
+                                let sel_line = SelectionLine::from_bounds(
+                                    sv.start.line,
+                                    sv.start.column,
+                                    sv.end.line,
+                                    sv.end.column,
+                                    sv.visible_in_window,
+                                );
+                                println!("Harness: selection line: {}", sel_line.render().trim_end());
+                            } else {
+                                println!("Harness: selection line: <absent>");
+                            }
                         } else {
                             println!("Harness: active buffer line: <none> (no shell snapshot)");
                             println!("Harness: location line: <none> (no shell snapshot)");
+                            println!("Harness: selection line: <none> (no shell snapshot)");
                         }
                     } else {
                         println!("Harness: session identity: <none> (no composition metadata)");
