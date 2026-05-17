@@ -13,6 +13,6 @@ zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
