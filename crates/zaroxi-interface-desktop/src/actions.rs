@@ -24,7 +24,7 @@ This file implements two tiny actions that return the normalized ActionResult.
 
 use std::sync::Arc;
 
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, ApplyTextTransactionResponse, EditorCursor, TextEdit};
+use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::DesktopComposition;
