@@ -27,7 +27,7 @@ use std::sync::Arc;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit};
 use zaroxi_kernel_types::Id;
 
-use crate::desktop::DesktopComposition;
+use crate::desktop::{DesktopComposition, RefreshReason};
 
 /// Normalized, tiny action result returned by interface-desktop actions.
 ///
@@ -66,6 +66,11 @@ pub async fn refresh_desktop(
     // Delegate to the richer refresh variant which can optionally use a WorkspaceService
     // to populate the opened-buffer list for the shell. When `service` is None the
     // implementation falls back to the conservative projection.
+    // If callers haven't provided a specific pending reason, mark this as a generic refresh action.
+    if !comp.has_pending_refresh_reason() {
+        comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
+    }
+
     match comp.refresh_with_service(view, session_id, workspace_id, service).await {
         Ok(()) => Ok(ActionResult { success: true, message: None, refreshed: true }),
         Err(e) => Ok(ActionResult { success: false, message: Some(e), refreshed: false }),
@@ -109,6 +114,9 @@ pub async fn move_cursor_to_start_and_refresh(
     if let Err(e) = service.set_editor_cursor(set_req).await {
         return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
     }
+
+    // Indicate why we are refreshing (cursor moved) so the composition records the reason.
+    comp.set_pending_refresh_reason(RefreshReason::CursorMoved);
 
     // Refresh composition via existing tiny action (keeps responsibilities separated).
     // Reuse the normalized refresh_desktop so we return a consistent ActionResult.
@@ -154,6 +162,9 @@ pub async fn insert_line_at_start_and_refresh(
     if let Err(e) = service.apply_text_transaction(txn_req).await {
         return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
     }
+
+    // Indicate why we are refreshing (buffer updated) so the composition records the reason.
+    comp.set_pending_refresh_reason(RefreshReason::BufferUpdated);
 
     // Refresh composition via existing tiny action and return its result.
     let refresh_result = refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
@@ -346,6 +357,10 @@ mod tests {
         let win = comp.latest_window().expect("window present");
         assert_eq!(win.total_lines, 1);
         assert_eq!(win.lines.len(), 1);
+
+        // Composition should record a refresh reason for this explicit refresh action.
+        let rr = comp.latest_refresh_reason().expect("reason present");
+        assert_eq!(rr, RefreshReason::RefreshAction);
     }
 
     #[tokio::test]

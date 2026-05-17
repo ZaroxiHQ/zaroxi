@@ -65,6 +65,21 @@ pub struct AiProjection {
     pub target_buffer: Option<crate::ports::BufferId>,
 }
 
+/// Small enum describing why the DesktopComposition was refreshed.
+///
+/// This is a tiny, shell-facing model intended only to help outer layers (harness,
+/// tests, UI glue) reason about refreshes in an explicit but minimal way. It is
+/// deliberately not an event system — just a lightweight, descriptive reason.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RefreshReason {
+    InitialLoad,
+    RefreshAction,
+    CursorMoved,
+    BufferUpdated,
+    ActiveBufferChanged,
+    AiProjectionUpdated,
+}
+
 /// Minimal read-only metadata projection exposed to the shell.
 ///
 /// This small struct is intentionally tiny and shell-oriented. It captures a few
@@ -88,6 +103,8 @@ pub struct DesktopMetadata {
     pub active_buffer_details: Option<ActiveBufferDetails>,
     /// New: small AI projection exposing the last AI result relevant to this session (if any).
     pub ai_projection: Option<AiProjection>,
+    /// New: the reason the composition was refreshed most recently (shell-facing).
+    pub refresh_reason: Option<RefreshReason>,
 }
 
 /// Minimal desktop-level composition state.
@@ -104,6 +121,8 @@ pub struct DesktopComposition {
     pub workspace_id: Option<Id>,
     /// Small cached metadata projection for shell consumption.
     metadata: Option<DesktopMetadata>,
+    /// Optional pending refresh reason set by callers which will be consumed by `refresh_with_service`.
+    pending_refresh_reason: Option<RefreshReason>,
 }
 
 impl DesktopComposition {
@@ -114,6 +133,7 @@ impl DesktopComposition {
             session_id: None,
             workspace_id: None,
             metadata: None,
+            pending_refresh_reason: None,
         }
     }
 
@@ -233,6 +253,12 @@ impl DesktopComposition {
             }
         }
 
+        // Determine final refresh reason: prefer any pending reason set by callers,
+        // otherwise pick InitialLoad when we had no previous session_id or a generic RefreshAction.
+        let reason = self.pending_refresh_reason.take().unwrap_or_else(|| {
+            if self.session_id.is_none() { RefreshReason::InitialLoad } else { RefreshReason::RefreshAction }
+        });
+
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
         self.metadata = Some(DesktopMetadata {
@@ -243,6 +269,7 @@ impl DesktopComposition {
             opened_buffers: opened_list,
             active_buffer_details,
             ai_projection: ai_proj,
+            refresh_reason: Some(reason),
         });
 
         Ok(())
@@ -280,6 +307,22 @@ impl DesktopComposition {
     /// Return the small, read-only AI projection (if any) obtained during the last refresh.
     pub fn latest_ai_projection(&self) -> Option<AiProjection> {
         self.metadata.as_ref().and_then(|m| m.ai_projection.clone())
+    }
+
+    /// Set a pending refresh reason which will be consumed by the next `refresh_with_service`.
+    /// This allows callers (actions) to communicate a tiny, explicit reason for the refresh.
+    pub fn set_pending_refresh_reason(&mut self, reason: RefreshReason) {
+        self.pending_refresh_reason = Some(reason);
+    }
+
+    /// Query whether a pending refresh reason has been set.
+    pub fn has_pending_refresh_reason(&self) -> bool {
+        self.pending_refresh_reason.is_some()
+    }
+
+    /// Return the most recent refresh reason recorded in the composition metadata.
+    pub fn latest_refresh_reason(&self) -> Option<RefreshReason> {
+        self.metadata.as_ref().and_then(|m| m.refresh_reason.clone())
     }
 }
 

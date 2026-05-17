@@ -268,6 +268,10 @@ async fn refresh_desktop_returns_action_result_and_updates_composition() {
     let win = comp.latest_window().expect("window present");
     assert_eq!(win.total_lines, 1);
     assert_eq!(win.lines.len(), 1);
+
+    // ensure refresh reason recorded
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, crate::desktop::RefreshReason::RefreshAction);
 }
 
 #[tokio::test]
@@ -290,6 +294,14 @@ async fn move_cursor_action_calls_service_and_refreshes() {
     assert!(ar.success);
     assert!(ar.refreshed);
     assert!(set_called.load(Ordering::SeqCst), "set_editor_cursor should have been called on the service");
+
+    // Cursor-move recorded
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, crate::desktop::RefreshReason::CursorMoved);
+
+    // Cursor move should be recorded as the refresh reason.
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, RefreshReason::CursorMoved);
 }
 
 #[tokio::test]
@@ -312,6 +324,14 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
     assert!(ar.success);
     assert!(ar.refreshed);
     assert!(apply_called.load(Ordering::SeqCst), "apply_text_transaction should have been called on the service");
+
+    // Buffer update recorded
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, crate::desktop::RefreshReason::BufferUpdated);
+
+    // Insert-line should be recorded as a buffer update refresh.
+    let rr = comp.latest_refresh_reason().expect("reason present");
+    assert_eq!(rr, RefreshReason::BufferUpdated);
 }
 
 #[tokio::test]
