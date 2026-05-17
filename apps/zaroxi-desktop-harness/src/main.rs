@@ -88,11 +88,11 @@ async fn main() -> Result<(), String> {
             println!(" - selection: {:?}", doc.selection);
             println!(" - line_count: {}", doc.line_count);
             if let Some(line) = doc.current_line {
-                let snippet = if line.len() > 200 { format!(\"{}...\", &line[..200]) } else { line.clone() };
-                println!(\" - current line snippet: {}\", snippet);
+                let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.clone() };
+                println!(" - current line snippet: {}", snippet);
             }
         }
-        Err(e) => println!(\"Harness: failed to get editor document: {}\", e),
+        Err(e) => println!("Harness: failed to get editor document: {}", e),
     }
 
     let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };
