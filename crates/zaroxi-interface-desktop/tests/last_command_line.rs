@@ -110,7 +110,7 @@ async fn last_command_line_present_and_parsed() {
         fn restore_checkpoint(&self, _req: aw_ports::RestoreCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::RestoreCheckpointResponse, aw_ports::UseCaseError>> { Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) }) }
     }
 
-    let fake_service = std::sync::Arc::new(FakeSvc) as std::sync::Arc<dyn aw_ports::WorkspaceService>;
+    let fake_service = std::sync::Arc::new(FakeSvc::new(sid.clone(), wid.clone())) as std::sync::Arc<dyn aw_ports::WorkspaceService>;
 
     let mut comp = DesktopComposition::new();
     comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service)).await.expect("refresh ok");

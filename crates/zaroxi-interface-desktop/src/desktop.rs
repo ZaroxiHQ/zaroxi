@@ -27,8 +27,6 @@ fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
         crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer",
         crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
         crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand",
-        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
-        _ => "Command",
     }
 }
 use crate::view_adapter::InterfaceRenderableWindow;
