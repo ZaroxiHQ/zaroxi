@@ -299,6 +299,18 @@ impl DesktopComposition {
                         let is_active = list_res.active_buffer.as_ref().map(|ab| ab == bid).unwrap_or(false);
                         opened_list.push(OpenedBufferItem { buffer_id: bid.clone(), display, active: is_active });
                     }
+
+                    // If the service reports an active_buffer that is not present in the
+                    // returned buffer_ids, include it in the projection and mark it active.
+                    // This covers lightweight service implementations that may set active
+                    // without also adding the buffer to their opened list (test doubles).
+                    if let Some(active_bid) = list_res.active_buffer.clone() {
+                        if !list_res.buffer_ids.iter().any(|b| b == &active_bid) {
+                            let display = active_bid.path().map(|p| p.to_string_lossy().to_string());
+                            opened_list.push(OpenedBufferItem { buffer_id: active_bid.clone(), display, active: true });
+                            opened_count = opened_count.saturating_add(1);
+                        }
+                    }
                 }
                 Err(_) => {
                     // On error, fall back to conservative single-item projection when active exists.
