@@ -12,10 +12,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "android_system_properties"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+
+[[package]]
+name = "autocfg"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "bitflags"
@@ -28,6 +43,12 @@ name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
+
+[[package]]
+name = "bytes"
+version = "1.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cc"
@@ -46,12 +67,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "crate-lint"
-version = "0.1.0"
+name = "chrono"
+version = "0.4.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+dependencies = [
+ "iana-time-zone",
+ "js-sys",
+ "num-traits",
+ "serde",
+ "wasm-bindgen",
+ "windows-link",
+]
 
 [[package]]
-name = "docs"
-version = "0.1.0"
+name = "core-foundation-sys"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "equivalent"
@@ -146,6 +179,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "iana-time-zone"
+version = "0.1.65"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "log",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -195,9 +252,9 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "libloading"
-version = "0.8.9"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
 dependencies = [
  "cfg-if",
  "windows-link",
@@ -229,6 +286,26 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "mio"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
+dependencies = [
+ "libc",
+ "wasi",
+ "windows-sys",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "once_cell"
@@ -429,6 +506,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -439,6 +526,16 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+
+[[package]]
+name = "socket2"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
+dependencies = [
+ "libc",
+ "windows-sys",
+]
 
 [[package]]
 name = "str_indices"
@@ -497,8 +594,63 @@ dependencies = [
 ]
 
 [[package]]
-name = "tools-generate-stubs"
-version = "0.1.0"
+name = "tokio"
+version = "1.52.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
+dependencies = [
+ "bytes",
+ "libc",
+ "mio",
+ "parking_lot",
+ "pin-project-lite",
+ "signal-hook-registry",
+ "socket2",
+ "tokio-macros",
+ "windows-sys",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-attributes",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+dependencies = [
+ "once_cell",
+]
 
 [[package]]
 name = "tree-sitter"
@@ -543,6 +695,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"
@@ -642,10 +800,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-core"
+version = "0.62.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
+dependencies = [
+ "windows-implement",
+ "windows-interface",
+ "windows-link",
+ "windows-result",
+ "windows-strings",
+]
+
+[[package]]
+name = "windows-implement"
+version = "0.60.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "windows-interface"
+version = "0.59.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "windows-result"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
+dependencies = [
+ "windows-link",
+]
+
+[[package]]
+name = "windows-strings"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
+dependencies = [
+ "windows-link",
+]
 
 [[package]]
 name = "windows-sys"
@@ -753,14 +964,31 @@ dependencies = [
 [[package]]
 name = "zaroxi-application-ai"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-kernel-types",
+]
 
 [[package]]
-name = "zaroxi-application-buffer"
+name = "zaroxi-application-collaboration"
 version = "0.1.0"
 
 [[package]]
 name = "zaroxi-application-command"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "uuid",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-kernel-types",
+]
 
 [[package]]
 name = "zaroxi-application-editor"
@@ -771,11 +999,22 @@ name = "zaroxi-application-navigation"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-application-plugin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "zaroxi-application-project"
 version = "0.1.0"
 
 [[package]]
 name = "zaroxi-application-refactor"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-application-remote"
 version = "0.1.0"
 
 [[package]]
@@ -785,25 +1024,204 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-application-workspace"
 version = "0.1.0"
-
-[[package]]
-name = "zaroxi-collaboration-crdt"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-collaboration-presence"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-collaboration-session"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-collaboration-sync"
-version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zaroxi-application-ai",
+ "zaroxi-application-command",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-domain-buffer",
+ "zaroxi-domain-workspace",
+ "zaroxi-infrastructure-ai-mock",
+ "zaroxi-infrastructure-memory",
+ "zaroxi-kernel-types",
+]
 
 [[package]]
 name = "zaroxi-core-commands"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-buffer"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "zaroxi-core-editor-collab"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-command"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-cursor"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-decoration"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-diagnostics"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-display"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-folding"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-gutter"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-history"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-inline-ai"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-minimap"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-model"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-rope"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-selection"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-transaction"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-view"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-editor-viewport"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-accessibility"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-action"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-animation"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-clipboard"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-compositor"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-element"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-focus"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-font"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-ime"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-input"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-layout"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-overlay"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-render"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-render-backend"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-render-graph"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-render-pipeline"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-render-resource"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-root"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-runtime"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-scene"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-state"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-style"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-test"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-text"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-view"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-engine-window"
 version = "0.1.0"
 
 [[package]]
@@ -815,44 +1233,79 @@ name = "zaroxi-core-input"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-layout"
+name = "zaroxi-core-io"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render"
+name = "zaroxi-core-platform-debugger"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-backend"
+name = "zaroxi-core-platform-formatter"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-compositor"
+name = "zaroxi-core-platform-git"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-graph"
+name = "zaroxi-core-platform-linter"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-pipeline"
+name = "zaroxi-core-platform-lsp"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-resource"
+name = "zaroxi-core-platform-plugin"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-scene"
+name = "zaroxi-core-platform-profiler"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-text"
+name = "zaroxi-core-platform-remote-container"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-render-ui"
+name = "zaroxi-core-platform-remote-ssh"
 version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-platform-runtime"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-platform-syntax"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "libloading",
+ "parking_lot",
+ "ropey",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tree-sitter",
+]
+
+[[package]]
+name = "zaroxi-core-platform-terminal"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-platform-test"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "serde",
+]
 
 [[package]]
 name = "zaroxi-core-runtime"
@@ -866,36 +1319,77 @@ name = "zaroxi-core-scheduler"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-core-state"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "zaroxi-core-sync"
+version = "0.1.0"
+
+[[package]]
 name = "zaroxi-core-task"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-text"
+name = "zaroxi-core-telemetry"
 version = "0.1.0"
-
-[[package]]
-name = "zaroxi-core-text-buffer"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-core-text-diff"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-core-text-edit"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-core-text-rope"
-version = "0.1.0"
+dependencies = [
+ "serde",
+ "tracing",
+]
 
 [[package]]
 name = "zaroxi-core-threading"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-core-ui"
+name = "zaroxi-core-workspace-cache"
 version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-files"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-history"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-index"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-patch"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-permissions"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-snapshot"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-core-workspace-watcher"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-desktop-harness"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "zaroxi-application-ai",
+ "zaroxi-application-workspace",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-domain-workspace",
+ "zaroxi-infrastructure-ai-mock",
+ "zaroxi-infrastructure-memory",
+ "zaroxi-interface-desktop",
+]
 
 [[package]]
 name = "zaroxi-domain-ai"
@@ -904,17 +1398,17 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-domain-buffer"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "zaroxi-kernel-types",
+]
 
 [[package]]
-name = "zaroxi-domain-cursor"
+name = "zaroxi-domain-collaboration"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-domain-editor"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-domain-history"
+name = "zaroxi-domain-plugin"
 version = "0.1.0"
 
 [[package]]
@@ -922,7 +1416,7 @@ name = "zaroxi-domain-project"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-domain-selection"
+name = "zaroxi-domain-session"
 version = "0.1.0"
 
 [[package]]
@@ -931,6 +1425,25 @@ version = "0.1.0"
 
 [[package]]
 name = "zaroxi-domain-workspace"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+ "zaroxi-kernel-types",
+]
+
+[[package]]
+name = "zaroxi-infrastructure-ai-mock"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "zaroxi-application-ai",
+]
+
+[[package]]
+name = "zaroxi-infrastructure-container"
 version = "0.1.0"
 
 [[package]]
@@ -942,11 +1455,36 @@ name = "zaroxi-infrastructure-logging"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-infrastructure-memory"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+ "zaroxi-application-workspace",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-domain-workspace",
+ "zaroxi-kernel-types",
+]
+
+[[package]]
 name = "zaroxi-infrastructure-metrics"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-infrastructure-network"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "zaroxi-infrastructure-permissions"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-infrastructure-process"
 version = "0.1.0"
 
 [[package]]
@@ -955,6 +1493,10 @@ version = "0.1.0"
 
 [[package]]
 name = "zaroxi-infrastructure-settings"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-infrastructure-ssh"
 version = "0.1.0"
 
 [[package]]
@@ -994,24 +1536,38 @@ name = "zaroxi-intelligence-planning"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-intelligence-safety"
+version = "0.1.0"
+
+[[package]]
 name = "zaroxi-intelligence-tools"
 version = "0.1.0"
 
 [[package]]
 name = "zaroxi-interface-app"
 version = "0.1.0"
+dependencies = [
+ "zaroxi-core-engine-view",
+ "zaroxi-interface-desktop",
+]
 
 [[package]]
 name = "zaroxi-interface-cli"
 version = "0.1.0"
 
 [[package]]
-name = "zaroxi-interface-editor"
+name = "zaroxi-interface-desktop"
 version = "0.1.0"
-
-[[package]]
-name = "zaroxi-interface-gui"
-version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "tokio",
+ "uuid",
+ "zaroxi-application-workspace",
+ "zaroxi-core-editor-buffer",
+ "zaroxi-domain-buffer",
+ "zaroxi-kernel-types",
+]
 
 [[package]]
 name = "zaroxi-interface-theme"
@@ -1050,6 +1606,16 @@ name = "zaroxi-kernel-memory"
 version = "0.1.0"
 
 [[package]]
+name = "zaroxi-kernel-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "zaroxi-kernel-time"
 version = "0.1.0"
 
@@ -1066,58 +1632,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "zaroxi-platform-debugger"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-formatter"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-git"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-linter"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-lsp"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-plugin"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-profiler"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-syntax"
+name = "zaroxi-security-audit"
 version = "0.1.0"
 dependencies = [
- "cc",
- "libloading",
- "parking_lot",
- "ropey",
+ "chrono",
  "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tree-sitter",
 ]
 
 [[package]]
-name = "zaroxi-platform-terminal"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-platform-test"
-version = "0.1.0"
-
-[[package]]
 name = "zaroxi-security-auth"
+version = "0.1.0"
+
+[[package]]
+name = "zaroxi-security-crypto"
 version = "0.1.0"
 
 [[package]]
@@ -1130,30 +1657,6 @@ version = "0.1.0"
 
 [[package]]
 name = "zaroxi-security-validation"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-cache"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-files"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-history"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-index"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-patch"
-version = "0.1.0"
-
-[[package]]
-name = "zaroxi-workspace-watcher"
 version = "0.1.0"
 
 [[package]]
