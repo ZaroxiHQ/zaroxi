@@ -19,6 +19,21 @@ use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use zaroxi_kernel_types::Id;
 use crate::view_adapter::InterfaceRenderableWindow;
 
+/// Single opened-buffer projection item exposed to the shell.
+///
+/// Purpose:
+/// - Tiny, read-only item that summarizes an opened buffer for the outer UI.
+/// - Keeps presentation concerns minimal: buffer id, optional display label, and active flag.
+#[derive(Clone, Debug)]
+pub struct OpenedBufferItem {
+    /// Canonical buffer id (core BufferId).
+    pub buffer_id: crate::ports::BufferId,
+    /// Optional display label (e.g. path or file name) suitable for shell printing.
+    pub display: Option<String>,
+    /// Whether this buffer is currently the active buffer in the session.
+    pub active: bool,
+}
+
 /// Minimal read-only metadata projection exposed to the shell.
 ///
 /// This small struct is intentionally tiny and shell-oriented. It captures a few
@@ -36,6 +51,8 @@ pub struct DesktopMetadata {
     ///  - 1 when an active editor document exists, 0 otherwise. This is a light-weight,
     ///    shell-facing projection that avoids expanding the interface surface.
     pub opened_buffer_count: usize,
+    /// New: small read-only list of opened buffers projected for the shell.
+    pub opened_buffers: Vec<OpenedBufferItem>,
 }
 
 /// Minimal desktop-level composition state.
@@ -71,30 +88,76 @@ impl DesktopComposition {
     /// - `session_id`: typed session id to query active editor/presenter.
     /// - `workspace_id`: optional workspace id (caller-supplied) to be recorded in composition.
     ///
-    /// The function delegates to presenter which uses the adapter seam to compute the renderable window.
-    /// Additionally it queries the application read-path `get_active_editor_document` to populate
-    /// a small, read-only metadata projection for the shell. Errors from the optional metadata
-    /// query are tolerated: when the application reports no active editor the metadata will reflect that.
+    /// This original lightweight refresh remains available and delegates to the
+    /// more featureful `refresh_with_service` with `None` for the optional service.
     pub async fn refresh(
         &mut self,
         view: Arc<dyn WorkspaceView>,
         session_id: SessionId,
         workspace_id: Option<Id>,
     ) -> Result<(), String> {
+        self.refresh_with_service(view, session_id, workspace_id, None).await
+    }
+
+    /// Refresh the composition and optionally use a WorkspaceService to obtain
+    /// an opened-buffer list. When `service` is `None` the method falls back to
+    /// the conservative opened-buffer count projection (1 if active buffer exists).
+    ///
+    /// This method keeps responsibilities minimal: it reuses existing read APIs
+    /// and does not add new application ports. The optional service parameter is
+    /// intended to be provided by callers that already hold a concrete
+    /// WorkspaceService (composition/harness), enabling the richer opened buffer
+    /// projection without changing the core application or domain layers.
+    pub async fn refresh_with_service(
+        &mut self,
+        view: Arc<dyn WorkspaceView>,
+        session_id: SessionId,
+        workspace_id: Option<Id>,
+        service: Option<Arc<dyn crate::ports::WorkspaceService>>,
+    ) -> Result<(), String> {
         // 1) Refresh presenter snapshot (reuses adapter seam and existing projection).
         self.presenter.refresh(view.clone(), session_id.clone()).await?;
 
         // 2) Attempt to read the active editor document via the WorkspaceView seam.
-        //    This is the existing application read pathway and avoids adding new ports.
         let active_buf_opt = match view.get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest { session_id: session_id.clone() }).await {
             Ok(resp) => Some(resp.document.buffer_id.clone()),
             Err(_) => None,
         };
 
-        // Conservative opened buffer count: 1 if active buffer exists, otherwise 0.
-        let opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
+        // Prepare default conservative projection values.
+        let mut opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
+        let mut opened_list: Vec<OpenedBufferItem> = Vec::new();
 
-        // 3) Update composition metadata and simple recorded ids.
+        // 3) If a WorkspaceService is provided, attempt to obtain the authoritative opened buffer list.
+        if let Some(svc) = service {
+            // Request list of opened buffers for the session (application-owned use-case).
+            match svc.list_open_buffers(crate::ports::ListBuffersRequest { session_id: session_id.clone() }).await {
+                Ok(list_res) => {
+                    opened_count = list_res.buffer_ids.len();
+                    // Build small projection items. Use path/display when available.
+                    for bid in list_res.buffer_ids.iter() {
+                        let display = bid.path().map(|p| p.to_string_lossy().to_string());
+                        let is_active = list_res.active_buffer.as_ref().map(|ab| ab == bid).unwrap_or(false);
+                        opened_list.push(OpenedBufferItem { buffer_id: bid.clone(), display, active: is_active });
+                    }
+                }
+                Err(_) => {
+                    // On error, fall back to conservative single-item projection when active exists.
+                    if let Some(bid) = active_buf_opt.clone() {
+                        let display = bid.path().map(|p| p.to_string_lossy().to_string());
+                        opened_list.push(OpenedBufferItem { buffer_id: bid.clone(), display, active: true });
+                    }
+                }
+            }
+        } else {
+            // No service provided: keep conservative projection (only active buffer when present).
+            if let Some(bid) = active_buf_opt.clone() {
+                let display = bid.path().map(|p| p.to_string_lossy().to_string());
+                opened_list.push(OpenedBufferItem { buffer_id: bid.clone(), display, active: true });
+            }
+        }
+
+        // 4) Update composition metadata and simple recorded ids.
         self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
         self.metadata = Some(DesktopMetadata {
@@ -102,6 +165,7 @@ impl DesktopComposition {
             workspace_id: self.workspace_id.clone(),
             active_buffer: active_buf_opt,
             opened_buffer_count: opened_count,
+            opened_buffers: opened_list,
         });
 
         Ok(())

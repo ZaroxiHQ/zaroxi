@@ -235,7 +235,7 @@ async fn refresh_desktop_returns_action_result_and_updates_composition() {
     let sid = SessionId(Id::new());
     let mut comp = DesktopComposition::new();
 
-    let ar = refresh_desktop(&mut comp, arc, sid.clone(), None).await.expect("refresh ok");
+    let ar = refresh_desktop(&mut comp, arc, sid.clone(), None, None).await.expect("refresh ok");
     assert!(ar.success);
     assert!(ar.refreshed);
     assert_eq!(comp.get_session_id().unwrap(), sid);
@@ -256,7 +256,7 @@ async fn move_cursor_action_calls_service_and_refreshes() {
 
     let mut comp = DesktopComposition::new();
     // pre-refresh to populate presenter (not required but realistic)
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
 
     let res = move_cursor_to_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
     assert!(res.is_ok());

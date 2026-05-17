@@ -115,6 +115,7 @@ async fn main() -> Result<(), String> {
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
+                Some(service_dyn.clone()),
             ).await {
                 Ok(action_result) => {
                     println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);

@@ -61,8 +61,12 @@ pub async fn refresh_desktop(
     view: Arc<dyn WorkspaceView>,
     session_id: SessionId,
     workspace_id: Option<Id>,
+    service: Option<Arc<dyn WorkspaceService>>,
 ) -> Result<ActionResult, String> {
-    match comp.refresh(view, session_id, workspace_id).await {
+    // Delegate to the richer refresh variant which can optionally use a WorkspaceService
+    // to populate the opened-buffer list for the shell. When `service` is None the
+    // implementation falls back to the conservative projection.
+    match comp.refresh_with_service(view, session_id, workspace_id, service).await {
         Ok(()) => Ok(ActionResult { success: true, message: None, refreshed: true }),
         Err(e) => Ok(ActionResult { success: false, message: Some(e), refreshed: false }),
     }
@@ -108,7 +112,7 @@ pub async fn move_cursor_to_start_and_refresh(
 
     // Refresh composition via existing tiny action (keeps responsibilities separated).
     // Reuse the normalized refresh_desktop so we return a consistent ActionResult.
-    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id).await?;
+    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(refresh_result)
 }
 
@@ -152,7 +156,7 @@ pub async fn insert_line_at_start_and_refresh(
     }
 
     // Refresh composition via existing tiny action and return its result.
-    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id).await?;
+    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(refresh_result)
 }
 
@@ -334,8 +338,8 @@ mod tests {
         let arc: Arc<dyn WorkspaceView> = Arc::new(v);
         let sid = SessionId(zaroxi_kernel_types::Id::new());
         let mut comp = crate::desktop::DesktopComposition::new();
-        // Call the tiny action
-        let ar = refresh_desktop(&mut comp, arc, sid.clone(), None).await.expect("refresh ok");
+        // Call the tiny action (no service available in this test)
+        let ar = refresh_desktop(&mut comp, arc, sid.clone(), None, None).await.expect("refresh ok");
         assert!(ar.success);
         assert!(ar.refreshed);
         assert_eq!(comp.get_session_id().unwrap(), sid);
