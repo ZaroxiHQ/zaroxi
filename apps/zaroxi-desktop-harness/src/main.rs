@@ -453,6 +453,13 @@ async fn main() -> Result<(), String> {
         println!("- {:?} at {}", e.kind, e.timestamp);
     }
 
+    // Tiny shell-facing LastEventLine: build from the most recent event (if any)
+    {
+        let last = recent_events.events.last();
+        let last_line = zaroxi_interface_desktop::projections::last_event_line::summarize_last_event(last);
+        println!("Harness: last event: {}", last_line.text);
+    }
+
     // Tiny shell-facing last-command-line (when available via composition shell context).
     if let Some(ctx) = composition.latest_shell_context() {
         if let Some(lc) = ctx.last_command_line {

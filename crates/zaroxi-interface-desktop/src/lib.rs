@@ -27,3 +27,9 @@ pub use desktop::{DesktopComposition, DesktopSummary, DesktopConsistencyReport, 
 pub use actions::{refresh_desktop, move_cursor_to_start_and_refresh, set_active_buffer_and_get_shell_context, refresh_and_get_shell_context, ActionResult, ShellActionResult};
 pub use text_view::TextView;
 pub use selection_view::SelectionView;
+
+// Small adapter-local projections collected under `projections`.
+// Keep all shaping here; do not leak UI/shell concerns into application/domain.
+pub mod projections;
+pub use projections::last_event_line::LastEventLine;
+pub use projections::last_event_line::summarize_last_event;
