@@ -6,7 +6,7 @@ Purpose:
   - current session id,
   - optional active workspace id (when composition caller has it),
   - active editor presenter snapshot (via existing Presenter).
-- Keep strictly compositional: reuse Presenter and the view_adapter seam.
+- Keep this strictly compositional: reuse Presenter and the view_adapter seam.
 - No UI, rendering, layout, or editor policy is added here.
 
 This file is intentionally small and focused on composition only.
@@ -18,6 +18,25 @@ use crate::presenter::Presenter;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use zaroxi_kernel_types::Id;
 use crate::view_adapter::InterfaceRenderableWindow;
+
+/// Minimal read-only metadata projection exposed to the shell.
+///
+/// This small struct is intentionally tiny and shell-oriented. It captures a few
+/// facts useful to the outer harness / interface without reimplementing application
+/// snapshot logic.
+#[derive(Clone, Debug)]
+pub struct DesktopMetadata {
+    /// Recorded session id (if composition was refreshed).
+    pub session_id: Option<SessionId>,
+    /// Optional workspace id associated with the session (if provided during refresh).
+    pub workspace_id: Option<Id>,
+    /// Currently active buffer id when available (application-provided).
+    pub active_buffer: Option<crate::ports::BufferId>,
+    /// Tiny opened buffers count projection. For Phase 19 this is computed conservatively:
+    ///  - 1 when an active editor document exists, 0 otherwise. This is a light-weight,
+    ///    shell-facing projection that avoids expanding the interface surface.
+    pub opened_buffer_count: usize,
+}
 
 /// Minimal desktop-level composition state.
 ///
@@ -31,6 +50,8 @@ pub struct DesktopComposition {
     pub session_id: Option<SessionId>,
     /// Optional workspace id associated with the session (if known to caller).
     pub workspace_id: Option<Id>,
+    /// Small cached metadata projection for shell consumption.
+    metadata: Option<DesktopMetadata>,
 }
 
 impl DesktopComposition {
@@ -40,6 +61,7 @@ impl DesktopComposition {
             presenter: Presenter::new(),
             session_id: None,
             workspace_id: None,
+            metadata: None,
         }
     }
 
@@ -49,19 +71,39 @@ impl DesktopComposition {
     /// - `session_id`: typed session id to query active editor/presenter.
     /// - `workspace_id`: optional workspace id (caller-supplied) to be recorded in composition.
     ///
-    /// The function delegates projection/adapter work to `Presenter::refresh`
-    /// and then updates the tiny composition metadata. This keeps editor logic
-    /// inside the existing presenter/adapter seams.
+    /// The function delegates to presenter which uses the adapter seam to compute the renderable window.
+    /// Additionally it queries the application read-path `get_active_editor_document` to populate
+    /// a small, read-only metadata projection for the shell. Errors from the optional metadata
+    /// query are tolerated: when the application reports no active editor the metadata will reflect that.
     pub async fn refresh(
         &mut self,
         view: Arc<dyn WorkspaceView>,
         session_id: SessionId,
         workspace_id: Option<Id>,
     ) -> Result<(), String> {
-        // Delegate to presenter which uses the adapter seam to compute the renderable window.
-        self.presenter.refresh(view, session_id.clone()).await?;
-        self.session_id = Some(session_id);
+        // 1) Refresh presenter snapshot (reuses adapter seam and existing projection).
+        self.presenter.refresh(view.clone(), session_id.clone()).await?;
+
+        // 2) Attempt to read the active editor document via the WorkspaceView seam.
+        //    This is the existing application read pathway and avoids adding new ports.
+        let active_buf_opt = match view.get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest { session_id: session_id.clone() }).await {
+            Ok(resp) => Some(resp.document.buffer_id.clone()),
+            Err(_) => None,
+        };
+
+        // Conservative opened buffer count: 1 if active buffer exists, otherwise 0.
+        let opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
+
+        // 3) Update composition metadata and simple recorded ids.
+        self.session_id = Some(session_id.clone());
         self.workspace_id = workspace_id;
+        self.metadata = Some(DesktopMetadata {
+            session_id: Some(session_id),
+            workspace_id: self.workspace_id.clone(),
+            active_buffer: active_buf_opt,
+            opened_buffer_count: opened_count,
+        });
+
         Ok(())
     }
 
@@ -78,6 +120,11 @@ impl DesktopComposition {
     /// Get the recorded workspace id (if provided during refresh).
     pub fn get_workspace_id(&self) -> Option<Id> {
         self.workspace_id.clone()
+    }
+
+    /// Return the small, read-only metadata projection for shell consumption.
+    pub fn latest_metadata(&self) -> Option<DesktopMetadata> {
+        self.metadata.clone()
     }
 }
 
@@ -161,5 +208,12 @@ mod tests {
         let win = comp.latest_window().expect("window present");
         assert_eq!(win.total_lines, 1);
         assert_eq!(win.lines.len(), 1);
+
+        // Verify tiny metadata projection populated from the application read-path.
+        let meta = comp.latest_metadata().expect("metadata present");
+        assert_eq!(meta.session_id.unwrap(), sid);
+        assert_eq!(meta.workspace_id.unwrap(), wid);
+        assert_eq!(meta.active_buffer.unwrap(), crate::ports::BufferId::from("buf:fake"));
+        assert_eq!(meta.opened_buffer_count, 1);
     }
 }

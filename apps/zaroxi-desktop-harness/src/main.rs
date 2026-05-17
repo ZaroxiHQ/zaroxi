@@ -145,6 +145,14 @@ async fn main() -> Result<(), String> {
                     } else {
                         println!("Harness: composition contained no window after refresh");
                     }
+
+                    // Print the small, read-only metadata projection exposed by the composition.
+                    if let Some(meta) = composition.latest_metadata() {
+                        let active_buf = meta.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
+                        println!("Harness: composition metadata: session={:?} workspace={:?} active_buffer={} opened_count={}", meta.session_id, meta.workspace_id, active_buf, meta.opened_buffer_count);
+                    } else {
+                        println!("Harness: no composition metadata available");
+                    }
                 }
                 Err(e) => {
                     println!("Harness: failed to refresh desktop composition: {}", e);
