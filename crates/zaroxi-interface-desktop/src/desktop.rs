@@ -299,10 +299,11 @@ impl DesktopComposition {
 
         let reason = if let Some(pending) = self.pending_refresh_reason.take() {
             pending
+        } else if prev_ai_result != new_ai_result {
+            // Prefer AI projection updates when a new ExplainExecuted result is present.
+            RefreshReason::AiProjectionUpdated
         } else if prev_active != active_buf_opt {
             RefreshReason::ActiveBufferChanged
-        } else if prev_ai_result != new_ai_result {
-            RefreshReason::AiProjectionUpdated
         } else if prev_sig != new_sig {
             RefreshReason::BufferUpdated
         } else {
