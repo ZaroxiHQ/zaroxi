@@ -225,6 +225,16 @@ async fn main() -> Result<(), String> {
                     if let Some(rr) = composition.latest_refresh_reason() {
                         println!("Harness: composition refresh reason after move-cursor: {:?}", rr);
                     }
+
+                    // Small read-only visible-text model print for harness visibility.
+                    if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(&composition) {
+                        println!("Harness: visible text (top_line={} total_lines={}):", tv.top_line, tv.total_lines);
+                        for line in tv.lines_with_cursor_marker("|^|").iter() {
+                            println!("    {}", line);
+                        }
+                    } else {
+                        println!("Harness: no visible window available for TextView");
+                    }
                 }
                 Err(e) => {
                     println!("Harness: move cursor action failed: {}", e);
@@ -243,6 +253,16 @@ async fn main() -> Result<(), String> {
                     println!("Harness: insert-line-at-start action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
                     if let Some(rr) = composition.latest_refresh_reason() {
                         println!("Harness: composition refresh reason after insert-line: {:?}", rr);
+                    }
+
+                    // Show the visible-text view model after the insert action.
+                    if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(&composition) {
+                        println!("Harness: visible text after insert (top_line={} total_lines={}):", tv.top_line, tv.total_lines);
+                        for line in tv.lines_with_cursor_marker("|^|").iter() {
+                            println!("    {}", line);
+                        }
+                    } else {
+                        println!("Harness: no visible window available for TextView after insert");
                     }
                 }
                 Err(e) => {

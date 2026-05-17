@@ -7,6 +7,7 @@ pub mod view_adapter;
 pub mod presenter;
 pub mod desktop;
 pub mod actions;
+pub mod text_view;
 
 // Re-export application ports so tests and internal modules can refer to `crate::ports`.
 // This keeps the interface crate surface small while enabling test modules to implement
@@ -23,3 +24,4 @@ pub use view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, Inter
 pub use presenter::Presenter;
 pub use desktop::{DesktopComposition, DesktopSummary, DesktopConsistencyReport, ShellContext};
 pub use actions::{refresh_desktop, move_cursor_to_start_and_refresh, set_active_buffer_and_get_shell_context, refresh_and_get_shell_context, ActionResult, ShellActionResult};
+pub use text_view::TextView;
