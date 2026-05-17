@@ -188,6 +188,15 @@ async fn main() -> Result<(), String> {
                     } else {
                         println!("Harness: no composition metadata available");
                     }
+
+                    // Small consistency report so outer harnesses can print a compact assertion of composition coherence.
+                    let crep = composition.latest_consistency_report();
+                    println!("Harness: composition consistency: overall_ok={} status_match={} active_matches_details={} active_in_opened={} presenter_matches_status={}",
+                        crep.overall_ok,
+                        crep.status_present_matches_summary,
+                        crep.active_buffer_matches_details,
+                        crep.active_buffer_in_opened_buffers,
+                        crep.presenter_window_matches_status);
                 }
                 Err(e) => {
                     println!("Harness: failed to refresh desktop composition: {}", e);

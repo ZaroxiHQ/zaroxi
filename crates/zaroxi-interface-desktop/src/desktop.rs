@@ -148,6 +148,34 @@ pub struct DesktopSummary {
     /// Optional active buffer id (when available).
     pub active_buffer: Option<crate::ports::BufferId>,
 }
+
+/// Small, shell-facing consistency report for a DesktopComposition.
+///
+/// Purpose:
+/// - Provide a tiny read-only report derived from existing composition fields.
+/// - Allow harnesses and simple shells to assert basic invariants without
+///   introducing a validation/telemetry subsystem.
+/// - Keep semantics conservative: when data is absent we consider the check
+///   satisfied unless an inconsistency can be observed.
+///
+/// Checks included:
+/// - status_present_matches_summary: whether summary.status.is_some() aligns with `composition.status`.
+/// - active_buffer_matches_details: when metadata exposes an active_buffer, does the active-buffer-details projection match it?
+/// - active_buffer_in_opened_buffers: when opened_buffers is non-empty and active_buffer present, is the active_buffer one of the opened_buffers?
+/// - presenter_window_matches_status: whether the presenter's window presence aligns with the status.has_render_window flag.
+#[derive(Clone, Debug)]
+pub struct DesktopConsistencyReport {
+    /// Whether the status presence recorded in latest_summary() matches `composition.status` presence.
+    pub status_present_matches_summary: bool,
+    /// When metadata exposes an active buffer, whether that aligns with active-buffer-details buffer id.
+    pub active_buffer_matches_details: bool,
+    /// When opened_buffers is non-empty and an active buffer exists, whether the active buffer is among opened_buffers.
+    pub active_buffer_in_opened_buffers: bool,
+    /// Whether the presenter's window presence equals status.has_render_window (when status present).
+    pub presenter_window_matches_status: bool,
+    /// Overall ok (all checks true).
+    pub overall_ok: bool,
+}
  
 /// Minimal desktop-level composition state.
 ///
@@ -490,6 +518,64 @@ impl DesktopComposition {
             active_buffer: self.metadata.as_ref().and_then(|m| m.active_buffer.clone()),
         })
     }
+
+    /// Produce a tiny, read-only consistency report derived from the current composition state.
+    ///
+    /// This function intentionally performs only a few conservative checks that are cheap
+    /// and deterministic to compute from existing fields. It is meant to be shell-facing
+    /// and to aid harnesses in printing or asserting composition coherence.
+    pub fn latest_consistency_report(&self) -> DesktopConsistencyReport {
+        // 1) summary status presence vs actual status presence
+        let summary_has_status = self.latest_summary().and_then(|s| s.status).is_some();
+        let status_present = self.status.is_some();
+        let status_present_matches_summary = summary_has_status == status_present;
+
+        // 2) active buffer alignment with active-buffer-details
+        let meta_active = self.metadata.as_ref().and_then(|m| m.active_buffer.clone());
+        let abd_opt = self.latest_active_buffer_details();
+        let active_buffer_matches_details = if meta_active.is_some() {
+            match abd_opt {
+                Some(abd) => abd.buffer_id == meta_active.unwrap(),
+                None => false,
+            }
+        } else {
+            // Nothing asserted by metadata -> treat as OK
+            true
+        };
+
+        // 3) active buffer is among opened buffers when opened list non-empty
+        let active_buffer_in_opened_buffers = match &self.metadata {
+            Some(meta) => {
+                if meta.opened_buffers.is_empty() {
+                    true
+                } else {
+                    match meta.active_buffer.clone() {
+                        Some(act) => meta.opened_buffers.iter().any(|i| i.buffer_id == act),
+                        None => true,
+                    }
+                }
+            }
+            None => true,
+        };
+
+        // 4) presenter window presence aligns with status.has_render_window
+        let presenter_has = self.presenter.latest().is_some();
+        let status_has_render = self.status.as_ref().map(|s| s.has_render_window).unwrap_or(false);
+        let presenter_window_matches_status = presenter_has == status_has_render;
+
+        let overall_ok = status_present_matches_summary
+            && active_buffer_matches_details
+            && active_buffer_in_opened_buffers
+            && presenter_window_matches_status;
+
+        DesktopConsistencyReport {
+            status_present_matches_summary,
+            active_buffer_matches_details,
+            active_buffer_in_opened_buffers,
+            presenter_window_matches_status,
+            overall_ok,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -758,5 +844,128 @@ mod tests {
         assert!(summary.status.is_some());
         assert_eq!(summary.status.unwrap().has_render_window, status.has_render_window);
         assert_eq!(summary.active_buffer, comp.latest_metadata().and_then(|m| m.active_buffer));
+    }
+
+    #[tokio::test]
+    async fn desktop_composition_consistency_report_is_valid() {
+        use std::sync::Arc;
+        use uuid::Uuid;
+        use chrono::Utc;
+
+        let v = FakeView::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let wid = zaroxi_kernel_types::Id::new();
+
+        // Minimal fake service that returns a single opened buffer and a single ExplainExecuted event.
+        struct FakeSvc {
+            buf: crate::ports::BufferId,
+            wid: zaroxi_kernel_types::Id,
+        }
+
+        impl FakeSvc {
+            fn new(buf: crate::ports::BufferId, wid: zaroxi_kernel_types::Id) -> Self {
+                Self { buf, wid }
+            }
+        }
+
+        impl crate::ports::WorkspaceService for FakeSvc {
+            fn boot_workspace(&self, _req: crate::ports::WorkspaceBootRequest) -> crate::BoxFuture<'static, Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownWorkspace) })
+            }
+            fn open_buffer(&self, _req: crate::ports::OpenBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn list_open_buffers(&self, _req: crate::ports::ListBuffersRequest) -> crate::BoxFuture<'static, Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>> {
+                let b = self.buf.clone();
+                Box::pin(async move { Ok(crate::ports::ListBuffersResponse { buffer_ids: vec![b], active_buffer: Some(crate::ports::BufferId::from("buf:fake")) }) })
+            }
+            fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn get_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetActiveBufferResponse, crate::ports::UseCaseError>> {
+                let bid = self.buf.clone();
+                Box::pin(async move { Ok(crate::ports::GetActiveBufferResponse { buffer_id: bid }) })
+            }
+            fn set_editor_cursor(&self, _req: crate::ports::SetEditorCursorRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn set_editor_selection(&self, _req: crate::ports::SetSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn clear_editor_selection(&self, _req: crate::ports::ClearSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn get_editor_state(&self, _req: crate::ports::GetEditorStateRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::NoActiveBuffer) })
+            }
+            fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn update_buffer(&self, _req: crate::ports::UpdateBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn apply_text_transaction(&self, _req: crate::ports::ApplyTextTransactionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: None }) })
+            }
+            fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+            }
+
+            fn get_recent_events(&self, req: crate::ports::GetRecentEventsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>> {
+                let buf = self.buf.clone();
+                let wid = self.wid.clone();
+                Box::pin(async move {
+                    let ev = crate::ports::WorkspaceEvent {
+                        id: Uuid::new_v4(),
+                        timestamp: Utc::now(),
+                        session_id: req.session_id.clone(),
+                        workspace_id: wid,
+                        kind: crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id: buf.clone(), result: "mocked explain".to_string() },
+                    };
+                    Ok(crate::ports::GetRecentEventsResponse { events: vec![ev] })
+                })
+            }
+
+            fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+
+            fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+
+            fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn load_checkpoint(&self, _req: crate::ports::LoadCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+            fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>> {
+                Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
+            }
+        }
+
+        let fake_service = std::sync::Arc::new(FakeSvc::new(crate::ports::BufferId::from("buf:fake"), wid.clone())) as std::sync::Arc<dyn crate::ports::WorkspaceService>;
+
+        let mut comp = DesktopComposition::new();
+        // Use refresh_with_service so the composition will consult the fake service and recent events.
+        comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service)).await.expect("refresh ok");
+
+        let report = comp.latest_consistency_report();
+        assert!(report.overall_ok, "consistency report should be OK in this basic happy path");
+        assert!(report.status_present_matches_summary);
+        assert!(report.active_buffer_matches_details);
+        assert!(report.active_buffer_in_opened_buffers);
+        assert!(report.presenter_window_matches_status);
     }
 }
