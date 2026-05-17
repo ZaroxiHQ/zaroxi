@@ -114,13 +114,26 @@ impl WorkspaceView for FakeView {
 /// Other methods return UnknownSession/UnknownWorkspace as appropriate to keep the fake small.
 struct FakeService {
     buffer_id: BufferId,
+    /// Track whether set_editor_cursor was invoked (test probe).
     set_called: StdArc<AtomicBool>,
+    /// Track whether apply_text_transaction was invoked (test probe).
     apply_called: StdArc<AtomicBool>,
+    /// Mutable opened buffer list (shared Arc so tests can mutate between refreshes).
+    opened: StdArc<std::sync::Mutex<Vec<BufferId>>>,
+    /// Mutable active buffer marker.
+    active: StdArc<std::sync::Mutex<Option<BufferId>>>,
 }
 
 impl FakeService {
     fn new(buffer_id: BufferId) -> Self {
-        Self { buffer_id, set_called: StdArc::new(AtomicBool::new(false)), apply_called: StdArc::new(AtomicBool::new(false)) }
+        let v = vec![buffer_id.clone()];
+        Self {
+            buffer_id,
+            set_called: StdArc::new(AtomicBool::new(false)),
+            apply_called: StdArc::new(AtomicBool::new(false)),
+            opened: StdArc::new(std::sync::Mutex::new(v)),
+            active: StdArc::new(std::sync::Mutex::new(Some(buffer_id.clone()))),
+        }
     }
 }
 
@@ -134,7 +147,13 @@ impl ports::WorkspaceService for FakeService {
     }
 
     fn list_open_buffers(&self, _req: ports::ListBuffersRequest) -> BoxFuture<'static, Result<ports::ListBuffersResponse, ports::UseCaseError>> {
-        Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        let opened = self.opened.clone();
+        let active = self.active.clone();
+        Box::pin(async move {
+            let list = opened.lock().unwrap().clone();
+            let act = active.lock().unwrap().clone();
+            Ok(ports::ListBuffersResponse { buffer_ids: list, active_buffer: act })
+        })
     }
 
     fn set_active_buffer(&self, _req: ports::SetActiveBufferRequest) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>> {
@@ -142,8 +161,13 @@ impl ports::WorkspaceService for FakeService {
     }
 
     fn get_active_buffer(&self, _req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, ports::UseCaseError>> {
-        let bid = self.buffer_id.clone();
-        Box::pin(async move { Ok(GetActiveBufferResponse { buffer_id: bid }) })
+        let active = self.active.clone();
+        Box::pin(async move {
+            match active.lock().unwrap().clone() {
+                Some(b) => Ok(GetActiveBufferResponse { buffer_id: b }),
+                None => Err(ports::UseCaseError::NoActiveBuffer),
+            }
+        })
     }
 
     fn set_editor_cursor(&self, req: SetEditorCursorRequest) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>> {
@@ -250,9 +274,9 @@ async fn move_cursor_action_calls_service_and_refreshes() {
     let arc: Arc<dyn WorkspaceView> = Arc::new(v);
     let sid = SessionId(Id::new());
 
-    let fake_service = FakeService::new(BufferId::from("buf:fake"));
+    let fake_service = StdArc::new(FakeService::new(BufferId::from("buf:fake")));
     let set_called = fake_service.set_called.clone();
-    let service_arc: StdArc<dyn WorkspaceService> = StdArc::new(fake_service);
+    let service_arc: StdArc<dyn WorkspaceService> = fake_service.clone();
 
     let mut comp = DesktopComposition::new();
     // pre-refresh to populate presenter (not required but realistic)
@@ -272,9 +296,9 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
     let arc: Arc<dyn WorkspaceView> = Arc::new(v);
     let sid = SessionId(Id::new());
 
-    let fake_service = FakeService::new(BufferId::from("buf:fake"));
+    let fake_service = StdArc::new(FakeService::new(BufferId::from("buf:fake")));
     let apply_called = fake_service.apply_called.clone();
-    let service_arc: StdArc<dyn WorkspaceService> = StdArc::new(fake_service);
+    let service_arc: StdArc<dyn WorkspaceService> = fake_service.clone();
 
     let mut comp = DesktopComposition::new();
     // pre-refresh
