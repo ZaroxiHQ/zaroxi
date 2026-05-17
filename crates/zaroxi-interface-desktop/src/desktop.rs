@@ -143,6 +143,8 @@ pub struct DesktopComposition {
     metadata: Option<DesktopMetadata>,
     /// Small cached status snapshot summarizing which projections are populated.
     status: Option<DesktopStatus>,
+    /// Monotonically increasing composition revision counter (shell-facing).
+    revision: u64,
     /// Optional pending refresh reason set by callers which will be consumed by `refresh_with_service`.
     pending_refresh_reason: Option<RefreshReason>,
 }
@@ -156,6 +158,7 @@ impl DesktopComposition {
             workspace_id: None,
             metadata: None,
             status: None,
+            revision: 0,
             pending_refresh_reason: None,
         }
     }
@@ -381,6 +384,9 @@ impl DesktopComposition {
         self.metadata = Some(metadata);
         self.status = Some(status);
 
+        // Increment the small, shell-facing revision counter on each successful refresh.
+        self.revision = self.revision.saturating_add(1);
+
         Ok(())
     }
 
@@ -421,6 +427,11 @@ impl DesktopComposition {
     /// Return the small, read-only AI projection (if any) obtained during the last refresh.
     pub fn latest_ai_projection(&self) -> Option<AiProjection> {
         self.metadata.as_ref().and_then(|m| m.ai_projection.clone())
+    }
+
+    /// Return the most recent composition revision (monotonic counter).
+    pub fn latest_revision(&self) -> u64 {
+        self.revision
     }
 
     /// Set a pending refresh reason which will be consumed by the next `refresh_with_service`.
@@ -520,6 +531,13 @@ mod tests {
         let win = comp.latest_window().expect("window present");
         assert_eq!(win.total_lines, 1);
         assert_eq!(win.lines.len(), 1);
+
+        // Revision should have advanced from initial 0 to 1 after the first refresh.
+        assert_eq!(comp.latest_revision(), 1);
+
+        // A subsequent refresh should advance the revision again.
+        comp.refresh(arc.clone(), sid.clone(), Some(wid.clone())).await.expect("second refresh ok");
+        assert_eq!(comp.latest_revision(), 2);
 
         // Verify tiny metadata projection populated from the application read-path.
         let meta = comp.latest_metadata().expect("metadata present");
@@ -658,6 +676,9 @@ mod tests {
         let mut comp = DesktopComposition::new();
         // Use refresh_with_service so the composition will consult the fake service and recent events.
         comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service)).await.expect("refresh ok");
+
+        // Revision should have advanced from initial 0 to 1 after the refresh with service.
+        assert_eq!(comp.latest_revision(), 1);
 
         let meta = comp.latest_metadata().expect("metadata present");
         assert!(meta.ai_projection.is_some(), "ai projection should be present from recent events");
