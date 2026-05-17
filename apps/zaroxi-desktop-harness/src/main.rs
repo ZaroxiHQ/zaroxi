@@ -155,6 +155,10 @@ async fn main() -> Result<(), String> {
                         let active_buf = meta.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
                         println!("Harness: composition metadata: session={:?} workspace={:?} active_buffer={} opened_count={}", meta.session_id, meta.workspace_id, active_buf, meta.opened_buffer_count);
 
+                        // Print the recorded refresh reason (shell-facing)
+                        let rr = meta.refresh_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
+                        println!("Harness: composition refresh reason: {}", rr);
+
                         if let Some(abd) = composition.latest_active_buffer_details() {
                             let disp = abd.display.as_deref().unwrap_or("<no-display>");
                             println!("Harness: active buffer details: id={} display={} line_count={}", abd.buffer_id, disp, abd.line_count);
