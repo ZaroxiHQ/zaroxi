@@ -83,11 +83,23 @@ pub fn content_snippet(content: Option<String>, max_chars: usize) -> Option<Stri
 /// - `line_number` is 1-based (matches common editor UI conventions).
 /// - `text` is the line contents (no trimming performed).
 /// - `is_cursor_line` marks whether the editor cursor is on this line.
+/// - `cursor_column` when Some(_) is the 0-based character column of the cursor within this line.
+/// - `selection_intersects` indicates whether the current selection overlaps this line.
+/// - `selection_start_column`/`selection_end_column` give the (0-based, inclusive/exclusive)
+///   character column range of the selection restricted to this line when `selection_intersects` is true.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisibleLine {
     pub line_number: usize,
     pub text: String,
     pub is_cursor_line: bool,
+    /// 0-based cursor column within this line when the cursor is on this line.
+    pub cursor_column: Option<usize>,
+    /// Whether the session selection intersects this line.
+    pub selection_intersects: bool,
+    /// If selection_intersects, the selection start column for this line (0-based, inclusive).
+    pub selection_start_column: Option<usize>,
+    /// If selection_intersects, the selection end column for this line (0-based, exclusive).
+    pub selection_end_column: Option<usize>,
 }
 
 /// A small window of visible lines projected from an EditorDocument.
@@ -136,14 +148,23 @@ pub fn project_visible_lines(doc: &EditorDocument, window_size: usize, center_on
     }
 
     let cursor_line = doc.cursor.line as usize;
+    let cursor_col = doc.cursor.column as usize;
+
+    // Normalize selection (compute ordered start/end positions) if present.
+    let sel_opt = doc.selection.as_ref().map(|s| {
+        let a_line = s.anchor.line as usize;
+        let a_col = s.anchor.column as usize;
+        let b_line = s.active.line as usize;
+        let b_col = s.active.column as usize;
+        if (a_line < b_line) || (a_line == b_line && a_col <= b_col) {
+            (a_line, a_col, b_line, b_col)
+        } else {
+            (b_line, b_col, a_line, a_col)
+        }
+    });
 
     // Determine start index (0-based) for the window.
     let mut start = if center_on_cursor {
-        // Simple, deterministic centering policy:
-        // - Compute a half offset (floor window_size/2).
-        // - Choose start = cursor_line - half + 1 when possible so the window
-        //   aligns with the harness expectation (cursor slightly below exact center
-        //   for odd window sizes). Clamp to 0 when near the top.
         let half = window_size / 2;
         if cursor_line > half {
             cursor_line.saturating_sub(half).saturating_add(1)
@@ -167,10 +188,36 @@ pub fn project_visible_lines(doc: &EditorDocument, window_size: usize, center_on
 
     let mut out: Vec<VisibleLine> = Vec::with_capacity(end - start);
     for (idx, line) in lines_vec.iter().enumerate().take(end).skip(start) {
+        // Compute selection intersection for this line if any.
+        let mut selection_intersects = false;
+        let mut sel_start_col: Option<usize> = None;
+        let mut sel_end_col: Option<usize> = None;
+
+        if let Some((start_line, start_col, end_line, end_col)) = sel_opt {
+            if idx >= start_line && idx <= end_line {
+                selection_intersects = true;
+                let line_char_count = line.chars().count();
+                let s = if idx == start_line { start_col } else { 0 };
+                let e = if idx == end_line { end_col } else { line_char_count };
+                // clamp to line bounds
+                let s = std::cmp::min(s, line_char_count);
+                let e = std::cmp::min(e, line_char_count);
+                sel_start_col = Some(s);
+                sel_end_col = Some(e);
+            }
+        }
+
+        let cursor_on_line = idx == cursor_line;
+        let cursor_column = if cursor_on_line { Some(cursor_col) } else { None };
+
         out.push(VisibleLine {
             line_number: idx + 1,
             text: line.clone(),
-            is_cursor_line: idx == cursor_line,
+            is_cursor_line: cursor_on_line,
+            cursor_column,
+            selection_intersects,
+            selection_start_column: sel_start_col,
+            selection_end_column: sel_end_col,
         });
     }
 
@@ -201,6 +248,20 @@ pub fn project_visible_lines_for_viewport(doc: &EditorDocument, viewport: &crate
     }
  
     let cursor_line = doc.cursor.line as usize;
+    let cursor_col = doc.cursor.column as usize;
+
+    // Normalize selection (compute ordered start/end positions) if present.
+    let sel_opt = doc.selection.as_ref().map(|s| {
+        let a_line = s.anchor.line as usize;
+        let a_col = s.anchor.column as usize;
+        let b_line = s.active.line as usize;
+        let b_col = s.active.column as usize;
+        if (a_line < b_line) || (a_line == b_line && a_col <= b_col) {
+            (a_line, a_col, b_line, b_col)
+        } else {
+            (b_line, b_col, a_line, a_col)
+        }
+    });
  
     // Compute start using viewport state.
     let mut start = if viewport.center_cursor {
@@ -233,10 +294,36 @@ pub fn project_visible_lines_for_viewport(doc: &EditorDocument, viewport: &crate
  
     let mut out: Vec<VisibleLine> = Vec::with_capacity(end - start);
     for (idx, line) in lines_vec.iter().enumerate().take(end).skip(start) {
+        // Compute selection intersection for this line if any.
+        let mut selection_intersects = false;
+        let mut sel_start_col: Option<usize> = None;
+        let mut sel_end_col: Option<usize> = None;
+
+        if let Some((start_line, start_col, end_line, end_col)) = sel_opt {
+            if idx >= start_line && idx <= end_line {
+                selection_intersects = true;
+                let line_char_count = line.chars().count();
+                let s = if idx == start_line { start_col } else { 0 };
+                let e = if idx == end_line { end_col } else { line_char_count };
+                // clamp to line bounds
+                let s = std::cmp::min(s, line_char_count);
+                let e = std::cmp::min(e, line_char_count);
+                sel_start_col = Some(s);
+                sel_end_col = Some(e);
+            }
+        }
+
+        let cursor_on_line = idx == cursor_line;
+        let cursor_column = if cursor_on_line { Some(cursor_col) } else { None };
+
         out.push(VisibleLine {
             line_number: idx + 1,
             text: line.clone(),
-            is_cursor_line: idx == cursor_line,
+            is_cursor_line: cursor_on_line,
+            cursor_column,
+            selection_intersects,
+            selection_start_column: sel_start_col,
+            selection_end_column: sel_end_col,
         });
     }
  

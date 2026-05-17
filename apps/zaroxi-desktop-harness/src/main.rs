@@ -110,9 +110,25 @@ async fn main() -> Result<(), String> {
             println!("Harness: visible lines (top_line={}, total_lines={}):", visible.top_line, visible.total_lines);
             for vl in visible.lines.iter() {
                 if vl.is_cursor_line {
-                    println!("> {:4} | {}", vl.line_number, vl.text);
+                    println!(
+                        "> {:4} | {} [cursor_col={:?} sel_intersects={} sel_start={:?} sel_end={:?}]",
+                        vl.line_number,
+                        vl.text,
+                        vl.cursor_column,
+                        vl.selection_intersects,
+                        vl.selection_start_column,
+                        vl.selection_end_column
+                    );
                 } else {
-                    println!("  {:4} | {}", vl.line_number, vl.text);
+                    println!(
+                        "  {:4} | {} [cursor_col={:?} sel_intersects={} sel_start={:?} sel_end={:?}]",
+                        vl.line_number,
+                        vl.text,
+                        vl.cursor_column,
+                        vl.selection_intersects,
+                        vl.selection_start_column,
+                        vl.selection_end_column
+                    );
                 }
             }
         }
