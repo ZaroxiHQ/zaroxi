@@ -34,6 +34,7 @@ pub use render_debug_text::render_debug_text;
 
 pub mod presenters;
 pub use presenters::ShellRenderPresenter;
+pub use presenters::GpuShellPresenter;
 
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.

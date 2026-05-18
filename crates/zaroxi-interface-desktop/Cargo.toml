@@ -14,6 +14,12 @@ zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render" }
 zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 
+# Minimal native window + pixel buffer dependencies for a thin GPU-backed shell.
+# Kept intentionally small: winit for window/event loop, pixels for an RGBA framebuffer
+# surface that's easy to draw into. No heavy GUI or widget frameworks are added.
+winit = "0.28"
+pixels = "0.12"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 uuid = { workspace = true }
