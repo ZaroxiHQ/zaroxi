@@ -14,6 +14,7 @@ Public API:
 - fn new() -> Self
 - fn present(&self, &ShellRenderViewModel, Option<&str>) -> String
 - fn present_with_plan(&self, &zaroxi_core_engine_render::ShellDrawPlan) -> String
+- fn render_terminal(vm: &ShellRenderViewModel) -> String
 
 Output type: String (multi-line, debug-only).
 
@@ -96,6 +97,41 @@ impl ShellRenderPresenter {
     }
 }
 
+/// Render a terminal-like plaintext representation of the ShellRenderViewModel.
+///
+/// This function is intentionally tiny and non-graphical. It produces a
+/// deterministic, plaintext layout suitable for debug logs or harness output.
+/// It first emits a compact "Layout sections (top-to-bottom):" block, then
+/// prints each section's content lines in order. No styling or interactivity.
+pub fn render_terminal(vm: &ShellRenderViewModel) -> String {
+    let mut out = Vec::new();
+
+    // Layout summary (compact)
+    out.push("Layout sections (top-to-bottom):".to_string());
+    for s in &vm.sections {
+        if s.present {
+            out.push(format!("  - {}: present ({} lines)", s.id, s.lines.len()));
+        } else {
+            out.push(format!("  - {}: absent", s.id));
+        }
+    }
+
+    // Then print section contents in the same ordering (plain text lines).
+    // Use a simple header per section to keep output stable and readable.
+    for s in &vm.sections {
+        out.push(format!("Section[{}] content ({} lines):", s.id, s.lines.len()));
+        if s.present {
+            for line in &s.lines {
+                out.push(line.clone());
+            }
+        } else {
+            out.push("<absent>".to_string());
+        }
+    }
+
+    out.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +159,24 @@ mod tests {
         assert!(rendered.contains("RenderSection"));
         assert!(rendered.contains("Engine debug:"));
         assert!(rendered.contains("plan-line"));
+    }
+
+    #[test]
+    fn render_terminal_outputs_layout_and_content() {
+        let vm = ShellRenderViewModel {
+            sections: vec![
+                SectionView {
+                    id: "content".to_string(),
+                    present: true,
+                    lines: vec!["hello from content".to_string()],
+                },
+            ],
+        };
+
+        let out = render_terminal(&vm);
+
+        assert!(out.contains("Layout sections (top-to-bottom):"));
+        assert!(out.contains("  - content: present (1 lines)"));
+        assert!(out.contains("hello from content"));
     }
 }
