@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod actions;
 pub mod text_view;
 pub mod selection_view;
+pub mod events;
 
 // Re-export application ports so tests and internal modules can refer to `crate::ports`.
 // This keeps the interface crate surface small while enabling test modules to implement
