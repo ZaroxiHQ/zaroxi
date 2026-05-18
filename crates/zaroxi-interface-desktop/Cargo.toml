@@ -17,7 +17,7 @@ zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 # Minimal native window + pixel buffer dependencies for a thin GPU-backed shell.
 # Kept intentionally small: winit for window/event loop, pixels for an RGBA framebuffer
 # surface that's easy to draw into. No heavy GUI or widget frameworks are added.
-winit = "0.28.7"
+winit = "0.30.13"
 pixels = "0.17.1"
 
 [dev-dependencies]
