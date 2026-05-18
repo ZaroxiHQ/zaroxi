@@ -210,6 +210,9 @@ tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
 tree-sitter = "0.26.8"
+# Workspace-exposed internal crate aliases for member-to-member dependencies.
+# Added so member crates can refer to workspace members via `crate = { workspace = true }`.
+zaroxi-core-engine-layout = { workspace = true }
 
 # Workspace metadata for CI and maintainers: enforce architecture rules programmatically
 [workspace.metadata.zaroxi]
