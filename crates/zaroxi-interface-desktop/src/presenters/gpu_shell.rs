@@ -95,18 +95,95 @@ impl GpuShellPresenter {
         fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
     }
 
-    /// Optional native window runner (stub).
+    /// Native window runner (feature-gated).
     ///
-    /// The previous implementation attempted to call into winit/pixels directly,
-    /// but the winit event-loop API changed between 0.28 and 0.30 which makes a
-    /// tiny cross-crate example fragile. To keep this crate stable and focused on
-    /// pure, testable logic (region mapping + buffer painting) we provide a no-op
-    /// stub here. Consumers (the desktop harness or an integration module) should
-    /// own the event loop and integrate with Pixels/winit directly to avoid
-    /// tight coupling to a specific winit API version.
+    /// - When the feature `gpu_shell_bin` is enabled the real implementation
+    ///   below will create a tiny winit window + pixels framebuffer and use
+    ///   the pure presenter functions (map_regions + paint_to_buffer) to draw.
+    /// - When the feature is disabled this function remains a no-op to avoid
+    ///   pulling native deps into default builds.
+    #[cfg(not(feature = "gpu_shell_bin"))]
     pub fn run_native(_initial_width: u32, _initial_height: u32) {
-        // Intentionally a no-op. Use the harness or an integration layer that
-        // depends on the exact winit/pixels versions to create a window and feed
-        // frames into GpuShellPresenter::paint_to_buffer.
+        // Intentionally no-op in non-native builds.
+    }
+
+    #[cfg(feature = "gpu_shell_bin")]
+    pub fn run_native(initial_width: u32, initial_height: u32) {
+        use std::time::{Duration, Instant};
+
+        use winit::{
+            event::{Event, WindowEvent},
+            event_loop::{ControlFlow, EventLoop},
+            window::WindowBuilder,
+            dpi::PhysicalSize,
+        };
+        use pixels::{Pixels, SurfaceTexture};
+
+        // Create the event loop and window.
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new()
+            .with_title("Zaroxi - GPU Shell (minimal)")
+            .with_inner_size(PhysicalSize::new(initial_width, initial_height))
+            .build(&event_loop)
+            .expect("Failed to create window");
+
+        let mut physical_size = window.inner_size();
+        let mut width = physical_size.width.max(1);
+        let mut height = physical_size.height.max(1);
+
+        let surface_texture = SurfaceTexture::new(width, height, &window);
+        let mut pixels = Pixels::new(width, height, surface_texture)
+            .expect("Failed to create pixel buffer");
+
+        let chrome_height = 60u32;
+        let status_height = 24u32;
+
+        let frame_duration = Duration::from_millis(16);
+        let mut last_frame = Instant::now();
+
+        event_loop.run(move |event, _, control_flow| {
+            // Default to waiting for events to reduce CPU usage.
+            *control_flow = ControlFlow::Wait;
+
+            match event {
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => {
+                        std::process::exit(0);
+                    }
+                    WindowEvent::Resized(size) => {
+                        width = size.width.max(1);
+                        height = size.height.max(1);
+                        let _ = pixels.resize_surface(width, height);
+                        let _ = pixels.resize_buffer(width, height);
+                    }
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        width = new_inner_size.width.max(1);
+                        height = new_inner_size.height.max(1);
+                        let _ = pixels.resize_surface(width, height);
+                        let _ = pixels.resize_buffer(width, height);
+                    }
+                    _ => {}
+                },
+                Event::RedrawRequested(_) => {
+                    if last_frame.elapsed() < frame_duration {
+                        window.request_redraw();
+                        return;
+                    }
+                    last_frame = Instant::now();
+
+                    let frame = pixels.frame_mut();
+                    let regions = Self::map_regions(width, height, chrome_height, status_height);
+                    Self::paint_to_buffer(width, height, frame, &regions);
+
+                    if pixels.render().is_err() {
+                        std::process::exit(1);
+                    }
+                }
+                Event::MainEventsCleared => {
+                    window.request_redraw();
+                }
+                _ => {}
+            }
+        });
     }
 }
