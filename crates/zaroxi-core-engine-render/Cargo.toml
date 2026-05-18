@@ -5,5 +5,14 @@ edition = "2024"
 description = "Rendering coordination for the engine."
 license = "MIT"
 
+# Minimal crate-specific dependency for the tiny render-intent conversion.
+# Use the workspace member so versions are pinned at the workspace level.
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+zaroxi-core-engine-layout = { workspace = true }
+
+# Feature gate for the heavy renderer/surface modules. By default the crate
+# compiles only the lightweight intent module so tests and CI can run on
+# environments that don't have GPU/windowing dependencies installed.
+[features]
+default = []
+full_renderer = []

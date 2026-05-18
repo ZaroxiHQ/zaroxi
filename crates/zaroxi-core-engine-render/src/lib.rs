@@ -2,17 +2,32 @@
 //
 // This file exports the existing renderer surface/error modules and the
 // new tiny semantic render-intent module.
+//
+// To keep Phase 52 tiny and compileable in CI without heavy GPU/windowing
+// dependencies, the concrete renderer/surface/error modules are gated behind
+// the "full_renderer" feature. The semantic `intent` module is always
+// available and exported so layout -> render conversions can be tested
+// without pulling in wgpu/winit/etc.
 
+#[cfg(feature = "full_renderer")]
 pub mod error;
+#[cfg(feature = "full_renderer")]
 pub mod renderer;
+#[cfg(feature = "full_renderer")]
 pub mod surface;
+
 pub mod intent;
 
+#[cfg(feature = "full_renderer")]
 pub use renderer::Renderer;
+#[cfg(feature = "full_renderer")]
 pub use renderer::RenderLayout;
+#[cfg(feature = "full_renderer")]
 pub use renderer::Rect;
+#[cfg(feature = "full_renderer")]
 pub use renderer::UiBlock;
+#[cfg(feature = "full_renderer")]
 pub use error::RenderError;
 
-// Export the tiny semantic render intent for Phase 52.
+// Export the tiny semantic render intent for Phase 52 (always available).
 pub use intent::{ShellRenderIntent, RenderSection};
