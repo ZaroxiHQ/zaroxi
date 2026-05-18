@@ -604,7 +604,7 @@ async fn main() -> Result<(), String> {
     {
         let vm = zaroxi_interface_app::ShellRenderViewModel {
             sections: vec![zaroxi_interface_app::shell_render_view::SectionView {
-                id: "debug".to_string(),
+                id: "content".to_string(),
                 present: true,
                 lines: vec!["harness embed".to_string()],
             }],
