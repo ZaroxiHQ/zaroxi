@@ -13,3 +13,8 @@ zaroxi-interface-desktop = { path = "../zaroxi-interface-desktop" }
 
 # Engine-facing semantic input type (non-visual). Interface depends on core (downward).
 zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
+
+# Render crate dependency: expose the canonical ShellDrawPlan / ShellRenderTranscript
+# types produced by the rendering subsystem so this application-facing crate can
+# convert plans into tiny UI-facing view models.
+zaroxi-core-engine-render = { workspace = true }
