@@ -105,3 +105,4 @@ impl GpuShellPresenter {
         // No-op: the native bootstrap lives in the gpu_shell binary to avoid
         // version/API coupling inside this presenter module.
     }
+}
