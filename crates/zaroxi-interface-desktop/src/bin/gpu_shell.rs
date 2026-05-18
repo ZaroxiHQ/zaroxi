@@ -21,8 +21,91 @@ fn main() {
 
 #[cfg(feature = "gpu_shell_bin")]
 fn main() {
-    // Delegate the native run to the presenter implementation which is
-    // feature-gated itself. Keeping the binary tiny avoids cross-version
-    // duplication of event-loop code here.
-    zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter::run_native(800, 600);
+    use std::time::{Duration, Instant};
+
+    use winit::{
+        event::{Event, WindowEvent},
+        event_loop::{ControlFlow, EventLoop},
+        window::WindowBuilder,
+        dpi::PhysicalSize,
+    };
+    use pixels::{Pixels, SurfaceTexture};
+
+    use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
+
+    // Initial window size.
+    let initial_width: u32 = 800;
+    let initial_height: u32 = 600;
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("Zaroxi - GPU Shell (minimal)")
+        .with_inner_size(PhysicalSize::new(initial_width, initial_height))
+        .build(&event_loop)
+        .expect("Failed to create window");
+
+    let mut physical_size = window.inner_size();
+    let mut width = physical_size.width.max(1);
+    let mut height = physical_size.height.max(1);
+
+    let surface_texture = SurfaceTexture::new(width, height, &window);
+    let mut pixels = Pixels::new(width, height, surface_texture)
+        .expect("Failed to create pixel buffer");
+
+    // Use a simple fixed chrome/status size for mapping; presenter handles clamping.
+    let chrome_height = 60u32;
+    let status_height = 24u32;
+
+    // Simple frame rate limiter so the window is not a tight busy loop.
+    let frame_duration = Duration::from_millis(16); // ~60fps
+    let mut last_frame = Instant::now();
+
+    event_loop.run(move |event, _, control_flow| {
+        // Default to waiting for events to reduce CPU usage.
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Resized(size) => {
+                    width = size.width.max(1);
+                    height = size.height.max(1);
+                    let _ = pixels.resize_surface(width, height);
+                    let _ = pixels.resize_buffer(width, height);
+                }
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    width = new_inner_size.width.max(1);
+                    height = new_inner_size.height.max(1);
+                    let _ = pixels.resize_surface(width, height);
+                    let _ = pixels.resize_buffer(width, height);
+                }
+                _ => {}
+            },
+            Event::RedrawRequested(_) => {
+                // Basic framerate cap
+                if last_frame.elapsed() < frame_duration {
+                    // Skip painting if too soon; request another redraw later.
+                    window.request_redraw();
+                    return;
+                }
+                last_frame = Instant::now();
+
+                let frame = pixels.frame_mut();
+                // Map regions using the presenter and paint into the provided frame buffer.
+                let regions = GpuShellPresenter::map_regions(width, height, chrome_height, status_height);
+                GpuShellPresenter::paint_to_buffer(width, height, frame, &regions);
+
+                if pixels.render().is_err() {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Event::MainEventsCleared => {
+                // Request a redraw to run our simple render loop.
+                window.request_redraw();
+            }
+            _ => {}
+        }
+    });
 }
