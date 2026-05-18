@@ -1,4 +1,4 @@
-/ / Core engine render crate exports.
+// Core engine render crate exports.
 //
 // This file exports the existing renderer surface/error modules and the
 // new tiny semantic render-intent module.
