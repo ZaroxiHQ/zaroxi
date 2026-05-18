@@ -1,3 +1,4 @@
+#![cfg(feature = "gpu_shell_bin")]
 /*!
 Minimal GPU shell entry point for the desktop harness.
 
@@ -5,12 +6,12 @@ This binary creates a winit window and uses the existing GpuShellPresenter
 to paint three simple regions (chrome, content, status) into a Pixels
 RGBA8 framebuffer. The implementation is intentionally thin and UI-only.
 
-Run with:
-  cargo run -p zaroxi-interface-desktop --bin gpu_shell
-(or build the package to include this binary)
+Enable by building/running with the feature flag:
+  cargo run -p zaroxi-interface-desktop --bin gpu_shell --features gpu_shell_bin
 
-This file stays inside `zaroxi-interface-desktop` and reuses the presenter
-logic already defined in presenters/gpu_shell.rs.
+The feature gate prevents this binary from being compiled during normal test
+builds (avoiding winit/pixels platform-specific concerns). The presenter logic
+remains in the crate and is fully testable without the native window.
 */
 
 use pixels::{Pixels, SurfaceTexture};
@@ -22,8 +23,9 @@ use winit::window::WindowBuilder;
 use zaroxi_interface_desktop::presenters::GpuShellPresenter;
 
 fn main() {
-    // Basic window setup
-    let event_loop = EventLoop::new();
+    // Basic window setup - EventLoop::new may return a Result on some platforms,
+    // so unwrap/expect to obtain the EventLoop value needed to call .run().
+    let event_loop = EventLoop::new().expect("failed to create event loop");
     let window = WindowBuilder::new()
         .with_title("Zaroxi - GPU Shell (minimal)")
         .with_inner_size(LogicalSize::new(960.0, 640.0))
