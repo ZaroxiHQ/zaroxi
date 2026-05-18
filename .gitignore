@@ -1,5 +1,7 @@
 # Aider
-.aider*
+# NOTE: allow .aiderignore and .aider.conf.yml to be tracked by git.
+# If you intentionally want to ignore Aider files, uncomment the next line:
+# .aider*
 
 # Rust
 target/
