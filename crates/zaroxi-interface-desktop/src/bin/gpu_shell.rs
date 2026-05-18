@@ -29,7 +29,7 @@ fn main() {
     use std::time::{Duration, Instant};
 
     use winit::{
-        event::{Event, WindowEvent, KeyboardInput, VirtualKeyCode, ElementState},
+        event::{Event, WindowEvent, ElementState},
         event_loop::{ControlFlow, EventLoop},
         window::WindowBuilder,
     };
@@ -42,7 +42,7 @@ fn main() {
     let initial_width: u32 = 800;
     let initial_height: u32 = 600;
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new()
         .with_title("Zaroxi - GPU Shell (minimal)")
         .with_inner_size(winit::dpi::PhysicalSize::new(initial_width, initial_height))
@@ -74,26 +74,11 @@ fn main() {
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if let KeyboardInput {
-                        virtual_keycode: Some(VirtualKeyCode::Escape),
-                        state: ElementState::Pressed,
-                        ..
-                    } = input
-                    {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                }
-                WindowEvent::Resized(new_size) => {
-                    // Update dimensions and inform pixels of the new surface/buffer sizes.
-                    width = new_size.width.max(1);
-                    height = new_size.height.max(1);
-                    let _ = pixels.resize_surface(width, height);
-                    let _ = pixels.resize_buffer(width, height);
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    width = new_inner_size.width.max(1);
-                    height = new_inner_size.height.max(1);
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    // Re-query the window size (avoids depending on variant field shapes).
+                    physical_size = window.inner_size();
+                    width = physical_size.width.max(1);
+                    height = physical_size.height.max(1);
                     let _ = pixels.resize_surface(width, height);
                     let _ = pixels.resize_buffer(width, height);
                 }
@@ -108,7 +93,7 @@ fn main() {
                 }
                 last_frame = Instant::now();
 
-                let frame = pixels.get_frame();
+                let frame = pixels.frame();
                 // Map regions using the presenter and paint into the provided frame buffer.
                 let regions = GpuShellPresenter::map_regions(width, height, chrome_height, status_height);
                 GpuShellPresenter::paint_to_buffer(width, height, frame, &regions);
