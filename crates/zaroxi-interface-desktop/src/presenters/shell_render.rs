@@ -266,3 +266,134 @@ mod tests {
         assert_eq!(sec.id, "content".to_string());
     }
 }
+
+pub mod ui {
+    //! Minimal UI-only mapper for terminal widgets.
+    //!
+    //! This module lives in the `zaroxi-interface-desktop` crate and provides a
+    //! tiny, non-interactive mapping from the structured RenderTree produced by
+    //! `render_shell_sections` into UI-like nodes (UiBlock/UiLine). It intentionally
+    //! does not perform layout, styling, or event handling — only a faithful,
+    //! top-to-bottom mapping of section identity, kind, presence and textual lines.
+    //!
+    //! The module is deliberately small so tests can assert mapping fidelity
+    //! without pulling in any real UI toolkit.
+
+    use super::*;
+
+    /// UI-layer section kinds mirroring RenderSectionKind.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum UiSectionKind {
+        Content,
+        Status,
+        AI,
+        Other(String),
+    }
+
+    /// A single rendered text line in the UI tree.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UiLine(pub String);
+
+    /// A block-like UI node representing a shell section.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UiBlock {
+        pub id: String,
+        pub kind: UiSectionKind,
+        pub present: bool,
+        pub lines: Vec<UiLine>,
+    }
+
+    /// Top-level UI tree containing blocks in top-to-bottom order.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UiTree {
+        pub blocks: Vec<UiBlock>,
+    }
+
+    /// Map a RenderTree (from `render_shell_sections`) into a UiTree.
+    ///
+    /// - Preserves ordering (top-to-bottom).
+    /// - Preserves presence/absence.
+    /// - Maps RenderSectionKind -> UiSectionKind.
+    /// - Propagates textual lines as UiLine entries.
+    pub fn render_ui(tree: &RenderTree) -> UiTree {
+        let mut blocks = Vec::with_capacity(tree.sections.len());
+
+        for s in &tree.sections {
+            let kind = match &s.kind {
+                RenderSectionKind::Content => UiSectionKind::Content,
+                RenderSectionKind::Status => UiSectionKind::Status,
+                RenderSectionKind::AI => UiSectionKind::AI,
+                RenderSectionKind::Other(t) => UiSectionKind::Other(t.clone()),
+            };
+
+            let lines = s.lines.iter().cloned().map(UiLine).collect::<Vec<_>>();
+
+            blocks.push(UiBlock {
+                id: s.id.clone(),
+                kind,
+                present: s.present,
+                lines,
+            });
+        }
+
+        UiTree { blocks }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use zaroxi_interface_app::shell_render_view::SectionView;
+
+        #[test]
+        fn ui_mapper_preserves_kind_presence_ordering_and_content() {
+            let vm = ShellRenderViewModel {
+                sections: vec![
+                    SectionView {
+                        id: "content".to_string(),
+                        present: true,
+                        lines: vec!["line1".to_string()],
+                    },
+                    SectionView {
+                        id: "status".to_string(),
+                        present: false,
+                        lines: vec![],
+                    },
+                    SectionView {
+                        id: "ai".to_string(),
+                        present: true,
+                        lines: vec!["ai-line".to_string()],
+                    },
+                ],
+            };
+
+            // Build the structured render tree using the existing function under test.
+            let tree = render_shell_sections(&vm);
+
+            // Map into UI nodes.
+            let ui = render_ui(&tree);
+
+            // Expect three blocks preserved in ordering.
+            assert_eq!(ui.blocks.len(), 3);
+
+            // Content block -> UiSectionKind::Content, present, content preserved.
+            assert_eq!(ui.blocks[0].kind, UiSectionKind::Content);
+            assert!(ui.blocks[0].present);
+            assert_eq!(ui.blocks[0].lines.len(), 1);
+            assert_eq!(ui.blocks[0].lines[0].0, "line1");
+
+            // Status block -> UiSectionKind::Status, absent preserved.
+            assert_eq!(ui.blocks[1].kind, UiSectionKind::Status);
+            assert!(!ui.blocks[1].present);
+
+            // AI block -> UiSectionKind::AI, present, content preserved.
+            assert_eq!(ui.blocks[2].kind, UiSectionKind::AI);
+            assert!(ui.blocks[2].present);
+            assert_eq!(ui.blocks[2].lines.len(), 1);
+            assert_eq!(ui.blocks[2].lines[0].0, "ai-line");
+
+            // Ordering: ids preserved top-to-bottom.
+            let ids: Vec<String> = ui.blocks.iter().map(|b| b.id.clone()).collect();
+            assert_eq!(ids, vec!["content".to_string(), "status".to_string(), "ai".to_string()]);
+        }
+    }
+}
