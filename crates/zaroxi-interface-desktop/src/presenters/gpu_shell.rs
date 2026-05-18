@@ -77,24 +77,22 @@ impl GpuShellPresenter {
             return;
         }
 
-        // helper to fill region with color
-        let mut fill_region = |region: &Region, color: [u8; 4]| {
+        // Clear to a baseline (transparent black) first.
+        buffer.fill(0);
+
+        // helper function to fill a region with an RGBA color without capturing a mutable borrow
+        fn fill_region(buffer: &mut [u8], width: u32, region: &Region, color: [u8; 4]) {
             for row in region.y..region.y.saturating_add(region.height) {
                 for col in region.x..region.x.saturating_add(region.width) {
                     let idx = ((row * width + col) * 4) as usize;
-                    buffer[idx..idx+4].copy_from_slice(&color);
+                    buffer[idx..idx + 4].copy_from_slice(&color);
                 }
             }
-        };
-
-        // Clear to a baseline (transparent black) first.
-        for b in buffer.iter_mut() {
-            *b = 0;
         }
 
-        fill_region(&regions.content, [220u8, 220u8, 225u8, 255u8]);
-        fill_region(&regions.chrome, [32u8, 32u8, 40u8, 255u8]);
-        fill_region(&regions.status, [48u8, 48u8, 56u8, 255u8]);
+        fill_region(buffer, width, &regions.content, [220u8, 220u8, 225u8, 255u8]);
+        fill_region(buffer, width, &regions.chrome, [32u8, 32u8, 40u8, 255u8]);
+        fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
     }
 
     /// Optional native window runner. Creates a simple window and displays the three regions.
@@ -106,22 +104,19 @@ impl GpuShellPresenter {
     /// to Cargo.toml). Errors use `panic!` for brevity in this thin adapter.
     pub fn run_native(initial_width: u32, initial_height: u32) {
         use pixels::{Pixels, SurfaceTexture};
-        use winit::dpi::LogicalSize;
+        use winit::dpi::PhysicalSize;
         use winit::event::{Event, WindowEvent};
         use winit::event_loop::{ControlFlow, EventLoop};
-        use winit::window::WindowBuilder;
+        // Note: fully-qualify WindowBuilder below to avoid import issues across winit versions.
 
-        let event_loop = EventLoop::new();
-        let window = {
-            let size = LogicalSize::new(initial_width as f64, initial_height as f64);
-            WindowBuilder::new()
-                .with_title("Zaroxi GPU Shell (wireframe)")
-                .with_inner_size(size)
-                .build(&event_loop)
-                .expect("failed to create window")
-        };
+        let event_loop = EventLoop::new().expect("failed to create event loop");
+        let window = winit::window::WindowBuilder::new()
+            .with_title("Zaroxi GPU Shell (wireframe)")
+            .with_inner_size(PhysicalSize::new(initial_width, initial_height))
+            .build(&event_loop)
+            .expect("failed to create window");
 
-        let window_size = window.inner_size();
+        let mut window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         let mut pixels = Pixels::new(window_size.width, window_size.height, surface_texture)
             .expect("failed to create pixel surface");
@@ -138,18 +133,19 @@ impl GpuShellPresenter {
                     *control_flow = ControlFlow::Exit;
                 }
                 Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
-                    pixels.resize(size.width, size.height);
+                    // Update tracked window size and resize the pixel surface.
+                    window_size = size;
+                    // pixels v0.17 exposes resize_surface / resize_buffer; call resize_surface to update surface.
+                    let _ = pixels.resize_surface(size.width, size.height);
                 }
                 Event::RedrawRequested(_) | Event::MainEventsCleared => {
-                    // Acquire frame buffer and paint
-                    let frame = pixels.get_frame();
-                    let regions = GpuShellPresenter::map_regions(pixels.width(), pixels.height(), chrome_h, status_h);
-                    GpuShellPresenter::paint_to_buffer(pixels.width(), pixels.height(), frame, &regions);
+                    // Acquire frame buffer and paint using the current tracked window size.
+                    let frame = pixels.frame();
+                    let regions = GpuShellPresenter::map_regions(window_size.width, window_size.height, chrome_h, status_h);
+                    GpuShellPresenter::paint_to_buffer(window_size.width, window_size.height, frame, &regions);
 
-                    if pixels
-                        .render()
-                        .is_err()
-                    {
+                    if let Err(e) = pixels.render() {
+                        eprintln!("pixels.render error: {:?}", e);
                         *control_flow = ControlFlow::Exit;
                     }
                 }
