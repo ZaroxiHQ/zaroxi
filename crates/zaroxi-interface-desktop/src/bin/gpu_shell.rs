@@ -26,7 +26,6 @@ fn main() {
     use winit::{
         event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
-        window::WindowBuilder,
         dpi::PhysicalSize,
     };
     use pixels::{Pixels, SurfaceTexture};
@@ -37,8 +36,8 @@ fn main() {
     let initial_width: u32 = 800;
     let initial_height: u32 = 600;
 
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
+    let event_loop = EventLoop::new().expect("Failed to create event loop");
+    let window = winit::window::WindowBuilder::new()
         .with_title("Zaroxi - GPU Shell (minimal)")
         .with_inner_size(PhysicalSize::new(initial_width, initial_height))
         .build(&event_loop)
@@ -67,17 +66,16 @@ fn main() {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
+                    // Exit in a robust way that avoids depending on specific
+                    // ControlFlow variant names across winit releases.
+                    std::process::exit(0);
                 }
-                WindowEvent::Resized(size) => {
+                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    // Re-query the window size to avoid depending on specific
+                    // variant field shapes across winit versions.
+                    let size = window.inner_size();
                     width = size.width.max(1);
                     height = size.height.max(1);
-                    let _ = pixels.resize_surface(width, height);
-                    let _ = pixels.resize_buffer(width, height);
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    width = new_inner_size.width.max(1);
-                    height = new_inner_size.height.max(1);
                     let _ = pixels.resize_surface(width, height);
                     let _ = pixels.resize_buffer(width, height);
                 }
@@ -98,7 +96,8 @@ fn main() {
                 GpuShellPresenter::paint_to_buffer(width, height, frame, &regions);
 
                 if pixels.render().is_err() {
-                    *control_flow = ControlFlow::Exit;
+                    // Fail fast in a way that is version-agnostic.
+                    std::process::exit(1);
                 }
             }
             Event::MainEventsCleared => {
