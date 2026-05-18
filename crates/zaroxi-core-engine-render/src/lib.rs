@@ -37,3 +37,6 @@ pub use error::RenderError;
 pub use intent::{ShellRenderIntent, RenderSection};
 pub use plan::ShellDrawPlan;
 pub use transcript::ShellRenderTranscript;
+
+pub mod shell_text_renderer;
+pub use shell_text_renderer::ShellTextRenderer;
