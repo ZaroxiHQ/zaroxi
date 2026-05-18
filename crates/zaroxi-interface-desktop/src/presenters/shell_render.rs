@@ -504,7 +504,7 @@ pub mod terminal_ui {
 /// in the bottom region; the remaining leading blocks are placed in top.
 pub mod layout {
     use super::terminal_ui;
-    use super::ui::{UiBlock, UiSectionKind, UiTree, UiLine};
+    use super::ui::{UiBlock, UiSectionKind, UiTree};
     use std::vec::Vec;
 
     /// Simple split layout with three named regions.
