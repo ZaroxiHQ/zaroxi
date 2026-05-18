@@ -13,3 +13,9 @@ zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
 # types produced by the rendering subsystem so this application-facing crate can
 # convert plans into tiny UI-facing view models.
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render" }
+
+[dev-dependencies]
+# Tests in this crate import the desktop presenter/projections for integration-style
+# checks. Add a dev-dependency so test code can reference the desktop crate without
+# introducing an application -> interface dependency in normal builds.
+zaroxi-interface-desktop = { path = "../zaroxi-interface-desktop" }
