@@ -44,20 +44,15 @@ impl ShellRenderPresenter {
         let mut out = Vec::new();
         out.push(format!("ShellRenderViewModel: {} section(s)", vm.sections.len()));
 
-        // Compact summary of sections (stable ordering), include presence and line counts when present.
-        let summary = vm
-            .sections
-            .iter()
-            .map(|s| {
-                if s.present {
-                    format!("{}:present({})", s.id, s.lines.len())
-                } else {
-                    format!("{}:absent", s.id)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        out.push(format!("Sections: {}", summary));
+        // Compact, layout-oriented list of sections (top-to-bottom) with presence and optional line counts.
+        out.push("Layout sections (top-to-bottom):".to_string());
+        for s in &vm.sections {
+            if s.present {
+                out.push(format!("  - {}: present ({} lines)", s.id, s.lines.len()));
+            } else {
+                out.push(format!("  - {}: absent", s.id));
+            }
+        }
 
         // Detailed per-section dump (still debug-only, non-visual).
         for (i, s) in vm.sections.iter().enumerate() {
@@ -122,7 +117,8 @@ mod tests {
         let rendered = presenter.present(&vm, Some("render debug text:\n  plan-line"));
 
         assert!(rendered.contains("ShellRenderViewModel: 1 section(s)"));
-        assert!(rendered.contains("Sections: main:present(1)"));
+        assert!(rendered.contains("Layout sections (top-to-bottom):"));
+        assert!(rendered.contains("main: present (1 lines)"));
         assert!(rendered.contains("Section[0] id=\"main\""));
         assert!(rendered.contains("RenderSection"));
         assert!(rendered.contains("Engine debug:"));
