@@ -1,4 +1,3 @@
-#![cfg(feature = "gpu_shell_bin")]
 /*!
 Minimal GPU shell entry point for the desktop harness.
 
