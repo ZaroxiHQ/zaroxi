@@ -17,6 +17,7 @@ pub mod renderer;
 pub mod surface;
 
 pub mod intent;
+pub mod plan;
 
 #[cfg(feature = "full_renderer")]
 pub use renderer::Renderer;
@@ -29,5 +30,8 @@ pub use renderer::UiBlock;
 #[cfg(feature = "full_renderer")]
 pub use error::RenderError;
 
-// Export the tiny semantic render intent for Phase 52 (always available).
+// Export the tiny semantic render intent and the Phase 53 draw-plan adapter.
+// Intent remains always available; the draw-plan is a semantic, non-rendering
+// adapter built from ShellRenderIntent.
 pub use intent::{ShellRenderIntent, RenderSection};
+pub use plan::ShellDrawPlan;
