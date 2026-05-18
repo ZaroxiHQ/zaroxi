@@ -397,3 +397,96 @@ pub mod ui {
         }
     }
 }
+
+pub mod terminal_ui {
+    //! Minimal terminal-only UI layer.
+    //!
+    //! This thin module consumes the UiTree produced by the presenters/ui mapper
+    //! and emits a deterministic, top-to-bottom textual "terminal surface"
+    //! (wireframe) without any styling, interaction or state mutation.
+    //!
+    //! Purpose:
+    //! - Preserve section ordering and presence/absence.
+    //! - Produce a simple TerminalSurface useful for harnesses and tests.
+    //! - Keep strictly UI-only: no engine or application logic here.
+
+    use super::ui::{UiTree, UiLine, UiSectionKind};
+
+    /// Simple terminal surface representation returned by the renderer.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct TerminalSurface {
+        pub lines: Vec<String>,
+    }
+
+    /// Render the given UiTree into a top-to-bottom terminal surface.
+    ///
+    /// Semantics:
+    /// - Each block yields a header line "Section: <id> (<kind>)".
+    /// - Present blocks emit their textual lines (prefixed by two spaces).
+    /// - Absent blocks emit a single "  <absent>" placeholder line.
+    /// - The renderer is intentionally tiny and deterministic for tests/harnesses.
+    pub fn render_terminal_ui(tree: &UiTree) -> TerminalSurface {
+        let mut lines = Vec::new();
+
+        lines.push("TerminalSurface start".to_string());
+
+        for block in &tree.blocks {
+            lines.push(format!("Section: {} ({:?})", block.id, block.kind));
+            if block.present {
+                for line in &block.lines {
+                    lines.push(format!("  {}", line.0));
+                }
+            } else {
+                lines.push("  <absent>".to_string());
+            }
+        }
+
+        lines.push("TerminalSurface end".to_string());
+
+        TerminalSurface { lines }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use super::super::ui::{UiTree, UiBlock, UiLine, UiSectionKind};
+
+        #[test]
+        fn terminal_ui_renders_order_and_presence() {
+            let tree = UiTree {
+                blocks: vec![
+                    UiBlock {
+                        id: "content".to_string(),
+                        kind: UiSectionKind::Content,
+                        present: true,
+                        lines: vec![UiLine("hello".to_string())],
+                    },
+                    UiBlock {
+                        id: "status".to_string(),
+                        kind: UiSectionKind::Status,
+                        present: false,
+                        lines: vec![],
+                    },
+                ],
+            };
+
+            let surface = render_terminal_ui(&tree);
+            let out = surface.lines.join("\n");
+
+            // Basic structural assertions
+            assert!(out.contains("Section: content"));
+            assert!(out.contains("  hello"));
+            assert!(out.contains("Section: status"));
+            assert!(out.contains("<absent>"));
+
+            // Ordering: content header must appear before status header.
+            let content_pos = out.find("Section: content").unwrap();
+            let status_pos = out.find("Section: status").unwrap();
+            assert!(content_pos < status_pos);
+
+            // Surface wrappers present
+            assert!(out.starts_with("TerminalSurface start"));
+            assert!(out.ends_with("TerminalSurface end"));
+        }
+    }
+}
