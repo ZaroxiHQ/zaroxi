@@ -40,9 +40,26 @@ impl ShellRenderPresenter {
     pub fn present(&self, vm: &ShellRenderViewModel, engine_debug: Option<&str>) -> String {
         let mut out = Vec::new();
         out.push(format!("ShellRenderViewModel: {} section(s)", vm.sections.len()));
+
+        // Compact summary of sections (stable ordering).
+        let summary = vm
+            .sections
+            .iter()
+            .map(|s| format!("{}:{}", s.id, if s.present { "present" } else { "absent" }))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push(format!("Sections: {}", summary));
+
         for (i, s) in vm.sections.iter().enumerate() {
-            out.push(format!("  Section[{}] id=\"{}\" present={}", i, s.id, s.present));
-            if s.present {
+            out.push(format!(
+                "  Section[{}] id=\"{}\" present={} lines={}",
+                i,
+                s.id,
+                s.present,
+                s.lines.len()
+            ));
+            if s.present && !s.lines.is_empty() {
+                out.push("  >> content:".to_string());
                 for line in &s.lines {
                     out.push(format!("    {}", line));
                 }
@@ -81,9 +98,9 @@ mod tests {
         let vm = ShellRenderViewModel {
             sections: vec![
                 SectionView {
-                    id: "debug".to_string(),
+                    id: "main".to_string(),
                     present: true,
-                    lines: vec!["one".to_string(), "two".to_string()],
+                    lines: vec!["RenderSection { id: \"main\", ... }".to_string()],
                 },
             ],
         };
@@ -92,8 +109,8 @@ mod tests {
         let rendered = presenter.present(&vm, Some("render debug text:\n  plan-line"));
 
         assert!(rendered.contains("ShellRenderViewModel: 1 section(s)"));
-        assert!(rendered.contains("Section[0] id=\"debug\""));
-        assert!(rendered.contains("one"));
+        assert!(rendered.contains("Section[0] id=\"main\""));
+        assert!(rendered.contains("RenderSection"));
         assert!(rendered.contains("Engine debug:"));
         assert!(rendered.contains("plan-line"));
     }

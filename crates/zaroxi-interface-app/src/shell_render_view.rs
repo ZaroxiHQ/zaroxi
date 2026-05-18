@@ -52,14 +52,61 @@ pub struct ShellRenderViewModel {
 
 impl From<&ShellRenderTranscript> for ShellRenderViewModel {
     fn from(t: &ShellRenderTranscript) -> Self {
-        let present = !t.lines.is_empty();
-        let section = SectionView {
-            id: "debug".to_string(),
-            present,
-            lines: t.lines.clone(),
-        };
-        ShellRenderViewModel {
-            sections: vec![section],
+        // Attempt to derive semantic sections from the deterministic transcript.
+        // We look for pretty-printed RenderSection entries and map each to a
+        // SectionView preserving id, presence and ordered textual lines.
+        //
+        // Fallback: when no RenderSection entries are detected we preserve the
+        // original single "debug" section behaviour to remain compatible.
+        let mut sections: Vec<SectionView> = Vec::new();
+        let mut idx: usize = 0;
+
+        while idx < t.lines.len() {
+            let line = &t.lines[idx];
+            // Identify a RenderSection header line that contains an id field.
+            if line.contains("RenderSection") && line.contains("id:") {
+                // Extract id value between the first pair of quotes after `id: `
+                let id = if let Some(start_pos) = line.find("id: \"") {
+                    let start = start_pos + 5;
+                    if let Some(rel_end) = line[start..].find('"') {
+                        line[start..start + rel_end].to_string()
+                    } else {
+                        "unknown".to_string()
+                    }
+                } else {
+                    "unknown".to_string()
+                };
+
+                // Collect the header and any following lines belonging to this section.
+                let mut sect_lines: Vec<String> = Vec::new();
+                sect_lines.push(line.trim_start().to_string());
+                idx += 1;
+                while idx < t.lines.len() && !(t.lines[idx].contains("RenderSection") && t.lines[idx].contains("id:")) {
+                    sect_lines.push(t.lines[idx].trim_start().to_string());
+                    idx += 1;
+                }
+
+                let present = sect_lines.iter().any(|l| !l.trim().is_empty());
+                sections.push(SectionView { id, present, lines: sect_lines });
+                continue;
+            }
+
+            idx += 1;
+        }
+
+        if sections.is_empty() {
+            // No semantic sections found: fall back to legacy debug behaviour.
+            let present = !t.lines.is_empty();
+            let section = SectionView {
+                id: "debug".to_string(),
+                present,
+                lines: t.lines.clone(),
+            };
+            ShellRenderViewModel {
+                sections: vec![section],
+            }
+        } else {
+            ShellRenderViewModel { sections }
         }
     }
 }
@@ -92,11 +139,12 @@ mod tests {
 
         let vm = ShellRenderViewModel::from(&transcript);
 
-        // Model-level assertions: ordering preserved, presence detected, text preserved.
+        // Model-level assertions: semantic section detected, ordering preserved,
+        // presence detected, and section text captured deterministically.
         assert_eq!(vm.sections.len(), 1);
         let s = &vm.sections[0];
-        assert_eq!(s.id, "debug");
+        assert_eq!(s.id, "main");
         assert!(s.present);
-        assert_eq!(s.lines, transcript.lines);
+        assert_eq!(s.lines, vec![transcript.lines[1].trim_start().to_string()]);
     }
 }
