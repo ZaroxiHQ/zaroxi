@@ -40,3 +40,38 @@ fn paint_buffer_size_mismatch_is_noop() {
     // Should not panic; paint_to_buffer silently returns when size mismatches.
     GpuShellPresenter::paint_to_buffer(width, height, &mut buf, &regions);
 }
+
+#[test]
+fn paint_buffer_paints_regions() {
+    // Use a modest framebuffer so the test runs quickly.
+    let width = 128u32;
+    let height = 64u32;
+    let chrome = 10u32;
+    let status = 6u32;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome, status);
+    let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
+
+    // Should paint without panic.
+    GpuShellPresenter::paint_to_buffer(width, height, &mut buf, &regions);
+
+    // Helper to read RGBA at (x,y)
+    let read_pixel = |x: u32, y: u32| -> [u8; 4] {
+        let idx = ((y * width + x) * 4) as usize;
+        [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
+    };
+
+    // Chrome area sample (near the top)
+    let chrome_px = read_pixel(1, 1);
+    assert_eq!(chrome_px, [32u8, 32u8, 40u8, 255u8]);
+
+    // Content area sample (just below chrome)
+    let content_px = read_pixel(1, chrome + 1);
+    assert_eq!(content_px, [220u8, 220u8, 225u8, 255u8]);
+
+    // Status area sample (near the bottom)
+    let status_y = height.saturating_sub(1).saturating_sub(1); // one row above bottom
+    let status_px = read_pixel(1, status_y);
+    // status region color
+    assert_eq!(status_px, [48u8, 48u8, 56u8, 255u8]);
+}
