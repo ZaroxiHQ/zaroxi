@@ -2,8 +2,19 @@
 name = "zaroxi-core-engine-scene"
 version = "0.1.0"
 edition = "2024"
+publish = false
 description = "Scene graph management for engine rendering."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+zaroxi-core-engine-view = { workspace = true }
+
+# Local developer notes:
+# To validate this crate run:
+#   cargo test -p zaroxi-core-engine-scene
+# Recommended further validation:
+#   cargo test -p zaroxi-core-engine-view
+#   cargo test -p zaroxi-interface-app
+#   cargo test -p zaroxi-interface-desktop
+#   cargo run -p zaroxi-desktop-harness
+#   bash scripts/architecture_check.sh
