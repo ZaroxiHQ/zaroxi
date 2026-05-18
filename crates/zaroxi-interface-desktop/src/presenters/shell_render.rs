@@ -490,3 +490,241 @@ pub mod terminal_ui {
         }
     }
 }
+
+/// Layout submodule: partition a UiTree into simple top/main/bottom regions.
+///
+/// This module is intentionally thin, UI-only, and deterministic. It
+/// preserves ordering and presence/absence; it does not perform any styling
+/// or event handling. The layout is a simple contiguous partitioning:
+/// - top:    all blocks before the first Content block (exclusive)
+/// - main:   the contiguous run from the first Content block up to the last Content block (inclusive)
+/// - bottom: all blocks after the last Content block (exclusive)
+///
+/// If there are no Content blocks, trailing Status blocks (if any) are placed
+/// in the bottom region; the remaining leading blocks are placed in top.
+pub mod layout {
+    use super::terminal_ui;
+    use super::ui::{UiBlock, UiSectionKind, UiTree, UiLine};
+    use std::vec::Vec;
+
+    /// Simple split layout with three named regions.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SplitLayout {
+        pub top: Vec<UiBlock>,
+        pub main: Vec<UiBlock>,
+        pub bottom: Vec<UiBlock>,
+    }
+
+    impl SplitLayout {
+        pub fn new() -> Self {
+            Self {
+                top: Vec::new(),
+                main: Vec::new(),
+                bottom: Vec::new(),
+            }
+        }
+
+        /// Reconstruct a UiTree by concatenating regions top->main->bottom.
+        pub fn to_uitree(&self) -> UiTree {
+            let mut blocks = Vec::new();
+            blocks.extend(self.top.clone());
+            blocks.extend(self.main.clone());
+            blocks.extend(self.bottom.clone());
+            UiTree { blocks }
+        }
+
+        /// Convenience: render the layout using the existing terminal UI renderer.
+        pub fn render_as_terminal_surface(&self) -> terminal_ui::TerminalSurface {
+            let tree = self.to_uitree();
+            terminal_ui::render_terminal_ui(&tree)
+        }
+    }
+
+    /// Partition the provided UiTree into a SplitLayout.
+    ///
+    /// Algorithm (deterministic, top-to-bottom):
+    /// 1. Locate first and last indices of UiSectionKind::Content.
+    /// 2. If any Content present:
+    ///    - top = blocks[..first_content]
+    ///    - main = blocks[first_content..=last_content]
+    ///    - bottom = blocks[last_content+1..]
+    /// 3. If no Content present:
+    ///    - bottom = trailing Status blocks (zero or more)
+    ///    - top = remaining leading blocks
+    pub fn layout_ui_tree(tree: &UiTree) -> SplitLayout {
+        let mut layout = SplitLayout::new();
+        let len = tree.blocks.len();
+
+        // Find first and last content indices
+        let mut first_content: Option<usize> = None;
+        let mut last_content: Option<usize> = None;
+
+        for (i, b) in tree.blocks.iter().enumerate() {
+            if let UiSectionKind::Content = b.kind {
+                if first_content.is_none() {
+                    first_content = Some(i);
+                }
+                last_content = Some(i);
+            }
+        }
+
+        match (first_content, last_content) {
+            (Some(first), Some(last)) => {
+                // top
+                for i in 0..first {
+                    layout.top.push(tree.blocks[i].clone());
+                }
+                // main
+                for i in first..=last {
+                    layout.main.push(tree.blocks[i].clone());
+                }
+                // bottom
+                for i in last + 1..len {
+                    layout.bottom.push(tree.blocks[i].clone());
+                }
+            }
+            (None, None) => {
+                // No content blocks:
+                // Find start index of trailing status blocks
+                let mut split_at = len; // by default, no trailing status
+                for (i, b) in tree.blocks.iter().enumerate().rev() {
+                    match b.kind {
+                        UiSectionKind::Status => {
+                            split_at = i;
+                        }
+                        _ => {
+                            // once we encounter a non-status from the end, stop
+                            break;
+                        }
+                    }
+                }
+
+                if split_at == len {
+                    // No trailing status blocks -> everything is top
+                    for b in &tree.blocks {
+                        layout.top.push(b.clone());
+                    }
+                } else {
+                    // split_at is index of first trailing status block; everything before it is top
+                    for i in 0..split_at {
+                        layout.top.push(tree.blocks[i].clone());
+                    }
+                    for i in split_at..len {
+                        layout.bottom.push(tree.blocks[i].clone());
+                    }
+                }
+            }
+            _ => unreachable!("first_content and last_content must both be Some or both None"),
+        }
+
+        layout
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::presenters::shell_render::ui::{UiBlock, UiLine, UiSectionKind, UiTree};
+
+        #[test]
+        fn layout_partitions_simple_chrome_content_status() {
+            let tree = UiTree {
+                blocks: vec![
+                    UiBlock {
+                        id: "chrome".to_string(),
+                        kind: UiSectionKind::Other("chrome".to_string()),
+                        present: true,
+                        lines: vec![UiLine("chrome-line".to_string())],
+                    },
+                    UiBlock {
+                        id: "content".to_string(),
+                        kind: UiSectionKind::Content,
+                        present: true,
+                        lines: vec![UiLine("content-line".to_string())],
+                    },
+                    UiBlock {
+                        id: "status".to_string(),
+                        kind: UiSectionKind::Status,
+                        present: true,
+                        lines: vec![UiLine("status-line".to_string())],
+                    },
+                ],
+            };
+
+            let layout = layout_ui_tree(&tree);
+
+            assert_eq!(layout.top.len(), 1);
+            assert_eq!(layout.top[0].id, "chrome");
+            assert_eq!(layout.main.len(), 1);
+            assert_eq!(layout.main[0].id, "content");
+            assert_eq!(layout.bottom.len(), 1);
+            assert_eq!(layout.bottom[0].id, "status");
+
+            // Rendering round-trip should include the same lines in order
+            let surface = layout.render_as_terminal_surface();
+            let out = surface.lines.join("\n");
+            assert!(out.contains("chrome-line"));
+            assert!(out.contains("content-line"));
+            assert!(out.contains("status-line"));
+
+            // Order: chrome before content before status
+            let chrome_pos = out.find("chrome-line").unwrap();
+            let content_pos = out.find("content-line").unwrap();
+            let status_pos = out.find("status-line").unwrap();
+            assert!(chrome_pos < content_pos && content_pos < status_pos);
+        }
+
+        #[test]
+        fn layout_handles_multiple_content_and_ai_in_main_region() {
+            let tree = UiTree {
+                blocks: vec![
+                    UiBlock {
+                        id: "topbar".to_string(),
+                        kind: UiSectionKind::Other("topbar".to_string()),
+                        present: true,
+                        lines: vec![UiLine("top".to_string())],
+                    },
+                    UiBlock {
+                        id: "editor-a".to_string(),
+                        kind: UiSectionKind::Content,
+                        present: true,
+                        lines: vec![UiLine("a".to_string())],
+                    },
+                    UiBlock {
+                        id: "assistant".to_string(),
+                        kind: UiSectionKind::AI,
+                        present: true,
+                        lines: vec![UiLine("ai".to_string())],
+                    },
+                    UiBlock {
+                        id: "editor-b".to_string(),
+                        kind: UiSectionKind::Content,
+                        present: true,
+                        lines: vec![UiLine("b".to_string())],
+                    },
+                    UiBlock {
+                        id: "status".to_string(),
+                        kind: UiSectionKind::Status,
+                        present: true,
+                        lines: vec![UiLine("st".to_string())],
+                    },
+                ],
+            };
+
+            let layout = layout_ui_tree(&tree);
+
+            // Top should contain only the topbar
+            assert_eq!(layout.top.len(), 1);
+            assert_eq!(layout.top[0].id, "topbar");
+
+            // Main should contain editor-a, assistant, editor-b (preserve ordering)
+            assert_eq!(layout.main.len(), 3);
+            assert_eq!(layout.main[0].id, "editor-a");
+            assert_eq!(layout.main[1].id, "assistant");
+            assert_eq!(layout.main[2].id, "editor-b");
+
+            // Bottom should contain status
+            assert_eq!(layout.bottom.len(), 1);
+            assert_eq!(layout.bottom[0].id, "status");
+        }
+    }
+}
