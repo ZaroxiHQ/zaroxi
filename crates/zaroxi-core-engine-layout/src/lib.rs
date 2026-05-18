@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-// Auto-generated stub for `zaroxi-core-layout`.
+// Auto-generated stub for `zaroxi-core-engine-layout`.
 // Extended to export a tiny, structural layout input type for Phase 51.
 
-pub const CRATE_NAME: &str = "zaroxi-core-layout";
+pub const CRATE_NAME: &str = "zaroxi-core-engine-layout";
 
 pub fn info() -> &'static str {
     CRATE_NAME
