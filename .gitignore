@@ -65,3 +65,4 @@ pnpm-debug.log*
 .vscode/
 *.swp
 *.swo
+.aider*
