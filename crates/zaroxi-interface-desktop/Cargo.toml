@@ -12,6 +12,7 @@ zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render" }
+zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

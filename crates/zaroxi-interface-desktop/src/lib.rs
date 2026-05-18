@@ -31,6 +31,9 @@ pub use selection_view::SelectionView;
 pub mod render_debug_text;
 pub use render_debug_text::render_debug_text;
 
+pub mod presenters;
+pub use presenters::ShellRenderPresenter;
+
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.
 pub mod projections;
