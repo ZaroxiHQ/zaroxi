@@ -97,6 +97,64 @@ impl ShellRenderPresenter {
     }
 }
 
+/// Small, structured, non-graphical render-tree types for shell sections.
+///
+/// These types live in the `zaroxi-interface-desktop` crate and are debug-only
+/// helpers used by harnesses/tests to reason about section identity, ordering,
+/// presence and textual lines. They purposely avoid any UI/graphics crates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderSectionKind {
+    Content,
+    Status,
+    AI,
+    Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderSection {
+    pub id: String,
+    pub kind: RenderSectionKind,
+    pub present: bool,
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderTree {
+    pub sections: Vec<RenderSection>,
+}
+
+fn kind_from_section_id(id: &str) -> RenderSectionKind {
+    // Derive a small set of canonical kinds from common section ids, preserving
+    // fidelity to real section names where possible.
+    match id.to_ascii_lowercase().as_str() {
+        "content" | "main" | "editor" => RenderSectionKind::Content,
+        "status" | "statusbar" | "status_bar" => RenderSectionKind::Status,
+        "ai" | "assistant" | "ai-assistant" => RenderSectionKind::AI,
+        other => RenderSectionKind::Other(other.to_string()),
+    }
+}
+
+/// Build a simple, top-to-bottom render tree from a ShellRenderViewModel.
+///
+/// - Preserves section ordering.
+/// - Preserves presence/absence and the original textual lines.
+/// - Classifies sections into small set of Kinds derived from the section id.
+/// - This function intentionally does NOT compute geometry, layout boxes, or
+///   emit any terminal/GUI drawing commands.
+pub fn render_shell_sections(vm: &ShellRenderViewModel) -> RenderTree {
+    let mut sections = Vec::with_capacity(vm.sections.len());
+    for s in &vm.sections {
+        let kind = kind_from_section_id(&s.id);
+        sections.push(RenderSection {
+            id: s.id.clone(),
+            kind,
+            present: s.present,
+            lines: s.lines.clone(),
+        });
+    }
+    RenderTree { sections }
+}
+
 /// Render a terminal-like plaintext representation of the ShellRenderViewModel.
 ///
 /// This function is intentionally tiny and non-graphical. It produces a
@@ -178,5 +236,33 @@ mod tests {
         assert!(out.contains("Layout sections (top-to-bottom):"));
         assert!(out.contains("  - content: present (1 lines)"));
         assert!(out.contains("hello from content"));
+    }
+
+    #[test]
+    fn render_shell_sections_builds_structured_tree() {
+        let vm = ShellRenderViewModel {
+            sections: vec![
+                SectionView {
+                    id: "content".to_string(),
+                    present: true,
+                    lines: vec!["line1".to_string(), "line2".to_string()],
+                },
+            ],
+        };
+
+        let tree = render_shell_sections(&vm);
+
+        // exactly one section preserved in ordering
+        assert_eq!(tree.sections.len(), 1);
+
+        let sec = &tree.sections[0];
+        // kind derived from section id
+        assert_eq!(sec.kind, RenderSectionKind::Content);
+        // presence preserved
+        assert!(sec.present);
+        // lines preserved, in order
+        assert_eq!(sec.lines, vec!["line1".to_string(), "line2".to_string()]);
+        // id preserved
+        assert_eq!(sec.id, "content".to_string());
     }
 }
