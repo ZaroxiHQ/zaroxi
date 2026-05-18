@@ -8,6 +8,7 @@ tokio = { version = "1", features = ["full"] }
 
 # Application and interface crates (workspace members)
 zaroxi-interface-desktop = { path = "../../crates/zaroxi-interface-desktop" }
+zaroxi-interface-app = { path = "../../crates/zaroxi-interface-app" }
 zaroxi-application-workspace = { path = "../../crates/zaroxi-application-workspace" }
 zaroxi-application-ai = { path = "../../crates/zaroxi-application-ai" }
 zaroxi-domain-workspace = { path = "../../crates/zaroxi-domain-workspace" }
