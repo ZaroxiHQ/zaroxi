@@ -7,3 +7,4 @@ license = "MIT"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.
+zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
