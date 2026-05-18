@@ -24,3 +24,15 @@ pixels = "0.17.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+
+# Feature to opt-in building the native GPU shell binary. By default the GUI
+# binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
+[features]
+gpu_shell_bin = []
+
+# Make the gpu_shell binary conditional on the feature so it is only compiled
+# when explicitly requested:
+[[bin]]
+name = "gpu_shell"
+path = "src/bin/gpu_shell.rs"
+required-features = ["gpu_shell_bin"]
