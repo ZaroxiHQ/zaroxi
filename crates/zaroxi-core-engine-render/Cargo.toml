@@ -8,7 +8,7 @@ license = "MIT"
 # Minimal crate-specific dependency for the tiny render-intent conversion.
 # Use the workspace member so versions are pinned at the workspace level.
 [dependencies]
-zaroxi-core-engine-layout = { workspace = true }
+zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 
 # Feature gate for the heavy renderer/surface modules. By default the crate
 # compiles only the lightweight intent module so tests and CI can run on
