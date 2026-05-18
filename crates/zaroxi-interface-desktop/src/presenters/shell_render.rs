@@ -13,7 +13,7 @@ Public API:
 - type: ShellRenderPresenter
 - fn new() -> Self
 - fn present(&self, &ShellRenderViewModel, Option<&str>) -> String
-- fn present_with_plan(&self, &ShellRenderViewModel, &zaroxi_core_engine_render::ShellDrawPlan) -> String
+- fn present_with_plan(&self, &zaroxi_core_engine_render::ShellDrawPlan) -> String
 
 Output type: String (multi-line, debug-only).
 
@@ -37,35 +37,48 @@ impl ShellRenderPresenter {
     /// Present a ShellRenderViewModel combined with optional engine debug text.
     ///
     /// The returned String is multi-line and intended for logs or test harnesses.
+    /// This presenter aims to faithfully surface semantic section ids, presence,
+    /// stable ordering and simple line counts so harness output reads like real
+    /// shell sections (non-visual, debug-only).
     pub fn present(&self, vm: &ShellRenderViewModel, engine_debug: Option<&str>) -> String {
         let mut out = Vec::new();
         out.push(format!("ShellRenderViewModel: {} section(s)", vm.sections.len()));
 
-        // Compact summary of sections (stable ordering).
+        // Compact summary of sections (stable ordering), include presence and line counts when present.
         let summary = vm
             .sections
             .iter()
-            .map(|s| format!("{}:{}", s.id, if s.present { "present" } else { "absent" }))
+            .map(|s| {
+                if s.present {
+                    format!("{}:present({})", s.id, s.lines.len())
+                } else {
+                    format!("{}:absent", s.id)
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ");
         out.push(format!("Sections: {}", summary));
 
+        // Detailed per-section dump (still debug-only, non-visual).
         for (i, s) in vm.sections.iter().enumerate() {
-            out.push(format!(
-                "  Section[{}] id=\"{}\" present={} lines={}",
-                i,
-                s.id,
-                s.present,
-                s.lines.len()
-            ));
-            if s.present && !s.lines.is_empty() {
-                out.push("  >> content:".to_string());
+            if s.present {
+                out.push(format!(
+                    "  Section[{}] id=\"{}\" present=true lines={}",
+                    i,
+                    s.id,
+                    s.lines.len()
+                ));
+                out.push(format!("  >> content ({} lines):", s.lines.len()));
                 for line in &s.lines {
                     out.push(format!("    {}", line));
                 }
+            } else {
+                out.push(format!("  Section[{}] id=\"{}\" present=false", i, s.id));
+                out.push("  >> <absent>".to_string());
             }
         }
 
+        // Engine debug text is secondary: include it for diagnostics but keep it clearly separated.
         if let Some(debug) = engine_debug {
             out.push("Engine debug:".to_string());
             for line in debug.lines() {
@@ -109,6 +122,7 @@ mod tests {
         let rendered = presenter.present(&vm, Some("render debug text:\n  plan-line"));
 
         assert!(rendered.contains("ShellRenderViewModel: 1 section(s)"));
+        assert!(rendered.contains("Sections: main:present(1)"));
         assert!(rendered.contains("Section[0] id=\"main\""));
         assert!(rendered.contains("RenderSection"));
         assert!(rendered.contains("Engine debug:"));
