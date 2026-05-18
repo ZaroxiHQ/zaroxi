@@ -17,8 +17,8 @@ zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 # Minimal native window + pixel buffer dependencies for a thin GPU-backed shell.
 # Kept intentionally small: winit for window/event loop, pixels for an RGBA framebuffer
 # surface that's easy to draw into. No heavy GUI or widget frameworks are added.
-winit = "0.30.13"
-pixels = "0.17.1"
+winit = { version = "0.30.13", optional = true }
+pixels = { version = "0.17.1", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
@@ -28,7 +28,7 @@ chrono = { workspace = true }
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
 [features]
-gpu_shell_bin = []
+gpu_shell_bin = ["winit", "pixels"]
 
 # Make the gpu_shell binary conditional on the feature so it is only compiled
 # when explicitly requested:
