@@ -114,14 +114,13 @@ impl GpuShellPresenter {
         use winit::{
             event::{Event, WindowEvent},
             event_loop::{ControlFlow, EventLoop},
-            window::WindowBuilder,
             dpi::PhysicalSize,
         };
         use pixels::{Pixels, SurfaceTexture};
 
         // Create the event loop and window.
-        let event_loop = EventLoop::new();
-        let window = WindowBuilder::new()
+        let event_loop = EventLoop::new().unwrap();
+        let window = winit::window::WindowBuilder::new()
             .with_title("Zaroxi - GPU Shell (minimal)")
             .with_inner_size(PhysicalSize::new(initial_width, initial_height))
             .build(&event_loop)
@@ -150,15 +149,12 @@ impl GpuShellPresenter {
                     WindowEvent::CloseRequested => {
                         std::process::exit(0);
                     }
-                    WindowEvent::Resized(size) => {
+                    WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                        // Re-query the window size to avoid depending on specific
+                        // variant field shapes across winit versions.
+                        let size = window.inner_size();
                         width = size.width.max(1);
                         height = size.height.max(1);
-                        let _ = pixels.resize_surface(width, height);
-                        let _ = pixels.resize_buffer(width, height);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        width = new_inner_size.width.max(1);
-                        height = new_inner_size.height.max(1);
                         let _ = pixels.resize_surface(width, height);
                         let _ = pixels.resize_buffer(width, height);
                     }
