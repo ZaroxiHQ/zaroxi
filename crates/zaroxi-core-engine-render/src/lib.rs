@@ -18,6 +18,7 @@ pub mod surface;
 
 pub mod intent;
 pub mod plan;
+pub mod transcript;
 
 #[cfg(feature = "full_renderer")]
 pub use renderer::Renderer;
@@ -35,3 +36,4 @@ pub use error::RenderError;
 // adapter built from ShellRenderIntent.
 pub use intent::{ShellRenderIntent, RenderSection};
 pub use plan::ShellDrawPlan;
+pub use transcript::ShellRenderTranscript;
