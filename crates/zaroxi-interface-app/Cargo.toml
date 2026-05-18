@@ -6,11 +6,6 @@ description = "zaroxi-interface-app (Phase 48 minimal)"
 license = "MIT"
 
 [dependencies]
-# Minimal, explicit path dependency to the desktop projection crate used by
-# ShellFrameViewModel. Using a path dependency avoids inheriting missing
-# workspace pins and keeps this crate self-contained during phased migration.
-zaroxi-interface-desktop = { path = "../zaroxi-interface-desktop" }
-
 # Engine-facing semantic input type (non-visual). Interface depends on core (downward).
 zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
 
