@@ -95,65 +95,18 @@ impl GpuShellPresenter {
         fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
     }
 
-    /// Optional native window runner. Creates a simple window and displays the three regions.
-    /// This function blocks the current thread and uses winit + pixels. It's intentionally
-    /// small: no event-to-action plumbing is added here, but the window demonstrates the
-    /// native path and can be extended to hook into the existing EventBridge.
+    /// Optional native window runner (stub).
     ///
-    /// Note: This will compile only if `winit` and `pixels` are available (we added them
-    /// to Cargo.toml). Errors use `panic!` for brevity in this thin adapter.
-    pub fn run_native(initial_width: u32, initial_height: u32) {
-        use pixels::{Pixels, SurfaceTexture};
-        use winit::dpi::PhysicalSize;
-        use winit::event::{Event, WindowEvent};
-        use winit::event_loop::{ControlFlow, EventLoop};
-        // Note: fully-qualify WindowBuilder below to avoid import issues across winit versions.
-
-        let event_loop = EventLoop::new().expect("failed to create event loop");
-        let window = winit::window::WindowBuilder::new()
-            .with_title("Zaroxi GPU Shell (wireframe)")
-            .with_inner_size(PhysicalSize::new(initial_width, initial_height))
-            .build(&event_loop)
-            .expect("failed to create window");
-
-        let mut window_size = window.inner_size();
-        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        let mut pixels = Pixels::new(window_size.width, window_size.height, surface_texture)
-            .expect("failed to create pixel surface");
-
-        // Default chrome/status sizes
-        let chrome_h = 60u32;
-        let status_h = 24u32;
-
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Wait;
-
-            match event {
-                Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
-                    // Update tracked window size and resize the pixel surface.
-                    window_size = size;
-                    // pixels v0.17 exposes resize_surface / resize_buffer; call resize_surface to update surface.
-                    let _ = pixels.resize_surface(size.width, size.height);
-                }
-                Event::RedrawRequested(_) | Event::MainEventsCleared => {
-                    // Acquire frame buffer and paint using the current tracked window size.
-                    let frame = pixels.frame();
-                    let regions = GpuShellPresenter::map_regions(window_size.width, window_size.height, chrome_h, status_h);
-                    GpuShellPresenter::paint_to_buffer(window_size.width, window_size.height, frame, &regions);
-
-                    if let Err(e) = pixels.render() {
-                        eprintln!("pixels.render error: {:?}", e);
-                        *control_flow = ControlFlow::Exit;
-                    }
-                }
-                _ => {}
-            }
-
-            // Request a redraw to keep the window visible/updated.
-            window.request_redraw();
-        });
+    /// The previous implementation attempted to call into winit/pixels directly,
+    /// but the winit event-loop API changed between 0.28 and 0.30 which makes a
+    /// tiny cross-crate example fragile. To keep this crate stable and focused on
+    /// pure, testable logic (region mapping + buffer painting) we provide a no-op
+    /// stub here. Consumers (the desktop harness or an integration module) should
+    /// own the event loop and integrate with Pixels/winit directly to avoid
+    /// tight coupling to a specific winit API version.
+    pub fn run_native(_initial_width: u32, _initial_height: u32) {
+        // Intentionally a no-op. Use the harness or an integration layer that
+        // depends on the exact winit/pixels versions to create a window and feed
+        // frames into GpuShellPresenter::paint_to_buffer.
     }
 }
