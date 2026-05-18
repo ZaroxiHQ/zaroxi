@@ -18,7 +18,7 @@ zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 # Kept intentionally small: winit for window/event loop, pixels for an RGBA framebuffer
 # surface that's easy to draw into. No heavy GUI or widget frameworks are added.
 winit = "0.28.7"
-pixels = "0.12"
+pixels = "0.17.1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
