@@ -28,6 +28,9 @@ pub use actions::{refresh_desktop, move_cursor_to_start_and_refresh, set_active_
 pub use text_view::TextView;
 pub use selection_view::SelectionView;
 
+pub mod render_debug_text;
+pub use render_debug_text::render_debug_text;
+
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.
 pub mod projections;
