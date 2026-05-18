@@ -53,6 +53,12 @@ pub enum Region {
     Status,
 }
 
+impl Default for Region {
+    fn default() -> Self {
+        Region::Content
+    }
+}
+
 /// Thin UI-facing trait representing the frame-level UI model.
 ///
 /// Implementations live in `zaroxi-interface-desktop` (UI only) and are used by
