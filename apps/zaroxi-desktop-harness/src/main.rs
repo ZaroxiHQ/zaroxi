@@ -600,5 +600,19 @@ async fn main() -> Result<(), String> {
         println!("   - {} -> {} bytes", b.buffer_id, b.content.as_ref().map(|s| s.len()).unwrap_or(0));
     }
 
+    // Present a tiny deterministic render output using the existing presenter.
+    {
+        let vm = zaroxi_interface_app::ShellRenderViewModel {
+            sections: vec![zaroxi_interface_app::shell_render_view::SectionView {
+                id: "debug".to_string(),
+                present: true,
+                lines: vec!["harness embed".to_string()],
+            }],
+        };
+        let presenter = zaroxi_interface_desktop::ShellRenderPresenter::new();
+        let rendered = presenter.present(&vm, Some("render debug text:\n  plan-line"));
+        println!("Harness: shell render presenter:\n{}", rendered);
+    }
+
     Ok(())
 }
