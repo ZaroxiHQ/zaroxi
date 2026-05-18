@@ -57,8 +57,8 @@ impl ShellFrameViewModel {
     }
 
     /// Set (replace) the owned ShellFrameModel received from the desktop layer.
-    pub fn set(&mut self, frame: ShellFrameModel) {
-        self.frame = Some(frame);
+    pub fn set<F: Into<ShellFrameModel>>(&mut self, frame: F) {
+        self.frame = Some(frame.into());
     }
 
     /// Clear the held ShellFrameModel (make the view model absent).
@@ -142,6 +142,34 @@ impl ShellFrameViewModel {
             }
         } else {
             zaroxi_core_engine_view::EngineShellViewInput::absent()
+        }
+    }
+}
+
+#[cfg(test)]
+mod desktop_interop {
+    use super::*;
+    use zaroxi_interface_desktop::projections::shell_frame as desktop;
+
+    impl From<desktop::ShellFrameModel> for ShellFrameModel {
+        fn from(d: desktop::ShellFrameModel) -> Self {
+            ShellFrameModel {
+                viewport_summary: d.viewport_summary,
+                status_text: d.status_text,
+                shell_chrome: d.shell_chrome,
+                last_command: d.last_command,
+                active_text_view: d.active_text_view.map(|t| TextView {
+                    top_line: t.top_line,
+                    total_lines: t.total_lines,
+                    lines: t.lines,
+                    cursor_line: t.cursor_line,
+                    cursor_column: t.cursor_column,
+                }),
+                selection_view: d.selection_view.map(|s| SelectionView {
+                    start: Position { line: s.start.line, column: s.start.column },
+                    end: Position { line: s.end.line, column: s.end.column },
+                }),
+            }
         }
     }
 }
