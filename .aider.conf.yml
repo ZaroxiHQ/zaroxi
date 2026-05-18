@@ -1,0 +1,55 @@
+# Aider configuration tuned for small-context LLMs (o3-mini / DeepSeek)
+# Deterministic, minimal-noise, fast iteration. Avoid experimental flags.
+
+model:
+  name: o3-mini
+  # Small contexts require strict token budgeting; keep temperature zero for deterministic output.
+  temperature: 0.0
+  top_p: 1.0
+  # Local budget used by Aider's repo-mapping logic (hard constraint)
+  max_context_tokens: 1024
+
+# How many tokens Aider is allowed to spend when building the map
+map-tokens: 1024
+
+# Prompt caching reduces repeated token use
+cache-prompts: true
+
+# Automatic refresh behaviour for the map
+map-refresh: auto
+
+# When Aider produces small, safe changes it may auto-commit them.
+auto-commits: true
+
+# Deterministic, low-verbosity operation
+deterministic: true
+verbosity: minimal
+
+# Fast iteration preferences
+fast-iteration: true
+# Keep file loads bounded to small sizes for token efficiency
+limits:
+  file_load_lines: 250
+  max_files_in_map: 200
+  max_file_size_kb: 200
+
+# Behavior tuning (do not enable experimental flags)
+behavior:
+  prefer_unified_diffs: true     # Always prefer unified diffs for edits
+  avoid_refactors: true          # Avoid large refactors unless explicitly requested
+  additive_by_default: true      # Prefer additive edits (safe for LLMs)
+
+# Safety checks: when a risky architectural change is detected, stop and explain
+safety:
+  stop_on_circular_dependency: true
+  stop_on_layer_violation: true
+  stop_on_architectural_drift: true
+
+# Commit metadata defaults (keep minimal)
+commit:
+  message_template: "aider: automated minimal change"
+  sign: false
+
+# Notes:
+# - This config is intentionally conservative for small-context models.
+# - Do not enable experimental/unstable flags here; they reduce reproducibility.
