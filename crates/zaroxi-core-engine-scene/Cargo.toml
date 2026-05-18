@@ -7,7 +7,7 @@ description = "Scene graph management for engine rendering."
 license = "MIT"
 
 [dependencies]
-zaroxi-core-engine-view = { workspace = true }
+zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
 
 # Local developer notes:
 # To validate this crate run:
