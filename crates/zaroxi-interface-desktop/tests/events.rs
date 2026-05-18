@@ -1,5 +1,6 @@
 use zaroxi_interface_desktop::events::{
-    FrameModel, Key, RenderViewModel, Region, UiEvent, EventRouter,
+    FrameModel, Key, RenderViewModel, Region, UiEvent, EventRouter, EventBridge, Action,
+    ActionExecutor,
 };
 
 struct MockFrameModel {
@@ -91,5 +92,42 @@ fn enter_activates_buffer() {
     assert_eq!(
         frame.active_buffer,
         Some("buffer_at_line_2".to_string())
+    );
+}
+
+struct MockActionExecutor {
+    last_action: Option<Action>,
+}
+
+impl MockActionExecutor {
+    fn new() -> Self {
+        Self { last_action: None }
+    }
+}
+
+impl ActionExecutor for MockActionExecutor {
+    fn execute(&mut self, action: Action) {
+        self.last_action = Some(action);
+    }
+}
+
+#[test]
+fn bridge_maps_enter_to_insert_newline_action() {
+    let mut exec = MockActionExecutor::new();
+
+    EventBridge::handle_event(UiEvent::Key(Key::Enter), &mut exec);
+
+    assert_eq!(exec.last_action, Some(Action::InsertNewLine));
+}
+
+#[test]
+fn bridge_maps_char_to_set_active_buffer_action() {
+    let mut exec = MockActionExecutor::new();
+
+    EventBridge::handle_event(UiEvent::Key(Key::Char('x')), &mut exec);
+
+    assert_eq!(
+        exec.last_action,
+        Some(Action::SetActiveBuffer("x".to_string()))
     );
 }
