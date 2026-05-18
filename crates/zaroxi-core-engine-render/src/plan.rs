@@ -106,3 +106,19 @@ impl From<ShellRenderIntent> for ShellDrawPlan {
         }
     }
 }
+
+/// Provide a deterministic, minimal default ShellDrawPlan for tests and
+/// simple consumers that need an empty plan instance.
+///
+/// Default is intentionally empty and deterministic (no sections, all flags false).
+impl Default for ShellDrawPlan {
+    fn default() -> Self {
+        ShellDrawPlan {
+            sections: Vec::new(),
+            selection_present: false,
+            status_present: false,
+            content_present: false,
+            chrome_present: false,
+        }
+    }
+}

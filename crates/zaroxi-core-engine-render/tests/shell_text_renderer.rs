@@ -1,4 +1,4 @@
-use zaroxi_core_engine_render::{ShellTextRenderer, ShellDrawPlan, ShellRenderTranscript};
+use zaroxi_core_engine_render::{ShellTextRenderer, ShellDrawPlan};
 
 #[test]
 fn renders_default_shell_draw_plan_stably() {
