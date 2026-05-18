@@ -410,7 +410,7 @@ pub mod terminal_ui {
     //! - Produce a simple TerminalSurface useful for harnesses and tests.
     //! - Keep strictly UI-only: no engine or application logic here.
 
-    use super::ui::{UiTree, UiLine, UiSectionKind};
+    use super::ui::UiTree;
 
     /// Simple terminal surface representation returned by the renderer.
     #[derive(Debug, Clone, PartialEq, Eq)]
