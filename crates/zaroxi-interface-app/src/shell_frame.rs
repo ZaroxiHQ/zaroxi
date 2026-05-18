@@ -1,7 +1,43 @@
 #![doc = "Shell frame view model (application-facing wrapper around the desktop ShellFrameModel)."]
 
-use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel;
-use zaroxi_interface_desktop::{TextView, SelectionView};
+// The application crate intentionally does not depend on the desktop crate to
+// avoid upward dependency cycles. For compile-time stability we define a tiny,
+// local, minimal subset of the desktop projection types used by this module.
+// These types mirror the fields consumed by the application-facing wrapper
+// and keep the application layer independent from the desktop implementation.
+//
+// NOTE: These are lightweight, compile-time-only shapes used to carry semantic
+// data across the app surface; they are NOT the authoritative desktop types.
+#[derive(Debug, Clone, Default)]
+pub struct ShellFrameModel {
+    pub viewport_summary: Option<String>,
+    pub status_text: Option<String>,
+    pub shell_chrome: Option<String>,
+    pub last_command: Option<String>,
+    pub active_text_view: Option<TextView>,
+    pub selection_view: Option<SelectionView>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextView {
+    pub top_line: usize,
+    pub total_lines: usize,
+    pub lines: Vec<String>,
+    pub cursor_line: Option<usize>,
+    pub cursor_column: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectionView {
+    pub start: Position,
+    pub end: Position,
+}
+
+#[derive(Debug, Clone)]
+pub struct Position {
+    pub line: usize,
+    pub column: usize,
+}
 
 /// Tiny, read-only wrapper exposed to the application layer that owns a
 /// ShellFrameModel received from the desktop composition and exposes a
