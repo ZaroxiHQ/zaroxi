@@ -105,6 +105,39 @@ pub struct RegionView {
     pub kind: RegionKind,
 }
 
+/// Small stable vocabulary of semantic slots inside the shell.
+///
+/// These are intentionally tiny and deterministic: they describe semantic
+/// anchor locations inside the chrome/content/status regions. Kept additive
+/// and purely observational (no layout changes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotName {
+    ChromeLeft,
+    ChromeCenter,
+    ChromeRight,
+    ContentMain,
+    Status,
+}
+
+impl SlotName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SlotName::ChromeLeft => "chrome_left",
+            SlotName::ChromeCenter => "chrome_center",
+            SlotName::ChromeRight => "chrome_right",
+            SlotName::ContentMain => "content_main",
+            SlotName::Status => "status",
+        }
+    }
+}
+
+/// A small view describing a single semantic slot and its rectangle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotView {
+    pub name: SlotName,
+    pub rect: RegionView,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuShellView {
     pub chrome: RegionView,
@@ -126,6 +159,9 @@ pub struct GpuShellView {
     pub active_buffer_label: Option<String>,
     pub content_preview_count: Option<usize>,
     pub ai_indicator: Option<String>,
+
+    /// Additive list of semantic slots (stable vocabulary, deterministic ordering).
+    pub slots: Vec<SlotView>,
 }
 
 impl GpuShellView {
@@ -153,6 +189,53 @@ impl GpuShellView {
             kind: s.status.kind.clone(),
         };
 
+        // Build deterministic slots (left/center/right in chrome, plus content_main and status).
+        let mut slots: Vec<SlotView> = Vec::new();
+
+        // Split chrome width into three parts deterministically using integer division.
+        let c_w = chrome.width;
+        let left_w = c_w / 3;
+        let right_w = c_w / 3;
+        let center_w = c_w.saturating_sub(left_w).saturating_sub(right_w);
+
+        // chrome_left
+        let left_rect = RegionView {
+            x: chrome.x,
+            y: chrome.y,
+            width: left_w,
+            height: chrome.height,
+            kind: chrome.kind.clone(),
+        };
+        slots.push(SlotView { name: SlotName::ChromeLeft, rect: left_rect });
+
+        // chrome_center
+        let center_x = chrome.x.saturating_add(left_w);
+        let center_rect = RegionView {
+            x: center_x,
+            y: chrome.y,
+            width: center_w,
+            height: chrome.height,
+            kind: chrome.kind.clone(),
+        };
+        slots.push(SlotView { name: SlotName::ChromeCenter, rect: center_rect });
+
+        // chrome_right
+        let right_x = center_x.saturating_add(center_w);
+        let right_rect = RegionView {
+            x: right_x,
+            y: chrome.y,
+            width: right_w,
+            height: chrome.height,
+            kind: chrome.kind.clone(),
+        };
+        slots.push(SlotView { name: SlotName::ChromeRight, rect: right_rect });
+
+        // content_main
+        slots.push(SlotView { name: SlotName::ContentMain, rect: content.clone() });
+
+        // status
+        slots.push(SlotView { name: SlotName::Status, rect: status.clone() });
+
         GpuShellView {
             chrome,
             content,
@@ -164,6 +247,7 @@ impl GpuShellView {
             active_buffer_label: s.active_buffer_label.clone(),
             content_preview_count: s.content_preview_count,
             ai_indicator: s.ai_indicator.clone(),
+            slots,
         }
     }
 
@@ -484,6 +568,23 @@ impl ShellRenderTranscript {
         lines.push(format!("active_buffer: {}", self.view.active_buffer_label.as_deref().unwrap_or("<none>")));
         lines.push(format!("content_preview_count: {}", self.view.content_preview_count.unwrap_or(0)));
         lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
+        // Emit slots (stable, deterministic small vocabulary)
+        if self.view.slots.is_empty() {
+            lines.push("slots: <none>".to_string());
+        } else {
+            let mut slot_parts: Vec<String> = Vec::new();
+            for slot in &self.view.slots {
+                slot_parts.push(format!(
+                    "{}: x={} y={} w={} h={}",
+                    slot.name.as_str(),
+                    slot.rect.x,
+                    slot.rect.y,
+                    slot.rect.width,
+                    slot.rect.height
+                ));
+            }
+            lines.push(format!("slots: {}", slot_parts.join(", ")));
+        }
         // Retain content_preview textual hint if present (semantic only; not rendered).
         if let Some(ref preview) = self.view.content_preview {
             // Print the provided preview string (may be empty).
@@ -990,5 +1091,38 @@ mod tests {
         // The optional fields should be represented (even if empty or zero).
         assert!(txt.contains("content_preview_count: 0"));
         assert!(txt.contains("marker:") || txt.contains("marker: "));
+    }
+
+    /// New focused test: ensure the transcript includes the semantic slots and
+    /// that their canonical ordering appears in the transcript string.
+    #[test]
+    fn transcript_includes_slots_and_ordering() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 12;
+        let status_h: u32 = 6;
+
+        let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+
+        // Ensure the slots line exists.
+        assert!(txt.contains("slots:"));
+
+        // Ensure canonical slot names are present.
+        assert!(txt.contains("chrome_left"));
+        assert!(txt.contains("chrome_center"));
+        assert!(txt.contains("chrome_right"));
+        assert!(txt.contains("content_main"));
+
+        // Verify ordering: chrome_left < chrome_center < chrome_right < content_main
+        let i_left = txt.find("chrome_left").unwrap();
+        let i_center = txt.find("chrome_center").unwrap();
+        let i_right = txt.find("chrome_right").unwrap();
+        let i_content = txt.find("content_main").unwrap();
+
+        assert!(i_left < i_center && i_center < i_right && i_right < i_content);
     }
 }
