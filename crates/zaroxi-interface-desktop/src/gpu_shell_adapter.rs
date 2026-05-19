@@ -51,6 +51,12 @@ pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: 
 
     let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
     regions.marker = active_buffer.map(|s| s.to_string());
+    // Expose a tiny deterministic semantic payload derived from the active buffer.
+    // - chrome_label: short visible label for chrome (active buffer)
+    // - status_text: lightweight status derived from active buffer
+    regions.chrome_label = active_buffer.map(|s| s.to_string());
+    regions.status_text = active_buffer.map(|s| format!("status: {}", s));
+    regions.content_preview = None;
     regions
 }
 
@@ -65,5 +71,9 @@ pub fn view_model_to_regions_from_scratch(width: u32, height: u32, active_buffer
 
     let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
     regions.marker = active_buffer.map(|s| s.to_string());
+    // Expose a tiny deterministic semantic payload derived from the active buffer.
+    regions.chrome_label = active_buffer.map(|s| s.to_string());
+    regions.status_text = active_buffer.map(|s| format!("status: {}", s));
+    regions.content_preview = None;
     regions
 }

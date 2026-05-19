@@ -65,6 +65,18 @@ pub struct ShellRegions {
     /// (e.g. active buffer name). Kept optional and crate-local; presenter simply
     /// paints a deterministic colored marker when present.
     pub marker: Option<String>,
+
+    /// Tiny deterministic semantic payloads (kept primitive and optional):
+    /// - chrome_label: a short label for the chrome/header (e.g. active buffer name)
+    /// - status_text: a short status string for the status bar
+    /// - content_preview: a single-line preview or hint for the content region
+    ///
+    /// These are purely presenter-facing labels (no text shaping). The presenter
+    /// may render them as small deterministic colored boxes / bars so they are
+    /// observable in the GPU-backed shell while remaining backend-light.
+    pub chrome_label: Option<String>,
+    pub status_text: Option<String>,
+    pub content_preview: Option<String>,
 }
 
 /// Thin GPU-backed presenter. It does not own any heavy application state;
@@ -86,7 +98,7 @@ impl GpuShellPresenter {
         let content = Region::with_kind(0, chrome_h, width, content_h, RegionKind::Content);
         let status = Region::with_kind(0, chrome_h + content_h, width, status_h, RegionKind::Status);
 
-        ShellRegions { chrome, content, status, marker: None }
+        ShellRegions { chrome, content, status, marker: None, chrome_label: None, status_text: None, content_preview: None }
     }
 
     /// Paint the three regions into the provided RGBA8 buffer.
@@ -178,6 +190,56 @@ impl GpuShellPresenter {
             let bar_x = regions.chrome.x + regions.chrome.width.saturating_sub(bar_width);
             let bar_region = Region::with_kind(bar_x, regions.chrome.y, bar_width, regions.chrome.height, RegionKind::Chrome);
             fill_region(buffer, width, &bar_region, color);
+        }
+
+        // Small, deterministic semantic payload visualizations (kept away from commonly-sampled pixels):
+        // - chrome_label: small centered horizontal block near the top of chrome (avoids top-left sampling)
+        // - status_text: small right-aligned block inside status region (avoids left-side sampling)
+        // - content_preview: thin centered horizontal line in content (offset to avoid left-side sampling)
+        if let Some(ref label) = regions.chrome_label {
+            let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
+            let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
+
+            // Draw a small centered rectangle in the chrome, anchored a few pixels from the top.
+            let max_w = regions.chrome.width.saturating_sub(16);
+            let box_w = (max_w.min(80)).saturating_sub(0);
+            let box_w = if box_w == 0 { 0 } else { box_w };
+            if box_w > 0 {
+                let box_x = regions.chrome.x + regions.chrome.width / 2u32.saturating_sub(box_w / 2);
+                let box_y = regions.chrome.y + 2u32.min(regions.chrome.height.saturating_sub(2));
+                let box_h = 6u32.min(regions.chrome.height.saturating_sub(2));
+                let box_region = Region::with_kind(box_x, box_y, box_w, box_h, RegionKind::Chrome);
+                fill_region(buffer, width, &box_region, color);
+            }
+        }
+
+        if let Some(ref status) = regions.status_text {
+            let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
+            let color = [255u8.wrapping_sub(b0), b0, 120u8, 255u8];
+
+            // Draw a small right-aligned rectangle inside the status region.
+            let bar_w = 18u32.min(regions.status.width);
+            let bar_x = regions.status.x + regions.status.width.saturating_sub(bar_w + 2);
+            let bar_y = regions.status.y + 1u32.min(regions.status.height.saturating_sub(1));
+            let bar_h = 6u32.min(regions.status.height.saturating_sub(1));
+            if bar_h > 0 && bar_w > 0 {
+                let bar_region = Region::with_kind(bar_x, bar_y, bar_w, bar_h, RegionKind::Status);
+                fill_region(buffer, width, &bar_region, color);
+            }
+        }
+
+        if let Some(ref preview) = regions.content_preview {
+            let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
+            let color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
+
+            // Thin centered preview line in the content region (avoids left-edge sampling).
+            let line_w = regions.content.width.saturating_sub(20);
+            if line_w > 0 {
+                let line_x = regions.content.x + 10;
+                let line_y = regions.content.y + regions.content.height / 2u32.saturating_sub(1);
+                let line_region = Region::with_kind(line_x, line_y, line_w, 2u32.min(regions.content.height), RegionKind::Content);
+                fill_region(buffer, width, &line_region, color);
+            }
         }
     }
 

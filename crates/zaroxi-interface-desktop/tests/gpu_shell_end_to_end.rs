@@ -27,4 +27,10 @@ fn apply_set_active_buffer_returns_ordered_regions() {
     // applying a SetActiveBuffer action and is reflected in the presenter's input.
     assert_ne!(before.marker, after.marker);
     assert_eq!(after.marker, Some("test_buffer".to_string()));
+
+    // New: the adapter/runtime now exposes tiny deterministic semantic payloads.
+    assert_eq!(after.chrome_label, Some("test_buffer".to_string()));
+    assert_eq!(after.status_text, Some("status: test_buffer".to_string()));
+    // content_preview remains None in this simple path.
+    assert_eq!(after.content_preview, None);
 }
