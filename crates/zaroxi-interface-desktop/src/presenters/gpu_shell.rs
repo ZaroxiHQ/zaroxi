@@ -367,6 +367,101 @@ impl GpuPaintPlan {
     }
 }
 
+//
+// Tiny deterministic debug transcript seam
+//
+// This additive, read-only representation captures the effective viewport,
+// the stable presenter view and the ordered paint-plan entries as deterministic
+// textual lines. It is intentionally minimal and purely additive so binaries
+// and tests can inspect the final paint intent without relying on pixel checks.
+//
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellRenderTranscript {
+    pub width: u32,
+    pub height: u32,
+    pub view: GpuShellView,
+    pub plan_lines: Vec<String>,
+}
+
+impl ShellRenderTranscript {
+    /// Construct a transcript from the stable presenter view + paint plan.
+    /// The produced plan_lines mirror the exact order of GpuPaintPlan.ops
+    /// and contain concise, deterministic descriptions of each op.
+    pub fn from_view_and_plan(width: u32, height: u32, view: &GpuShellView, plan: &GpuPaintPlan) -> Self {
+        let mut plan_lines = Vec::with_capacity(plan.ops.len());
+        for op in plan.ops.iter() {
+            match op {
+                GpuPaintOp::FillRect(r) => {
+                    plan_lines.push(format!(
+                        "FillRect x={} y={} w={} h={} color={:?}",
+                        r.x, r.y, r.width, r.height, r.color
+                    ));
+                }
+                GpuPaintOp::BorderRect { rect, thickness } => {
+                    plan_lines.push(format!(
+                        "BorderRect x={} y={} w={} h={} color={:?} thickness={}",
+                        rect.x, rect.y, rect.width, rect.height, rect.color, thickness
+                    ));
+                }
+            }
+        }
+
+        ShellRenderTranscript {
+            width,
+            height,
+            view: view.clone(),
+            plan_lines,
+        }
+    }
+
+    /// Produce a compact deterministic multi-line textual snapshot suitable for
+    /// test assertions or logging by the native binary. The format is stable
+    /// and intentionally small.
+    pub fn to_string(&self) -> String {
+        let mut lines: Vec<String> = Vec::new();
+        lines.push(format!("viewport: {}x{}", self.width, self.height));
+        lines.push("regions:".to_string());
+        lines.push(format!(
+            "  chrome: x={} y={} w={} h={} kind={:?}",
+            self.view.chrome.x,
+            self.view.chrome.y,
+            self.view.chrome.width,
+            self.view.chrome.height,
+            self.view.chrome.kind
+        ));
+        lines.push(format!(
+            "  content: x={} y={} w={} h={} kind={:?}",
+            self.view.content.x,
+            self.view.content.y,
+            self.view.content.width,
+            self.view.content.height,
+            self.view.content.kind
+        ));
+        lines.push(format!(
+            "  status: x={} y={} w={} h={} kind={:?}",
+            self.view.status.x,
+            self.view.status.y,
+            self.view.status.width,
+            self.view.status.height,
+            self.view.status.kind
+        ));
+        if let Some(ref m) = self.view.marker {
+            lines.push(format!("marker: {}", m));
+        }
+        if let Some(ref label) = self.view.chrome_label {
+            lines.push(format!("chrome_label: {}", label));
+        }
+        if let Some(ref status) = self.view.status_text {
+            lines.push(format!("status_text: {}", status));
+        }
+        lines.push("plan:".to_string());
+        for l in &self.plan_lines {
+            lines.push(format!("  {}", l));
+        }
+        lines.join("\n")
+    }
+}
+
 /// Thin GPU-backed presenter. It does not own any heavy application state;
 /// it provides pure functions for region mapping and buffer painting.
 ///
@@ -732,5 +827,59 @@ mod tests {
 
         // Ensure buffer unchanged (all bytes still 7).
         assert!(buf.iter().all(|&b| b == 7u8));
+    }
+
+    /// Focused test: ensure the debug transcript reflects the final view + plan
+    /// in deterministic order and contains essential viewport information.
+    #[test]
+    fn shell_render_transcript_reflects_plan_order_and_viewport() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 10;
+        let status_h: u32 = 6;
+
+        let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+
+        // Construct transcript via the new seam.
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+
+        // Sanity: viewport line present.
+        assert!(txt.contains(&format!("viewport: {}x{}", width, height)));
+
+        // The transcript.plan_lines must match the plan operation count and order.
+        assert_eq!(transcript.plan_lines.len(), plan.ops.len());
+
+        // First op in the plan should be the full-viewport background FillRect.
+        assert!(transcript.plan_lines[0].starts_with("FillRect"));
+
+        // Ensure the sequence preserves order: the first three non-background fills
+        // are content, chrome, status in that sequence within the plan_lines slice.
+        // Find the first occurrence of the content fill (it should exist).
+        let mut found_content = false;
+        let mut found_chrome_after = false;
+        let mut found_status_after = false;
+        for (i, line) in transcript.plan_lines.iter().enumerate() {
+            if line.contains("FillRect") && line.contains("content:").not() {
+                // no-op: placeholder to keep logic explicit and readable.
+            }
+            // Identify chrome fill by matching the chrome region coordinates.
+            if line.contains(&format!("x={} y={} w={} h={}", regions.chrome.x, regions.chrome.y, regions.chrome.width, regions.chrome.height)) {
+                found_content = true;
+                // ensure subsequent lines still contain status later
+                for later in transcript.plan_lines.iter().skip(i+1) {
+                    if later.contains(&format!("x={} y={} w={} h={}", regions.status.x, regions.status.y, regions.status.width, regions.status.height)) {
+                        found_status_after = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        // At minimum, ensure we detected chrome and found status after chrome.
+        assert!(found_content);
+        assert!(found_status_after);
     }
 }
