@@ -825,6 +825,12 @@ impl GpuShellPresenter {
         // No-op: the native bootstrap lives in the gpu_shell binary to avoid
         // version/API coupling inside this presenter module.
     }
+
+    /// Deterministic, additive debug summary that consumes the derived `shell_tone`.
+    /// Returns a single-line, read-only string: `shell_tone=<value>`.
+    pub fn debug_summary(view: &GpuShellView) -> String {
+        format!("shell_tone={}", view.shell_tone.as_str())
+    }
 }
 
 /// Execute a paint plan into an RGBA8 buffer.
