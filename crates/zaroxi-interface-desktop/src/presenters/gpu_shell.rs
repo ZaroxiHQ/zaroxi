@@ -193,6 +193,33 @@ impl StatusEmphasis {
     }
 }
 
+/// Small, deterministic shell-level presentation hint derived from existing
+/// GPU-shell semantics (focus_slot, content_activity, status_emphasis).
+///
+/// Precedence (highest -> lowest):
+///  - Ai
+///  - Attention
+///  - Focused   (derived from content activity selection/cursor or explicit focus_slot)
+///  - Neutral   (fallback)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellTone {
+    Neutral,
+    Focused,
+    Attention,
+    Ai,
+}
+
+impl ShellTone {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ShellTone::Neutral => "neutral",
+            ShellTone::Focused => "focused",
+            ShellTone::Attention => "attention",
+            ShellTone::Ai => "ai",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuShellView {
     pub chrome: RegionView,
@@ -217,6 +244,8 @@ pub struct GpuShellView {
 
     /// New explicit per-view status emphasis semantic (additive).
     pub status_emphasis: StatusEmphasis,
+    /// Tiny derived shell-level presentation hint (additive; does not affect painting).
+    pub shell_tone: ShellTone,
 
     /// Deterministic focus/active semantic: which slot (if any) is currently focused.
     /// Observational only; does not affect painting.
@@ -331,6 +360,22 @@ impl GpuShellView {
             StatusEmphasis::Normal
         };
 
+        // Derive a tiny deterministic shell-level tone from existing semantics.
+        // Precedence (highest -> lowest): Ai, Attention, Focused, Neutral.
+        // Focused is derived from content activity (selection/cursor) or an explicit focus_slot.
+        let shell_tone = if status_emphasis == StatusEmphasis::Ai {
+            ShellTone::Ai
+        } else if status_emphasis == StatusEmphasis::Attention {
+            ShellTone::Attention
+        } else if content_activity == ContentActivity::Selection
+            || content_activity == ContentActivity::Cursor
+            || s.focus_slot == Some(SlotName::ContentMain)
+        {
+            ShellTone::Focused
+        } else {
+            ShellTone::Neutral
+        };
+
         GpuShellView {
             chrome,
             content,
@@ -343,6 +388,7 @@ impl GpuShellView {
             content_preview_count: s.content_preview_count,
             ai_indicator: s.ai_indicator.clone(),
             status_emphasis,
+            shell_tone,
             focus_slot: s.focus_slot.clone(),
             content_activity,
             slots,
@@ -668,6 +714,7 @@ impl ShellRenderTranscript {
         lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
         // Additive: emit the small deterministic status emphasis semantic.
         lines.push(format!("status_emphasis: {}", self.view.status_emphasis.as_str()));
+        lines.push(format!("shell_tone: {}", self.view.shell_tone.as_str()));
         // Deterministic focus semantic (observational only).
         lines.push(format!("focus_slot: {}", self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>")));
         // Emit slots (stable, deterministic small vocabulary)
