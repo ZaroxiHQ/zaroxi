@@ -1,4 +1,4 @@
-use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, GpuShellView, GpuPaintPlan, ShellRenderTranscript, ShellRegions, SlotName, ShellTone};
+use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, GpuShellView, GpuPaintPlan, ShellRenderTranscript, SlotName};
 
 #[test]
 fn transcript_includes_derived_shell_tone() {
