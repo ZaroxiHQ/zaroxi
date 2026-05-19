@@ -29,7 +29,7 @@ fn main() {
     use minifb::{Key, Window, WindowOptions};
 
     use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
-    use zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch;
+    use crate::gpu_shell_adapter::view_model_to_regions_from_scratch;
 
     let width: u32 = 800;
     let height: u32 = 600;
