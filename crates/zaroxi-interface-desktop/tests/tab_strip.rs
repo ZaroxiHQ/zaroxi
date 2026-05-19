@@ -1,4 +1,4 @@
-use zaroxi_interface_desktop::presenters::gpu_shell::TabStrip;
+use zaroxi_interface_desktop::presenters::gpu_shell::{TabStrip, TabAction, compute_tab_action_target};
 
 #[test]
 fn no_buffers_empty_tab_strip() {
@@ -124,4 +124,61 @@ fn navigation_when_no_active_selects_first_or_last_deterministically() {
     assert_eq!(ts.next_active_id(true).as_deref(), Some("one"));
     // prev should pick last deterministically
     assert_eq!(ts.prev_active_id(true).as_deref(), Some("three"));
+}
+
+#[test]
+fn action_activate_next_updates_active_id() {
+    let opened = vec![
+        ("a".to_string(), "A".to_string()),
+        ("b".to_string(), "B".to_string()),
+        ("c".to_string(), "C".to_string()),
+    ];
+    // active = a -> next should be b
+    let target = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
+    assert_eq!(target.as_deref(), Some("b"));
+}
+
+#[test]
+fn action_activate_previous_updates_active_id() {
+    let opened = vec![
+        ("a".to_string(), "A".to_string()),
+        ("b".to_string(), "B".to_string()),
+        ("c".to_string(), "C".to_string()),
+    ];
+    // active = b -> prev should be a
+    let target = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, Some("b"));
+    assert_eq!(target.as_deref(), Some("a"));
+}
+
+#[test]
+fn action_no_buffers_is_noop() {
+    let opened: Vec<(String, String)> = vec![];
+    let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, None);
+    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
+    assert_eq!(t_next, None);
+    assert_eq!(t_prev, None);
+}
+
+#[test]
+fn action_one_buffer_stays_same() {
+    let opened = vec![("solo".to_string(), "solo.rs".to_string())];
+    // With wrap true or false, still the same single buffer for both directions.
+    let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("solo"));
+    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: false }, &opened, Some("solo"));
+    assert_eq!(t_next.as_deref(), Some("solo"));
+    assert_eq!(t_prev.as_deref(), Some("solo"));
+}
+
+#[test]
+fn action_deterministic_fallback_when_active_missing() {
+    let opened = vec![
+        ("one".to_string(), "One".to_string()),
+        ("two".to_string(), "Two".to_string()),
+        ("three".to_string(), "Three".to_string()),
+    ];
+    // active = none -> next picks first, prev picks last
+    let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, None);
+    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
+    assert_eq!(t_next.as_deref(), Some("one"));
+    assert_eq!(t_prev.as_deref(), Some("three"));
 }
