@@ -282,7 +282,7 @@ impl GpuPaintPlan {
             let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
 
             let max_w = v.chrome.width.saturating_sub(16);
-            let mut box_w = max_w.min(80);
+            let box_w = max_w.min(80);
             if box_w > 0 {
                 let box_x = v.chrome.x + v.chrome.width / 2u32.saturating_sub(box_w / 2);
                 let box_y = v.chrome.y + 2u32.min(v.chrome.height.saturating_sub(2));
