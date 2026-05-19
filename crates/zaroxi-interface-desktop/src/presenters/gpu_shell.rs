@@ -144,7 +144,205 @@ impl GpuShellView {
             content_preview: s.content_preview.clone(),
         }
     }
-}
+
+    // ---------------------------------------------------------------------
+    // Tiny paint-plan layer (presenter-local, deterministic)
+    //
+    // This minimal model converts the stable GpuShellView into an ordered,
+    // deterministic list of paint operations. The paint execution loop below
+    // consumes the plan to produce the exact same pixel output as before.
+    //
+    // The contract is intentionally small:
+    // - FillRect: axis-aligned rectangle + color
+    // - BorderRect: interior border rectangle + color + thickness
+    //
+    // This stays additive to the presenter and preserves visible behavior.
+    // ---------------------------------------------------------------------
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct GpuPaintRect {
+        pub x: u32,
+        pub y: u32,
+        pub width: u32,
+        pub height: u32,
+        pub color: [u8; 4],
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum GpuPaintOp {
+        FillRect(GpuPaintRect),
+        BorderRect { rect: GpuPaintRect, thickness: u32 },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct GpuPaintPlan {
+        pub ops: Vec<GpuPaintOp>,
+    }
+
+    impl GpuPaintPlan {
+        /// Deterministically produce a paint plan from the stable presenter view.
+        /// The order of operations mirrors the original presenter's painting order:
+        /// 1) base fills: content, chrome, status
+        /// 2) interior borders for chrome/content/status
+        /// 3) optional marker bar in chrome
+        /// 4) optional chrome_label box
+        /// 5) optional status_text bar
+        /// 6) optional content_preview line
+        pub fn from_view(v: &GpuShellView) -> Self {
+            let mut ops: Vec<GpuPaintOp> = Vec::new();
+
+            // Base fills (same colors as before).
+            ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                x: v.content.x,
+                y: v.content.y,
+                width: v.content.width,
+                height: v.content.height,
+                color: [220u8, 220u8, 225u8, 255u8],
+            }));
+            ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                x: v.chrome.x,
+                y: v.chrome.y,
+                width: v.chrome.width,
+                height: v.chrome.height,
+                color: [32u8, 32u8, 40u8, 255u8],
+            }));
+            ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                x: v.status.x,
+                y: v.status.y,
+                width: v.status.width,
+                height: v.status.height,
+                color: [48u8, 48u8, 56u8, 255u8],
+            }));
+
+            // Map semantic region kind -> deterministic border color.
+            let kind_border_color = |kind: &RegionKind| -> [u8; 4] {
+                match kind {
+                    RegionKind::Chrome => [200u8, 80u8, 80u8, 255u8],
+                    RegionKind::Content => [80u8, 140u8, 200u8, 255u8],
+                    RegionKind::Status => [80u8, 200u8, 120u8, 255u8],
+                }
+            };
+
+            // Interior borders (1px)
+            let border_thickness = 1u32;
+            ops.push(GpuPaintOp::BorderRect {
+                rect: GpuPaintRect {
+                    x: v.chrome.x,
+                    y: v.chrome.y,
+                    width: v.chrome.width,
+                    height: v.chrome.height,
+                    color: kind_border_color(&v.chrome.kind),
+                },
+                thickness: border_thickness,
+            });
+            ops.push(GpuPaintOp::BorderRect {
+                rect: GpuPaintRect {
+                    x: v.content.x,
+                    y: v.content.y,
+                    width: v.content.width,
+                    height: v.content.height,
+                    color: kind_border_color(&v.content.kind),
+                },
+                thickness: border_thickness,
+            });
+            ops.push(GpuPaintOp::BorderRect {
+                rect: GpuPaintRect {
+                    x: v.status.x,
+                    y: v.status.y,
+                    width: v.status.width,
+                    height: v.status.height,
+                    color: kind_border_color(&v.status.kind),
+                },
+                thickness: border_thickness,
+            });
+
+            // Marker bar in chrome (right edge)
+            if let Some(ref m) = v.marker {
+                let b0 = m.as_bytes().get(0).copied().unwrap_or(0);
+                let r = b0;
+                let g = 255u8.wrapping_sub(b0);
+                let b = b0.wrapping_div(2);
+                let color = [r, g, b, 255u8];
+
+                let bar_width = 8u32.min(v.chrome.width);
+                let bar_x = v.chrome.x + v.chrome.width.saturating_sub(bar_width);
+                ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                    x: bar_x,
+                    y: v.chrome.y,
+                    width: bar_width,
+                    height: v.chrome.height,
+                    color,
+                }));
+            }
+
+            // chrome_label small centered rect
+            if let Some(ref label) = v.chrome_label {
+                let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
+                let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
+
+                let max_w = v.chrome.width.saturating_sub(16);
+                let mut box_w = max_w.min(80);
+                if box_w > 0 {
+                    let box_x = v.chrome.x + v.chrome.width / 2u32.saturating_sub(box_w / 2);
+                    let box_y = v.chrome.y + 2u32.min(v.chrome.height.saturating_sub(2));
+                    let box_h = 6u32.min(v.chrome.height.saturating_sub(2));
+                    if box_h > 0 {
+                        ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                            x: box_x,
+                            y: box_y,
+                            width: box_w,
+                            height: box_h,
+                            color,
+                        }));
+                    }
+                }
+            }
+
+            // status_text small right-aligned rect
+            if let Some(ref status) = v.status_text {
+                let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
+                let color = [255u8.wrapping_sub(b0), b0, 120u8, 255u8];
+
+                let bar_w = 18u32.min(v.status.width);
+                let bar_x = v.status.x + v.status.width.saturating_sub(bar_w + 2);
+                let bar_y = v.status.y + 1u32.min(v.status.height.saturating_sub(1));
+                let bar_h = 6u32.min(v.status.height.saturating_sub(1));
+                if bar_h > 0 && bar_w > 0 {
+                    ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                        x: bar_x,
+                        y: bar_y,
+                        width: bar_w,
+                        height: bar_h,
+                        color,
+                    }));
+                }
+            }
+
+            // content_preview thin centered line
+            if let Some(ref preview) = v.content_preview {
+                let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
+                let color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
+
+                let line_w = v.content.width.saturating_sub(20);
+                if line_w > 0 {
+                    let line_x = v.content.x + 10;
+                    let line_y = v.content.y + v.content.height / 2u32.saturating_sub(1);
+                    let line_h = 2u32.min(v.content.height);
+                    if line_h > 0 {
+                        ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                            x: line_x,
+                            y: line_y,
+                            width: line_w,
+                            height: line_h,
+                            color,
+                        }));
+                    }
+                }
+            }
+
+            GpuPaintPlan { ops }
+        }
+    }
 
 /// Thin GPU-backed presenter. It does not own any heavy application state;
 /// it provides pure functions for region mapping and buffer painting.
