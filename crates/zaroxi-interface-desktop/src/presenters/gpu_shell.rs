@@ -859,7 +859,6 @@ mod tests {
         // are content, chrome, status in that sequence within the plan_lines slice.
         // Find the first occurrence of the content fill (it should exist).
         let mut found_content = false;
-        let mut found_chrome_after = false;
         let mut found_status_after = false;
         for (i, line) in transcript.plan_lines.iter().enumerate() {
             if line.contains("FillRect") && !line.contains("content:") {
