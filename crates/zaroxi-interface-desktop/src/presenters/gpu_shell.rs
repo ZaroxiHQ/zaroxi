@@ -672,6 +672,102 @@ impl TabStrip {
         }
         TabStrip { tabs }
     }
+
+    /// Return the index of the first active tab, if any.
+    pub fn active_index(&self) -> Option<usize> {
+        self.tabs.iter().position(|t| t.active)
+    }
+
+    /// Compute the id that should become active for the "next tab" intent.
+    ///
+    /// Deterministic rules:
+    /// - If there are no tabs -> None.
+    /// - If there is exactly one tab -> that tab's id.
+    /// - If an active tab exists:
+    ///     - If it's not the last tab -> select the next tab in order.
+    ///     - If it's the last tab:
+    ///         - If wrap == true -> wrap to the first tab.
+    ///         - If wrap == false -> remain on the last tab (no-op).
+    /// - If no active tab exists -> deterministically select the first tab.
+    pub fn next_active_id(&self, wrap: bool) -> Option<String> {
+        let len = self.tabs.len();
+        if len == 0 {
+            return None;
+        }
+        if len == 1 {
+            return Some(self.tabs[0].id.clone());
+        }
+
+        if let Some(idx) = self.active_index() {
+            if idx + 1 < len {
+                return Some(self.tabs[idx + 1].id.clone());
+            } else if wrap {
+                return Some(self.tabs[0].id.clone());
+            } else {
+                // no-op: remain on current active
+                return Some(self.tabs[idx].id.clone());
+            }
+        }
+
+        // No active tab: choose first deterministically.
+        Some(self.tabs[0].id.clone())
+    }
+
+    /// Compute the id that should become active for the "previous tab" intent.
+    ///
+    /// Deterministic rules:
+    /// - If there are no tabs -> None.
+    /// - If there is exactly one tab -> that tab's id.
+    /// - If an active tab exists:
+    ///     - If it's not the first tab -> select the previous tab in order.
+    ///     - If it's the first tab:
+    ///         - If wrap == true -> wrap to the last tab.
+    ///         - If wrap == false -> remain on the first tab (no-op).
+    /// - If no active tab exists -> deterministically select the last tab.
+    pub fn prev_active_id(&self, wrap: bool) -> Option<String> {
+        let len = self.tabs.len();
+        if len == 0 {
+            return None;
+        }
+        if len == 1 {
+            return Some(self.tabs[0].id.clone());
+        }
+
+        if let Some(idx) = self.active_index() {
+            if idx > 0 {
+                return Some(self.tabs[idx - 1].id.clone());
+            } else if wrap {
+                return Some(self.tabs[len - 1].id.clone());
+            } else {
+                // no-op: remain on current active
+                return Some(self.tabs[idx].id.clone());
+            }
+        }
+
+        // No active tab: choose last deterministically.
+        Some(self.tabs[len - 1].id.clone())
+    }
+
+    /// Return a new TabStrip with the given id marked active.
+    /// If the id is not found, returns self.clone() unchanged.
+    pub fn with_active_id(&self, id: &str) -> Self {
+        let mut new = self.clone();
+        let mut found = false;
+        for t in new.tabs.iter_mut() {
+            if t.id == id {
+                t.active = true;
+                found = true;
+            } else {
+                t.active = false;
+            }
+        }
+        if found {
+            new
+        } else {
+            // id not found: return original (no change)
+            self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
