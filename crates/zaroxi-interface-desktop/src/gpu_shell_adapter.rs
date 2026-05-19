@@ -12,7 +12,7 @@ This adapter intentionally keeps mapping decisions minimal and wireframe-like:
 */
 
 use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
-use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, ShellRegions};
+use crate::presenters::gpu_shell::{GpuShellPresenter, ShellRegions};
 
 use crate::events::{UiEvent, Key as UiKey};
 
