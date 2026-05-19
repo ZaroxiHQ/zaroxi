@@ -13,8 +13,7 @@ Design constraints:
   and hand it to a small adapter which delegates to the presenter's pure mapping.
 */
 
-#[path = "../gpu_shell_adapter.rs"]
-mod gpu_shell_adapter;
+use zaroxi_interface_desktop::gpu_shell_adapter;
 
 #[cfg(not(feature = "gpu_shell_bin"))]
 fn main() {
@@ -30,8 +29,8 @@ fn main() {
     use minifb::{Key, Window, WindowOptions};
 
     use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
-    use crate::gpu_shell_adapter::{view_model_to_regions_from_scratch, NativeKey, map_native_to_ui_event};
-    use crate::events::{EventBridge, ActionExecutor, Action};
+    use zaroxi_interface_desktop::gpu_shell_adapter::{view_model_to_regions_from_scratch, NativeKey, map_native_to_ui_event};
+    use zaroxi_interface_desktop::events::{EventBridge, ActionExecutor, Action};
 
     // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.
     // This executor does not duplicate action mapping (EventBridge still performs mapping).
