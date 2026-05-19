@@ -106,3 +106,39 @@ impl GpuShellPresenter {
         // version/API coupling inside this presenter module.
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gpu_shell_adapter::view_model_to_regions;
+    use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
+
+    /// Verify that a real ShellRenderViewModel can be converted into presenter
+    /// regions and that the three regions are present and ordered (chrome above
+    /// content above status).
+    #[test]
+    fn view_model_to_regions_preserves_order() {
+        let width: u32 = 200;
+        let height: u32 = 100;
+
+        // Construct a real shell-facing model (same type used by other shells).
+        let model = ShellRenderViewModel::default();
+
+        // Convert via the adapter.
+        let regions = view_model_to_regions(&model, width, height);
+
+        // Basic structural assertions: x origin, widths, and vertical ordering.
+        assert_eq!(regions.chrome.x, 0);
+        assert_eq!(regions.content.x, 0);
+        assert_eq!(regions.status.x, 0);
+
+        assert_eq!(regions.chrome.width, width);
+        assert_eq!(regions.content.width, width);
+        assert_eq!(regions.status.width, width);
+
+        // Vertical ordering: chrome starts at 0, content starts after chrome,
+        // status starts after content.
+        assert!(regions.chrome.y < regions.content.y);
+        assert!(regions.content.y < regions.status.y);
+    }
+}

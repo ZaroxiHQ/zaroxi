@@ -3,14 +3,17 @@ Feature-gated native GPU shell bootstrap.
 
 This binary provides two builds:
 - Non-feature (default): prints a compatibility message and exits.
-- With feature "gpu_shell_bin": runs a minimal native window using winit + pixels,
+- With feature "gpu_shell_bin": runs a minimal native window using minifb,
   reusing the existing GpuShellPresenter for region mapping and painting.
 
 Design constraints:
 - Tiny, minimal event loop with one window and one presenter.
 - All native deps are optional and enabled only when the feature is requested.
-- No changes to presenter implementation; we reuse paint_to_buffer.
+- No duplication of composition logic: we obtain a real shell-facing view model
+  and hand it to a small adapter which delegates to the presenter's pure mapping.
 */
+
+mod gpu_shell_adapter;
 
 #[cfg(not(feature = "gpu_shell_bin"))]
 fn main() {
@@ -21,14 +24,13 @@ fn main() {
 
 #[cfg(feature = "gpu_shell_bin")]
 fn main() {
-    // Minimal, robust native path using minifb instead of winit/pixels.
-    // This avoids fragile winit API differences while still providing a
-    // real native window and reusing the presenter's paint_to_buffer logic.
+    // Minimal, robust native path using minifb.
     use std::{thread::sleep, time::Duration};
-
     use minifb::{Key, Window, WindowOptions};
 
     use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
+    use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
+    use crate::gpu_shell_adapter::view_model_to_regions;
 
     let width: u32 = 800;
     let height: u32 = 600;
@@ -46,14 +48,18 @@ fn main() {
     )
     .expect("Failed to create window");
 
-    // Fixed chrome/status sizes (presenter will clamp).
-    let chrome_height = 60u32;
-    let status_height = 24u32;
-
-    // Simple render loop.
+    // Simple render loop driven by a real ShellRenderViewModel.
+    // We recompose a fresh model each frame (very small, conservative loop).
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Ask the presenter for regions and paint into the RGBA buffer.
-        let regions = GpuShellPresenter::map_regions(width, height, chrome_height, status_height);
+        // Build or obtain the real shell-facing model used by other shells.
+        // For this phase we use the model's Default constructor so the runtime
+        // path uses the same model type as the harness and terminal shell.
+        let model = ShellRenderViewModel::default();
+
+        // Convert the real model into presenter regions via the adapter.
+        let regions = view_model_to_regions(&model, width, height);
+
+        // Paint into the RGBA buffer using the presenter's pure function.
         GpuShellPresenter::paint_to_buffer(width, height, &mut rgba_buf, &regions);
 
         // Convert RGBA8 -> 0x00RRGGBB u32 pixels (drop alpha).
@@ -68,7 +74,7 @@ fn main() {
         // Update window; ignore occasional update errors for robustness.
         let _ = window.update_with_buffer(&pixel_buf, width as usize, height as usize);
 
-        // Throttle to ~60fps.
-        sleep(Duration::from_millis(16));
+        // Throttle to a modest refresh rate; real apps will hook into the composition tick.
+        sleep(Duration::from_millis(100));
     }
 }
