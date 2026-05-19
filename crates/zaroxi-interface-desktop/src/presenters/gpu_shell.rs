@@ -1049,6 +1049,33 @@ impl GpuShellPresenter {
      }
  }
  
+ /// Apply a `TabAction` through the deterministic resolution path and invoke
+ /// the provided side-effecting setter when a target id is computed.
+ ///
+ /// This function centralizes the presenter-facing action -> target resolution
+ /// by reusing `compute_tab_action_target` and ensures desktop callers can
+ /// perform the mutation (activate the buffer) in their usual outer-layer flow.
+ ///
+ /// - `apply` is invoked only when a target id is produced and receives the
+ ///    chosen id (string slice) to pass into the application's activation flow.
+ /// - Returns the chosen id (Some) or None when no target exists (no buffers).
+ pub fn apply_tab_action<F>(
+     action: TabAction,
+     opened: &[(String, String)],
+     current_active: Option<&str>,
+     mut apply: F,
+ ) -> Option<String>
+ where
+     F: FnMut(&str),
+ {
+     if let Some(id) = compute_tab_action_target(action, opened, current_active) {
+         apply(&id);
+         Some(id)
+     } else {
+         None
+     }
+ }
+ 
 /// Execute a paint plan into an RGBA8 buffer.
 ///
 /// This executor is intentionally dumb: it follows the GpuPaintPlan operations

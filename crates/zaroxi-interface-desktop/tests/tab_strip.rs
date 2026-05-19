@@ -1,4 +1,4 @@
-use zaroxi_interface_desktop::presenters::gpu_shell::{TabStrip, TabAction, compute_tab_action_target};
+use zaroxi_interface_desktop::presenters::gpu_shell::{TabStrip, TabAction, compute_tab_action_target, apply_tab_action};
 
 #[test]
 fn no_buffers_empty_tab_strip() {
@@ -181,4 +181,124 @@ fn action_deterministic_fallback_when_active_missing() {
     let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
     assert_eq!(t_next.as_deref(), Some("one"));
     assert_eq!(t_prev.as_deref(), Some("three"));
+}
+
+// ----- New focused tests: ensure TabAction -> apply_tab_action updates active buffer via the
+//           presenter's deterministic resolution path. These tests are small, additive and
+//           exercise the normal desktop-side mutation seam by providing a closure that
+//           performs the activation (simulating the application-side active-buffer setter).
+
+#[test]
+fn action_path_activate_next_updates_active_buffer() {
+    let opened = vec![
+        ("a".to_string(), "A".to_string()),
+        ("b".to_string(), "B".to_string()),
+        ("c".to_string(), "C".to_string()),
+    ];
+    // Simulate outer application state for active id.
+    let mut active: Option<String> = Some("a".to_string());
+
+    // Apply the next action; closure simulates applying the chosen id into app state.
+    let res = apply_tab_action(
+        TabAction::ActivateNext { wrap: true },
+        &opened,
+        active.as_deref(),
+        |id| {
+            active = Some(id.to_string());
+        },
+    );
+
+    assert_eq!(res.as_deref(), Some("b"));
+    assert_eq!(active.as_deref(), Some("b"));
+}
+
+#[test]
+fn action_path_activate_previous_updates_active_buffer() {
+    let opened = vec![
+        ("a".to_string(), "A".to_string()),
+        ("b".to_string(), "B".to_string()),
+        ("c".to_string(), "C".to_string()),
+    ];
+    let mut active: Option<String> = Some("b".to_string());
+
+    let res = apply_tab_action(
+        TabAction::ActivatePrevious { wrap: true },
+        &opened,
+        active.as_deref(),
+        |id| {
+            active = Some(id.to_string());
+        },
+    );
+
+    assert_eq!(res.as_deref(), Some("a"));
+    assert_eq!(active.as_deref(), Some("a"));
+}
+
+#[test]
+fn action_path_empty_buffers_is_noop() {
+    let opened: Vec<(String, String)> = vec![];
+    let mut applied = false;
+    let res = apply_tab_action(
+        TabAction::ActivateNext { wrap: true },
+        &opened,
+        None,
+        |_id| {
+            applied = true;
+        },
+    );
+    assert_eq!(res, None);
+    assert!(!applied);
+}
+
+#[test]
+fn action_path_single_buffer_stays_same() {
+    let opened = vec![("solo".to_string(), "solo.rs".to_string())];
+    let mut active: Option<String> = Some("solo".to_string());
+
+    let res = apply_tab_action(
+        TabAction::ActivateNext { wrap: true },
+        &opened,
+        active.as_deref(),
+        |id| {
+            active = Some(id.to_string());
+        },
+    );
+
+    assert_eq!(res.as_deref(), Some("solo"));
+    assert_eq!(active.as_deref(), Some("solo"));
+}
+
+#[test]
+fn action_path_fallback_when_active_missing_selects_deterministically() {
+    let opened = vec![
+        ("one".to_string(), "One".to_string()),
+        ("two".to_string(), "Two".to_string()),
+        ("three".to_string(), "Three".to_string()),
+    ];
+    // active = none
+    let mut active: Option<String> = None;
+
+    let res_next = apply_tab_action(
+        TabAction::ActivateNext { wrap: true },
+        &opened,
+        active.as_deref(),
+        |id| {
+            active = Some(id.to_string());
+        },
+    );
+    assert_eq!(res_next.as_deref(), Some("one"));
+    assert_eq!(active.as_deref(), Some("one"));
+
+    // reset and test prev -> should pick last deterministically
+    active = None;
+    let res_prev = apply_tab_action(
+        TabAction::ActivatePrevious { wrap: true },
+        &opened,
+        active.as_deref(),
+        |id| {
+            active = Some(id.to_string());
+        },
+    );
+    assert_eq!(res_prev.as_deref(), Some("three"));
+    assert_eq!(active.as_deref(), Some("three"));
 }
