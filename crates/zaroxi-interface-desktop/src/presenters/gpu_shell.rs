@@ -390,46 +390,8 @@ impl GpuShellPresenter {
         let view = GpuShellView::from_shell_regions(regions);
         let plan = GpuPaintPlan::from_view(&view);
 
-        // helper function to fill a rect with an RGBA color without capturing a mutable borrow
-        fn fill_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect) {
-            for row in rect.y..rect.y.saturating_add(rect.height) {
-                for col in rect.x..rect.x.saturating_add(rect.width) {
-                    let idx = ((row * width + col) * 4) as usize;
-                    buffer[idx..idx + 4].copy_from_slice(&rect.color);
-                }
-            }
-        }
-
-        // Helper to draw an interior border of `thickness` pixels using `color`.
-        fn draw_border_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect, thickness: u32) {
-            if rect.width == 0 || rect.height == 0 || thickness == 0 {
-                return;
-            }
-            let left = rect.x;
-            let top = rect.y;
-            let right = rect.x + rect.width;
-            let bottom = rect.y + rect.height;
-            for row in top..top.saturating_add(rect.height) {
-                for col in left..left.saturating_add(rect.width) {
-                    let in_left = col < left + thickness;
-                    let in_right = col >= right.saturating_sub(thickness);
-                    let in_top = row < top + thickness;
-                    let in_bottom = row >= bottom.saturating_sub(thickness);
-                    if in_left || in_right || in_top || in_bottom {
-                        let idx = ((row * width + col) * 4) as usize;
-                        buffer[idx..idx + 4].copy_from_slice(&rect.color);
-                    }
-                }
-            }
-        }
-
-        // Execute plan in deterministic order.
-        for op in plan.ops.iter() {
-            match op {
-                GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
-                GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
-            }
-        }
+        // Delegate execution to the explicit paint-plan executor (pure, dumb).
+        execute_paint_plan(&plan, buffer, width, height);
     }
 
     /// Native window runner (no-op in the presenter).
@@ -441,6 +403,59 @@ impl GpuShellPresenter {
     pub fn run_native(_initial_width: u32, _initial_height: u32) {
         // No-op: the native bootstrap lives in the gpu_shell binary to avoid
         // version/API coupling inside this presenter module.
+    }
+}
+
+/// Execute a paint plan into an RGBA8 buffer.
+///
+/// This executor is intentionally dumb: it follows the GpuPaintPlan operations
+/// exactly and writes pixels into the provided buffer. It performs a size check
+/// and returns early when the buffer size does not match width*height*4.
+pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, height: u32) {
+    let expected = (width as usize) * (height as usize) * 4;
+    if buffer.len() != expected {
+        // Silence: do nothing on size mismatch.
+        return;
+    }
+
+    // helper function to fill a rect with an RGBA color
+    fn fill_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect) {
+        for row in rect.y..rect.y.saturating_add(rect.height) {
+            for col in rect.x..rect.x.saturating_add(rect.width) {
+                let idx = ((row * width + col) * 4) as usize;
+                buffer[idx..idx + 4].copy_from_slice(&rect.color);
+            }
+        }
+    }
+
+    // Helper to draw an interior border of `thickness` pixels using `color`.
+    fn draw_border_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect, thickness: u32) {
+        if rect.width == 0 || rect.height == 0 || thickness == 0 {
+            return;
+        }
+        let left = rect.x;
+        let top = rect.y;
+        let right = rect.x + rect.width;
+        let bottom = rect.y + rect.height;
+        for row in top..top.saturating_add(rect.height) {
+            for col in left..left.saturating_add(rect.width) {
+                let in_left = col < left + thickness;
+                let in_right = col >= right.saturating_sub(thickness);
+                let in_top = row < top + thickness;
+                let in_bottom = row >= bottom.saturating_sub(thickness);
+                if in_left || in_right || in_top || in_bottom {
+                    let idx = ((row * width + col) * 4) as usize;
+                    buffer[idx..idx + 4].copy_from_slice(&rect.color);
+                }
+            }
+        }
+    }
+
+    for op in plan.ops.iter() {
+        match op {
+            GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
+            GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
+        }
     }
 }
 
@@ -617,5 +632,70 @@ mod tests {
             }
             _ => panic!("expected status BorderRect as sixth op"),
         }
+    }
+
+    /// Focused test: ensure executing a small, explicit GpuPaintPlan writes the
+    /// expected pixels into the buffer.
+    #[test]
+    fn execute_paint_plan_writes_pixels() {
+        let width: u32 = 10;
+        let height: u32 = 5;
+        let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
+
+        // Single small rect: at (1,1) size 2x2 with a distinctive color.
+        let rect = GpuPaintRect {
+            x: 1,
+            y: 1,
+            width: 2,
+            height: 2,
+            color: [11u8, 22u8, 33u8, 44u8],
+        };
+        let plan = GpuPaintPlan {
+            ops: vec![GpuPaintOp::FillRect(rect.clone())],
+        };
+
+        // Execute the plan directly (executor should be dumb and follow ops).
+        execute_paint_plan(&plan, &mut buf, width, height);
+
+        // Helper to read RGBA at (x,y)
+        let read_pixel = |x: u32, y: u32| -> [u8; 4] {
+            let idx = ((y * width + x) * 4) as usize;
+            [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
+        };
+
+        // Pixels inside rect should match color.
+        assert_eq!(read_pixel(1, 1), rect.color);
+        assert_eq!(read_pixel(2, 1), rect.color);
+        assert_eq!(read_pixel(1, 2), rect.color);
+        assert_eq!(read_pixel(2, 2), rect.color);
+
+        // Pixel outside should remain zero.
+        assert_eq!(read_pixel(0, 0), [0u8, 0u8, 0u8, 0u8]);
+    }
+
+    /// Executor size-mismatch remains a no-op (does not panic and does not mutate).
+    #[test]
+    fn execute_paint_plan_size_mismatch_is_noop() {
+        let width: u32 = 8;
+        let height: u32 = 4;
+        // Wrong sized buffer intentionally.
+        let mut buf = vec![7u8; (width as usize) * (height as usize) * 4 - 4];
+
+        let rect = GpuPaintRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            color: [9u8, 9u8, 9u8, 9u8],
+        };
+        let plan = GpuPaintPlan {
+            ops: vec![GpuPaintOp::FillRect(rect)],
+        };
+
+        // Should silently return without modifying `buf`.
+        execute_paint_plan(&plan, &mut buf, width, height);
+
+        // Ensure buffer unchanged (all bytes still 7).
+        assert!(buf.iter().all(|&b| b == 7u8));
     }
 }
