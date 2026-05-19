@@ -110,18 +110,19 @@ impl GpuShellPresenter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu_shell_adapter::view_model_to_regions_from_scratch;
 
-    /// Verify that a real ShellRenderViewModel can be converted into presenter
-    /// regions and that the three regions are present and ordered (chrome above
-    /// content above status).
+    /// Verify that region mapping produces three ordered regions (chrome above
+    /// content above status). This keeps the test crate-local and avoids
+    /// depending on the binary-scoped adapter module.
     #[test]
-    fn view_model_to_regions_preserves_order() {
+    fn map_regions_preserves_order() {
         let width: u32 = 200;
         let height: u32 = 100;
+        let chrome_h: u32 = 60;
+        let status_h: u32 = 24;
 
-        // Convert via the adapter (scratch fallback model).
-        let regions = view_model_to_regions_from_scratch(width, height);
+        // Use the presenter's pure mapping function directly.
+        let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
 
         // Basic structural assertions: x origin, widths, and vertical ordering.
         assert_eq!(regions.chrome.x, 0);
