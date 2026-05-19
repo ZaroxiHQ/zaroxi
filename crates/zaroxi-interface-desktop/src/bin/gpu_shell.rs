@@ -30,7 +30,22 @@ fn main() {
     use minifb::{Key, Window, WindowOptions};
 
     use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
-    use crate::gpu_shell_adapter::view_model_to_regions_from_scratch;
+    use crate::gpu_shell_adapter::{view_model_to_regions_from_scratch, NativeKey, map_native_to_ui_event};
+    use crate::events::{EventBridge, ActionExecutor, Action};
+
+    // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.
+    // This executor does not duplicate action mapping (EventBridge still performs mapping).
+    struct LocalExecutor;
+
+    impl ActionExecutor for LocalExecutor {
+        fn execute(&mut self, action: Action) {
+            // Keep executor UI-only and minimal: log for visibility. Real implementations
+            // in the application layer would perform engine mutations.
+            eprintln!("gpu_shell LocalExecutor: executed action: {:?}", action);
+        }
+    }
+
+    let mut executor = LocalExecutor;
 
     let width: u32 = 800;
     let height: u32 = 600;
@@ -51,7 +66,35 @@ fn main() {
     // Simple render loop driven by a real ShellRenderViewModel.
     // We recompose a fresh model each frame (very small, conservative loop).
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        // POLL INPUT: translate native keys into UiEvent via the shared adapter helper
+        // and route through the existing EventBridge. This keeps mapping logic in one place.
+        //
+        // Minimal set of keys:
+        // - Up, Down, Enter, A (character example)
+        if window.is_key_down(Key::Up) {
+            if let Some(ev) = map_native_to_ui_event(NativeKey::Up) {
+                EventBridge::handle_event(ev, &mut executor);
+            }
+        }
+        if window.is_key_down(Key::Down) {
+            if let Some(ev) = map_native_to_ui_event(NativeKey::Down) {
+                EventBridge::handle_event(ev, &mut executor);
+            }
+        }
+        if window.is_key_down(Key::Enter) {
+            if let Some(ev) = map_native_to_ui_event(NativeKey::Enter) {
+                EventBridge::handle_event(ev, &mut executor);
+            }
+        }
+        if window.is_key_down(Key::A) {
+            if let Some(ev) = map_native_to_ui_event(NativeKey::Char('a')) {
+                EventBridge::handle_event(ev, &mut executor);
+            }
+        }
+
         // Convert into presenter regions via the adapter (scratch fallback for runtime).
+        // We always recompose (from-scratch) after handling inputs so the rendered frame
+        // can reflect any accepted actions.
         let regions = view_model_to_regions_from_scratch(width, height);
 
         // Paint into the RGBA buffer using the presenter's pure function.

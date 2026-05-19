@@ -14,6 +14,30 @@ This adapter intentionally keeps mapping decisions minimal and wireframe-like:
 use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
 use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, ShellRegions};
 
+use crate::events::{UiEvent, Key as UiKey};
+
+/// Minimal native-key abstraction kept crate-local so translation logic is
+/// testable without pulling in optional native deps (minifb).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeKey {
+    Up,
+    Down,
+    Enter,
+    Char(char),
+}
+
+/// Map a crate-local NativeKey into the existing UiEvent model.
+/// This function keeps the translation surface small and reuses the canonical
+/// UiEvent/Key types defined in the events module.
+pub fn map_native_to_ui_event(k: NativeKey) -> Option<UiEvent> {
+    match k {
+        NativeKey::Up => Some(UiEvent::Key(UiKey::ArrowUp)),
+        NativeKey::Down => Some(UiEvent::Key(UiKey::ArrowDown)),
+        NativeKey::Enter => Some(UiEvent::Key(UiKey::Enter)),
+        NativeKey::Char(c) => Some(UiEvent::Key(UiKey::Char(c))),
+    }
+}
+
 /// Convert a ShellRenderViewModel into presenter ShellRegions for a window of
 /// size (width x height).
 ///
