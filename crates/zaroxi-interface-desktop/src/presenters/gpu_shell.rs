@@ -187,131 +187,48 @@ impl GpuShellPresenter {
         // Clear to a baseline (transparent black) first.
         buffer.fill(0);
 
-        // Build the explicit presenter output contract and shadow the local
-        // `regions` binding so the remainder of the painting code consumes the
-        // stable GpuShellView. This is an additive, tiny extraction — existing
-        // behavior and sampled pixels are preserved.
-        let _view = GpuShellView::from_shell_regions(regions);
+        // Build the explicit presenter output contract and convert into a paint plan.
+        let view = GpuShellView::from_shell_regions(regions);
+        let plan = GpuPaintPlan::from_view(&view);
 
-        // helper function to fill a region with an RGBA color without capturing a mutable borrow
-        fn fill_region(buffer: &mut [u8], width: u32, region: &Region, color: [u8; 4]) {
-            for row in region.y..region.y.saturating_add(region.height) {
-                for col in region.x..region.x.saturating_add(region.width) {
+        // helper function to fill a rect with an RGBA color without capturing a mutable borrow
+        fn fill_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect) {
+            for row in rect.y..rect.y.saturating_add(rect.height) {
+                for col in rect.x..rect.x.saturating_add(rect.width) {
                     let idx = ((row * width + col) * 4) as usize;
-                    buffer[idx..idx + 4].copy_from_slice(&color);
+                    buffer[idx..idx + 4].copy_from_slice(&rect.color);
                 }
             }
         }
 
         // Helper to draw an interior border of `thickness` pixels using `color`.
-        fn draw_border(buffer: &mut [u8], width: u32, region: &Region, color: [u8; 4], thickness: u32) {
-            if region.width == 0 || region.height == 0 || thickness == 0 {
+        fn draw_border_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect, thickness: u32) {
+            if rect.width == 0 || rect.height == 0 || thickness == 0 {
                 return;
             }
-            let left = region.x;
-            let top = region.y;
-            let right = region.x + region.width;
-            let bottom = region.y + region.height;
-            for row in top..top.saturating_add(region.height) {
-                for col in left..left.saturating_add(region.width) {
+            let left = rect.x;
+            let top = rect.y;
+            let right = rect.x + rect.width;
+            let bottom = rect.y + rect.height;
+            for row in top..top.saturating_add(rect.height) {
+                for col in left..left.saturating_add(rect.width) {
                     let in_left = col < left + thickness;
                     let in_right = col >= right.saturating_sub(thickness);
                     let in_top = row < top + thickness;
                     let in_bottom = row >= bottom.saturating_sub(thickness);
                     if in_left || in_right || in_top || in_bottom {
                         let idx = ((row * width + col) * 4) as usize;
-                        buffer[idx..idx + 4].copy_from_slice(&color);
+                        buffer[idx..idx + 4].copy_from_slice(&rect.color);
                     }
                 }
             }
         }
 
-        // Map semantic region kind -> deterministic border color.
-        fn kind_border_color(kind: &RegionKind) -> [u8; 4] {
-            match kind {
-                RegionKind::Chrome => [200u8, 80u8, 80u8, 255u8],  // warm/red tint for chrome
-                RegionKind::Content => [80u8, 140u8, 200u8, 255u8], // cool/blue tint for content
-                RegionKind::Status => [80u8, 200u8, 120u8, 255u8],  // greenish tint for status
-            }
-        }
-
-        // Base fills (kept as simple flat fills to preserve deterministic structure).
-        fill_region(buffer, width, &regions.content, [220u8, 220u8, 225u8, 255u8]);
-        fill_region(buffer, width, &regions.chrome, [32u8, 32u8, 40u8, 255u8]);
-        fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
-
-        // Draw a thin interior border for each region according to its semantic kind.
-        // Use a 1-pixel interior border so we augment the prior fill contract
-        // without overwriting commonly-sampled interior pixels used by existing tests.
-        let border_thickness = 1u32;
-        draw_border(buffer, width, &regions.chrome, kind_border_color(&regions.chrome.kind), border_thickness);
-        draw_border(buffer, width, &regions.content, kind_border_color(&regions.content.kind), border_thickness);
-        draw_border(buffer, width, &regions.status, kind_border_color(&regions.status.kind), border_thickness);
-
-        // If a marker string is present, draw a small deterministic colored bar in the chrome
-        // region's right edge to make visible state changes observable by tests/runs.
-        if let Some(ref m) = regions.marker {
-            // Simple deterministic color from the first byte of the utf8 representation.
-            let b0 = m.as_bytes().get(0).copied().unwrap_or(0);
-            let r = b0;
-            let g = 255u8.wrapping_sub(b0);
-            let b = b0.wrapping_div(2);
-            let color = [r, g, b, 255u8];
-
-            // Draw an 8-pixel wide vertical bar anchored to the right edge of the chrome.
-            let bar_width = 8u32.min(regions.chrome.width);
-            let bar_x = regions.chrome.x + regions.chrome.width.saturating_sub(bar_width);
-            let bar_region = Region::with_kind(bar_x, regions.chrome.y, bar_width, regions.chrome.height, RegionKind::Chrome);
-            fill_region(buffer, width, &bar_region, color);
-        }
-
-        // Small, deterministic semantic payload visualizations (kept away from commonly-sampled pixels):
-        // - chrome_label: small centered horizontal block near the top of chrome (avoids top-left sampling)
-        // - status_text: small right-aligned block inside status region (avoids left-side sampling)
-        // - content_preview: thin centered horizontal line in content (offset to avoid left-side sampling)
-        if let Some(ref label) = regions.chrome_label {
-            let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
-            let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
-
-            // Draw a small centered rectangle in the chrome, anchored a few pixels from the top.
-            let max_w = regions.chrome.width.saturating_sub(16);
-            let box_w = (max_w.min(80)).saturating_sub(0);
-            let box_w = if box_w == 0 { 0 } else { box_w };
-            if box_w > 0 {
-                let box_x = regions.chrome.x + regions.chrome.width / 2u32.saturating_sub(box_w / 2);
-                let box_y = regions.chrome.y + 2u32.min(regions.chrome.height.saturating_sub(2));
-                let box_h = 6u32.min(regions.chrome.height.saturating_sub(2));
-                let box_region = Region::with_kind(box_x, box_y, box_w, box_h, RegionKind::Chrome);
-                fill_region(buffer, width, &box_region, color);
-            }
-        }
-
-        if let Some(ref status) = regions.status_text {
-            let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
-            let color = [255u8.wrapping_sub(b0), b0, 120u8, 255u8];
-
-            // Draw a small right-aligned rectangle inside the status region.
-            let bar_w = 18u32.min(regions.status.width);
-            let bar_x = regions.status.x + regions.status.width.saturating_sub(bar_w + 2);
-            let bar_y = regions.status.y + 1u32.min(regions.status.height.saturating_sub(1));
-            let bar_h = 6u32.min(regions.status.height.saturating_sub(1));
-            if bar_h > 0 && bar_w > 0 {
-                let bar_region = Region::with_kind(bar_x, bar_y, bar_w, bar_h, RegionKind::Status);
-                fill_region(buffer, width, &bar_region, color);
-            }
-        }
-
-        if let Some(ref preview) = regions.content_preview {
-            let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
-            let color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
-
-            // Thin centered preview line in the content region (avoids left-edge sampling).
-            let line_w = regions.content.width.saturating_sub(20);
-            if line_w > 0 {
-                let line_x = regions.content.x + 10;
-                let line_y = regions.content.y + regions.content.height / 2u32.saturating_sub(1);
-                let line_region = Region::with_kind(line_x, line_y, line_w, 2u32.min(regions.content.height), RegionKind::Content);
-                fill_region(buffer, width, &line_region, color);
+        // Execute plan in deterministic order.
+        for op in plan.ops.iter() {
+            match op {
+                GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
+                GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
             }
         }
     }
@@ -425,5 +342,81 @@ mod tests {
         let view2 = GpuShellView::from_shell_regions(&r2);
         assert_eq!(view2.chrome_label, Some("buf".to_string()));
         assert_eq!(view2.status_text, Some("status".to_string()));
+    }
+
+    /// Focused test: ensure converting a GpuShellView -> GpuPaintPlan produces
+    /// the expected leading operations (base fills and borders) and preserves
+    /// rects/colors deterministically.
+    #[test]
+    fn paint_plan_from_view_sequence() {
+        let width: u32 = 200;
+        let height: u32 = 100;
+        let chrome_h: u32 = 60;
+        let status_h: u32 = 24;
+
+        let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        let view = GpuShellView::from_shell_regions(&regions);
+
+        let plan = GpuPaintPlan::from_view(&view);
+
+        // Expect at least: content fill, chrome fill, status fill, then three borders.
+        assert!(plan.ops.len() >= 6);
+
+        // First three ops should be FillRect for content, chrome, status respectively.
+        match &plan.ops[0] {
+            GpuPaintOp::FillRect(r) => {
+                assert_eq!(r.x, regions.content.x);
+                assert_eq!(r.y, regions.content.y);
+                assert_eq!(r.width, regions.content.width);
+                assert_eq!(r.height, regions.content.height);
+                assert_eq!(r.color, [220u8, 220u8, 225u8, 255u8]);
+            }
+            _ => panic!("expected content FillRect as first op"),
+        }
+
+        match &plan.ops[1] {
+            GpuPaintOp::FillRect(r) => {
+                assert_eq!(r.x, regions.chrome.x);
+                assert_eq!(r.y, regions.chrome.y);
+                assert_eq!(r.width, regions.chrome.width);
+                assert_eq!(r.height, regions.chrome.height);
+                assert_eq!(r.color, [32u8, 32u8, 40u8, 255u8]);
+            }
+            _ => panic!("expected chrome FillRect as second op"),
+        }
+
+        match &plan.ops[2] {
+            GpuPaintOp::FillRect(r) => {
+                assert_eq!(r.x, regions.status.x);
+                assert_eq!(r.y, regions.status.y);
+                assert_eq!(r.width, regions.status.width);
+                assert_eq!(r.height, regions.status.height);
+                assert_eq!(r.color, [48u8, 48u8, 56u8, 255u8]);
+            }
+            _ => panic!("expected status FillRect as third op"),
+        }
+
+        // Next three should be BorderRect entries (chrome, content, status).
+        match &plan.ops[3] {
+            GpuPaintOp::BorderRect { rect, thickness } => {
+                assert_eq!(thickness, &1u32);
+                assert_eq!(rect.x, regions.chrome.x);
+            }
+            _ => panic!("expected chrome BorderRect as fourth op"),
+        }
+        match &plan.ops[4] {
+            GpuPaintOp::BorderRect { rect, thickness } => {
+                assert_eq!(thickness, &1u32);
+                assert_eq!(rect.x, regions.content.x);
+            }
+            _ => panic!("expected content BorderRect as fifth op"),
+        }
+        match &plan.ops[5] {
+            GpuPaintOp::BorderRect { rect, thickness } => {
+                assert_eq!(thickness, &1u32);
+                assert_eq!(rect.x, regions.status.x);
+            }
+            _ => panic!("expected status BorderRect as sixth op"),
+        }
     }
 }
