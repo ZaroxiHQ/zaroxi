@@ -26,3 +26,15 @@ pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: 
 
     GpuShellPresenter::map_regions(width, height, chrome_h, status_h)
 }
+
+/// Runtime-friendly helper that does not require a constructed ShellRenderViewModel.
+/// This is useful for the binary runtime path where constructing the full model
+/// may be handled by the composition pipeline in a later phase. For now this
+/// preserves the wiring surface and keeps the runtime loop tiny.
+pub fn view_model_to_regions_from_scratch(width: u32, height: u32) -> ShellRegions {
+    // Default wireframe metrics (kept small and stable).
+    let chrome_h: u32 = 60;
+    let status_h: u32 = 24;
+
+    GpuShellPresenter::map_regions(width, height, chrome_h, status_h)
+}

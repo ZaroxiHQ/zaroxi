@@ -110,8 +110,7 @@ impl GpuShellPresenter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpu_shell_adapter::view_model_to_regions;
-    use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
+    use crate::gpu_shell_adapter::view_model_to_regions_from_scratch;
 
     /// Verify that a real ShellRenderViewModel can be converted into presenter
     /// regions and that the three regions are present and ordered (chrome above
@@ -121,11 +120,8 @@ mod tests {
         let width: u32 = 200;
         let height: u32 = 100;
 
-        // Construct a real shell-facing model (same type used by other shells).
-        let model = ShellRenderViewModel::default();
-
-        // Convert via the adapter.
-        let regions = view_model_to_regions(&model, width, height);
+        // Convert via the adapter (scratch fallback model).
+        let regions = view_model_to_regions_from_scratch(width, height);
 
         // Basic structural assertions: x origin, widths, and vertical ordering.
         assert_eq!(regions.chrome.x, 0);

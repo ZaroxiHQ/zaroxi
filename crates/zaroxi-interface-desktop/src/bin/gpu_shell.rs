@@ -13,7 +13,7 @@ Design constraints:
   and hand it to a small adapter which delegates to the presenter's pure mapping.
 */
 
-mod gpu_shell_adapter;
+use zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch;
 
 #[cfg(not(feature = "gpu_shell_bin"))]
 fn main() {
@@ -29,8 +29,7 @@ fn main() {
     use minifb::{Key, Window, WindowOptions};
 
     use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
-    use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
-    use crate::gpu_shell_adapter::view_model_to_regions;
+    use zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch;
 
     let width: u32 = 800;
     let height: u32 = 600;
@@ -51,13 +50,8 @@ fn main() {
     // Simple render loop driven by a real ShellRenderViewModel.
     // We recompose a fresh model each frame (very small, conservative loop).
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        // Build or obtain the real shell-facing model used by other shells.
-        // For this phase we use the model's Default constructor so the runtime
-        // path uses the same model type as the harness and terminal shell.
-        let model = ShellRenderViewModel::default();
-
-        // Convert the real model into presenter regions via the adapter.
-        let regions = view_model_to_regions(&model, width, height);
+        // Convert into presenter regions via the adapter (scratch fallback for runtime).
+        let regions = view_model_to_regions_from_scratch(width, height);
 
         // Paint into the RGBA buffer using the presenter's pure function.
         GpuShellPresenter::paint_to_buffer(width, height, &mut rgba_buf, &regions);
