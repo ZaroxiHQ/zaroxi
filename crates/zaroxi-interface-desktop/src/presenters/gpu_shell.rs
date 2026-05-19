@@ -88,6 +88,11 @@ pub struct ShellRegions {
     pub active_buffer_label: Option<String>,
     pub content_preview_count: Option<usize>,
     pub ai_indicator: Option<String>,
+
+    /// Deterministic focus/active semantic: which slot (if any) is currently focused.
+    /// This is purely observational and rendered into transcripts; it does not change
+    /// painting behavior.
+    pub focus_slot: Option<SlotName>,
 }
 
 /// Presenter-visible explicit, tiny output contract.
@@ -159,6 +164,10 @@ pub struct GpuShellView {
     pub active_buffer_label: Option<String>,
     pub content_preview_count: Option<usize>,
     pub ai_indicator: Option<String>,
+
+    /// Deterministic focus/active semantic: which slot (if any) is currently focused.
+    /// Observational only; does not affect painting.
+    pub focus_slot: Option<SlotName>,
 
     /// Additive list of semantic slots (stable vocabulary, deterministic ordering).
     pub slots: Vec<SlotView>,
@@ -247,6 +256,7 @@ impl GpuShellView {
             active_buffer_label: s.active_buffer_label.clone(),
             content_preview_count: s.content_preview_count,
             ai_indicator: s.ai_indicator.clone(),
+            focus_slot: s.focus_slot.clone(),
             slots,
         }
     }
@@ -568,6 +578,8 @@ impl ShellRenderTranscript {
         lines.push(format!("active_buffer: {}", self.view.active_buffer_label.as_deref().unwrap_or("<none>")));
         lines.push(format!("content_preview_count: {}", self.view.content_preview_count.unwrap_or(0)));
         lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
+        // Deterministic focus semantic (observational only).
+        lines.push(format!("focus_slot: {}", self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>")));
         // Emit slots (stable, deterministic small vocabulary)
         if self.view.slots.is_empty() {
             lines.push("slots: <none>".to_string());
@@ -630,6 +642,7 @@ impl GpuShellPresenter {
             active_buffer_label: None,
             content_preview_count: None,
             ai_indicator: None,
+            focus_slot: None,
         }
     }
 
@@ -1060,6 +1073,26 @@ mod tests {
         assert!(txt.contains("active_buffer: active_buf"));
         assert!(txt.contains("content_preview_count: 1"));
         assert!(txt.contains("ai_indicator: ai:available"));
+    }
+
+    #[test]
+    fn transcript_includes_focus_slot() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 10;
+        let status_h: u32 = 6;
+
+        let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        // Set a deterministic focus slot (observational only).
+        regions.focus_slot = Some(SlotName::ContentMain);
+
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+
+        assert!(txt.contains("focus_slot: content_main"));
+
     }
 
     /// Regression: ensure minimal / zero viewport sizes and zero-count previews
