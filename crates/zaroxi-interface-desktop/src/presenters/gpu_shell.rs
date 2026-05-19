@@ -328,10 +328,17 @@ impl GpuPaintPlan {
             let max_w = v.chrome.width.saturating_sub(16);
             let box_w = max_w.min(80);
             if box_w > 0 {
-                let box_x = v.chrome.x + v.chrome.width / 2u32.saturating_sub(box_w / 2);
-                let box_y = v.chrome.y + 2u32.min(v.chrome.height.saturating_sub(2));
+                // Safely center the box horizontally. Compute available space first
+                // then divide by 2 (division by constant 2 cannot panic).
+                let avail = v.chrome.width.saturating_sub(box_w);
+                let box_x = v.chrome.x + (avail / 2);
+
+                // Vertical inset: clamp to small padding (no panics on tiny heights).
+                let padding = v.chrome.height.saturating_sub(2).min(2);
+                let box_y = v.chrome.y + padding;
+
                 let box_h = 6u32.min(v.chrome.height.saturating_sub(2));
-                if box_h > 0 {
+                if box_h > 0 && box_x.saturating_add(box_w) <= v.chrome.x.saturating_add(v.chrome.width) {
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                         x: box_x,
                         y: box_y,
@@ -371,9 +378,11 @@ impl GpuPaintPlan {
             let line_w = v.content.width.saturating_sub(20);
             if line_w > 0 {
                 let line_x = v.content.x + 10;
-                let line_y = v.content.y + v.content.height / 2u32.saturating_sub(1);
+                // Determine a safe line height and center it vertically inside the content region.
                 let line_h = 2u32.min(v.content.height);
                 if line_h > 0 {
+                    let avail_h = v.content.height.saturating_sub(line_h);
+                    let line_y = v.content.y + (avail_h / 2);
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                         x: line_x,
                         y: line_y,
@@ -958,5 +967,36 @@ mod tests {
         assert!(txt.contains("active_buffer: active_buf"));
         assert!(txt.contains("content_preview_count: 1"));
         assert!(txt.contains("ai_indicator: ai:available"));
+    }
+
+    /// Regression: ensure minimal / zero viewport sizes and zero-count previews
+    /// do not panic and still produce a deterministic transcript.
+    #[test]
+    fn handle_zero_and_minimal_viewport_safely() {
+        // Zero-sized viewport
+        let width: u32 = 0;
+        let height: u32 = 0;
+        let chrome_h: u32 = 0;
+        let status_h: u32 = 0;
+
+        let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        // Expose semantic payload edge-cases: empty preview and zero count.
+        regions.content_preview = Some(String::new());
+        regions.content_preview_count = Some(0usize);
+        regions.active_buffer_label = Some(String::new());
+        regions.ai_indicator = Some(String::new());
+
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+
+        // Construct transcript; this should not panic even with zero dims and
+        // odd semantic payload values.
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+
+        assert!(txt.contains("viewport: 0x0"));
+        // The optional fields should be represented (even if empty or zero).
+        assert!(txt.contains("content_preview_count: 0"));
+        assert!(txt.contains("marker:") || txt.contains("marker: "));
     }
 }
