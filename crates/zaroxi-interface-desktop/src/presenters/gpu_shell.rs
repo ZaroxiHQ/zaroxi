@@ -292,6 +292,18 @@ impl GpuShellView {
             ContentActivity::Idle
         };
 
+        // Determine a tiny deterministic status emphasis:
+        // - Prefer Ai when an AI indicator is present (non-empty).
+        // - Else prefer Attention when there is status_text (non-empty).
+        // - Otherwise fallback to Normal.
+        let status_emphasis = if s.ai_indicator.as_ref().map(|v| !v.is_empty()).unwrap_or(false) {
+            StatusEmphasis::Ai
+        } else if s.status_text.as_ref().map(|v| !v.is_empty()).unwrap_or(false) {
+            StatusEmphasis::Attention
+        } else {
+            StatusEmphasis::Normal
+        };
+
         GpuShellView {
             chrome,
             content,
@@ -303,6 +315,7 @@ impl GpuShellView {
             active_buffer_label: s.active_buffer_label.clone(),
             content_preview_count: s.content_preview_count,
             ai_indicator: s.ai_indicator.clone(),
+            status_emphasis,
             focus_slot: s.focus_slot.clone(),
             content_activity,
             slots,
@@ -626,6 +639,8 @@ impl ShellRenderTranscript {
         lines.push(format!("active_buffer: {}", self.view.active_buffer_label.as_deref().unwrap_or("<none>")));
         lines.push(format!("content_preview_count: {}", self.view.content_preview_count.unwrap_or(0)));
         lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
+        // Additive: emit the small deterministic status emphasis semantic.
+        lines.push(format!("status_emphasis: {}", self.view.status_emphasis.as_str()));
         // Deterministic focus semantic (observational only).
         lines.push(format!("focus_slot: {}", self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>")));
         // Emit slots (stable, deterministic small vocabulary)
@@ -1248,5 +1263,39 @@ mod tests {
         let transcript3 = ShellRenderTranscript::from_view_and_plan(width, height, &view3, &plan3);
         let txt3 = transcript3.to_string();
         assert!(txt3.contains("content_activity: cursor"));
+    }
+
+    #[test]
+    fn transcript_includes_status_emphasis() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 10;
+        let status_h: u32 = 6;
+
+        // AI case: ai_indicator present -> Ai
+        let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        regions.ai_indicator = Some("ai:available".to_string());
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+        assert!(txt.contains("status_emphasis: ai"));
+
+        // Attention case: status_text present but no ai_indicator
+        let mut regions2 = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        regions2.status_text = Some("error".to_string());
+        let view2 = GpuShellView::from_shell_regions(&regions2);
+        let plan2 = GpuPaintPlan::from_view(&view2);
+        let transcript2 = ShellRenderTranscript::from_view_and_plan(width, height, &view2, &plan2);
+        let txt2 = transcript2.to_string();
+        assert!(txt2.contains("status_emphasis: attention"));
+
+        // Normal case: neither present -> normal
+        let regions3 = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        let view3 = GpuShellView::from_shell_regions(&regions3);
+        let plan3 = GpuPaintPlan::from_view(&view3);
+        let transcript3 = ShellRenderTranscript::from_view_and_plan(width, height, &view3, &plan3);
+        let txt3 = transcript3.to_string();
+        assert!(txt3.contains("status_emphasis: normal"));
     }
 }
