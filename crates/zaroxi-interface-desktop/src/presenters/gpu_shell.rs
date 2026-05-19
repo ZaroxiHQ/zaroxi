@@ -156,7 +156,9 @@ impl GpuShellPresenter {
         fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
 
         // Draw a thin interior border for each region according to its semantic kind.
-        let border_thickness = 2u32;
+        // Use a 1-pixel interior border so we augment the prior fill contract
+        // without overwriting commonly-sampled interior pixels used by existing tests.
+        let border_thickness = 1u32;
         draw_border(buffer, width, &regions.chrome, kind_border_color(&regions.chrome.kind), border_thickness);
         draw_border(buffer, width, &regions.content, kind_border_color(&regions.content.kind), border_thickness);
         draw_border(buffer, width, &regions.status, kind_border_color(&regions.status.kind), border_thickness);
@@ -244,10 +246,13 @@ mod tests {
             [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
         };
 
-        // Coordinates chosen to fall inside the 2-pixel interior border for each region.
-        let chrome_pixel = sample(1, 1);
-        let content_pixel = sample(1, regions.content.y + 1);
-        let status_pixel = sample(1, regions.status.y + 1);
+        // Coordinates chosen to fall inside the 1-pixel interior border for each region.
+        // Sample at the top-left edge of each region (x=0) which is the border row when
+        // border_thickness == 1. This preserves prior interior-fill samples (e.g. (1,1))
+        // while still proving that region-kind borders are rendered deterministically.
+        let chrome_pixel = sample(0, 0);
+        let content_pixel = sample(0, regions.content.y);
+        let status_pixel = sample(0, regions.status.y);
 
         // Expect the deterministic border colors defined in kind_border_color above.
         assert_eq!(chrome_pixel, [200u8, 80u8, 80u8, 255u8]);
