@@ -6,7 +6,7 @@ fn apply_set_active_buffer_returns_ordered_regions() {
     let width: u32 = 200;
     let height: u32 = 100;
 
-    let before = zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch(width, height);
+    let before = zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch(width, height, None);
     let after = apply_action_and_get_regions(Action::SetActiveBuffer("test_buffer".to_string()), width, height);
 
     // Basic structural assertions: origins and widths preserved, and vertical ordering.
@@ -23,7 +23,8 @@ fn apply_set_active_buffer_returns_ordered_regions() {
 
     // Sanity: regions should be derived from some model; at minimum they should
     // match presenter's ordering invariants (above).
-    // It's acceptable if 'after' equals 'before' in this phase; the test proves
-    // the end-to-end path exercised and returns valid regions.
-    let _ = (before, after);
+    // Additionally verify the lightweight visible-state marker changed after
+    // applying a SetActiveBuffer action and is reflected in the presenter's input.
+    assert_ne!(before.marker, after.marker);
+    assert_eq!(after.marker, Some("test_buffer".to_string()));
 }

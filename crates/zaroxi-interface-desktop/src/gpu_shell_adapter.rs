@@ -44,22 +44,26 @@ pub fn map_native_to_ui_event(k: NativeKey) -> Option<UiEvent> {
 /// Note: the function intentionally accepts the real view model (to prove
 /// wiring) but currently uses conservative defaults for chrome/status heights.
 #[allow(dead_code)]
-pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: u32) -> ShellRegions {
+pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: u32, active_buffer: Option<&str>) -> ShellRegions {
     // Default wireframe metrics (kept small and stable).
     let chrome_h: u32 = 60;
     let status_h: u32 = 24;
 
-    GpuShellPresenter::map_regions(width, height, chrome_h, status_h)
+    let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    regions.marker = active_buffer.map(|s| s.to_string());
+    regions
 }
 
 /// Runtime-friendly helper that does not require a constructed ShellRenderViewModel.
 /// This is useful for the binary runtime path where constructing the full model
 /// may be handled by the composition pipeline in a later phase. For now this
 /// preserves the wiring surface and keeps the runtime loop tiny.
-pub fn view_model_to_regions_from_scratch(width: u32, height: u32) -> ShellRegions {
+pub fn view_model_to_regions_from_scratch(width: u32, height: u32, active_buffer: Option<&str>) -> ShellRegions {
     // Default wireframe metrics (kept small and stable).
     let chrome_h: u32 = 60;
     let status_h: u32 = 24;
 
-    GpuShellPresenter::map_regions(width, height, chrome_h, status_h)
+    let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    regions.marker = active_buffer.map(|s| s.to_string());
+    regions
 }

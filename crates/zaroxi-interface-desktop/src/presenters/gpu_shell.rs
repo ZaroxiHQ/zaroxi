@@ -32,11 +32,21 @@ impl Region {
 }
 
 /// Collection of named regions for the shell.
+///
+/// An optional `marker` string is carried with the regions so the presenter
+/// can paint a small deterministic visible cue (a colored bar in the chrome)
+/// to reflect lightweight shell state (for example: active buffer name).
+/// This keeps the visual change primitive and deterministic while avoiding
+/// any heavy composition or text rendering logic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRegions {
     pub chrome: Region,
     pub content: Region,
     pub status: Region,
+    /// Optional marker string rendered into the chrome to reflect visible state
+    /// (e.g. active buffer name). Kept optional and crate-local; presenter simply
+    /// paints a deterministic colored marker when present.
+    pub marker: Option<String>,
 }
 
 /// Thin GPU-backed presenter. It does not own any heavy application state;
@@ -58,7 +68,7 @@ impl GpuShellPresenter {
         let content = Region::new(0, chrome_h, width, content_h);
         let status = Region::new(0, chrome_h + content_h, width, status_h);
 
-        ShellRegions { chrome, content, status }
+        ShellRegions { chrome, content, status, marker: None }
     }
 
     /// Paint the three regions into the provided RGBA8 buffer.
@@ -93,6 +103,23 @@ impl GpuShellPresenter {
         fill_region(buffer, width, &regions.content, [220u8, 220u8, 225u8, 255u8]);
         fill_region(buffer, width, &regions.chrome, [32u8, 32u8, 40u8, 255u8]);
         fill_region(buffer, width, &regions.status, [48u8, 48u8, 56u8, 255u8]);
+
+        // If a marker string is present, draw a small deterministic colored bar in the chrome
+        // region's right edge to make visible state changes observable by tests/runs.
+        if let Some(ref m) = regions.marker {
+            // Simple deterministic color from the first byte of the utf8 representation.
+            let b0 = m.as_bytes().get(0).copied().unwrap_or(0);
+            let r = b0;
+            let g = 255u8.wrapping_sub(b0);
+            let b = b0.wrapping_div(2);
+            let color = [r, g, b, 255u8];
+
+            // Draw an 8-pixel wide vertical bar anchored to the right edge of the chrome.
+            let bar_width = 8u32.min(regions.chrome.width);
+            let bar_x = regions.chrome.x + regions.chrome.width.saturating_sub(bar_width);
+            let bar_region = Region::new(bar_x, regions.chrome.y, bar_width, regions.chrome.height);
+            fill_region(buffer, width, &bar_region, color);
+        }
     }
 
     /// Native window runner (no-op in the presenter).

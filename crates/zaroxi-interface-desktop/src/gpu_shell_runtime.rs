@@ -31,11 +31,16 @@ use crate::presenters::gpu_shell::ShellRegions;
 /// exercise the end-to-end mapping path), we fall back to the adapter's
 /// from-scratch view model. This preserves the event -> action -> adapt -> paint
 /// loop without duplicating application logic.
-pub fn apply_action_and_get_regions(_action: Action, width: u32, height: u32) -> ShellRegions {
-    // For this phase we use the from-scratch adapter so the binary can drive
+pub fn apply_action_and_get_regions(action: Action, width: u32, height: u32) -> ShellRegions {
+    // For this phase we still use the from-scratch adapter so the binary can drive
     // the presenter without requiring full application runtime context.
     //
-    // Future phases can replace this with real calls into the async action
-    // helpers once the DesktopComposition and service wiring are available.
-    view_model_to_regions_from_scratch(width, height)
+    // However, to produce a deterministic visible change we propagate a lightweight
+    // state marker (active buffer name) through the runtime -> adapter -> presenter
+    // path. This avoids duplicating composition logic while making the GPU output
+    // visibly reflect the action.
+    match action {
+        Action::SetActiveBuffer(name) => view_model_to_regions_from_scratch(width, height, Some(&name)),
+        _ => view_model_to_regions_from_scratch(width, height, None),
+    }
 }

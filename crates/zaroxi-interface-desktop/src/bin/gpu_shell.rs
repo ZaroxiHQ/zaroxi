@@ -41,7 +41,9 @@ fn main() {
 
     impl LocalExecutor {
         fn new(width: u32, height: u32) -> Self {
-            let regions = view_model_to_regions_from_scratch(width, height);
+            // Start with no active buffer marker; the executor will update regions
+            // by applying actions via the canonical runtime helper.
+            let regions = view_model_to_regions_from_scratch(width, height, None);
             Self { width, height, regions }
         }
 
