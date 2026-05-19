@@ -1111,7 +1111,7 @@ pub fn handle_key_event<F>(
     ev: &KeyEvent,
     opened: &[(String, String)],
     current_active: Option<&str>,
-    mut apply: F,
+    apply: F,
 ) -> Option<String>
 where
     F: FnMut(&str),
