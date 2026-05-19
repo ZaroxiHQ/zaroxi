@@ -169,6 +169,30 @@ impl ContentActivity {
     }
 }
 
+/// Small deterministic emphasis state for the status bar area.
+///
+/// This is intentionally tiny and derives purely from existing semantic
+/// payloads available on ShellRegions / GpuShellView:
+/// - If an `ai_indicator` is present (non-empty) we prefer `Ai`.
+/// - Else if `status_text` is present (non-empty) we consider it `Attention`.
+/// - Otherwise the fallback is `Normal`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusEmphasis {
+    Normal,
+    Attention,
+    Ai,
+}
+
+impl StatusEmphasis {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StatusEmphasis::Normal => "normal",
+            StatusEmphasis::Attention => "attention",
+            StatusEmphasis::Ai => "ai",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuShellView {
     pub chrome: RegionView,
@@ -190,6 +214,9 @@ pub struct GpuShellView {
     pub active_buffer_label: Option<String>,
     pub content_preview_count: Option<usize>,
     pub ai_indicator: Option<String>,
+
+    /// New explicit per-view status emphasis semantic (additive).
+    pub status_emphasis: StatusEmphasis,
 
     /// Deterministic focus/active semantic: which slot (if any) is currently focused.
     /// Observational only; does not affect painting.
