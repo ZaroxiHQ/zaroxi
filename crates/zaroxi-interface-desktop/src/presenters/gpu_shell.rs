@@ -1081,6 +1081,52 @@ impl GpuShellPresenter {
 /// This executor is intentionally dumb: it follows the GpuPaintPlan operations
 /// exactly and writes pixels into the provided buffer. It performs a size check
 /// and returns early when the buffer size does not match width*height*4.
+/// Small, public keyboard event representation for the desktop input bridge.
+///
+/// Kept intentionally minimal so presenter code and unit tests can construct
+/// deterministic input events without depending on platform types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyEvent {
+    pub ctrl: bool,
+    pub shift: bool,
+    /// Simple key name (e.g. "Tab", "A").
+    pub key: String,
+}
+
+impl KeyEvent {
+    fn is_ctrl_tab(&self) -> bool {
+        self.ctrl && self.key == "Tab"
+    }
+}
+
+/// Map a keyboard event into a TabAction and apply it through the existing
+/// deterministic resolution path (apply_tab_action). This keeps selection
+/// logic centralized in compute_tab_action_target and apply_tab_action.
+///
+/// Mapping rules:
+/// - Ctrl+Tab -> ActivateNext { wrap: true }
+/// - Ctrl+Shift+Tab -> ActivatePrevious { wrap: true }
+/// - Any other key -> no-op (returns None)
+pub fn handle_key_event<F>(
+    ev: &KeyEvent,
+    opened: &[(String, String)],
+    current_active: Option<&str>,
+    mut apply: F,
+) -> Option<String>
+where
+    F: FnMut(&str),
+{
+    if !ev.is_ctrl_tab() {
+        return None;
+    }
+
+    if ev.shift {
+        apply_tab_action(TabAction::ActivatePrevious { wrap: true }, opened, current_active, apply)
+    } else {
+        apply_tab_action(TabAction::ActivateNext { wrap: true }, opened, current_active, apply)
+    }
+}
+
 pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, height: u32) {
     let expected = (width as usize) * (height as usize) * 4;
     if buffer.len() != expected {
