@@ -192,7 +192,6 @@ impl GpuShellPresenter {
         // stable GpuShellView. This is an additive, tiny extraction — existing
         // behavior and sampled pixels are preserved.
         let view = GpuShellView::from_shell_regions(regions);
-        let regions = view;
 
         // helper function to fill a region with an RGBA color without capturing a mutable borrow
         fn fill_region(buffer: &mut [u8], width: u32, region: &Region, color: [u8; 4]) {
