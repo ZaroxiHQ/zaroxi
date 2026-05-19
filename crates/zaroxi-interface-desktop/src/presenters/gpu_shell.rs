@@ -66,17 +66,28 @@ pub struct ShellRegions {
     /// paints a deterministic colored marker when present.
     pub marker: Option<String>,
 
-    /// Tiny deterministic semantic payloads (kept primitive and optional):
+    /// Tiny deterministic semantic payloads (kept primitive and optional).
+    ///
+    /// The intent here is to project lightweight, testable semantic labels and
+    /// small telemetry indicators into the presenter/transcript path without
+    /// introducing any text rendering. These fields are purely semantic (not
+    /// visual) and may be surfaced in the debug transcript or used to drive
+    /// small deterministic paint tokens (already present as marker/chrome_label).
+    ///
     /// - chrome_label: a short label for the chrome/header (e.g. active buffer name)
     /// - status_text: a short status string for the status bar
-    /// - content_preview: a single-line preview or hint for the content region
-    ///
-    /// These are purely presenter-facing labels (no text shaping). The presenter
-    /// may render them as small deterministic colored boxes / bars so they are
-    /// observable in the GPU-backed shell while remaining backend-light.
+    /// - content_preview: an optional single-line preview or hint for the content region
+    /// - active_buffer_label: explicitly named active buffer (preferred over ad-hoc marker)
+    /// - content_preview_count: optional numeric summary of preview lines (semantic)
+    /// - ai_indicator: optional tiny AI status summary (e.g. "ai:available" or "ai:off")
     pub chrome_label: Option<String>,
     pub status_text: Option<String>,
     pub content_preview: Option<String>,
+
+    /// New explicit semantic fields (additive; do not affect painting).
+    pub active_buffer_label: Option<String>,
+    pub content_preview_count: Option<usize>,
+    pub ai_indicator: Option<String>,
 }
 
 /// Presenter-visible explicit, tiny output contract.
@@ -107,6 +118,14 @@ pub struct GpuShellView {
     pub chrome_label: Option<String>,
     pub status_text: Option<String>,
     pub content_preview: Option<String>,
+
+    /// Explicit, additive semantic projection fields:
+    /// - active_buffer_label: explicit active buffer name (for transcript/observability)
+    /// - content_preview_count: numeric summary of content preview lines
+    /// - ai_indicator: tiny AI status summary (semantic only)
+    pub active_buffer_label: Option<String>,
+    pub content_preview_count: Option<usize>,
+    pub ai_indicator: Option<String>,
 }
 
 impl GpuShellView {
@@ -454,6 +473,20 @@ impl ShellRenderTranscript {
         if let Some(ref status) = self.view.status_text {
             lines.push(format!("status_text: {}", status));
         }
+        // Additive semantic projection lines for richer observability.
+        if let Some(ref active) = self.view.active_buffer_label {
+            lines.push(format!("active_buffer: {}", active));
+        }
+        if let Some(count) = self.view.content_preview_count {
+            lines.push(format!("content_preview_count: {}", count));
+        }
+        if let Some(ref ai) = self.view.ai_indicator {
+            lines.push(format!("ai_indicator: {}", ai));
+        }
+        // Retain content_preview textual hint if present (semantic only; not rendered).
+        if let Some(ref preview) = self.view.content_preview {
+            lines.push(format!("content_preview: {}", preview));
+        }
         lines.push("plan:".to_string());
         for l in &self.plan_lines {
             lines.push(format!("  {}", l));
@@ -481,7 +514,18 @@ impl GpuShellPresenter {
         let content = Region::with_kind(0, chrome_h, width, content_h, RegionKind::Content);
         let status = Region::with_kind(0, chrome_h + content_h, width, status_h, RegionKind::Status);
 
-        ShellRegions { chrome, content, status, marker: None, chrome_label: None, status_text: None, content_preview: None }
+        ShellRegions {
+            chrome,
+            content,
+            status,
+            marker: None,
+            chrome_label: None,
+            status_text: None,
+            content_preview: None,
+            active_buffer_label: None,
+            content_preview_count: None,
+            ai_indicator: None,
+        }
     }
 
     /// Paint the three regions into the provided RGBA8 buffer.
@@ -880,5 +924,36 @@ mod tests {
         // At minimum, ensure we detected chrome and found status after chrome.
         assert!(found_content);
         assert!(found_status_after);
+    }
+
+    /// New focused test: ensure the transcript includes richer semantic payloads
+    /// projected from ShellRegions -> GpuShellView -> ShellRenderTranscript.
+    #[test]
+    fn transcript_includes_semantic_payloads() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 10;
+        let status_h: u32 = 6;
+
+        let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        // Populate explicit semantic payloads (additive; doesn't affect painting).
+        regions.chrome_label = Some("chromeX".to_string());
+        regions.status_text = Some("ok".to_string());
+        regions.content_preview = Some("preview-line".to_string());
+        regions.active_buffer_label = Some("active_buf".to_string());
+        regions.content_preview_count = Some(1usize);
+        regions.ai_indicator = Some("ai:available".to_string());
+
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+
+        assert!(txt.contains("chrome_label: chromeX"));
+        assert!(txt.contains("status_text: ok"));
+        assert!(txt.contains("marker:"));
+        assert!(txt.contains("active_buffer: active_buf"));
+        assert!(txt.contains("content_preview_count: 1"));
+        assert!(txt.contains("ai_indicator: ai:available"));
     }
 }
