@@ -256,6 +256,9 @@ pub struct GpuShellView {
 
     /// Additive list of semantic slots (stable vocabulary, deterministic ordering).
     pub slots: Vec<SlotView>,
+
+    /// Presenter-facing tab strip (additive, deterministic).
+    pub tabs: TabStrip,
 }
 
 impl GpuShellView {
@@ -392,6 +395,7 @@ impl GpuShellView {
             focus_slot: s.focus_slot.clone(),
             content_activity,
             slots,
+            tabs: TabStrip::default(),
         }
     }
 
@@ -619,6 +623,54 @@ impl GpuPaintPlan {
                         color,
                     }));
                 }
+            }
+        }
+
+        // Tab strip rendering (additive, purely presentational)
+        if !v.tabs.tabs.is_empty() && v.chrome.height > 2 {
+            let num = v.tabs.tabs.len() as u32;
+            // small tab bar inset/padding and height
+            let tab_bar_h = 12u32.min(v.chrome.height.saturating_sub(2));
+            let tab_bar_y = v.chrome.y + 1;
+            // allocate equal widths deterministically
+            let base_w = if num > 0 { v.chrome.width / num } else { 0 };
+            let mut x = v.chrome.x;
+            for (i, t) in v.tabs.tabs.iter().enumerate() {
+                let mut w = base_w;
+                // last tab takes remainder to avoid gaps
+                if (i as u32) + 1 == num {
+                    let consumed = base_w.saturating_mul(num.saturating_sub(1));
+                    w = v.chrome.width.saturating_sub(consumed);
+                }
+                if w == 0 {
+                    continue;
+                }
+                let active = t.active;
+                let fill_color = if active {
+                    [255u8, 200u8, 0u8, 255u8] // active tab color (distinct)
+                } else {
+                    [180u8, 180u8, 180u8, 255u8] // inactive tab color
+                };
+                // Draw tab body
+                ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+                    x,
+                    y: tab_bar_y,
+                    width: w,
+                    height: tab_bar_h,
+                    color: fill_color,
+                }));
+                // Draw a thin border around tab for separation
+                ops.push(GpuPaintOp::BorderRect {
+                    rect: GpuPaintRect {
+                        x,
+                        y: tab_bar_y,
+                        width: w,
+                        height: tab_bar_h,
+                        color: [0u8, 0u8, 0u8, 255u8],
+                    },
+                    thickness: 1u32,
+                });
+                x = x.saturating_add(w);
             }
         }
 
@@ -965,9 +1017,23 @@ impl GpuShellPresenter {
     /// - content: light gray [220, 220, 225, 255]
     /// - status: medium gray [48, 48, 56, 255]
     pub fn paint_to_buffer(width: u32, height: u32, buffer: &mut [u8], regions: &ShellRegions) {
+        // Backwards-compatible wrapper that renders without tabs (empty TabStrip).
+        GpuShellPresenter::paint_to_buffer_with_tabs(width, height, buffer, regions, &TabStrip::default());
+    }
+
+    /// Paint the three regions into the provided RGBA8 buffer with an explicit TabStrip.
+    /// This additive variant allows callers to project presenter-facing tab state
+    /// (opened buffers + active id) into the visible frame.
+    pub fn paint_to_buffer_with_tabs(
+        width: u32,
+        height: u32,
+        buffer: &mut [u8],
+        regions: &ShellRegions,
+        tabs: &TabStrip,
+    ) {
         let expected = (width as usize) * (height as usize) * 4;
         if buffer.len() != expected {
-            // Silence: do nothing if buffer size mismatches. Callers/tests should ensure size.
+            // Silence: do nothing if buffer size mismatches.
             return;
         }
 
@@ -975,7 +1041,9 @@ impl GpuShellPresenter {
         buffer.fill(0);
 
         // Build the explicit presenter output contract and convert into a paint plan.
-        let view = GpuShellView::from_shell_regions(regions);
+        let mut view = GpuShellView::from_shell_regions(regions);
+        // Inject the presenter-facing TabStrip (additive; preserves existing API).
+        view.tabs = tabs.clone();
         let plan = GpuPaintPlan::from_view(&view);
 
         // Delegate execution to the explicit paint-plan executor (pure, dumb).
