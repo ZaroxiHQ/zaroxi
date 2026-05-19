@@ -14,7 +14,7 @@ fn keymaps_ctrl_tab_to_next_and_updates_active() {
         &KeyEvent { ctrl: true, shift: false, key: "Tab".to_string() },
         &opened,
         current_active.as_deref(),
-        |id| {
+        |id: &str| {
             active = Some(id.to_string());
         },
     );
@@ -38,7 +38,7 @@ fn keymaps_ctrl_shift_tab_to_prev_and_updates_active() {
         &KeyEvent { ctrl: true, shift: true, key: "Tab".to_string() },
         &opened,
         current_active.as_deref(),
-        |id| {
+        |id: &str| {
             active = Some(id.to_string());
         },
     );
@@ -76,7 +76,7 @@ fn keymaps_single_buffer_stays_same() {
         &KeyEvent { ctrl: true, shift: false, key: "Tab".to_string() },
         &opened,
         current_active.as_deref(),
-        |id| {
+        |id: &str| {
             active = Some(id.to_string());
         },
     );
