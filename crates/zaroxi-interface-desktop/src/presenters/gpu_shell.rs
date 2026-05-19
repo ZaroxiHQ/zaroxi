@@ -476,28 +476,20 @@ impl ShellRenderTranscript {
             self.view.status.height,
             self.view.status.kind
         ));
-        if let Some(ref m) = self.view.marker {
-            lines.push(format!("marker: {}", m));
-        }
-        if let Some(ref label) = self.view.chrome_label {
-            lines.push(format!("chrome_label: {}", label));
-        }
-        if let Some(ref status) = self.view.status_text {
-            lines.push(format!("status_text: {}", status));
-        }
+        // Stabilized transcript: always emit explicit keys with deterministic fallbacks.
+        lines.push(format!("marker: {}", self.view.marker.as_deref().unwrap_or("<none>")));
+        lines.push(format!("chrome_label: {}", self.view.chrome_label.as_deref().unwrap_or("<none>")));
+        lines.push(format!("status_text: {}", self.view.status_text.as_deref().unwrap_or("<none>")));
         // Additive semantic projection lines for richer observability.
-        if let Some(ref active) = self.view.active_buffer_label {
-            lines.push(format!("active_buffer: {}", active));
-        }
-        if let Some(count) = self.view.content_preview_count {
-            lines.push(format!("content_preview_count: {}", count));
-        }
-        if let Some(ref ai) = self.view.ai_indicator {
-            lines.push(format!("ai_indicator: {}", ai));
-        }
+        lines.push(format!("active_buffer: {}", self.view.active_buffer_label.as_deref().unwrap_or("<none>")));
+        lines.push(format!("content_preview_count: {}", self.view.content_preview_count.unwrap_or(0)));
+        lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
         // Retain content_preview textual hint if present (semantic only; not rendered).
         if let Some(ref preview) = self.view.content_preview {
+            // Print the provided preview string (may be empty).
             lines.push(format!("content_preview: {}", preview));
+        } else {
+            lines.push(format!("content_preview: <none>"));
         }
         lines.push("plan:".to_string());
         for l in &self.plan_lines {
