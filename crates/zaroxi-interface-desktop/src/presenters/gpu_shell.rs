@@ -79,6 +79,73 @@ pub struct ShellRegions {
     pub content_preview: Option<String>,
 }
 
+/// Presenter-visible explicit, tiny output contract.
+///
+/// This struct is intentionally minimal and mirrors the stable concepts the
+/// presenter already used: ordering, region kind, bounds, marker, borders and
+/// the small semantic payloads. Having this explicit type makes future
+/// rendering layers consume a stable model rather than ad-hoc region structs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionView {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub kind: RegionKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GpuShellView {
+    pub chrome: RegionView,
+    pub content: RegionView,
+    pub status: RegionView,
+
+    /// Carries the same lightweight marker as ShellRegions (active buffer hint).
+    pub marker: Option<String>,
+
+    /// The tiny semantic payloads (kept optional and primitive).
+    pub chrome_label: Option<String>,
+    pub status_text: Option<String>,
+    pub content_preview: Option<String>,
+}
+
+impl GpuShellView {
+    /// Build a stable presenter view from the adapter's ShellRegions.
+    pub fn from_shell_regions(s: &ShellRegions) -> Self {
+        let chrome = RegionView {
+            x: s.chrome.x,
+            y: s.chrome.y,
+            width: s.chrome.width,
+            height: s.chrome.height,
+            kind: s.chrome.kind.clone(),
+        };
+        let content = RegionView {
+            x: s.content.x,
+            y: s.content.y,
+            width: s.content.width,
+            height: s.content.height,
+            kind: s.content.kind.clone(),
+        };
+        let status = RegionView {
+            x: s.status.x,
+            y: s.status.y,
+            width: s.status.width,
+            height: s.status.height,
+            kind: s.status.kind.clone(),
+        };
+
+        GpuShellView {
+            chrome,
+            content,
+            status,
+            marker: s.marker.clone(),
+            chrome_label: s.chrome_label.clone(),
+            status_text: s.status_text.clone(),
+            content_preview: s.content_preview.clone(),
+        }
+    }
+}
+
 /// Thin GPU-backed presenter. It does not own any heavy application state;
 /// it provides pure functions for region mapping and buffer painting.
 ///
@@ -119,6 +186,13 @@ impl GpuShellPresenter {
 
         // Clear to a baseline (transparent black) first.
         buffer.fill(0);
+
+        // Build the explicit presenter output contract and shadow the local
+        // `regions` binding so the remainder of the painting code consumes the
+        // stable GpuShellView. This is an additive, tiny extraction — existing
+        // behavior and sampled pixels are preserved.
+        let view = GpuShellView::from_shell_regions(regions);
+        let regions = view;
 
         // helper function to fill a region with an RGBA color without capturing a mutable borrow
         fn fill_region(buffer: &mut [u8], width: u32, region: &Region, color: [u8; 4]) {
@@ -324,5 +398,33 @@ mod tests {
         // Sanity: borders must differ between region kinds.
         assert_ne!(chrome_pixel, content_pixel);
         assert_ne!(content_pixel, status_pixel);
+    }
+
+    /// Focused contract test: ensure the presenter can produce the explicit
+    /// GpuShellView from ShellRegions and that tiny semantic payloads survive
+    /// the conversion. This proves the new output contract is available to
+    /// downstream consumers while preserving prior invariants.
+    #[test]
+    fn produce_gpu_shell_view_contract() {
+        let width: u32 = 200;
+        let height: u32 = 100;
+        let chrome_h: u32 = 60;
+        let status_h: u32 = 24;
+
+        let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        // Default mapping produces no semantic payloads.
+        let view = GpuShellView::from_shell_regions(&regions);
+        assert_eq!(view.chrome.x, regions.chrome.x);
+        assert_eq!(view.content.y, regions.content.y);
+        assert_eq!(view.marker, regions.marker);
+        assert!(view.chrome_label.is_none() && view.status_text.is_none() && view.content_preview.is_none());
+
+        // Ensure payloads propagate through the conversion.
+        let mut r2 = regions.clone();
+        r2.chrome_label = Some("buf".to_string());
+        r2.status_text = Some("status".to_string());
+        let view2 = GpuShellView::from_shell_regions(&r2);
+        assert_eq!(view2.chrome_label, Some("buf".to_string()));
+        assert_eq!(view2.status_text, Some("status".to_string()));
     }
 }
