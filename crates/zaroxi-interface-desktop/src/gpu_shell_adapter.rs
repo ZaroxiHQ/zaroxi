@@ -19,6 +19,7 @@ use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, ShellRe
 ///
 /// Note: the function intentionally accepts the real view model (to prove
 /// wiring) but currently uses conservative defaults for chrome/status heights.
+#[allow(dead_code)]
 pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: u32) -> ShellRegions {
     // Default wireframe metrics (kept small and stable).
     let chrome_h: u32 = 60;
