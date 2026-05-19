@@ -634,19 +634,76 @@ impl GpuPaintPlan {
 // textual lines. It is intentionally minimal and purely additive so binaries
 // and tests can inspect the final paint intent without relying on pixel checks.
 //
+
+/// A single tab entry in the presenter-facing tab strip projection.
+///
+/// - `id` is the buffer identity (string form, stable across the projection).
+/// - `display` is the deterministic label shown to the UI (e.g. buffer name).
+/// - `active` marks whether this tab is the active buffer.
+/// - `index` preserves the original ordering from the opened-buffers source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabEntry {
+    pub id: String,
+    pub display: String,
+    pub active: bool,
+    pub index: usize,
+}
+
+/// Simple presenter-facing tab strip projection.
+///
+/// The presenter constructs this from an ordered list of opened buffers and
+/// an optional active buffer id. It is intentionally small and additive to the
+/// existing presenter model so desktop/harness code can immediately consume it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TabStrip {
+    pub tabs: Vec<TabEntry>,
+}
+
+impl TabStrip {
+    /// Build a TabStrip from an ordered slice of (id, display) pairs and an optional active id.
+    /// Ordering is preserved; exactly one tab will be marked active when the `active` id matches.
+    pub fn from_opened_and_active(opened: &[(String, String)], active: Option<&str>) -> Self {
+        let mut tabs: Vec<TabEntry> = Vec::with_capacity(opened.len());
+        for (i, pair) in opened.iter().enumerate() {
+            let id = pair.0.clone();
+            let display = pair.1.clone();
+            let active_flag = active.map(|a| a == id).unwrap_or(false);
+            tabs.push(TabEntry { id, display, active: active_flag, index: i });
+        }
+        TabStrip { tabs }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
     pub width: u32,
     pub height: u32,
     pub view: GpuShellView,
     pub plan_lines: Vec<String>,
+    /// Additive presenter-facing tab strip. Consumers may pass an explicitly
+    /// constructed TabStrip when producing a transcript; the default is empty.
+    pub tabs: TabStrip,
 }
 
 impl ShellRenderTranscript {
     /// Construct a transcript from the stable presenter view + paint plan.
     /// The produced plan_lines mirror the exact order of GpuPaintPlan.ops
     /// and contain concise, deterministic descriptions of each op.
+    /// This legacy constructor produces a transcript with an empty TabStrip.
     pub fn from_view_and_plan(width: u32, height: u32, view: &GpuShellView, plan: &GpuPaintPlan) -> Self {
+        Self::from_view_and_plan_with_tabs(width, height, view, plan, &TabStrip::default())
+    }
+
+    /// Construct a transcript from the stable presenter view + paint plan and
+    /// an explicit presenter-facing TabStrip. This allows callers to project
+    /// opened-buffer state into the transcript for immediate desktop consumption.
+    pub fn from_view_and_plan_with_tabs(
+        width: u32,
+        height: u32,
+        view: &GpuShellView,
+        plan: &GpuPaintPlan,
+        tabs: &TabStrip,
+    ) -> Self {
         let mut plan_lines = Vec::with_capacity(plan.ops.len());
         for op in plan.ops.iter() {
             match op {
@@ -670,6 +727,7 @@ impl ShellRenderTranscript {
             height,
             view: view.clone(),
             plan_lines,
+            tabs: tabs.clone(),
         }
     }
 
@@ -745,6 +803,19 @@ impl ShellRenderTranscript {
         // Additive, deterministic content activity semantic for observability.
         // Stable fallback value is "idle".
         lines.push(format!("content_activity: {}", self.view.content_activity.as_str()));
+
+        // Tabs: deterministic tab strip projection (presenter-facing).
+        lines.push("tabs:".to_string());
+        if self.tabs.tabs.is_empty() {
+            lines.push("  <none>".to_string());
+        } else {
+            for t in &self.tabs.tabs {
+                lines.push(format!(
+                    "  {}: id={} display=\"{}\" active={}",
+                    t.index, t.id, t.display, t.active
+                ));
+            }
+        }
 
         lines.push("plan:".to_string());
         for l in &self.plan_lines {
