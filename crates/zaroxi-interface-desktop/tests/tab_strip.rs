@@ -197,12 +197,15 @@ fn action_path_activate_next_updates_active_buffer() {
     ];
     // Simulate outer application state for active id.
     let mut active: Option<String> = Some("a".to_string());
+    // Snapshot the current active value to avoid simultaneous immutable/mutable borrows
+    // when passing into `apply_tab_action` while the closure mutates `active`.
+    let current_active = active.clone();
 
     // Apply the next action; closure simulates applying the chosen id into app state.
     let res = apply_tab_action(
         TabAction::ActivateNext { wrap: true },
         &opened,
-        active.as_deref(),
+        current_active.as_deref(),
         |id| {
             active = Some(id.to_string());
         },
@@ -220,11 +223,12 @@ fn action_path_activate_previous_updates_active_buffer() {
         ("c".to_string(), "C".to_string()),
     ];
     let mut active: Option<String> = Some("b".to_string());
+    let current_active = active.clone();
 
     let res = apply_tab_action(
         TabAction::ActivatePrevious { wrap: true },
         &opened,
-        active.as_deref(),
+        current_active.as_deref(),
         |id| {
             active = Some(id.to_string());
         },
@@ -254,11 +258,12 @@ fn action_path_empty_buffers_is_noop() {
 fn action_path_single_buffer_stays_same() {
     let opened = vec![("solo".to_string(), "solo.rs".to_string())];
     let mut active: Option<String> = Some("solo".to_string());
+    let current_active = active.clone();
 
     let res = apply_tab_action(
         TabAction::ActivateNext { wrap: true },
         &opened,
-        active.as_deref(),
+        current_active.as_deref(),
         |id| {
             active = Some(id.to_string());
         },
@@ -277,11 +282,12 @@ fn action_path_fallback_when_active_missing_selects_deterministically() {
     ];
     // active = none
     let mut active: Option<String> = None;
+    let current_active = active.clone();
 
     let res_next = apply_tab_action(
         TabAction::ActivateNext { wrap: true },
         &opened,
-        active.as_deref(),
+        current_active.as_deref(),
         |id| {
             active = Some(id.to_string());
         },
@@ -291,10 +297,11 @@ fn action_path_fallback_when_active_missing_selects_deterministically() {
 
     // reset and test prev -> should pick last deterministically
     active = None;
+    let current_active = active.clone();
     let res_prev = apply_tab_action(
         TabAction::ActivatePrevious { wrap: true },
         &opened,
-        active.as_deref(),
+        current_active.as_deref(),
         |id| {
             active = Some(id.to_string());
         },
