@@ -192,7 +192,29 @@ impl GpuPaintPlan {
     pub fn from_view(v: &GpuShellView) -> Self {
         let mut ops: Vec<GpuPaintOp> = Vec::new();
 
-        // Base fills (same colors as before).
+        // Ensure the full viewport is deterministically covered first. This
+        // inserts a conservative full-viewport background fill using the same
+        // base content color. Doing this at the plan stage guarantees that the
+        // presenter will produce a clearly partitioned viewport (chrome /
+        // content / status) even on minimal binary paths.
+        //
+        // Compute viewport extents from the aggregated region sizes.
+        let total_width = v.chrome.width.max(v.content.width).max(v.status.width);
+        let total_height = v.chrome.height.saturating_add(v.content.height).saturating_add(v.status.height);
+
+        // Full-viewport background (same tone as content to keep visuals coherent).
+        ops.push(GpuPaintOp::FillRect(GpuPaintRect {
+            x: 0,
+            y: 0,
+            width: total_width,
+            height: total_height,
+            color: [220u8, 220u8, 225u8, 255u8],
+        }));
+
+        // Base fills (content, chrome, status) preserve previous ordering so
+        // existing consumers and tests that inspect the content/chrome/status
+        // rectangles continue to rely on these deterministic rects overlaying
+        // the background.
         ops.push(GpuPaintOp::FillRect(GpuPaintRect {
             x: v.content.x,
             y: v.content.y,
@@ -573,11 +595,24 @@ mod tests {
 
         let plan = GpuPaintPlan::from_view(&view);
 
-        // Expect at least: content fill, chrome fill, status fill, then three borders.
-        assert!(plan.ops.len() >= 6);
+        // Expect at least: background, content fill, chrome fill, status fill, then three borders.
+        assert!(plan.ops.len() >= 7);
 
-        // First three ops should be FillRect for content, chrome, status respectively.
+        // First op should be the full-viewport background FillRect.
         match &plan.ops[0] {
+            GpuPaintOp::FillRect(r) => {
+                let total_h = regions.chrome.height.saturating_add(regions.content.height).saturating_add(regions.status.height);
+                assert_eq!(r.x, 0);
+                assert_eq!(r.y, 0);
+                assert_eq!(r.width, regions.chrome.width);
+                assert_eq!(r.height, total_h);
+                assert_eq!(r.color, [220u8, 220u8, 225u8, 255u8]);
+            }
+            _ => panic!("expected full-viewport background FillRect as first op"),
+        }
+
+        // Next three ops should be FillRect for content, chrome, status respectively.
+        match &plan.ops[1] {
             GpuPaintOp::FillRect(r) => {
                 assert_eq!(r.x, regions.content.x);
                 assert_eq!(r.y, regions.content.y);
@@ -585,10 +620,10 @@ mod tests {
                 assert_eq!(r.height, regions.content.height);
                 assert_eq!(r.color, [220u8, 220u8, 225u8, 255u8]);
             }
-            _ => panic!("expected content FillRect as first op"),
+            _ => panic!("expected content FillRect as second op"),
         }
 
-        match &plan.ops[1] {
+        match &plan.ops[2] {
             GpuPaintOp::FillRect(r) => {
                 assert_eq!(r.x, regions.chrome.x);
                 assert_eq!(r.y, regions.chrome.y);
@@ -596,10 +631,10 @@ mod tests {
                 assert_eq!(r.height, regions.chrome.height);
                 assert_eq!(r.color, [32u8, 32u8, 40u8, 255u8]);
             }
-            _ => panic!("expected chrome FillRect as second op"),
+            _ => panic!("expected chrome FillRect as third op"),
         }
 
-        match &plan.ops[2] {
+        match &plan.ops[3] {
             GpuPaintOp::FillRect(r) => {
                 assert_eq!(r.x, regions.status.x);
                 assert_eq!(r.y, regions.status.y);
@@ -607,30 +642,30 @@ mod tests {
                 assert_eq!(r.height, regions.status.height);
                 assert_eq!(r.color, [48u8, 48u8, 56u8, 255u8]);
             }
-            _ => panic!("expected status FillRect as third op"),
+            _ => panic!("expected status FillRect as fourth op"),
         }
 
         // Next three should be BorderRect entries (chrome, content, status).
-        match &plan.ops[3] {
+        match &plan.ops[4] {
             GpuPaintOp::BorderRect { rect, thickness } => {
                 assert_eq!(thickness, &1u32);
                 assert_eq!(rect.x, regions.chrome.x);
             }
-            _ => panic!("expected chrome BorderRect as fourth op"),
-        }
-        match &plan.ops[4] {
-            GpuPaintOp::BorderRect { rect, thickness } => {
-                assert_eq!(thickness, &1u32);
-                assert_eq!(rect.x, regions.content.x);
-            }
-            _ => panic!("expected content BorderRect as fifth op"),
+            _ => panic!("expected chrome BorderRect as fifth op"),
         }
         match &plan.ops[5] {
             GpuPaintOp::BorderRect { rect, thickness } => {
                 assert_eq!(thickness, &1u32);
+                assert_eq!(rect.x, regions.content.x);
+            }
+            _ => panic!("expected content BorderRect as sixth op"),
+        }
+        match &plan.ops[6] {
+            GpuPaintOp::BorderRect { rect, thickness } => {
+                assert_eq!(thickness, &1u32);
                 assert_eq!(rect.x, regions.status.x);
             }
-            _ => panic!("expected status BorderRect as sixth op"),
+            _ => panic!("expected status BorderRect as seventh op"),
         }
     }
 
