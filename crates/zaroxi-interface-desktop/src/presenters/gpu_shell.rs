@@ -1000,6 +1000,55 @@ impl GpuShellPresenter {
     }
 }
 
+ // ---------------------------------------------------------------------
+ // Small, explicit tab navigation action seam
+ //
+ // Architectural notes (concise):
+ // - This tiny, presenter-local API exposes deterministic tab navigation
+ //   intents as a minimal action shape that callers (desktop input bridge /
+ //   harness / application) can use to compute which buffer id should be
+ //   activated. The function below re-uses the existing TabStrip navigation
+ //   rules (next_active_id / prev_active_id) and returns the id to be fed
+ //   into the existing active-buffer flow. No state is mutated here and
+ //   no new crates are introduced.
+ //
+ // Usage:
+ // - Call compute_tab_action_target(...) with the desired action, the
+ //   current opened buffers list and the current active id (if any).
+ // - If Some(id) is returned, pass that id into the application's existing
+ //   active-buffer setter (unchanged wiring).
+ //
+ // This keeps the source-of-truth (opened buffers + active id) in the same
+ // place and makes the navigation reachable as an explicit action/intent.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum TabAction {
+     /// Activate the next tab. `wrap` controls whether we wrap at the end.
+     ActivateNext { wrap: bool },
+     /// Activate the previous tab. `wrap` controls whether we wrap at the start.
+     ActivatePrevious { wrap: bool },
+ }
+ 
+ /// Compute the id that should become active when applying `action`.
+ ///
+ /// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
+ /// - `current_active`: optional currently-active id.
+ ///
+ /// Returns: Option<String> — the id that should be passed to the
+ /// existing active-buffer flow. The caller is responsible for performing
+ /// the actual activation (this keeps wiring/side-effects outside the
+ /// presenter and preserves dependency inversion).
+ pub fn compute_tab_action_target(
+     action: TabAction,
+     opened: &[(String, String)],
+     current_active: Option<&str>,
+ ) -> Option<String> {
+     let ts = TabStrip::from_opened_and_active(opened, current_active);
+     match action {
+         TabAction::ActivateNext { wrap } => ts.next_active_id(wrap),
+         TabAction::ActivatePrevious { wrap } => ts.prev_active_id(wrap),
+     }
+ }
+ 
 /// Execute a paint plan into an RGBA8 buffer.
 ///
 /// This executor is intentionally dumb: it follows the GpuPaintPlan operations
