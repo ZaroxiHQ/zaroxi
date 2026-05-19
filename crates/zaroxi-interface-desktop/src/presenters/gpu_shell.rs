@@ -862,7 +862,7 @@ mod tests {
         let mut found_chrome_after = false;
         let mut found_status_after = false;
         for (i, line) in transcript.plan_lines.iter().enumerate() {
-            if line.contains("FillRect") && line.contains("content:").not() {
+            if line.contains("FillRect") && !line.contains("content:") {
                 // no-op: placeholder to keep logic explicit and readable.
             }
             // Identify chrome fill by matching the chrome region coordinates.
