@@ -143,6 +143,32 @@ pub struct SlotView {
     pub rect: RegionView,
 }
 
+/// Deterministic, tiny semantic describing content activity inside the main
+/// content region. This enum is intentionally minimal and purely observational:
+/// it is surfaced in the transcript for debug/observability and does not change
+/// painting behavior.
+///
+/// Rules (deterministic, additive):
+/// - Selection: if a non-empty `content_preview` is present (indicates selected text).
+/// - Cursor: if focus_slot == Some(SlotName::ContentMain) and no non-empty preview.
+/// - Idle: default fallback when neither selection nor cursor heuristics apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentActivity {
+    Idle,
+    Cursor,
+    Selection,
+}
+
+impl ContentActivity {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContentActivity::Idle => "idle",
+            ContentActivity::Cursor => "cursor",
+            ContentActivity::Selection => "selection",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuShellView {
     pub chrome: RegionView,
@@ -168,6 +194,9 @@ pub struct GpuShellView {
     /// Deterministic focus/active semantic: which slot (if any) is currently focused.
     /// Observational only; does not affect painting.
     pub focus_slot: Option<SlotName>,
+
+    /// Deterministic content activity semantic (additive, default: idle).
+    pub content_activity: ContentActivity,
 
     /// Additive list of semantic slots (stable vocabulary, deterministic ordering).
     pub slots: Vec<SlotView>,
@@ -245,6 +274,24 @@ impl GpuShellView {
         // status
         slots.push(SlotView { name: SlotName::Status, rect: status.clone() });
 
+        // Determine content activity semantically:
+        // - Selection if a non-empty content_preview is present.
+        // - Cursor if focused into the content main slot.
+        // - Idle otherwise.
+        let content_activity = if let Some(ref p) = s.content_preview {
+            if !p.is_empty() {
+                ContentActivity::Selection
+            } else if s.focus_slot == Some(SlotName::ContentMain) {
+                ContentActivity::Cursor
+            } else {
+                ContentActivity::Idle
+            }
+        } else if s.focus_slot == Some(SlotName::ContentMain) {
+            ContentActivity::Cursor
+        } else {
+            ContentActivity::Idle
+        };
+
         GpuShellView {
             chrome,
             content,
@@ -257,6 +304,7 @@ impl GpuShellView {
             content_preview_count: s.content_preview_count,
             ai_indicator: s.ai_indicator.clone(),
             focus_slot: s.focus_slot.clone(),
+            content_activity,
             slots,
         }
     }
@@ -604,6 +652,11 @@ impl ShellRenderTranscript {
         } else {
             lines.push(format!("content_preview: <none>"));
         }
+
+        // Additive, deterministic content activity semantic for observability.
+        // Stable fallback value is "idle".
+        lines.push(format!("content_activity: {}", self.view.content_activity.as_str()));
+
         lines.push("plan:".to_string());
         for l in &self.plan_lines {
             lines.push(format!("  {}", l));
@@ -1157,5 +1210,43 @@ mod tests {
         let i_content = txt.find("content_main").unwrap();
 
         assert!(i_left < i_center && i_center < i_right && i_right < i_content);
+    }
+
+    #[test]
+    fn transcript_includes_content_activity() {
+        let width: u32 = 120;
+        let height: u32 = 80;
+        let chrome_h: u32 = 10;
+        let status_h: u32 = 6;
+
+        // Idle case: no focus, no content_preview
+        let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+        regions.content_preview = None;
+        regions.focus_slot = None;
+        let view = GpuShellView::from_shell_regions(&regions);
+        let plan = GpuPaintPlan::from_view(&view);
+        let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+        let txt = transcript.to_string();
+        assert!(txt.contains("content_activity: idle"));
+
+        // Selection case: non-empty content_preview implies selection semantic
+        let mut regions2 = regions.clone();
+        regions2.content_preview = Some("selected text".to_string());
+        regions2.focus_slot = None;
+        let view2 = GpuShellView::from_shell_regions(&regions2);
+        let plan2 = GpuPaintPlan::from_view(&view2);
+        let transcript2 = ShellRenderTranscript::from_view_and_plan(width, height, &view2, &plan2);
+        let txt2 = transcript2.to_string();
+        assert!(txt2.contains("content_activity: selection"));
+
+        // Cursor case: focused content slot but no preview
+        let mut regions3 = regions.clone();
+        regions3.content_preview = None;
+        regions3.focus_slot = Some(SlotName::ContentMain);
+        let view3 = GpuShellView::from_shell_regions(&regions3);
+        let plan3 = GpuPaintPlan::from_view(&view3);
+        let transcript3 = ShellRenderTranscript::from_view_and_plan(width, height, &view3, &plan3);
+        let txt3 = transcript3.to_string();
+        assert!(txt3.contains("content_activity: cursor"));
     }
 }
