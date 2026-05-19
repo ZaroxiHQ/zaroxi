@@ -161,6 +161,9 @@ impl GpuShellView {
             chrome_label: s.chrome_label.clone(),
             status_text: s.status_text.clone(),
             content_preview: s.content_preview.clone(),
+            active_buffer_label: s.active_buffer_label.clone(),
+            content_preview_count: s.content_preview_count,
+            ai_indicator: s.ai_indicator.clone(),
         }
     }
 
