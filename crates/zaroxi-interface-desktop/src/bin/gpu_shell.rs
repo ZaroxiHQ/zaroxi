@@ -31,18 +31,33 @@ fn main() {
     use zaroxi_interface_desktop::events::{EventBridge, ActionExecutor, Action};
 
     // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.
-    // This executor does not duplicate action mapping (EventBridge still performs mapping).
-    struct LocalExecutor;
+    // This executor intentionally delegates to the crate-local runtime helper which
+    // calls the existing action/refresh path and returns an adapted ShellRegions.
+    struct LocalExecutor {
+        width: u32,
+        height: u32,
+        regions: zaroxi_interface_desktop::presenters::gpu_shell::ShellRegions,
+    }
 
-    impl ActionExecutor for LocalExecutor {
-        fn execute(&mut self, action: Action) {
-            // Keep executor UI-only and minimal: log for visibility. Real implementations
-            // in the application layer would perform engine mutations.
-            eprintln!("gpu_shell LocalExecutor: executed action: {:?}", action);
+    impl LocalExecutor {
+        fn new(width: u32, height: u32) -> Self {
+            let regions = view_model_to_regions_from_scratch(width, height);
+            Self { width, height, regions }
+        }
+
+        fn current_regions(&self) -> &zaroxi_interface_desktop::presenters::gpu_shell::ShellRegions {
+            &self.regions
         }
     }
 
-    let mut executor = LocalExecutor;
+    impl ActionExecutor for LocalExecutor {
+        fn execute(&mut self, action: Action) {
+            // Delegate to the crate-local runtime helper which performs:
+            // event -> action -> existing action layer invocation -> refresh -> adapt -> ShellRegions
+            let updated = zaroxi_interface_desktop::gpu_shell_runtime::apply_action_and_get_regions(action, self.width, self.height);
+            self.regions = updated;
+        }
+    }
 
     let width: u32 = 800;
     let height: u32 = 600;
@@ -52,6 +67,10 @@ fn main() {
     // minifb expects a u32 per pixel buffer (format: 0x00RRGGBB little-endian).
     let mut pixel_buf: Vec<u32> = vec![0u32; (width as usize) * (height as usize)];
 
+    // Initialize executor (it holds the current adapted regions and updates them
+    // when actions are executed).
+    let mut executor = LocalExecutor::new(width, height);
+
     let mut window = Window::new(
         "Zaroxi - GPU Shell (minimal)",
         width as usize,
@@ -60,8 +79,7 @@ fn main() {
     )
     .expect("Failed to create window");
 
-    // Simple render loop driven by a real ShellRenderViewModel.
-    // We recompose a fresh model each frame (very small, conservative loop).
+    // Simple render loop driven by an up-to-date ShellRenderViewModel.
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // POLL INPUT: translate native keys into UiEvent via the shared adapter helper
         // and route through the existing EventBridge. This keeps mapping logic in one place.
@@ -89,13 +107,9 @@ fn main() {
             }
         }
 
-        // Convert into presenter regions via the adapter (scratch fallback for runtime).
-        // We always recompose (from-scratch) after handling inputs so the rendered frame
-        // can reflect any accepted actions.
-        let regions = view_model_to_regions_from_scratch(width, height);
-
-        // Paint into the RGBA buffer using the presenter's pure function.
-        GpuShellPresenter::paint_to_buffer(width, height, &mut rgba_buf, &regions);
+        // Paint into the RGBA buffer using the presenter's pure function and the
+        // most-recent adapted regions held by the executor.
+        GpuShellPresenter::paint_to_buffer(width, height, &mut rgba_buf, executor.current_regions());
 
         // Convert RGBA8 -> 0x00RRGGBB u32 pixels (drop alpha).
         for i in 0..(width as usize * height as usize) {

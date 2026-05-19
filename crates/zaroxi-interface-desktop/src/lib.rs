@@ -11,6 +11,7 @@ pub mod text_view;
 pub mod selection_view;
 pub mod events;
 pub mod gpu_shell_adapter;
+pub mod gpu_shell_runtime;
 
 // Re-export application ports so tests and internal modules can refer to `crate::ports`.
 // This keeps the interface crate surface small while enabling test modules to implement
