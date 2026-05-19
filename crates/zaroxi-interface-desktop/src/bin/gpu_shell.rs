@@ -13,8 +13,6 @@ Design constraints:
   and hand it to a small adapter which delegates to the presenter's pure mapping.
 */
 
-use zaroxi_interface_desktop::gpu_shell_adapter;
-
 #[cfg(not(feature = "gpu_shell_bin"))]
 fn main() {
     eprintln!("gpu_shell: native GPU shell is not started in this build.");
