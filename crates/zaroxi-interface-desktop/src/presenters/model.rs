@@ -568,13 +568,13 @@ impl GpuShellPresenter {
      action: TabAction,
      opened: &[(String, String)],
      current_active: Option<&str>,
-     mut apply: F,
+     mut _apply: F,
  ) -> Option<String>
  where
      F: FnMut(&str),
  {
      if let Some(id) = compute_tab_action_target(action, opened, current_active) {
-         apply(&id);
+         _apply(&id);
          Some(id)
      } else {
          None
@@ -670,13 +670,13 @@ impl GpuShellPresenter {
      action: FocusAction,
      opened: &[(String, String)],
      current_focused: Option<&str>,
-     mut apply: F,
+     mut _apply: F,
  ) -> Option<String>
  where
      F: FnMut(&str),
  {
      if let Some(id) = compute_focus_action_target(action, opened, current_focused) {
-         apply(&id);
+         _apply(&id);
          Some(id)
      } else {
          None
@@ -691,7 +691,7 @@ impl GpuShellPresenter {
      opened: &[(String, String)],
      current_active: Option<&str>,
      current_focused: Option<&str>,
-     mut apply: F,
+     mut _apply: F,
  ) -> Option<String>
  where
      F: FnMut(&str),
@@ -706,7 +706,7 @@ impl GpuShellPresenter {
              return None;
          }
          // Delegate to apply_tab_action to reuse ActivateById semantics.
-         apply_tab_action(TabAction::ActivateById { id: fid.to_string() }, opened, current_active, apply)
+         apply_tab_action(TabAction::ActivateById { id: fid.to_string() }, opened, current_active, _apply)
      } else {
          None
      }
