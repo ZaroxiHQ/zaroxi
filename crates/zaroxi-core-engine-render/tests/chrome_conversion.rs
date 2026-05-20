@@ -1,5 +1,5 @@
 use zaroxi_core_engine_scene::scene::{ShellChrome, Tab as SceneTab};
-use zaroxi_core_engine_render::intent::{ChromePrimitive, ChromeTab, RenderSection};
+use zaroxi_core_engine_render::intent::RenderSection;
 
 #[test]
 fn chrome_to_render_section_no_tabs_is_safe() {
