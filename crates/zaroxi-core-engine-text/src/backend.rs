@@ -59,11 +59,13 @@ impl TextBackend for DummyBackend {
 }
 
 #[cfg(feature = "glyphon_backend")]
-pub mod glyphon_impl {
+mod glyphon_impl {
     //! Feature-gated Glyphon-backed implementation.
     //!
     //! This module intentionally keeps Glyphon usage private and exposes only
-    //! the engine-owned GlyphonBackend type which implements TextBackend.
+    //! the engine-owned GlyphonBackend type which implements TextBackend. The
+    //! module and its concrete types are NOT publicly re-exported so Glyphon
+    //! types never leak out of this crate's abstraction boundary.
     //!
     //! NOTE: imports and usage are minimal so the public API of this crate never
     //! mentions Glyphon types.
@@ -75,11 +77,13 @@ pub mod glyphon_impl {
     // The exact glyphon API surface may change; this adapter keeps usage local.
     use glyphon::FontSystem;
 
-    pub struct GlyphonBackend {
+    struct GlyphonBackend {
         fs: FontSystem,
     }
 
     impl GlyphonBackend {
+        // Keep constructor visible inside the crate so `new_backend()` can call it,
+        // but do NOT export the concrete type from the crate public API.
         pub fn new() -> Self {
             let fs = FontSystem::new();
             // Real font loading/metrics would be performed here in a full implementation.

@@ -10,6 +10,7 @@ license = "MIT"
 [dependencies]
 zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
+zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
 
 # Feature gate for the heavy renderer/surface modules. By default the crate
 # compiles only the lightweight intent module so tests and CI can run on
