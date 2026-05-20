@@ -170,6 +170,27 @@ impl ShellRenderTranscript {
         lines.push(format!("content_activity: {}", self.view.content_activity.as_str()));
 
         // Tabs: deterministic tab strip projection (presenter-facing).
+        // Emit a compact, deterministic summary first so consumers can quickly
+        // observe counts and the active/focus hints without parsing the full list.
+        let tab_count = self.tabs.tabs.len();
+        let active_index = self
+            .tabs
+            .tabs
+            .iter()
+            .find(|t| t.active)
+            .map(|t| t.index.to_string())
+            .unwrap_or_else(|| "<none>".to_string());
+        let focus_slot = self
+            .view
+            .focus_slot
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("<none>");
+        lines.push(format!(
+            "tabs_summary: count={} active_index={} focus_slot={}",
+            tab_count, active_index, focus_slot
+        ));
+
         lines.push("tabs:".to_string());
         if self.tabs.tabs.is_empty() {
             lines.push("  <none>".to_string());
