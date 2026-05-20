@@ -9,6 +9,7 @@ Purpose:
 */
 
 use zaroxi_core_engine_layout::{ShellLayoutInput, LayoutBlock};
+use zaroxi_core_engine_scene::scene::ShellChrome;
 
 /// Top-level semantic render intent for a shell view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,8 +34,81 @@ pub enum RenderSection {
     /// Small status summary block (semantic string only).
     Status { summary: String },
 
-    /// Placeholder for non-text chrome sections.
-    Chrome,
+    /// Engine-side chrome primitive carrying tab semantics.
+    Chrome { chrome: ChromePrimitive },
+}
+
+/// Minimal representation of a single tab suitable for render-stage semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromeTab {
+    /// 1-based tab index (keeps presenter's convention).
+    pub index: u32,
+    /// Stable identifier for the tab (presenter-provided).
+    pub id: String,
+    /// Short display label for the tab.
+    pub label: String,
+    /// Whether this tab is active.
+    pub active: bool,
+}
+
+/// Small engine-facing chrome primitive that carries only semantic facts.
+/// Intentionally monospace/minimal: no colors, fonts, or layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChromePrimitive {
+    pub chrome_label: Option<String>,
+    pub tabs: Vec<ChromeTab>,
+    pub active_tab_index: Option<usize>,
+    pub focus_slot: Option<String>,
+    pub status_text: Option<String>,
+    pub ai_indicator: Option<String>,
+    pub content_preview: Option<String>,
+}
+
+impl Default for ChromePrimitive {
+    fn default() -> Self {
+        Self {
+            chrome_label: None,
+            tabs: Vec::new(),
+            active_tab_index: None,
+            focus_slot: None,
+            status_text: None,
+            ai_indicator: None,
+            content_preview: None,
+        }
+    }
+}
+
+impl From<ShellChrome> for ChromePrimitive {
+    fn from(src: ShellChrome) -> Self {
+        let tabs = src
+            .tabs
+            .into_iter()
+            .map(|t| ChromeTab {
+                index: t.index,
+                id: t.id,
+                label: t.label,
+                active: t.active,
+            })
+            .collect();
+
+        ChromePrimitive {
+            chrome_label: src.chrome_label,
+            tabs,
+            active_tab_index: src.active_tab_index,
+            focus_slot: src.focus_slot,
+            status_text: src.status_text,
+            ai_indicator: src.ai_indicator,
+            content_preview: src.content_preview,
+        }
+    }
+}
+
+impl From<ShellChrome> for RenderSection {
+    fn from(chrome: ShellChrome) -> Self {
+        RenderSection::Chrome {
+            chrome: ChromePrimitive::from(chrome),
+        }
+    }
 }
 
 impl From<ShellLayoutInput> for ShellRenderIntent {
@@ -59,7 +133,11 @@ impl From<ShellLayoutInput> for ShellRenderIntent {
                     });
                 }
                 LayoutBlock::Chrome => {
-                    sections.push(RenderSection::Chrome);
+                    // Layout-level chrome blocks do not carry presenter chrome data.
+                    // Produce an empty engine chrome primitive as a stable, deterministic
+                    // placeholder. Presenters that have richer chrome (ShellChrome)
+                    // can be converted into RenderSection::from(ShellChrome) elsewhere.
+                    sections.push(RenderSection::Chrome { chrome: ChromePrimitive::default() });
                 }
             }
         }
