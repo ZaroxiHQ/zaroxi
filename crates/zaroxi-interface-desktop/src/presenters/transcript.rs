@@ -186,11 +186,39 @@ impl ShellRenderTranscript {
             .as_ref()
             .map(|s| s.as_str())
             .unwrap_or("<none>");
+
+        // Compact, user-facing single-line tab summary. Rules:
+        // - no tabs: "tabs_compact: <none>"
+        // - 1-3 tabs: "tabs_compact: name1|name2 active=nameX"
+        // - >3 tabs: "tabs_compact: <count> active=nameX"
+        let active_display = self
+            .tabs
+            .tabs
+            .iter()
+            .find(|t| t.active)
+            .map(|t| t.display.as_str())
+            .unwrap_or("<none>");
+        if tab_count == 0 {
+            lines.push(format!("tabs_compact: <none>"));
+        } else if tab_count <= 3 {
+            let names: Vec<String> = self.tabs.tabs.iter().map(|t| t.display.clone()).collect();
+            let joined = names.join("|");
+            if active_display != "<none>" {
+                lines.push(format!("tabs_compact: {} active={}", joined, active_display));
+            } else {
+                lines.push(format!("tabs_compact: {}", joined));
+            }
+        } else {
+            lines.push(format!("tabs_compact: {} active={}", tab_count, active_display));
+        }
+
+        // Existing deterministic summary retained for downstream engine consumers.
         lines.push(format!(
             "tabs_summary: count={} active_index={} focus_slot={}",
             tab_count, active_index, focus_slot
         ));
 
+        // Detailed presenter-facing tab list (kept unchanged to preserve tests).
         lines.push("tabs:".to_string());
         if self.tabs.tabs.is_empty() {
             lines.push("  <none>".to_string());
