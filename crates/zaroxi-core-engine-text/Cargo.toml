@@ -7,3 +7,8 @@ license = "MIT"
 
 [dependencies]
 # Add crate-specific dependencies when replacing stubbed manifests.
+glyphon = { version = "0.7", optional = true }
+
+[features]
+default = []
+glyphon_backend = ["glyphon"]

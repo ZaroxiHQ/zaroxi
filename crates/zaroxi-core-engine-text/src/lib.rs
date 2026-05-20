@@ -9,3 +9,8 @@ pub fn info() -> &'static str {
 
 mod label;
 pub use label::TextLabel;
+
+mod backend;
+pub use backend::{TextBackend, TextLayout, new_backend, DummyBackend};
+#[cfg(feature = "glyphon_backend")]
+pub use backend::glyphon_impl::GlyphonBackend;
