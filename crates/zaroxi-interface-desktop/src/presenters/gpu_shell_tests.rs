@@ -415,6 +415,84 @@ fn focus_navigation_deterministic_and_apply() {
     assert_eq!(res4, Some("id3".to_string()));
 }
 
+/// New tests: ensure the keyboard/UI event path routes focus movement and
+/// focused activation through the existing presenter helpers.
+///
+/// These tests exercise:
+/// - handle_focus_key_event mapping of Tab -> focus movement
+/// - Enter -> activate focused via activate_focused
+/// - Ctrl+Tab -> existing activation cycling remains intact (handle_key_event)
+#[test]
+fn keyboard_focus_and_activation_event_path() {
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+        ("id3".to_string(), "three".to_string()),
+    ];
+
+    // Prepare apply closures to capture invocations.
+    let mut applied_focus: Option<String> = None;
+    let mut applied_activate: Option<String> = None;
+    let apply_focus = |id: &str| {
+        applied_focus = Some(id.to_string());
+    };
+    let apply_activate = |id: &str| {
+        applied_activate = Some(id.to_string());
+    };
+
+    // Plain Tab (no ctrl) should move focus to first when no focus exists.
+    let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
+    let res = handle_focus_key_event(&ev_tab, &opened, None, None, apply_focus, apply_activate);
+    assert_eq!(res, Some("id1".to_string()));
+    assert_eq!(applied_focus, Some("id1".to_string()));
+    assert!(applied_activate.is_none());
+
+    // Enter should activate the currently-focused id (simulate focused=id2)
+    applied_activate = None;
+    let ev_enter = KeyEvent { ctrl: false, shift: false, key: "Enter".to_string() };
+    let res2 = handle_focus_key_event(&ev_enter, &opened, Some("id1"), Some("id2"), apply_focus, apply_activate);
+    assert_eq!(res2, Some("id2".to_string()));
+    assert_eq!(applied_activate, Some("id2".to_string()));
+}
+
+#[test]
+fn ctrl_tab_still_activates_next() {
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+        ("id3".to_string(), "three".to_string()),
+    ];
+
+    let mut applied: Option<String> = None;
+    let ev = KeyEvent { ctrl: true, shift: false, key: "Tab".to_string() };
+    let res = handle_key_event(&ev, &opened, Some("id1"), |id| { applied = Some(id.to_string()); });
+    assert_eq!(res, Some("id2".to_string()));
+    assert_eq!(applied, Some("id2".to_string()));
+}
+
+#[test]
+fn focus_events_no_tabs_and_one_tab_safe() {
+    // No tabs -> focus events are no-op
+    let opened_empty: Vec<(String, String)> = Vec::new();
+    let mut applied_focus: Option<String> = None;
+    let mut applied_activate: Option<String> = None;
+    let apply_focus = |id: &str| { applied_focus = Some(id.to_string()); };
+    let apply_activate = |id: &str| { applied_activate = Some(id.to_string()); };
+
+    let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
+    let res = handle_focus_key_event(&ev_tab, &opened_empty, None, None, apply_focus, apply_activate);
+    assert_eq!(res, None);
+    assert!(applied_focus.is_none());
+    assert!(applied_activate.is_none());
+
+    // One tab -> focus/select returns that id
+    let opened_one = vec![("only".to_string(), "one".to_string())];
+    let mut applied_focus2: Option<String> = None;
+    let apply_focus2 = |id: &str| { applied_focus2 = Some(id.to_string()); };
+    let res2 = handle_focus_key_event(&ev_tab, &opened_one, None, None, apply_focus2, |_| {});
+    assert_eq!(res2, Some("only".to_string()));
+}
+
 #[test]
 fn activate_focused_dispatches_activatebyid() {
     let opened = vec![

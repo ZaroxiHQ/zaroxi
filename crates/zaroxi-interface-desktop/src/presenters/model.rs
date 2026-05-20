@@ -733,6 +733,14 @@ impl KeyEvent {
     fn is_ctrl_tab(&self) -> bool {
         self.ctrl && self.key == "Tab"
     }
+
+    fn is_plain_tab(&self) -> bool {
+        !self.ctrl && self.key == "Tab"
+    }
+
+    fn is_enter(&self) -> bool {
+        self.key == "Enter"
+    }
 }
 
 /// Map a keyboard event into a TabAction and apply it through the existing
@@ -760,6 +768,44 @@ where
         apply_tab_action(TabAction::ActivatePrevious { wrap: true }, opened, current_active, apply)
     } else {
         apply_tab_action(TabAction::ActivateNext { wrap: true }, opened, current_active, apply)
+    }
+}
+
+/// Map keyboard events into focus/activation UI events and route them through
+/// the existing deterministic presenter-level focus/activation helpers.
+///
+/// Mapping rules:
+/// - Tab (no ctrl) -> FocusNext { wrap: true }
+/// - Shift+Tab (no ctrl) -> FocusPrevious { wrap: true }
+/// - Enter -> ActivateFocused (delegates to activate_focused)
+/// - Any other key -> no-op
+///
+/// This function intentionally reuses existing FocusAction / apply_focus_action
+/// and activate_focused helpers so resolution and no-op semantics remain stable.
+pub fn handle_focus_key_event<F, G>(
+    ev: &KeyEvent,
+    opened: &[(String, String)],
+    current_active: Option<&str>,
+    current_focused: Option<&str>,
+    mut apply_focus: F,
+    mut apply_activate: G,
+) -> Option<String>
+where
+    F: FnMut(&str),
+    G: FnMut(&str),
+{
+    // Tab navigation (focus only) — ignore Ctrl+Tab (reserved for activation cycling).
+    if ev.is_plain_tab() {
+        if ev.shift {
+            apply_focus_action(FocusAction::FocusPrevious { wrap: true }, opened, current_focused, apply_focus)
+        } else {
+            apply_focus_action(FocusAction::FocusNext { wrap: true }, opened, current_focused, apply_focus)
+        }
+    } else if ev.is_enter() {
+        // Confirm/activate the currently focused tab (delegates to existing activation path).
+        activate_focused(opened, current_active, current_focused, apply_activate)
+    } else {
+        None
     }
 }
 
