@@ -46,6 +46,12 @@ impl ShellRenderTranscript {
                         rect.x, rect.y, rect.width, rect.height, rect.color, thickness
                     ));
                 }
+                crate::presenters::paint::GpuPaintOp::Text { x, y, text, color } => {
+                    plan_lines.push(format!(
+                        "Text x={} y={} text=\"{}\" color={:?}",
+                        x, y, text, color
+                    ));
+                }
             }
         }
 

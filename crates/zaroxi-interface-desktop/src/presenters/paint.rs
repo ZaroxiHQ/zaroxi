@@ -13,6 +13,10 @@ pub struct GpuPaintRect {
 pub enum GpuPaintOp {
     FillRect(GpuPaintRect),
     BorderRect { rect: GpuPaintRect, thickness: u32 },
+    /// Semantic text op: carries the textual label and a color.
+    /// The executor renders a small deterministic label rectangle for visibility
+    /// and transcript generation includes the actual text string.
+    Text { x: u32, y: u32, text: String, color: [u8; 4] },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +221,12 @@ impl GpuPaintPlan {
         }
 
         // Tab strip rendering (additive, purely presentational)
+        //
+        // Enhancement: render deterministic small label indicators for each tab.
+        // We push a semantic `Text` op that carries the display string; the
+        // executor will render a small label rectangle (deterministic size)
+        // so the GPU-backed presenter visually shows where labels are and the
+        // transcript will include the actual text string for testability/logs.
         if !v.tabs.tabs.is_empty() && v.chrome.height > 2 {
             let num = v.tabs.tabs.len() as u32;
             // small tab bar inset/padding and height
@@ -263,6 +273,42 @@ impl GpuPaintPlan {
                     },
                     thickness: 1u32,
                 });
+
+                // Textual label (semantic): compute a small deterministic label box
+                // width based on character budget (6px per char including spacing).
+                let display = t.display.clone();
+                let max_label_chars = if w > 8 { ((w - 8) / 6) as usize } else { 0 };
+                let label_text = if max_label_chars == 0 {
+                    String::new()
+                } else if display.chars().count() > max_label_chars {
+                    // truncate deterministically, replace last char with '.' when truncated
+                    let mut s: String = display.chars().take(max_label_chars).collect();
+                    if s.len() > 0 {
+                        s.replace_range((s.len() - 1).., ".");
+                    }
+                    s
+                } else {
+                    display
+                };
+
+                if !label_text.is_empty() {
+                    let label_w = (label_text.chars().count() as u32).saturating_mul(6);
+                    // center label horizontally inside tab
+                    let label_x = x + ((w.saturating_sub(label_w)) / 2);
+                    // vertically center inside tab; label height fixed to 6px
+                    let label_y = tab_bar_y + (tab_bar_h.saturating_sub(6) / 2);
+
+                    // Push a semantic Text op; the executor will render a small
+                    // filled rect at this position (visual cue) and transcripts
+                    // will include the text value itself for testability.
+                    ops.push(GpuPaintOp::Text {
+                        x: label_x,
+                        y: label_y,
+                        text: label_text,
+                        color: [10u8, 10u8, 10u8, 255u8],
+                    });
+                }
+
                 x = x.saturating_add(w);
             }
         }
@@ -287,8 +333,14 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
     fn fill_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect) {
         for row in rect.y..rect.y.saturating_add(rect.height) {
             for col in rect.x..rect.x.saturating_add(rect.width) {
+                // Bounds-check to be safe in case of slightly out-of-range rects.
+                if row >= (u32::MAX) || col >= (u32::MAX) {
+                    continue;
+                }
                 let idx = ((row * width + col) * 4) as usize;
-                buffer[idx..idx + 4].copy_from_slice(&rect.color);
+                if idx + 4 <= buffer.len() {
+                    buffer[idx..idx + 4].copy_from_slice(&rect.color);
+                }
             }
         }
     }
@@ -310,16 +362,37 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 let in_bottom = row >= bottom.saturating_sub(thickness);
                 if in_left || in_right || in_top || in_bottom {
                     let idx = ((row * width + col) * 4) as usize;
-                    buffer[idx..idx + 4].copy_from_slice(&rect.color);
+                    if idx + 4 <= buffer.len() {
+                        buffer[idx..idx + 4].copy_from_slice(&rect.color);
+                    }
                 }
             }
         }
+    }
+
+    // Semantic "Text" op executor (renders a small deterministic label rect).
+    // We intentionally do NOT implement glyph rasterization here to keep the
+    // presenter free of font assets. Instead we render a small solid rect
+    // representing the label area so users can visually identify tab labels
+    // and tests can assert presence and position deterministically.
+    fn draw_text_rect(buffer: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: [u8; 4]) {
+        if text.is_empty() {
+            return;
+        }
+        let w = (text.chars().count() as u32).saturating_mul(6);
+        let h = 6u32.min(height.saturating_sub(y));
+        if w == 0 || h == 0 {
+            return;
+        }
+        let rect = GpuPaintRect { x, y, width: w, height: h, color };
+        fill_rect(buffer, width, &rect);
     }
 
     for op in plan.ops.iter() {
         match op {
             GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
             GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
+            GpuPaintOp::Text { x, y, text, color } => draw_text_rect(buffer, width, height, *x, *y, text, *color),
         }
     }
 }

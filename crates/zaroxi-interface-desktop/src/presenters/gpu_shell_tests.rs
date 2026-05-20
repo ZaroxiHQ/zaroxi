@@ -590,3 +590,87 @@ fn render_plan_includes_focused_and_active_colors() {
     assert!(found_focused, "expected focused tab fill color in plan");
     assert!(found_active, "expected active tab fill color in plan");
 }
+
+/// New test: ensure `GpuPaintPlan` emits Text ops for visible tab labels.
+#[test]
+fn paint_plan_includes_text_for_tabs() {
+    let width: u32 = 200;
+    let height: u32 = 80;
+    let chrome_h: u32 = 20;
+    let status_h: u32 = 6;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    let mut view = GpuShellView::from_shell_regions(&regions);
+
+    // Provide visible tabs
+    view.tabs = TabStrip {
+        tabs: vec![
+            TabEntry { id: "a".to_string(), display: "one".to_string(), active: true, focused: false, index: 0 },
+            TabEntry { id: "b".to_string(), display: "two".to_string(), active: false, focused: true, index: 1 },
+        ],
+    };
+
+    let plan = GpuPaintPlan::from_view(&view);
+
+    // There must be at least one Text op representing tab labels.
+    let has_text = plan.ops.iter().any(|op| matches!(op, GpuPaintOp::Text { .. }));
+    assert!(has_text, "expected at least one Text op in paint plan for tabs");
+}
+
+/// Ensure executor actually paints the label rect for Text ops (pixel-level).
+#[test]
+fn execute_paint_plan_renders_label_rect() {
+    let width: u32 = 120;
+    let height: u32 = 40;
+    let chrome_h: u32 = 12;
+    let status_h: u32 = 6;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    let mut view = GpuShellView::from_shell_regions(&regions);
+
+    view.tabs = TabStrip {
+        tabs: vec![
+            TabEntry { id: "x".to_string(), display: "only".to_string(), active: false, focused: true, index: 0 },
+        ],
+    };
+
+    let plan = GpuPaintPlan::from_view(&view);
+    let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
+
+    // Execute plan
+    execute_paint_plan(&plan, &mut buf, width, height);
+
+    // Find the first Text op and sample its top-left pixel; it should match the color used.
+    let mut found = false;
+    for op in plan.ops.iter() {
+        if let GpuPaintOp::Text { x, y, text, color } = op {
+            if text.is_empty() {
+                continue;
+            }
+            let idx = (((*y) * width + (*x)) * 4) as usize;
+            if idx + 4 <= buf.len() {
+                let px = [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]];
+                assert_eq!(px, *color, "expected label rect pixel to equal text color");
+                found = true;
+                break;
+            }
+        }
+    }
+    assert!(found, "expected to find and validate a Text op rendered into buffer");
+}
+
+/// Ensure when no tabs are present there are no Text ops emitted.
+#[test]
+fn no_tabs_emits_no_text_ops() {
+    let width: u32 = 120;
+    let height: u32 = 80;
+    let chrome_h: u32 = 10;
+    let status_h: u32 = 6;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    let view = GpuShellView::from_shell_regions(&regions);
+    let plan = GpuPaintPlan::from_view(&view);
+
+    assert!(!plan.ops.iter().any(|op| matches!(op, GpuPaintOp::Text { .. })));
+}
+}
