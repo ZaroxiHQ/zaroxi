@@ -1,6 +1,7 @@
 use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
-use zaroxi_core_engine_scene::scene::{ShellChrome, Tab as EngineTab};
+use zaroxi_core_engine_scene::scene::ShellChrome;
+use zaroxi_core_engine_render::intent::ChromePrimitive;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
@@ -8,8 +9,8 @@ pub struct ShellRenderTranscript {
     pub height: u32,
     pub view: GpuShellView,
     pub plan_lines: Vec<String>,
-    /// Minimal engine-facing shell chrome projection for downstream engine crates.
-    pub engine_chrome: ShellChrome,
+    /// Minimal engine-facing shell chrome projection (engine-render ChromePrimitive) for downstream engine crates.
+    pub engine_chrome: ChromePrimitive,
     /// Additive presenter-facing tab strip. Consumers may pass an explicitly
     /// constructed TabStrip when producing a transcript; the default is empty.
     pub tabs: TabStrip,
@@ -59,12 +60,12 @@ impl ShellRenderTranscript {
         }
 
         // Build a minimal engine-facing ShellChrome projection from the presenter
-        // view + TabStrip. This keeps rendering semantics in interface-desktop
-        // minimal (what tabs exist, active/focused semantics, short labels)
-        // while allowing engine crates to own the rendering primitives later.
-        let mut engine_tabs: Vec<EngineTab> = Vec::with_capacity(tabs.tabs.len());
+        // view + TabStrip and convert it into the engine-render ChromePrimitive.
+        // This explicitly reuses the engine-render conversion so downstream engine
+        // consumers receive the canonical engine-facing chrome primitive.
+        let mut scene_tabs: Vec<zaroxi_core_engine_scene::scene::Tab> = Vec::with_capacity(tabs.tabs.len());
         for t in tabs.tabs.iter() {
-            engine_tabs.push(EngineTab {
+            scene_tabs.push(zaroxi_core_engine_scene::scene::Tab {
                 index: t.index as u32,
                 id: t.id.clone(),
                 label: t.display.clone(),
@@ -73,15 +74,17 @@ impl ShellRenderTranscript {
         }
         let active_index = tabs.tabs.iter().position(|t| t.active);
 
-        let engine_chrome = ShellChrome {
+        let scene_chrome = ShellChrome {
             chrome_label: view.chrome_label.clone(),
-            tabs: engine_tabs,
+            tabs: scene_tabs,
             active_tab_index: active_index,
             focus_slot: view.focus_slot.as_ref().map(|s| s.as_str().to_string()),
             status_text: view.status_text.clone(),
             ai_indicator: view.ai_indicator.clone(),
             content_preview: view.content_preview.clone(),
         };
+
+        let engine_chrome = ChromePrimitive::from(scene_chrome);
 
         ShellRenderTranscript {
             width,
