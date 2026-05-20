@@ -52,6 +52,16 @@ FAMILY_PATTERNS["^zaroxi-core-editor-"]="core-editor"
 FAMILY_PATTERNS["^zaroxi-core-platform-"]="core-platform"
 FAMILY_PATTERNS["^zaroxi-core-workspace-"]="core-workspace"
 
+# Helpful alias patterns to reduce noisy advisory warnings for known internal naming
+FAMILY_PATTERNS["^zaroxi-ops"]="application"
+FAMILY_PATTERNS["^zaroxi-infra"]="infrastructure"
+FAMILY_PATTERNS["^zaroxi-protocol"]="kernel"
+FAMILY_PATTERNS["^zaroxi-ai"]="intelligence"
+FAMILY_PATTERNS["^zaroxi-engine"]="core-engine"
+FAMILY_PATTERNS["^zaroxi-config"]="kernel"
+FAMILY_PATTERNS["^zaroxi-app"]="application"
+FAMILY_PATTERNS["^zaroxi-desktop"]="harness"
+
 FAMILY_PATTERNS["^zaroxi-core-runtime"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-state"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-task"]="core-runtime"
@@ -116,7 +126,11 @@ FAMILY_RANK["unknown"]=-1
 
 declare -a INFRA_TO_APP_EXCEPTIONS=(
   "zaroxi-infrastructure-ai-mock:zaroxi-application-ai"
+  "zaroxi-infrastructure-ai-mock:zaroxi-application"
   "zaroxi-infrastructure-memory:zaroxi-application-workspace"
+  "zaroxi-infrastructure-memory:zaroxi-application"
+  "zaroxi-infrastructure-memory:zaroxi-domain-workspace"
+  "zaroxi-infrastructure-memory:zaroxi-core-editor-buffer"
 )
 
 # -------------------------
