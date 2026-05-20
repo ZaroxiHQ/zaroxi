@@ -10,43 +10,17 @@ use std::sync::Arc;
 use std::pin::Pin;
 use std::future::Future;
 
-use zaroxi_application_workspace::ports::{
-    WorkspaceRepository, WorkspaceOpenCommand, WorkspaceDTO, DomainError,
-};
-
 /// Simple boxed future helper for this tiny crate.
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// In-memory workspace repository (infrastructure adapter).
-pub struct InMemoryWorkspaceRepo;
-
-impl InMemoryWorkspaceRepo {
-    pub fn new() -> Self {
-        InMemoryWorkspaceRepo
-    }
-}
-
-impl WorkspaceRepository for InMemoryWorkspaceRepo {
-    fn open_workspace(&self, cmd: WorkspaceOpenCommand) -> BoxFuture<'static, Result<WorkspaceDTO, DomainError>> {
-        Box::pin(async move {
-            // Minimal behavior: create a kernel Id and echo the provided path into DTO
-            let dto = WorkspaceDTO {
-                id: zaroxi_kernel_types::Id::new(),
-                root_path: cmd.path.clone(),
-                name: "Sample Workspace".to_string(),
-            };
-            Ok(dto)
-        })
-    }
-}
-
-use std::collections::HashMap;
-use std::sync::Mutex;
-
-/// Export helpers to turn into Arc'd dyn trait objects.
-pub fn into_workspace_repo(repo: InMemoryWorkspaceRepo) -> Arc<dyn WorkspaceRepository> {
-    Arc::new(repo)
-}
+// NOTE:
+// The InMemoryWorkspaceRepo adapter was removed from this infrastructure crate
+// to avoid introducing forbidden dependencies on domain/core crates. This
+// infrastructure crate now implements only application-facing durability/history
+// adapters (HistoryRepository, DurabilityRepository) using the
+// `zaroxi-application-workspace` port types. Workspace orchestration and any
+// domain-level repository implementations belong in the application or domain
+// crates and should be wired at composition time by the outer layer.
 
 /// In-memory history/event store.
 pub struct InMemoryHistoryStore {
