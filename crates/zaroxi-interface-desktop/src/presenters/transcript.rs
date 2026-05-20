@@ -1,5 +1,6 @@
 use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
+use zaroxi_core_engine_scene::{ShellChrome, Tab as EngineTab};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
@@ -7,6 +8,8 @@ pub struct ShellRenderTranscript {
     pub height: u32,
     pub view: GpuShellView,
     pub plan_lines: Vec<String>,
+    /// Minimal engine-facing shell chrome projection for downstream engine crates.
+    pub engine_chrome: ShellChrome,
     /// Additive presenter-facing tab strip. Consumers may pass an explicitly
     /// constructed TabStrip when producing a transcript; the default is empty.
     pub tabs: TabStrip,
@@ -55,11 +58,37 @@ impl ShellRenderTranscript {
             }
         }
 
+        // Build a minimal engine-facing ShellChrome projection from the presenter
+        // view + TabStrip. This keeps rendering semantics in interface-desktop
+        // minimal (what tabs exist, active/focused semantics, short labels)
+        // while allowing engine crates to own the rendering primitives later.
+        let mut engine_tabs: Vec<EngineTab> = Vec::with_capacity(tabs.tabs.len());
+        for t in tabs.tabs.iter() {
+            engine_tabs.push(EngineTab {
+                index: t.index,
+                id: t.id.clone(),
+                label: t.display.clone(),
+                active: t.active,
+            });
+        }
+        let active_index = tabs.tabs.iter().position(|t| t.active);
+
+        let engine_chrome = ShellChrome {
+            chrome_label: view.chrome_label.clone(),
+            tabs: engine_tabs,
+            active_tab_index: active_index,
+            focus_slot: view.focus_slot.clone(),
+            status_text: view.status_text.clone(),
+            ai_indicator: view.ai_indicator.clone(),
+            content_preview: view.content_preview.clone(),
+        };
+
         ShellRenderTranscript {
             width,
             height,
             view: view.clone(),
             plan_lines,
+            engine_chrome,
             tabs: tabs.clone(),
         }
     }

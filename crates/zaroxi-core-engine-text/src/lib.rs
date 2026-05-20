@@ -6,3 +6,6 @@ pub const CRATE_NAME: &str = "zaroxi-core-render-text";
 pub fn info() -> &'static str {
     CRATE_NAME
 }
+
+mod label;
+pub use label::TextLabel;
