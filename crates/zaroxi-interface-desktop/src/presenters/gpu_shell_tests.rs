@@ -332,3 +332,55 @@ fn transcript_includes_semantic_payloads() {
     assert!(txt.contains("content_preview: preview"));
     assert!(txt.contains("ai_indicator: ai:available"));
 }
+
+#[test]
+fn direct_activation_by_id_selects_tab() {
+    // Ordered opened buffers (id, display)
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+        ("id3".to_string(), "three".to_string()),
+    ];
+
+    let mut applied: Option<String> = None;
+    let apply = |id: &str| {
+        applied = Some(id.to_string());
+    };
+
+    // Activate id2 when no active currently
+    let res = apply_tab_action(TabAction::ActivateById { id: "id2".to_string() }, &opened, None, apply);
+
+    assert_eq!(res, Some("id2".to_string()));
+    assert_eq!(applied, Some("id2".to_string()));
+}
+
+#[test]
+fn direct_activation_out_of_range_is_noop() {
+    let opened = vec![("id1".to_string(), "one".to_string())];
+    let mut applied = false;
+    let res = apply_tab_action(
+        TabAction::ActivateById { id: "missing".to_string() },
+        &opened,
+        None,
+        |_id| { applied = true; },
+    );
+    assert_eq!(res, None);
+    assert!(!applied);
+}
+
+#[test]
+fn activating_already_active_tab_is_noop() {
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+    ];
+    let mut applied = false;
+    let res = apply_tab_action(
+        TabAction::ActivateById { id: "id1".to_string() },
+        &opened,
+        Some("id1"),
+        |_id| { applied = true; },
+    );
+    assert_eq!(res, None);
+    assert!(!applied);
+}
