@@ -7,15 +7,11 @@
 */
 
 use std::sync::Arc;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::future::Future;
 
-use zaroxi_domain_workspace::ports::{
+use zaroxi_application_workspace::ports::{
     WorkspaceRepository, WorkspaceOpenCommand, WorkspaceDTO, DomainError,
-};
-use zaroxi_core_editor_buffer::ports::{
-    BufferStore, BufferId, BufferError, TextEdit,
 };
 
 /// Simple boxed future helper for this tiny crate.
@@ -47,98 +43,9 @@ impl WorkspaceRepository for InMemoryWorkspaceRepo {
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// In-memory buffer store (infrastructure adapter).
-pub struct InMemoryBufferStore {
-    inner: std::sync::Arc<Mutex<HashMap<String, String>>>,
-}
-
-impl InMemoryBufferStore {
-    pub fn new() -> Self {
-        InMemoryBufferStore { inner: std::sync::Arc::new(Mutex::new(HashMap::new())) }
-    }
-}
-
-impl BufferStore for InMemoryBufferStore {
-    fn open_buffer(&self, path: PathBuf) -> BoxFuture<'static, Result<BufferId, BufferError>> {
-        // Use the canonical BufferId helper to centralize representation rules.
-        let id = BufferId::from_path(&path);
-        let key = id.0.clone();
-        let inner = self.inner.clone();
-        Box::pin(async move {
-            // Ensure an entry exists (empty content) for the opened buffer.
-            let mut m = inner.lock().unwrap();
-            m.entry(key.clone()).or_insert_with(|| "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string());
-            Ok(id)
-        })
-    }
-
-    fn get_text(&self, id: &BufferId) -> Option<String> {
-        let m = self.inner.lock().unwrap();
-        m.get(&id.0).cloned()
-    }
-
-    fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>> {
-        let key = id.0.clone();
-        let inner = self.inner.clone();
-        Box::pin(async move {
-            let mut m = inner.lock().unwrap();
-            if m.contains_key(&key) {
-                m.insert(key, content);
-                Ok(())
-            } else {
-                Err(BufferError("buffer not found".to_string()))
-            }
-        })
-    }
-
-    fn apply_transaction(&self, id: &BufferId, txn: TextEdit) -> BoxFuture<'static, Result<(), BufferError>> {
-        let key = id.0.clone();
-        let inner = self.inner.clone();
-        Box::pin(async move {
-            let mut m = inner.lock().unwrap();
-            let s = m.get_mut(&key).ok_or(BufferError("buffer not found".to_string()))?;
-            // Helper: map character index -> byte index in the current string.
-            let char_to_byte = |st: &str, idx: usize| -> usize {
-                st.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(st.len())
-            };
-            match txn {
-                TextEdit::Insert { index, text } => {
-                    let bpos = char_to_byte(&s, index);
-                    s.insert_str(bpos, &text);
-                    Ok(())
-                }
-                TextEdit::Delete { start, end } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
-                    if bstart <= bend && bend <= s.len() {
-                        s.replace_range(bstart..bend, "");
-                        Ok(())
-                    } else {
-                        Err(BufferError("invalid delete range".to_string()))
-                    }
-                }
-                TextEdit::Replace { start, end, text } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
-                    if bstart <= bend && bend <= s.len() {
-                        s.replace_range(bstart..bend, &text);
-                        Ok(())
-                    } else {
-                        Err(BufferError("invalid replace range".to_string()))
-                    }
-                }
-            }
-        })
-    }
-}
-
 /// Export helpers to turn into Arc'd dyn trait objects.
 pub fn into_workspace_repo(repo: InMemoryWorkspaceRepo) -> Arc<dyn WorkspaceRepository> {
     Arc::new(repo)
-}
-
-pub fn into_buffer_store(store: InMemoryBufferStore) -> Arc<dyn BufferStore> {
-    Arc::new(store)
 }
 
 /// In-memory history/event store.

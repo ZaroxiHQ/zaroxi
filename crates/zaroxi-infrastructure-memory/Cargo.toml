@@ -5,8 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
-zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 # History/event port implemented by this infra adapter
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
