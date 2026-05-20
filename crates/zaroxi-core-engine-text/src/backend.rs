@@ -36,7 +36,11 @@ pub trait TextBackend: Send + Sync {
 
 /// Very small deterministic backend used as the default. This lets the workspace
 /// build and test without pulling Glyphon into every CI run.
-pub struct DummyBackend {}
+/// The concrete DummyBackend type is intentionally crate-private so outer-layer
+/// crates cannot instantiate or depend on engine backend implementations
+/// directly. Consumers should use the public seam (`new_backend`) or, preferably,
+/// the render crate's `text_seam` adapter.
+pub(crate) struct DummyBackend {}
 
 impl DummyBackend {
     pub fn new() -> Self {
@@ -112,6 +116,12 @@ mod glyphon_impl {
 /// When the "glyphon_backend" feature is enabled this will return the GlyphonBackend;
 /// otherwise it returns the DummyBackend. Consumers outside this crate do not need
 /// to know which implementation is used.
+///
+/// NOTE: This API is the official engine seam for constructing a text backend.
+/// Prefer calling through `zaroxi_core_engine_render::text_seam::layout_label_for_render`
+/// from renderer-facing code. The concrete backend types (DummyBackend / Glyphon)
+/// are intentionally not publicly exposed beyond this crate.
+#[doc(hidden)]
 pub fn new_backend() -> Box<dyn TextBackend> {
     #[cfg(feature = "glyphon_backend")]
     {
