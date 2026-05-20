@@ -6,6 +6,7 @@
 pub mod service;
 pub mod workspace_manager;
 pub mod ports;
+pub mod in_memory_adapters;
 pub mod usecases;
 pub mod view; // small, read-only view seam (Phase 2)
 

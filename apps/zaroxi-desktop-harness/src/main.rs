@@ -12,23 +12,23 @@ use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
 use zaroxi_interface_desktop::projections::location_line::LocationLine;
 use zaroxi_interface_desktop::projections::selection_line::SelectionLine;
 
-// Infra adapters
-use zaroxi_infrastructure_ai_mock;
-use zaroxi_infrastructure_memory;
+ // Infra adapters
+ use zaroxi_infrastructure_ai_mock;
+ use zaroxi_application_workspace::in_memory_adapters;
 
 // Application orchestrator (concrete implementation lives in application crate)
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    // Build concrete infra adapters
-    let repo = zaroxi_infrastructure_memory::InMemoryWorkspaceRepo::new();
-    let repo_dyn = zaroxi_infrastructure_memory::into_workspace_repo(repo);
+    // Build concrete adapters (repo/buffer adapters moved into application crate)
+    let repo = zaroxi_application_workspace::in_memory_adapters::InMemoryWorkspaceRepo::new();
+    let repo_dyn = zaroxi_application_workspace::in_memory_adapters::into_workspace_repo(repo);
 
-    let buffer_store = zaroxi_infrastructure_memory::InMemoryBufferStore::new();
-    let buffer_dyn = zaroxi_infrastructure_memory::into_buffer_store(buffer_store);
+    let buffer_store = zaroxi_application_workspace::in_memory_adapters::InMemoryBufferStore::new();
+    let buffer_dyn = zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store);
 
-    // History store
+    // History store remains an infra adapter.
     let history = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
     let history_dyn = zaroxi_infrastructure_memory::into_history_store(history);
 
@@ -569,12 +569,12 @@ async fn main() -> Result<(), String> {
     let location = save_res.location;
     println!("Harness: checkpoint persisted at location: {}", location);
  
-    // Build fresh infra instances for restore target
-    let repo2 = zaroxi_infrastructure_memory::InMemoryWorkspaceRepo::new();
-    let repo2_dyn = zaroxi_infrastructure_memory::into_workspace_repo(repo2);
+    // Build fresh adapters for restore target (repo/buffer moved into application crate)
+    let repo2 = zaroxi_application_workspace::in_memory_adapters::InMemoryWorkspaceRepo::new();
+    let repo2_dyn = zaroxi_application_workspace::in_memory_adapters::into_workspace_repo(repo2);
  
-    let buffer_store2 = zaroxi_infrastructure_memory::InMemoryBufferStore::new();
-    let buffer2_dyn = zaroxi_infrastructure_memory::into_buffer_store(buffer_store2);
+    let buffer_store2 = zaroxi_application_workspace::in_memory_adapters::InMemoryBufferStore::new();
+    let buffer2_dyn = zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store2);
  
     let history2 = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
     let history2_dyn = zaroxi_infrastructure_memory::into_history_store(history2);
