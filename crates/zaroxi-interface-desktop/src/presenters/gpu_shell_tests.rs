@@ -673,4 +673,3 @@ fn no_tabs_emits_no_text_ops() {
 
     assert!(!plan.ops.iter().any(|op| matches!(op, GpuPaintOp::Text { .. })));
 }
-}
