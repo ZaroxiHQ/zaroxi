@@ -1,6 +1,6 @@
 use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
-use zaroxi_core_engine_scene::{ShellChrome, Tab as EngineTab};
+use zaroxi_core_engine_scene::scene::{ShellChrome, Tab as EngineTab};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {

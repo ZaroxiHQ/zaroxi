@@ -9,7 +9,8 @@
 /// resources. It is explicitly convertible from
 /// `zaroxi_core_engine_view::EngineShellViewInput`.
 use zaroxi_core_engine_view::EngineShellViewInput;
-pub use crate::chrome::{ShellChrome, Tab};
+mod chrome;
+pub use self::chrome::{ShellChrome, Tab};
 
 /// Semantic, read-only scene model for the engine shell.
 ///
