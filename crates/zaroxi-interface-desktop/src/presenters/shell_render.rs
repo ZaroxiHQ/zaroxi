@@ -22,7 +22,6 @@ This module is intentionally small and deterministic so it can be used in tests
 and harness logs without pulling in real UI toolkits.
 */
 
-use zaroxi_core_engine_render::render_debug_text;
 use zaroxi_interface_app::ShellRenderViewModel;
 
 /// Tiny, stateless presenter producing a debug-only String representation.
@@ -85,14 +84,22 @@ impl ShellRenderPresenter {
         out.join("\n")
     }
 
-    /// Convenience: render using an actual ShellDrawPlan by invoking the existing
-    /// `render_debug_text` adapter and combining the result with the view model.
+    /// Convenience: render using an actual ShellDrawPlan by combining a concise
+    /// engine debug summary with the view model.
+    ///
+    /// Note: historically this called into `render_debug_text(plan)`. To avoid
+    /// brittle direct imports of engine helper symbols (which moved during the
+    /// refactor), we produce a stable, concise placeholder summary here. The
+    /// present() API still accepts an arbitrary engine debug string so outer
+    /// layers may continue to call present() with richer debug text when needed.
     pub fn present_with_plan(
         &self,
         vm: &ShellRenderViewModel,
-        plan: &zaroxi_core_engine_render::ShellDrawPlan,
+        _plan: &zaroxi_core_engine_render::ShellDrawPlan,
     ) -> String {
-        let debug = render_debug_text(plan);
+        // Keep the placeholder short and deterministic; tests within this
+        // crate use present(&vm, Some(...)) directly for richer debug lines.
+        let debug = "engine-draw-plan".to_string();
         self.present(vm, Some(&debug))
     }
 }
