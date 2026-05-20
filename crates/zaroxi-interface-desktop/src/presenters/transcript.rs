@@ -65,7 +65,7 @@ impl ShellRenderTranscript {
         let mut engine_tabs: Vec<EngineTab> = Vec::with_capacity(tabs.tabs.len());
         for t in tabs.tabs.iter() {
             engine_tabs.push(EngineTab {
-                index: t.index,
+                index: t.index as u32,
                 id: t.id.clone(),
                 label: t.display.clone(),
                 active: t.active,
@@ -77,7 +77,7 @@ impl ShellRenderTranscript {
             chrome_label: view.chrome_label.clone(),
             tabs: engine_tabs,
             active_tab_index: active_index,
-            focus_slot: view.focus_slot.clone(),
+            focus_slot: view.focus_slot.as_ref().map(|s| s.as_str().to_string()),
             status_text: view.status_text.clone(),
             ai_indicator: view.ai_indicator.clone(),
             content_preview: view.content_preview.clone(),
