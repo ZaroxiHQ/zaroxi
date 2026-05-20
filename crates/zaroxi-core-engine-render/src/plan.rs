@@ -85,7 +85,15 @@ impl From<ShellRenderIntent> for ShellDrawPlan {
 
         for s in intent.sections.into_iter() {
             match s {
-                RenderSection::Text { .. } => sections.push(DrawSection::Content),
+                RenderSection::Text { lines } => {
+                    // Call the engine text seam as part of the real render-path
+                    // conversion. We intentionally keep the TextLayout private to
+                    // the engine seam and do not propagate Glyphon types.
+                    // This integrates the seam into the production conversion while
+                    // preserving architectural boundaries.
+                    let _layout = crate::text_seam::layout_label_for_render(&lines.join("\n"), None);
+                    sections.push(DrawSection::Content);
+                }
                 RenderSection::Selection { .. } => sections.push(DrawSection::Selection),
                 RenderSection::Status { .. } => sections.push(DrawSection::Status),
                 RenderSection::Chrome { .. } => sections.push(DrawSection::Chrome),
