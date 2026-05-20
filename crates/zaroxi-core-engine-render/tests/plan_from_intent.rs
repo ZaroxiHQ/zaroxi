@@ -42,7 +42,7 @@ fn plan_from_intent_preserves_order_and_presence() {
     assert_eq!(plan.sections.len(), 3);
 
     match &plan.sections[0] {
-        DrawSection::Content => {}
+        DrawSection::Content { line_count: _, width: _, height: _ } => {}
         _ => panic!("expected first section to be Content"),
     }
 
