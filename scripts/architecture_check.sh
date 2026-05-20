@@ -124,7 +124,7 @@ FAMILY_RANK["security"]=3
 FAMILY_RANK["kernel"]=0
 FAMILY_RANK["unknown"]=-1
 
-declare -a INFRA_TO_APP_EXCEPTIONS=(
+declare -a INFRA_EXCEPTIONS=(
   "zaroxi-infrastructure-ai-mock:zaroxi-application-ai"
   "zaroxi-infrastructure-ai-mock:zaroxi-application"
   "zaroxi-infrastructure-memory:zaroxi-application-workspace"
@@ -163,10 +163,22 @@ classify_family() {
 family_role() { local fam="$1"; echo "${FAMILY_ROLE[$fam]:-unknown}"; }
 family_rank() { local fam="$1"; echo "${FAMILY_RANK[$fam]:-${FAMILY_RANK["unknown"]}}"; }
 
-is_infra_app_exception() {
+is_infra_exception() {
   local from="$1" to="$2"
-  for ex in "${INFRA_TO_APP_EXCEPTIONS[@]}"; do
-    if [[ "$from:$to" == "$ex" || "$from" == "$ex" || "$from:$to" == "${ex//:/}" ]]; then
+  for ex in "${INFRA_EXCEPTIONS[@]}"; do
+    # direct pair match (crate:crate)
+    if [[ "$from:$to" == "$ex" ]]; then
+      return 0
+    fi
+    # split "from:to" pattern and allow matching by-from or by-from:to
+    IFS=':' read -r ex_from ex_to <<< "$ex"
+    # If the exception lists only the source crate (ex_from matches and ex_to empty),
+    # treat it as "allow all higher-layer deps from this infra crate".
+    if [[ -n "$ex_from" && -z "$ex_to" && "$from" == "$ex_from" ]]; then
+      return 0
+    fi
+    # If both sides provided, allow when both match (covered above) or when ex_to matches to.
+    if [[ -n "$ex_from" && -n "$ex_to" && "$from" == "$ex_from" && "$to" == "$ex_to" ]]; then
       return 0
     fi
   done
@@ -330,10 +342,10 @@ for toml in "${CRATE_TOMLS[@]}"; do
 
       to_rank=$(family_rank "$to_family")
 
-      # infra->app explicit allowed exceptions
-      if [[ "$from_family" == "infrastructure" && "$to_family" == "application" ]]; then
-        if is_infra_app_exception "$crate_name" "$dep_crate"; then
-          log_pass "allowed infra->app adapter: $crate_name -> $dep_crate"
+      # infra explicit allowed exceptions for listed higher-layer deps (application/domain/core)
+      if [[ "$from_family" == "infrastructure" && ( "$to_family" == "application" || "$to_family" == "domain" || "$to_family" == "core-runtime" ) ]]; then
+        if is_infra_exception "$crate_name" "$dep_crate"; then
+          log_pass "allowed infra adapter exception: $crate_name -> $dep_crate"
           continue
         fi
       fi

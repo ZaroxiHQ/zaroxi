@@ -15,7 +15,4 @@ zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
 #   cargo test -p zaroxi-core-engine-scene
 # Recommended further validation:
 #   cargo test -p zaroxi-core-engine-view
-#   cargo test -p zaroxi-interface-app
-#   cargo test -p zaroxi-interface-desktop
-#   cargo run -p zaroxi-desktop-harness
 #   bash scripts/architecture_check.sh
