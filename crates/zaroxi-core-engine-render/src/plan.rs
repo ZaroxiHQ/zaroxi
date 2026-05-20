@@ -70,10 +70,12 @@ pub struct ShellDrawPlan {
     pub chrome_present: bool,
 }
 
-/// Semantic section kinds in the draw plan (no payloads, only high-level kind).
+/// Semantic section kinds in the draw plan. Content carries minimal text layout
+/// metrics supplied by the engine text seam: line_count, width, height.
+/// Other variants remain payload-less.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DrawSection {
-    Content,
+    Content { line_count: usize, width: u32, height: u32 },
     Selection,
     Status,
     Chrome,
@@ -89,10 +91,16 @@ impl From<ShellRenderIntent> for ShellDrawPlan {
                     // Call the engine text seam as part of the real render-path
                     // conversion. We intentionally keep the TextLayout private to
                     // the engine seam and do not propagate Glyphon types.
-                    // This integrates the seam into the production conversion while
-                    // preserving architectural boundaries.
-                    let _layout = crate::text_seam::layout_label_for_render(&lines.join("\n"), None);
-                    sections.push(DrawSection::Content);
+                    // Use the returned TextLayout minimally: preserve line_count,
+                    // width and height into the semantic draw plan so downstream
+                    // render code can make small deterministic decisions without
+                    // exposing backend types.
+                    let layout = crate::text_seam::layout_label_for_render(&lines.join("\n"), None);
+                    sections.push(DrawSection::Content {
+                        line_count: layout.lines.len(),
+                        width: layout.width,
+                        height: layout.height,
+                    });
                 }
                 RenderSection::Selection { .. } => sections.push(DrawSection::Selection),
                 RenderSection::Status { .. } => sections.push(DrawSection::Status),
@@ -102,7 +110,7 @@ impl From<ShellRenderIntent> for ShellDrawPlan {
 
         let selection_present = sections.iter().any(|s| matches!(s, DrawSection::Selection));
         let status_present = sections.iter().any(|s| matches!(s, DrawSection::Status));
-        let content_present = sections.iter().any(|s| matches!(s, DrawSection::Content));
+        let content_present = sections.iter().any(|s| matches!(s, DrawSection::Content { .. }));
         let chrome_present = sections.iter().any(|s| matches!(s, DrawSection::Chrome));
 
         ShellDrawPlan {

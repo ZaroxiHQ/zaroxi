@@ -14,5 +14,12 @@ fn intent_to_draw_plan_consumes_text_seam() {
     let plan = ShellDrawPlan::from(intent);
 
     assert!(plan.content_present);
-    assert_eq!(plan.sections, vec![DrawSection::Content]);
+    assert_eq!(
+        plan.sections,
+        vec![DrawSection::Content {
+            line_count: 1,
+            width: 5u32.saturating_mul(8),
+            height: 16
+        }]
+    );
 }
