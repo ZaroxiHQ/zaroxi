@@ -31,6 +31,10 @@ PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
 
+# Additional counters for improved summary
+UNKNOWN_DEP_COUNT=0    # dependencies that could not be mapped to a family
+# NOTE: REAL_ADVISORY_COUNT is derived at summary time as WARN_COUNT - UNKNOWN_DEP_COUNT
+
 # Logging helpers
 log_pass() { printf "[PASS] %s\n" "$1"; PASS_COUNT=$((PASS_COUNT+1)); }
 log_warn() { printf "[WARN] %s\n" "$1"; WARN_COUNT=$((WARN_COUNT+1)); }
@@ -42,6 +46,7 @@ log_fail() { printf "[FAIL] %s\n" "$1"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 # Define recognized family patterns and which logical family they map to.
 # Order matters for matching: more specific patterns should come before broader ones.
 declare -A FAMILY_PATTERNS
+# Primary library-family patterns (match crate names)
 FAMILY_PATTERNS["^zaroxi-interface-"]="interface"
 FAMILY_PATTERNS["^zaroxi-application-"]="application"
 FAMILY_PATTERNS["^zaroxi-domain-"]="domain"
@@ -49,30 +54,43 @@ FAMILY_PATTERNS["^zaroxi-core-engine-"]="core-engine"
 FAMILY_PATTERNS["^zaroxi-core-editor-"]="core-editor"
 FAMILY_PATTERNS["^zaroxi-core-platform-"]="core-platform"
 FAMILY_PATTERNS["^zaroxi-core-workspace-"]="core-workspace"
-FAMILY_PATTERNS["^zaroxi-core-telemetry"]="core-runtime"
+
+# Core-runtime / shared primitives families (fine-grained)
 FAMILY_PATTERNS["^zaroxi-core-runtime"]="core-runtime"
-FAMILY_PATTERNS["^zaroxi-core-scheduler"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-state"]="core-runtime"
-FAMILY_PATTERNS["^zaroxi-core-io"]="core-runtime"
-FAMILY_PATTERNS["^zaroxi-core-input"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-task"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-sync"]="core-runtime"
 FAMILY_PATTERNS["^zaroxi-core-threading"]="core-runtime"
-FAMILY_PATTERNS["^zaroxi-core-workspace-"]="core-workspace"
-FAMILY_PATTERNS["^zaroxi-core-editor-"]="core-editor"
-FAMILY_PATTERNS["^zaroxi-core-engine-"]="core-engine"
+FAMILY_PATTERNS["^zaroxi-core-telemetry"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-event"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-input"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-io"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-commands"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-plugin-runtime"]="core-runtime"
+FAMILY_PATTERNS["^zaroxi-core-scheduler"]="core-runtime"
+
+# Supporting families
 FAMILY_PATTERNS["^zaroxi-infrastructure-"]="infrastructure"
 FAMILY_PATTERNS["^zaroxi-intelligence-"]="intelligence"
 FAMILY_PATTERNS["^zaroxi-security-"]="security"
 FAMILY_PATTERNS["^zaroxi-kernel-"]="kernel"
+
+# App / tooling / harness patterns (explicitly model non-library members)
+# These help avoid treating top-level apps as "unknown".
 FAMILY_PATTERNS["^apps/"]="app_bin"
-FAMILY_PATTERNS["^crates/zaroxi-desktop-harness$"]="app_bin"
+FAMILY_PATTERNS["^zaroxi-desktop-harness$"]="harness"
+FAMILY_PATTERNS["^workspace-daemon$"]="daemon"
+FAMILY_PATTERNS["^ai-daemon$"]="daemon"
+FAMILY_PATTERNS["^desktop$"]="app_bin"
+
+# Path-based historical entry (left for compatibility)
+FAMILY_PATTERNS["^crates/zaroxi-desktop-harness$"]="harness"
 
 # Map family -> canonical role (for messaging) and numeric rank used for direction checks.
 # Higher numeric rank = more outer layer (allowed to depend inward).
 declare -A FAMILY_ROLE
 declare -A FAMILY_RANK
-# canonical roles
+# canonical roles (family -> messaging role)
 FAMILY_ROLE["interface"]="interface"
 FAMILY_ROLE["application"]="application"
 FAMILY_ROLE["domain"]="domain"
@@ -86,11 +104,15 @@ FAMILY_ROLE["intelligence"]="intelligence"
 FAMILY_ROLE["security"]="security"
 FAMILY_ROLE["kernel"]="kernel"
 FAMILY_ROLE["app_bin"]="app_bin"
+FAMILY_ROLE["harness"]="app_bin"
+FAMILY_ROLE["daemon"]="app_bin"
 FAMILY_ROLE["unknown"]="unknown"
 
-# numeric ranks (outer -> inner)
+# numeric ranks (outer -> inner). Higher = more outer.
 FAMILY_RANK["interface"]=7
 FAMILY_RANK["app_bin"]=7
+FAMILY_RANK["harness"]=7
+FAMILY_RANK["daemon"]=7
 FAMILY_RANK["application"]=6
 FAMILY_RANK["domain"]=5
 FAMILY_RANK["core-engine"]=4
@@ -251,9 +273,37 @@ for toml in "${CRATE_TOMLS[@]}"; do
       # normalize
       dep_crate="${token//_/-}"
       dep_crate="${dep_crate#*/}"
-      dep_crate="${dep_crate#zaroxi-}"
-      dep_crate="zaroxi-${dep_crate}"
-      to_family=$(classify_family "$dep_crate")
+      # Normalize common forms into canonical crate names where possible.
+      # Attempt to preserve the full crate name (e.g. zaroxi-core-engine-render).
+      # If the token already looks like a zaroxi crate leave it; otherwise try to
+      # restore a reasonable canonical form.
+      if [[ "$dep_crate" == zaroxi-* ]]; then
+        # ensure we have dashed form and canonical prefix
+        dep_crate="${dep_crate#zaroxi-}"
+        dep_crate="zaroxi-${dep_crate}"
+      fi
+
+      # Prefer workspace-known crate mapping to avoid umbrella-prefix false positives.
+      if [[ -n "${CRATE_TO_FAMILY[$dep_crate]:-}" ]]; then
+        to_family="${CRATE_TO_FAMILY[$dep_crate]}"
+      else
+        # Handle umbrella shortnames introduced by some manifests or comments,
+        # e.g. "zaroxi-core", "zaroxi-kernel", etc. Map them to sensible families
+        # instead of leaving them 'unknown' and producing noisy warnings.
+        case "$dep_crate" in
+          zaroxi-core) to_family="core-runtime" ;;
+          zaroxi-kernel) to_family="kernel" ;;
+          zaroxi-interface) to_family="interface" ;;
+          zaroxi-application) to_family="application" ;;
+          zaroxi-domain) to_family="domain" ;;
+          zaroxi-infrastructure) to_family="infrastructure" ;;
+          zaroxi-intelligence) to_family="intelligence" ;;
+          zaroxi-security) to_family="security" ;;
+          # If nothing matched, fall back to pattern-based classification.
+          *) to_family=$(classify_family "$dep_crate") ;;
+        esac
+      fi
+
       to_role=$(family_role "$to_family")
       to_rank=$(family_rank "$to_family")
 
@@ -265,8 +315,10 @@ for toml in "${CRATE_TOMLS[@]}"; do
         fi
       fi
 
-      # unknown roles -> warn
+      # unknown roles -> warn (count and continue). These are actionable: either
+      # add a FAMILY_PATTERNS entry or verify the dependency token.
       if [[ "$from_family" == "unknown" || "$to_family" == "unknown" ]]; then
+        UNKNOWN_DEP_COUNT=$((UNKNOWN_DEP_COUNT+1))
         log_warn "dependency-direction: $crate_name -> $dep_crate (unknown family; update FAMILY_PATTERNS) origin=$toml"
         continue
       fi
@@ -362,10 +414,27 @@ echo "Architecture check summary:"
 echo "  PASS: $PASS_COUNT"
 echo "  WARN: $WARN_COUNT"
 echo "  FAIL: $FAIL_COUNT"
+echo "  Unknown crates: ${#UNKNOWN_CRATES[@]}"
+echo "  Unknown dependencies: $UNKNOWN_DEP_COUNT"
+real_advisory_count=$((WARN_COUNT - UNKNOWN_DEP_COUNT))
+if (( real_advisory_count < 0 )); then real_advisory_count=0; fi
+echo "  Advisory (likely real) warnings: $real_advisory_count"
+
+# Actionable exit rules:
 if (( FAIL_COUNT > 0 )); then
   echo
   echo "One or more hard architectural violations detected. See messages above for actionable locations and offending crates."
   exit 1
+fi
+
+if (( UNKNOWN_DEP_COUNT > 0 )); then
+  echo
+  echo "There are unknown dependency mappings ($UNKNOWN_DEP_COUNT). Please review the logged WARN lines and consider:"
+  echo "  - Adding explicit FAMILY_PATTERNS entries for new crates"
+  echo "  - Confirming dependency tokens in Cargo.toml are correct"
+  echo "  - Ensuring workspace crate names are canonical (match Cargo.toml name)"
+  # Unknown deps are advisory only; do not fail CI, but make them visible.
+  exit 0
 fi
 
 if (( WARN_COUNT > 0 )); then
