@@ -384,3 +384,112 @@ fn activating_already_active_tab_is_noop() {
     assert_eq!(res, None);
     assert!(!applied);
 }
+
+#[test]
+fn focus_navigation_deterministic_and_apply() {
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+        ("id3".to_string(), "three".to_string()),
+    ];
+
+    // No current focus -> FocusNext selects first
+    let res = compute_focus_action_target(FocusAction::FocusNext { wrap: false }, &opened, None);
+    assert_eq!(res, Some("id1".to_string()));
+
+    // Apply focus and ensure setter invoked
+    let mut applied: Option<String> = None;
+    let apply = |id: &str| {
+        applied = Some(id.to_string());
+    };
+    let res2 = apply_focus_action(FocusAction::FocusNext { wrap: false }, &opened, None, apply);
+    assert_eq!(res2, Some("id1".to_string()));
+    assert_eq!(applied, Some("id1".to_string()));
+
+    // With focus on last, FocusNext with wrap -> cycles to first
+    let res3 = compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened, Some("id3"));
+    assert_eq!(res3, Some("id1".to_string()));
+
+    // FocusPrevious with wrap on first -> goes to last
+    let res4 = compute_focus_action_target(FocusAction::FocusPrevious { wrap: true }, &opened, Some("id1"));
+    assert_eq!(res4, Some("id3".to_string()));
+}
+
+#[test]
+fn activate_focused_dispatches_activatebyid() {
+    let opened = vec![
+        ("id1".to_string(), "one".to_string()),
+        ("id2".to_string(), "two".to_string()),
+    ];
+
+    // Current active is id1; focused is id2 -> should activate id2 via ActivateById path
+    let mut applied: Option<String> = None;
+    let apply = |id: &str| {
+        applied = Some(id.to_string());
+    };
+    let res = activate_focused(&opened, Some("id1"), Some("id2"), apply);
+    assert_eq!(res, Some("id2".to_string()));
+    assert_eq!(applied, Some("id2".to_string()));
+}
+
+#[test]
+fn no_tabs_and_one_tab_focus_activation_behaviour() {
+    // No tabs -> focus actions are no-op
+    let opened_empty: Vec<(String, String)> = Vec::new();
+    let res = compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened_empty, None);
+    assert_eq!(res, None);
+
+    // One tab -> focus/select returns that id
+    let opened_one = vec![("only".to_string(), "one".to_string())];
+    let res2 = compute_focus_action_target(FocusAction::FocusNext { wrap: false }, &opened_one, None);
+    assert_eq!(res2, Some("only".to_string()));
+
+    // Activating focused that equals active -> no-op
+    let mut applied = false;
+    let res3 = activate_focused(&opened_one, Some("only"), Some("only"), |_id| { applied = true; });
+    assert_eq!(res3, None);
+    assert!(!applied);
+
+    // Focused tab no longer present -> activation is no-op
+    let res4 = activate_focused(&opened_one, Some("only"), Some("missing"), |_id| { applied = true; });
+    assert_eq!(res4, None);
+}
+
+#[test]
+fn render_plan_includes_focused_and_active_colors() {
+    let width: u32 = 300;
+    let height: u32 = 100;
+    let chrome_h: u32 = 30;
+    let status_h: u32 = 10;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    let mut view = GpuShellView::from_shell_regions(&regions);
+
+    // Construct a TabStrip with one active and a different focused tab
+    let tabs = TabStrip {
+        tabs: vec![
+            TabEntry { id: "a".to_string(), display: "A".to_string(), active: false, focused: true, index: 0 },
+            TabEntry { id: "b".to_string(), display: "B".to_string(), active: true, focused: false, index: 1 },
+            TabEntry { id: "c".to_string(), display: "C".to_string(), active: false, focused: false, index: 2 },
+        ],
+    };
+    view.tabs = tabs.clone();
+
+    let plan = GpuPaintPlan::from_view(&view);
+
+    // Ensure there is at least one FillRect with focused color and one with active color.
+    let mut found_focused = false;
+    let mut found_active = false;
+    for op in &plan.ops {
+        if let GpuPaintOp::FillRect(r) = op {
+            if r.color == [120u8, 160u8, 255u8, 255u8] {
+                found_focused = true;
+            }
+            if r.color == [255u8, 200u8, 0u8, 255u8] {
+                found_active = true;
+            }
+        }
+    }
+    assert!(found_focused, "expected focused tab fill color in plan");
+    assert!(found_active, "expected active tab fill color in plan");
+}

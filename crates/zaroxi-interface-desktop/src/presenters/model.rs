@@ -580,6 +580,137 @@ impl GpuShellPresenter {
          None
      }
  }
+
+ /// New minimal focus action seam for tab-strip selection/focus semantics.
+ ///
+ /// Focus is independent of activation. The outer-layer may hold focused state
+ /// in presenter-facing TabStrip, or callers may compute and apply focus via
+ /// these helpers. Focus changes do not mutate opened/active state; they are
+ /// pure and return the chosen id for the caller to apply.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum FocusAction {
+     FocusNext { wrap: bool },
+     FocusPrevious { wrap: bool },
+     FocusById { id: String },
+ }
+
+ /// Compute the id that should become focused when applying `action`.
+ ///
+ /// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
+ /// - `current_focused`: optional currently-focused id.
+ ///
+ /// Returns: Option<String> — the id that should become focused.
+ pub fn compute_focus_action_target(
+     action: FocusAction,
+     opened: &[(String, String)],
+     current_focused: Option<&str>,
+ ) -> Option<String> {
+     match action {
+         FocusAction::FocusNext { wrap } => {
+             let ts = TabStrip::from_opened_and_active(opened, None);
+             // derive focused id deterministically from TabStrip semantics
+             let focused_idx = ts.focused_index();
+             let len = ts.tabs.len();
+             if len == 0 {
+                 None
+             } else if len == 1 {
+                 Some(ts.tabs[0].id.clone())
+             } else if let Some(idx) = focused_idx {
+                 if idx + 1 < len {
+                     Some(ts.tabs[idx + 1].id.clone())
+                 } else if wrap {
+                     Some(ts.tabs[0].id.clone())
+                 } else {
+                     Some(ts.tabs[idx].id.clone())
+                 }
+             } else {
+                 // no focused -> choose first
+                 Some(ts.tabs[0].id.clone())
+             }
+         }
+         FocusAction::FocusPrevious { wrap } => {
+             let ts = TabStrip::from_opened_and_active(opened, None);
+             let focused_idx = ts.focused_index();
+             let len = ts.tabs.len();
+             if len == 0 {
+                 None
+             } else if len == 1 {
+                 Some(ts.tabs[0].id.clone())
+             } else if let Some(idx) = focused_idx {
+                 if idx > 0 {
+                     Some(ts.tabs[idx - 1].id.clone())
+                 } else if wrap {
+                     Some(ts.tabs[len - 1].id.clone())
+                 } else {
+                     Some(ts.tabs[idx].id.clone())
+                 }
+             } else {
+                 // no focused -> choose last deterministically
+                 Some(ts.tabs[len - 1].id.clone())
+             }
+         }
+         FocusAction::FocusById { id } => {
+             if !opened.iter().any(|(oid, _)| oid == &id) {
+                 None
+             } else if current_focused.map(|a| a == id.as_str()).unwrap_or(false) {
+                 None
+             } else {
+                 Some(id)
+             }
+         }
+     }
+ }
+
+ /// Apply a focus action through the deterministic resolution path and invoke
+ /// the provided setter when a focus target id is computed.
+ ///
+ /// - `apply` is invoked only when a target id is produced and receives the
+ ///    chosen id (string slice) so outer layer can set presenter-facing focus.
+ pub fn apply_focus_action<F>(
+     action: FocusAction,
+     opened: &[(String, String)],
+     current_focused: Option<&str>,
+     mut apply: F,
+ ) -> Option<String>
+ where
+     F: FnMut(&str),
+ {
+     if let Some(id) = compute_focus_action_target(action, opened, current_focused) {
+         apply(&id);
+         Some(id)
+     } else {
+         None
+     }
+ }
+
+ /// Activate the currently-focused tab by delegating to the existing ActivateById
+ /// semantics. This reuses `apply_tab_action` to ensure activation behavior is
+ /// identical to direct ActivateById usage (no-op when focused id equals active,
+ /// or when focused id missing).
+ pub fn activate_focused<F>(
+     opened: &[(String, String)],
+     current_active: Option<&str>,
+     current_focused: Option<&str>,
+     mut apply: F,
+ ) -> Option<String>
+ where
+     F: FnMut(&str),
+ {
+     if let Some(fid) = current_focused {
+         // If the focused id is not present -> no-op
+         if !opened.iter().any(|(oid, _)| oid == fid) {
+             return None;
+         }
+         // If already active -> no-op
+         if current_active.map(|a| a == fid).unwrap_or(false) {
+             return None;
+         }
+         // Delegate to apply_tab_action to reuse ActivateById semantics.
+         apply_tab_action(TabAction::ActivateById { id: fid.to_string() }, opened, current_active, apply)
+     } else {
+         None
+     }
+ }
  
 /// Execute a paint plan into an RGBA8 buffer.
 ///
@@ -643,6 +774,10 @@ pub struct TabEntry {
     pub id: String,
     pub display: String,
     pub active: bool,
+    /// Focused state is distinct from `active`. It represents the UI-level
+    /// selection/focus that can be moved independently of activation and then
+    /// confirmed to perform activation via `ActivateById`.
+    pub focused: bool,
     pub index: usize,
 }
 
@@ -665,7 +800,7 @@ impl TabStrip {
             let id = pair.0.clone();
             let display = pair.1.clone();
             let active_flag = active.map(|a| a == id).unwrap_or(false);
-            tabs.push(TabEntry { id, display, active: active_flag, index: i });
+            tabs.push(TabEntry { id, display, active: active_flag, focused: false, index: i });
         }
         TabStrip { tabs }
     }
@@ -673,6 +808,11 @@ impl TabStrip {
     /// Return the index of the first active tab, if any.
     pub fn active_index(&self) -> Option<usize> {
         self.tabs.iter().position(|t| t.active)
+    }
+
+    /// Return the index of the first focused tab, if any.
+    pub fn focused_index(&self) -> Option<usize> {
+        self.tabs.iter().position(|t| t.focused)
     }
 
     /// Compute the id that should become active for the "next tab" intent.
@@ -764,5 +904,103 @@ impl TabStrip {
             // id not found: return original (no change)
             self.clone()
         }
+    }
+
+    /// Return a new TabStrip with the given id marked focused.
+    /// If the id is not found, returns self.clone() unchanged.
+    pub fn with_focused_id(&self, id: &str) -> Self {
+        let mut new = self.clone();
+        let mut found = false;
+        for t in new.tabs.iter_mut() {
+            if t.id == id {
+                t.focused = true;
+                found = true;
+            } else {
+                t.focused = false;
+            }
+        }
+        if found {
+            new
+        } else {
+            self.clone()
+        }
+    }
+
+    /// Move focus to the next tab deterministically and return a new TabStrip.
+    /// - If there are no tabs -> return clone unchanged.
+    /// - If there is one tab -> it becomes focused.
+    /// - If a focused tab exists -> move focus to next (wrap if requested).
+    /// - If no focused tab exists -> focus the first tab.
+    pub fn focus_next(&self, wrap: bool) -> Self {
+        let len = self.tabs.len();
+        if len == 0 {
+            return self.clone();
+        }
+        if len == 1 {
+            let mut n = self.clone();
+            n.tabs[0].focused = true;
+            return n;
+        }
+
+        if let Some(idx) = self.focused_index() {
+            let next_idx = if idx + 1 < len {
+                idx + 1
+            } else if wrap {
+                0
+            } else {
+                idx
+            };
+            let mut n = self.clone();
+            for (i, t) in n.tabs.iter_mut().enumerate() {
+                t.focused = i == next_idx;
+            }
+            return n;
+        }
+
+        // No focused tab: focus first deterministically.
+        let mut n = self.clone();
+        for (i, t) in n.tabs.iter_mut().enumerate() {
+            t.focused = i == 0;
+        }
+        n
+    }
+
+    /// Move focus to the previous tab deterministically and return a new TabStrip.
+    /// - If there are no tabs -> return clone unchanged.
+    /// - If there is one tab -> it becomes focused.
+    /// - If a focused tab exists -> move focus to previous (wrap if requested).
+    /// - If no focused tab exists -> focus the last tab.
+    pub fn focus_prev(&self, wrap: bool) -> Self {
+        let len = self.tabs.len();
+        if len == 0 {
+            return self.clone();
+        }
+        if len == 1 {
+            let mut n = self.clone();
+            n.tabs[0].focused = true;
+            return n;
+        }
+
+        if let Some(idx) = self.focused_index() {
+            let prev_idx = if idx > 0 {
+                idx - 1
+            } else if wrap {
+                len - 1
+            } else {
+                idx
+            };
+            let mut n = self.clone();
+            for (i, t) in n.tabs.iter_mut().enumerate() {
+                t.focused = i == prev_idx;
+            }
+            return n;
+        }
+
+        // No focused tab: focus last deterministically.
+        let mut n = self.clone();
+        for (i, t) in n.tabs.iter_mut().enumerate() {
+            t.focused = i + 1 == len;
+        }
+        n
     }
 }

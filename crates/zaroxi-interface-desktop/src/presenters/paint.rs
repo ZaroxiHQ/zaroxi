@@ -236,8 +236,11 @@ impl GpuPaintPlan {
                     continue;
                 }
                 let active = t.active;
+                let focused = t.focused;
                 let fill_color = if active {
                     [255u8, 200u8, 0u8, 255u8] // active tab color (distinct)
+                } else if focused {
+                    [120u8, 160u8, 255u8, 255u8] // focused-but-not-active color (distinct)
                 } else {
                     [180u8, 180u8, 180u8, 255u8] // inactive tab color
                 };
