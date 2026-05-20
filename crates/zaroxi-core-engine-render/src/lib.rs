@@ -37,7 +37,7 @@ pub use error::RenderError;
 // Intent remains always available; the draw-plan is a semantic, non-rendering
 // adapter built from ShellRenderIntent.
 pub use intent::{ShellRenderIntent, RenderSection};
-pub use plan::ShellDrawPlan;
+pub use plan::{ShellDrawPlan, DrawSection};
 pub use transcript::ShellRenderTranscript;
 
 // Export the tiny deterministic text renderer and the consistency seam.
