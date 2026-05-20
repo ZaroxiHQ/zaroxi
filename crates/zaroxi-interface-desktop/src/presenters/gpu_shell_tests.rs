@@ -313,4 +313,21 @@ fn transcript_includes_semantic_payloads() {
 
     let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
     // Populate explicit semantic payloads (additive; doesn't affect painting).
-    regions.chrome_label = Some("
+    regions.chrome_label = Some("buf".to_string());
+    regions.status_text = Some("status".to_string());
+    regions.content_preview = Some("preview".to_string());
+    regions.ai_indicator = Some("ai:available".to_string());
+    regions.active_buffer_label = Some("active".to_string());
+
+    let view = GpuShellView::from_shell_regions(&regions);
+    let plan = GpuPaintPlan::from_view(&view);
+
+    // Construct transcript via the new seam.
+    let transcript = ShellRenderTranscript::from_view_and_plan(width, height, &view, &plan);
+    let txt = transcript.to_string();
+
+    // Ensure semantic payloads are present in the deterministic transcript output.
+    assert!(txt.contains("chrome_label: buf"));
+    assert!(txt.contains("status_text: status"));
+    assert!(txt.contains("content_preview: preview"));
+    assert!(txt.contains("ai_indicator: ai:available"));
