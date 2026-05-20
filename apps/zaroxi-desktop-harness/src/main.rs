@@ -14,7 +14,6 @@ use zaroxi_interface_desktop::projections::selection_line::SelectionLine;
 
  // Infra adapters
  use zaroxi_infrastructure_ai_mock;
- use zaroxi_application_workspace::in_memory_adapters;
 
 // Application orchestrator (concrete implementation lives in application crate)
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
