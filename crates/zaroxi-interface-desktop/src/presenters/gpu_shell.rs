@@ -13,23 +13,19 @@ and the internal responsibilities well-separated to avoid `gpu_shell.rs` becomin
 a long-lived god file.
 */
 
- // sibling modules `model`, `paint`, and `transcript` are declared at the
- // presenters root (crates/zaroxi-interface-desktop/src/presenters/mod.rs)
- // and are re-exported below. Avoid declaring them as nested modules here.
+// sibling modules `model`, `paint`, and `transcript` are declared at the
+// presenters root (crates/zaroxi-interface-desktop/src/presenters/mod.rs)
+// and are re-exported below. Avoid declaring them as nested modules here.
 
 // Re-export the original public API surface so callers/tests remain unchanged.
 pub use crate::presenters::model::{
-    RegionKind, Region, ShellRegions, RegionView, SlotName, SlotView, ContentActivity, StatusEmphasis,
-    ShellTone, GpuShellView, GpuShellPresenter, KeyEvent, handle_key_event, TabEntry, TabStrip,
-    TabAction, compute_tab_action_target, apply_tab_action,
+    ContentActivity, GpuShellPresenter, GpuShellView, KeyEvent, Region, RegionKind, RegionView,
+    ShellRegions, ShellTone, SlotName, SlotView, StatusEmphasis, TabAction, TabEntry, TabStrip,
+    apply_tab_action, compute_tab_action_target, handle_key_event,
 };
-pub use crate::presenters::paint::{GpuPaintRect, GpuPaintOp, GpuPaintPlan, execute_paint_plan};
+pub use crate::presenters::paint::{GpuPaintOp, GpuPaintPlan, GpuPaintRect, execute_paint_plan};
 pub use crate::presenters::transcript::ShellRenderTranscript;
 
 #[cfg(test)]
+#[path = "gpu_shell_tests.rs"]
 mod gpu_shell_tests;
-```
-
-scripts/run_presenter_checks.sh
-```bash
-<<<<<<< SEARCH
