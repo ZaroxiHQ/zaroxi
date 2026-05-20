@@ -20,6 +20,7 @@ pub mod intent;
 pub mod plan;
 pub mod transcript;
 pub mod consistency;
+pub mod text_seam;
 
 #[cfg(feature = "full_renderer")]
 pub use renderer::Renderer;
