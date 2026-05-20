@@ -787,8 +787,8 @@ pub fn handle_focus_key_event<F, G>(
     opened: &[(String, String)],
     current_active: Option<&str>,
     current_focused: Option<&str>,
-    mut apply_focus: F,
-    mut apply_activate: G,
+    apply_focus: &mut F,
+    apply_activate: &mut G,
 ) -> Option<String>
 where
     F: FnMut(&str),

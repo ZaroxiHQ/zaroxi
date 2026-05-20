@@ -1,4 +1,6 @@
 use super::*;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// Verify that region mapping produces three ordered regions (chrome above
 /// content above status). This keeps the test crate-local and avoids
@@ -430,29 +432,36 @@ fn keyboard_focus_and_activation_event_path() {
         ("id3".to_string(), "three".to_string()),
     ];
 
-    // Prepare apply closures to capture invocations.
-    let mut applied_focus: Option<String> = None;
-    let mut applied_activate: Option<String> = None;
-    let apply_focus = |id: &str| {
-        applied_focus = Some(id.to_string());
+    // Prepare apply closures to capture invocations using interior mutability so
+    // the closures can be reused and inspected without borrow conflicts.
+    let applied_focus = Rc::new(RefCell::new(None::<String>));
+    let applied_activate = Rc::new(RefCell::new(None::<String>));
+    let mut apply_focus = {
+        let af = applied_focus.clone();
+        move |id: &str| {
+            *af.borrow_mut() = Some(id.to_string());
+        }
     };
-    let apply_activate = |id: &str| {
-        applied_activate = Some(id.to_string());
+    let mut apply_activate = {
+        let aa = applied_activate.clone();
+        move |id: &str| {
+            *aa.borrow_mut() = Some(id.to_string());
+        }
     };
 
     // Plain Tab (no ctrl) should move focus to first when no focus exists.
     let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
-    let res = handle_focus_key_event(&ev_tab, &opened, None, None, apply_focus, apply_activate);
+    let res = handle_focus_key_event(&ev_tab, &opened, None, None, &mut apply_focus, &mut apply_activate);
     assert_eq!(res, Some("id1".to_string()));
-    assert_eq!(applied_focus, Some("id1".to_string()));
-    assert!(applied_activate.is_none());
+    assert_eq!(applied_focus.borrow().clone(), Some("id1".to_string()));
+    assert!(applied_activate.borrow().is_none());
 
     // Enter should activate the currently-focused id (simulate focused=id2)
-    applied_activate = None;
+    *applied_activate.borrow_mut() = None;
     let ev_enter = KeyEvent { ctrl: false, shift: false, key: "Enter".to_string() };
-    let res2 = handle_focus_key_event(&ev_enter, &opened, Some("id1"), Some("id2"), apply_focus, apply_activate);
+    let res2 = handle_focus_key_event(&ev_enter, &opened, Some("id1"), Some("id2"), &mut apply_focus, &mut apply_activate);
     assert_eq!(res2, Some("id2".to_string()));
-    assert_eq!(applied_activate, Some("id2".to_string()));
+    assert_eq!(applied_activate.borrow().clone(), Some("id2".to_string()));
 }
 
 #[test]
@@ -474,22 +483,32 @@ fn ctrl_tab_still_activates_next() {
 fn focus_events_no_tabs_and_one_tab_safe() {
     // No tabs -> focus events are no-op
     let opened_empty: Vec<(String, String)> = Vec::new();
-    let mut applied_focus: Option<String> = None;
-    let mut applied_activate: Option<String> = None;
-    let apply_focus = |id: &str| { applied_focus = Some(id.to_string()); };
-    let apply_activate = |id: &str| { applied_activate = Some(id.to_string()); };
+    let applied_focus = Rc::new(RefCell::new(None::<String>));
+    let applied_activate = Rc::new(RefCell::new(None::<String>));
+    let mut apply_focus = {
+        let af = applied_focus.clone();
+        move |id: &str| { *af.borrow_mut() = Some(id.to_string()); }
+    };
+    let mut apply_activate = {
+        let aa = applied_activate.clone();
+        move |id: &str| { *aa.borrow_mut() = Some(id.to_string()); }
+    };
 
     let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
-    let res = handle_focus_key_event(&ev_tab, &opened_empty, None, None, apply_focus, apply_activate);
+    let res = handle_focus_key_event(&ev_tab, &opened_empty, None, None, &mut apply_focus, &mut apply_activate);
     assert_eq!(res, None);
-    assert!(applied_focus.is_none());
-    assert!(applied_activate.is_none());
+    assert!(applied_focus.borrow().is_none());
+    assert!(applied_activate.borrow().is_none());
 
     // One tab -> focus/select returns that id
     let opened_one = vec![("only".to_string(), "one".to_string())];
-    let mut applied_focus2: Option<String> = None;
-    let apply_focus2 = |id: &str| { applied_focus2 = Some(id.to_string()); };
-    let res2 = handle_focus_key_event(&ev_tab, &opened_one, None, None, apply_focus2, |_| {});
+    let applied_focus2 = Rc::new(RefCell::new(None::<String>));
+    let mut apply_focus2 = {
+        let af2 = applied_focus2.clone();
+        move |id: &str| { *af2.borrow_mut() = Some(id.to_string()); }
+    };
+    let mut nop = |_id: &str| {};
+    let res2 = handle_focus_key_event(&ev_tab, &opened_one, None, None, &mut apply_focus2, &mut nop);
     assert_eq!(res2, Some("only".to_string()));
 }
 
