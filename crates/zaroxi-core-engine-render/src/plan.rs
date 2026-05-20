@@ -88,7 +88,7 @@ impl From<ShellRenderIntent> for ShellDrawPlan {
                 RenderSection::Text { .. } => sections.push(DrawSection::Content),
                 RenderSection::Selection { .. } => sections.push(DrawSection::Selection),
                 RenderSection::Status { .. } => sections.push(DrawSection::Status),
-                RenderSection::Chrome => sections.push(DrawSection::Chrome),
+                RenderSection::Chrome { .. } => sections.push(DrawSection::Chrome),
             }
         }
 
