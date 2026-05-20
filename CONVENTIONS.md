@@ -1,62 +1,40 @@
-# CONVENTIONS - Zaroxi Monorepo (authoritative, concise)
+<!-- Rationale: shorten to a tight operational conventions file for Aider and humans. -->
 
-Rationale: replace duplicated / verbose content with a short, strict, machine-friendly conventions file that matches the current workspace architecture and helps automated assistants (Aider / CI) operate safely and efficiently.
+# CONVENTIONS - Zaroxi Monorepo (operational)
 
-## 1) Source-of-truth architecture
-- Workspace layout: flat `crates/` plus app composition roots (apps/, daemons/, harness).
-- Dependency direction (strict): interface -> application -> domain -> core -> kernel
-  - Outer layers may depend inward; inner layers MUST NOT depend outward.
-- Infrastructure is an edge adapter layer. It may implement small adapter ports but must not own domain/core composition logic.
+## Source of truth
+- Workspace layout: flat `crates/` plus composition roots in apps/, daemons/, harness.
+- Dependency direction (strict): interface -> application -> domain -> core -> kernel.
+- Infrastructure is a narrow edge adapter layer and must not own domain/core composition logic.
 
-## 2) Roles (short)
-- interface: UI/presenters, composition adapters for UX; allowed to depend inward only.
-- application: orchestrators / use-cases, composition of domain + core ports.
-- domain: business logic and DTOs (pure, side-effect free).
-- core: engine, editor primitives, low-level shared services.
-- kernel: minimal, dependency-free primitives and traits.
-- infrastructure: adapters for IO, persistence, network; keep narrow and adapter-focused.
-- composition roots: binaries (apps/, daemons/, harness) may wire broader dependencies but must not become libraries other crates depend on.
+## Layer rules
+- Outer layers may depend inward; inner layers must not depend outward.
+- Composition roots may wire broader dependencies but must not become reusable libraries.
 
-## 3) Ownership guidance (recent fixes)
-- Put in-memory workspace/buffer composition helpers in `zaroxi-application-workspace`, not `zaroxi-infrastructure-memory`.
-- `zaroxi-infrastructure-memory` should focus on history/durability/checkpoint responsibilities only.
-- Prefer extending existing crates before adding new crates.
+## Crate ownership rules
+- Put composition helpers that coordinate domain/core ports in the owning application crate.
+- Infra crates may implement allowed adapter ports but must remain narrow and not gain domain/core composition helpers.
+- Extend existing crates first and avoid adding new crates unless necessary.
+- Do not rename crates to hide dependency problems.
+- Do not modify `scripts/architecture_check.sh` or add exceptions to make a change pass.
 
-## 4) Forbidden/Stop conditions
-Stop and explain if a change:
-- Introduces inner -> outer import (layer violation).
-- Introduces a cyclic dependency.
-- Moves domain/core composition helpers into an infra crate.
-If any of the above is possible, do not edit; produce a human-readable explanation and a safe alternative (trait extraction, adapter placement, or RFC).
+## Edit protocol
+- Prefer small, file-scoped, additive edits targeting one concern per PR.
+- Add tests when changing cross-crate contracts or behavior.
+- Run the architecture check and affected cargo commands before finalizing changes.
 
-## 5) Editing rules for humans and automated assistants
-- Make small, atomic changes. Target a single logical concern per PR.
-- Prefer additive edits (new trait, new adapter) over changing upstream contracts.
-- Add unit tests when modifying cross-crate contracts or behavior.
-- Do not modify `scripts/architecture_check.sh` or add exceptions to make a change pass; fix the underlying ownership/direction instead.
-- Do not rename crates to hide dependency direction problems.
+## Stop conditions
+- Stop and explain before editing if a change risks a layer violation, a dependency cycle, or crate ownership confusion.
+- When stopped, provide a short explanation and a safe alternative (trait extraction, adapter placement, or design note).
 
-## 6) Token-efficiency guidance for Aider
-- Only load files you intend to edit.
-- Use `.aiderignore` to mask unrelated layers.
-- Avoid loading the entire repo context; prefer a minimal set of crates.
-- Produce small diffs; keep per-file edits below ~250 LOC.
-- If context becomes large or ambiguous, STOP and request a narrower set of files.
+## Token discipline
+- Only load files you will edit and use `.aiderignore` to mask unrelated layers.
+- Keep per-file edits small (~<250 LOC) and produce surgical diffs.
+- If required context grows, stop and request a narrower file set.
 
-## 7) Short Zaroxi-specific examples
-- Correct: implement DurabilityRepository in `zaroxi-infrastructure-memory` and use it from `zaroxi-application-workspace`.
-- Incorrect: moving in-memory buffer composition helpers from application -> infra to satisfy a dependency (do not do this).
-- Correct: define trait in domain/core and implement it in infra or application, wired by composition at apps/.
+## Validation checklist
+- Run `./scripts/architecture_check.sh` and fix violations before committing.
+- Verify modified crates with `cargo check -p <crate>` for directly affected crates.
+- Confirm tests for changed behavior via `cargo test -p <crate>`.
 
-## 8) CI / LLM checks
-- CI will fail PRs that add forbidden dependencies or path deps crossing layers.
-- Automated assistants must run a lightweight dependency-family check before proposing edits.
-
-## 9) Contact / escalation
-- For ambiguous design decisions or exceptions, open an ARCHITECTURE-RFC describing:
-  - The change, motivation, alternatives, and migration plan.
-  - Who should review/approve the exception.
-
----
-
-This file is the single authoritative conventions document for repo edits. Follow it strictly and stop for human review on any architecture-risking change.
+<!-- End of concise conventions -->
