@@ -331,3 +331,4 @@ fn transcript_includes_semantic_payloads() {
     assert!(txt.contains("status_text: status"));
     assert!(txt.contains("content_preview: preview"));
     assert!(txt.contains("ai_indicator: ai:available"));
+}
