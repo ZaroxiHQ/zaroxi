@@ -22,7 +22,7 @@ This module is intentionally small and deterministic so it can be used in tests
 and harness logs without pulling in real UI toolkits.
 */
 
-use crate::render_debug_text::render_debug_text;
+use zaroxi_core_engine_render::render_debug_text;
 use zaroxi_interface_app::ShellRenderViewModel;
 
 /// Tiny, stateless presenter producing a debug-only String representation.

@@ -13,9 +13,9 @@ and the internal responsibilities well-separated to avoid `gpu_shell.rs` becomin
 a long-lived god file.
 */
 
-pub mod model;
-pub mod paint;
-pub mod transcript;
+ // sibling modules `model`, `paint`, and `transcript` are declared at the
+ // presenters root (crates/zaroxi-interface-desktop/src/presenters/mod.rs)
+ // and are re-exported below. Avoid declaring them as nested modules here.
 
 // Re-export the original public API surface so callers/tests remain unchanged.
 pub use crate::presenters::model::{
