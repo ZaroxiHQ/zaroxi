@@ -670,7 +670,7 @@ impl GpuShellPresenter {
      action: FocusAction,
      opened: &[(String, String)],
      current_focused: Option<&str>,
-     mut apply: F,
+     apply: F,
  ) -> Option<String>
  where
      F: FnMut(&str),
