@@ -507,6 +507,13 @@ impl GpuShellPresenter {
      ActivateNext { wrap: bool },
      /// Activate the previous tab. `wrap` controls whether we wrap at the start.
      ActivatePrevious { wrap: bool },
+     /// Activate a specific tab by its string id.
+     ///
+     /// Semantics:
+     /// - If `id` is not present in `opened` -> no-op (returns None).
+     /// - If `id` equals the current active id -> no-op (returns None).
+     /// - Otherwise returns Some(id) so the outer layer can perform activation.
+     ActivateById { id: String },
  }
  
  /// Compute the id that should become active when applying `action`.
@@ -523,10 +530,27 @@ impl GpuShellPresenter {
      opened: &[(String, String)],
      current_active: Option<&str>,
  ) -> Option<String> {
-     let ts = TabStrip::from_opened_and_active(opened, current_active);
      match action {
-         TabAction::ActivateNext { wrap } => ts.next_active_id(wrap),
-         TabAction::ActivatePrevious { wrap } => ts.prev_active_id(wrap),
+         TabAction::ActivateNext { wrap } => {
+             let ts = TabStrip::from_opened_and_active(opened, current_active);
+             ts.next_active_id(wrap)
+         }
+         TabAction::ActivatePrevious { wrap } => {
+             let ts = TabStrip::from_opened_and_active(opened, current_active);
+             ts.prev_active_id(wrap)
+         }
+         TabAction::ActivateById { id } => {
+             // If the requested id is not among opened buffers -> no-op.
+             if !opened.iter().any(|(oid, _)| oid == &id) {
+                 return None;
+             }
+             // If it's already active -> no-op.
+             if current_active.map(|a| a == id.as_str()).unwrap_or(false) {
+                 return None;
+             }
+             // Otherwise return the requested id for outer-layer activation.
+             Some(id)
+         }
      }
  }
  
