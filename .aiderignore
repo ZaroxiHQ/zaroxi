@@ -1,79 +1,77 @@
-# Aider ignore - tuned for large Rust monorepos and LLM token efficiency
-# =====================================================================
-# Guidelines:
-# - Keep global build, editor and noise files ignored.
-# - Layer masking blocks are provided below. Uncomment a block to IGNORE
-#   that entire architectural layer from Aider's repo-map generation.
-# - Uncommenting reduces map size / token usage; keep inner layers visible
-#   (kernel, domain) by default for accurate reasoning unless you need to
-#   further reduce tokens.
-
-# ------------------------
-# Global noise / build
-# ------------------------
+# --- Rust build output ---
 target/
-.git/
-.idea/
-.vscode/
+**/target/
+
+# --- Cargo / lockfiles you probably don't want Aider to keep re-reading ---
 Cargo.lock
-*.rs.bk
-*.tmp
-*.log
 
-# ------------------------
-# Layer masking blocks
-# ------------------------
-# Each block targets the crate-name prefixes used in this workspace.
-# To reduce tokens, uncomment the entire block for the layer(s) you do not
-# need Aider to map right now. Leave commented to include them.
+# --- Editor / OS clutter ---
+**/.DS_Store
+**/Thumbs.db
+**/*.swp
+**/*.swo
+**/*~
 
-# KERNEL (lowest-level primitives) — recommended: keep visible
-# To IGNORE kernel crates, uncomment the next line:
-# zaroxi-kernel-*/
+# --- IDE settings ---
+.vscode/
+.idea/
+*.code-workspace
 
-# DOMAIN (business logic) — recommended: keep visible
-# To IGNORE domain crates, uncomment the next line:
-# zaroxi-domain-*/
+# --- Logs / temp / cache ---
+**/*.log
+**/*.tmp
+**/*.temp
+**/*.cache
+**/cache/
+**/.cache/
 
-# CORE (engines, orchestrators)
-# To IGNORE core crates, uncomment the next line:
-# zaroxi-core-*/
+# --- Generated / build artifacts ---
+**/dist/
+**/build/
+**/out/
+**/coverage/
+**/reports/
 
-# APPLICATION (use-cases, services)
-# To IGNORE application crates, uncomment the next line:
-# zaroxi-application-*/
+# --- Documentation artifacts that are usually not source ---
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.pdf
+**/*.svg
 
-# INTELLIGENCE (AI orchestration, often large/noisy)
-# To IGNORE intelligence crates, uncomment the next line:
-# zaroxi-intelligence-*/
+# --- Large data / binary assets ---
+**/*.bin
+**/*.exe
+**/*.dll
+**/*.so
+**/*.dylib
+**/*.a
+**/*.o
 
-# INTERFACE (CLI/UI surface, frequently changing)
-# To IGNORE interface crates, uncomment the next line:
-# zaroxi-interface-*/
+# --- Node / web dependencies if any appear ---
+node_modules/
 
-# INFRASTRUCTURE (IO, external integrations)
-# To IGNORE infrastructure crates, uncomment the next line:
-# zaroxi-infrastructure-*/
+# --- Python caches if tooling scripts appear ---
+__pycache__/
+**/*.pyc
 
-# ------------------------
-# Fine-grained examples
-# ------------------------
-# Uncomment single crate folders to ignore them specifically (examples):
-# zaroxi-interface-desktop/
-# zaroxi-infrastructure-memory/
-# zaroxi-core-platform-syntax/
+# --- Temporary helper files ---
+tmp/
+temp/
+**/tmp/
+**/temp/
 
-# ------------------------
-# Whitelisting / overrides
-# ------------------------
-# If Aider supports gitignore-style negation you can add explicit keep rules:
-# Example (uncomment if supported by your Aider version):
-# !zaroxi-kernel-*/src/lib.rs
+# --- Keep the conventions file visible ---
+!CONVENTIONS.md
 
-# ------------------------
-# Notes for maintainers
-# ------------------------
-# - Prefer toggling whole-layer blocks over per-crate toggles when iterating.
-# - Keep this file minimal and explicit: large, generic globs cause accidental
-#   omission of critical crates.
-# - This file scales to 140+ crates because masks are prefix-based and layer-oriented.
+# --- Ignore per-crate build noise if you have local tooling copies ---
+**/artifacts/
+**/generated/
+**/gen/
+
+# --- If you keep local scratch notes ---
+notes/
+scratch/
+drafts/
