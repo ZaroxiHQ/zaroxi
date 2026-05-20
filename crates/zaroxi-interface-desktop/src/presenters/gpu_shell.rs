@@ -21,7 +21,7 @@ a long-lived god file.
 pub use crate::presenters::model::{
     ContentActivity, GpuShellPresenter, GpuShellView, KeyEvent, Region, RegionKind, RegionView,
     ShellRegions, ShellTone, SlotName, SlotView, StatusEmphasis, TabAction, FocusAction, TabEntry, TabStrip,
-    apply_tab_action, compute_tab_action_target, apply_focus_action, compute_focus_action_target, activate_focused, handle_key_event,
+    apply_tab_action, compute_tab_action_target, apply_focus_action, compute_focus_action_target, activate_focused, handle_key_event, handle_focus_key_event,
 };
 pub use crate::presenters::paint::{GpuPaintOp, GpuPaintPlan, GpuPaintRect, execute_paint_plan};
 pub use crate::presenters::transcript::ShellRenderTranscript;
