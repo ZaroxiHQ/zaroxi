@@ -1,4 +1,4 @@
-use crate::presenters::model::{GpuShellView, TabStrip, RegionKind};
+use crate::presenters::model::{GpuShellView, RegionKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuPaintRect {
