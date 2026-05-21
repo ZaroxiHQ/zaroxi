@@ -10,6 +10,10 @@
 
 pub mod cache;
 pub mod dynamic_loader;
+/// Error types and helpers produced by the syntax subsystem.
+///
+/// This module exposes the public `SyntaxError` type and related DTOs used by
+/// callers to represent and transport syntax-related failures.
 pub mod error;
 pub mod grammar_builder;
 pub mod grammar_registry;

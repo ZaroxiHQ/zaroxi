@@ -4,12 +4,21 @@ use std::path::Path;
 
 use crate::runtime::Runtime;
 
+/// Static and dynamic language identifiers used by the syntax subsystem.
+///
+/// - `Rust`, `Toml`, `Markdown`, `PlainText` are known static variants.
+/// - `Dynamic(&'static str)` represents a runtime-registered grammar id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LanguageId {
+    /// Rust files (*.rs)
     Rust,
+    /// TOML files (*.toml)
     Toml,
+    /// Markdown files (*.md)
     Markdown,
+    /// Plain text (no syntax)
     PlainText,
+    /// Dynamic grammar identified by a `'static` string id
     Dynamic(&'static str),
 }
 
@@ -184,6 +193,10 @@ impl LanguageId {
         map.get(&ext.to_lowercase()).copied()
     }
 
+    /// Get the canonical string identifier for this language id.
+    ///
+    /// Returns a `'static` string for static variants and the inner id for
+    /// `Dynamic` variants.
     pub fn as_str(&self) -> &str {
         match self {
             LanguageId::Rust => "rust",
