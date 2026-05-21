@@ -6,3 +6,5 @@ description = "zaroxi-domain-session (auto-generated)"
 license = "MIT"
 
 [dependencies]
+zaroxi-kernel-id = { workspace = true }
+serde = { workspace = true }

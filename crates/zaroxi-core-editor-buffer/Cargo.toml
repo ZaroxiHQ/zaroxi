@@ -9,3 +9,4 @@ license = "MIT"
 # Add crate-specific dependencies when replacing stubbed manifests.
 # Serde is required by src/ports.rs for Serialize/Deserialize derives.
 serde = { workspace = true }
+zaroxi-kernel-id = { workspace = true }

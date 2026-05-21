@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 zaroxi-foundation = { path = "../zaroxi-foundation" }
 serde = { workspace = true }
+zaroxi-kernel-id = { workspace = true }
