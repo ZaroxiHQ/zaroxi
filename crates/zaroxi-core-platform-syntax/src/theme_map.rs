@@ -1,8 +1,7 @@
 //! Theme-aware mapping from Tree-sitter capture names to semantic token types.
 
 use crate::highlight::Highlight;
-use zaroxi_theme::colors::Color;
-use zaroxi_theme::theme::SemanticColors;
+use crate::theme_shim::{Color, SemanticColors};
 
 /// A semantic token type that maps to a theme color.
 ///
