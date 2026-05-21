@@ -1,13 +1,3 @@
-use std::sync::Arc;
-use super::*;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
-
-/// Projection helpers for visible window and viewport summarization.
-///
-/// This module contains the small, deterministic projection types and helper that
-/// compute viewport summaries from either a WorkspaceView-provided VisibleLinesWindow
-/// (VisibleWindowBasic) or from the presenter's InterfaceRenderableWindow when the
-/// visible-window projection is not available.
 ///
 /// The functions are intentionally small and pure-ish: they read from the parent
 /// DesktopComposition and return a shallow ViewportSummary. They purposely avoid

@@ -1,11 +1,3 @@
-use super::*;
-
-/// Consistency helpers extracted from the parent `desktop` module.
-///
-/// This module contains the DesktopConsistencyReport type and a single helper
-/// that computes a small, read-only consistency report from a DesktopComposition.
-/// The implementation preserves the exact checks and heuristics previously
-/// present in `desktop.rs`.
 ///
 /// Note: the module intentionally reads `&super::DesktopComposition` and returns
 /// the local `DesktopConsistencyReport` type which is re-exported by the parent
