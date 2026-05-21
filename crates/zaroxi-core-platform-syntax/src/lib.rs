@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 //! Syntax layer for Neote IDE.
 //!
 //! This crate provides Tree-sitter-based syntax parsing, highlighting,
