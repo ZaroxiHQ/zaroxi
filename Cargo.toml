@@ -191,7 +191,7 @@ license = "MIT"
 # Workspace-level lints (requires supported cargo/rustc versions)
 # Deny unsafe code at workspace level. This is the authoritative policy.
 [workspace.lints]
-"unsafe_code" = "deny"
+deny = { unsafe_code = true }
 
 # Centralized workspace dependency ownership for the APPROVED STACK.
 # Member crates that require these dependencies should use `{ workspace = true }`
