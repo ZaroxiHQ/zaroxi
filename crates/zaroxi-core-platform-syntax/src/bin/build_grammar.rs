@@ -1,5 +1,5 @@
 use std::env;
-use zaroxi_lang_syntax::grammar_builder;
+use zaroxi_core_platform_syntax::grammar_builder;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
