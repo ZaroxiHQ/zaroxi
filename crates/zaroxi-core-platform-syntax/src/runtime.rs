@@ -35,6 +35,10 @@ impl Runtime {
         runtime
     }
 
+    /// Locate the runtime root directory by checking common locations and environment variables.
+    ///
+    /// The search order prefers development layouts (crate-relative runtime),
+    /// then environment overrides, and finally workspace/project-relative fallbacks.
     fn locate_root() -> Option<PathBuf> {
         // 0. First priority: runtime directory relative to the zaroxi-lang-syntax crate source directory
         // This is the most reliable location for development
@@ -397,6 +401,10 @@ impl Runtime {
 }
 
 /// Helper to move directory contents
+/// Recursively move contents from `src` into `dst`.
+///
+/// Creates `dst` if necessary and moves files/directories one-by-one.
+/// This helper is internal to the runtime and intentionally not exported.
 fn move_dir_contents(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     if !dst.exists() {
         std::fs::create_dir_all(dst)?;
