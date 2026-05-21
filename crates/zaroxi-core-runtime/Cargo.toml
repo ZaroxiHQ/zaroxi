@@ -22,10 +22,7 @@ pollster = "0.3"
 # `zaroxi-core-engine-input` in the workspace.
 zaroxi_engine_input = { package = "zaroxi-core-engine-input", path = "../zaroxi-core-engine-input" }
 zaroxi_engine_render = { package = "zaroxi-core-engine-render", path = "../zaroxi-core-engine-render" }
-
-# `zaroxi_app` mapping removed to respect architecture: core-runtime must not depend on application crates.
-# If render integration requires an application contract, gate it behind an explicit feature
-# and depend on a minimal interface crate in a follow-up change.
+ 
 
 [features]
 # Feature to enable the optional runtime <> renderer integration surface.
