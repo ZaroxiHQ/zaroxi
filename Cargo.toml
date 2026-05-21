@@ -189,17 +189,13 @@ license = "MIT"
 # Projects using this workspace should pin dependencies individually.
 
 # Workspace-level lints (requires supported cargo/rustc versions)
-# NOTE: The intended workspace-level lint declaration was removed here because
-# the current cargo/rustc in use does not accept the `[workspace.lints]`
-# mapping syntax used previously and caused workspace parsing errors.
+# Deny unsafe code at workspace level via workspace lints. `.cargo/config.toml`
+# is kept as a minimal fallback for older CI/tooling that doesn't yet honor
+# workspace-level lint inheritance.
 #
-# Intent: deny `unsafe_code` at workspace level. We retain a minimal fallback
-# guard in `.cargo/config.toml` using RUSTFLAGS = "-D unsafe-code" so CI and
-# local builds still enforce the policy until the toolchain supports the
-# canonical workspace lints format. Reintroduce `[workspace.lints]` with the
-# correct table format when the toolchain supports it.
-#
-# (This comment preserves the policy intent while keeping Cargo.toml parseable.)
+# The canonical workspace lint configuration below is the authoritative policy:
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 # Centralized workspace dependency ownership for the APPROVED STACK.
 # Member crates that require these dependencies should use `{ workspace = true }`

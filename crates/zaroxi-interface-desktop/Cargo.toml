@@ -39,3 +39,6 @@ gpu_shell_bin = ["winit", "pixels", "minifb"]
 name = "gpu_shell"
 path = "src/bin/gpu_shell.rs"
 required-features = ["gpu_shell_bin"]
+
+[lints]
+workspace = true

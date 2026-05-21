@@ -19,3 +19,6 @@ zaroxi-core-editor-buffer = { path = "../../crates/zaroxi-core-editor-buffer" }
 # Infrastructure adapters (outer composition references infra implementations)
 zaroxi-infrastructure-ai-mock = { path = "../../crates/zaroxi-infrastructure-ai-mock" }
 zaroxi-infrastructure-memory = { path = "../../crates/zaroxi-infrastructure-memory" }
+
+[lints]
+workspace = true
