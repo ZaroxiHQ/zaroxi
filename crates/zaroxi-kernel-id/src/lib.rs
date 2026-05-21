@@ -1,6 +1,4 @@
-#![doc = include_str!("../README.md")]
-//! zaroxi-kernel-id
-//!
+#![doc = "Kernel-level identity primitives for Zaroxi.\n\nThis crate defines low-level ID types shared across higher layers\nwithout introducing upward dependencies.\n"]
 //! Small, stable kernel-layer identity primitives for the workspace.
 //!
 //! This crate provides a minimal, durable first API for identity values that
