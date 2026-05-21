@@ -188,30 +188,46 @@ version = "0.1.0"
 license = "MIT"
 # Projects using this workspace should pin dependencies individually.
 
-# Workspace-level recommended tooling (kept minimal and optional)
-# Core workspace dependencies declared here so member crates may use
-# `crate = { workspace = true }` style in their Cargo.toml. This prevents
-# duplicated versions across the workspace and centralizes pinning.
+# Workspace-level lints (requires supported cargo/rustc versions)
+# Deny unsafe code at workspace level. This is the authoritative policy.
+[workspace.lints]
+deny = ["unsafe_code"]
+
+# Centralized workspace dependency ownership for the APPROVED STACK.
+# Member crates that require these dependencies should use `{ workspace = true }`
+# in their Cargo.toml and must NOT repeat versions or features (workspace pins win).
 #
-# Add only broadly-used, stable dependencies here. Keep this list minimal;
-# individual crates should declare crate-specific features/versions.
+# NOTE: I intentionally centralize only the APPROVED STACK here (rendering, text,
+# layout, parsing, async, and serde). Other broadly-used helpers were removed
+# from the top-level pins so individual crates can opt-in as appropriate and to
+# avoid accidental transitive version coupling.
 [workspace.dependencies]
-anyhow = "1.0"
+# Rendering & windowing
+wgpu = "0.16.2"
+vello = "0.20.0"
+winit = "0.30.13"
+
+# Layout & text
+taffy = "0.13.0"
+cosmic-text = "0.19.0"
+ropey = "1.6.1"
+
+# Parsing & language
+tree-sitter = "0.26.8"
+lsp-types = "0.97.0"
+
+# Clipboard / accessibility / helper crates
+arboard = "2.2.0"
+accesskit = "0.5.0"
+candle-core = "0.7.0"
+
+# Async & serialization (workspace-owned features)
+tokio = { version = "1.52.3", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1.4", features = ["serde", "v4"] }
-thiserror = "2.0.18"
-cc = "1.0"
-parking_lot = "0.12"
-libloading = "0.9.0"
-ropey = "1.6.1"
-tempfile = "3.27.0"
-tracing = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
-tree-sitter = "0.26.8"
-# Workspace-exposed internal crate aliases for member-to-member dependencies.
-# Added so member crates can refer to workspace members via `crate = { workspace = true }`.
+
+# If other workspace-wide helper pins are desired later (anyhow, thiserror, etc.),
+# add them deliberately after review. For now keep the root manifest focused.
 
 # Workspace metadata for CI and maintainers: enforce architecture rules programmatically
 [workspace.metadata.zaroxi]
