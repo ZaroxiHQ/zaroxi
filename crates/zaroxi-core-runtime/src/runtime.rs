@@ -270,7 +270,6 @@ impl ApplicationHandler for App {
         }
     }
 }
-#endif
 
 #[cfg(feature = "render_integration")]
 /// Run the application using winit 0.30 Application API.
