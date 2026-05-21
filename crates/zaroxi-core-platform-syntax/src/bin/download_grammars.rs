@@ -13,6 +13,8 @@
 //!   list      List all available grammars
 
 use std::process;
+use zaroxi_core_platform_syntax::grammar_registry;
+use zaroxi_core_platform_syntax::grammar_registry::GrammarRegistry;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -21,7 +23,7 @@ fn main() {
     match command {
         "install" => {
             eprintln!("Checking for missing grammars...");
-            let installed = zaroxi_lang_syntax::grammar_registry::install_missing_grammars();
+            let installed = grammar_registry::install_missing_grammars();
             if installed.is_empty() {
                 eprintln!("All grammars are already installed.");
             } else {
@@ -29,12 +31,12 @@ fn main() {
             }
         }
         "check" => {
-            let registry = zaroxi_lang_syntax::grammar_registry::GrammarRegistry::global();
+            let registry = GrammarRegistry::global();
             let mut missing = Vec::new();
             let mut present = Vec::new();
 
             for lang_id in registry.language_ids() {
-                if zaroxi_lang_syntax::grammar_registry::is_grammar_installed(lang_id) {
+                if grammar_registry::is_grammar_installed(lang_id) {
                     present.push(lang_id);
                 } else {
                     missing.push(lang_id);
@@ -45,11 +47,11 @@ fn main() {
             eprintln!("Missing grammars ({}): {:?}", missing.len(), missing);
         }
         "list" => {
-            let registry = zaroxi_lang_syntax::grammar_registry::GrammarRegistry::global();
+            let registry = GrammarRegistry::global();
             eprintln!("Available grammars:");
             for lang_id in registry.language_ids() {
                 let info = registry.get(lang_id).unwrap();
-                let installed = if zaroxi_lang_syntax::grammar_registry::is_grammar_installed(lang_id) {
+                let installed = if grammar_registry::is_grammar_installed(lang_id) {
                     "[installed]"
                 } else {
                     "[missing]"
