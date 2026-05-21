@@ -1,12 +1,19 @@
 use anyhow::Result;
-use log::info;
 use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "render_integration")]
+use log::info;
+#[cfg(feature = "render_integration")]
 use winit::application::ApplicationHandler;
+#[cfg(feature = "render_integration")]
 use winit::event::WindowEvent;
+#[cfg(feature = "render_integration")]
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+#[cfg(feature = "render_integration")]
 use winit::window::{Window, WindowId};
 
 use crate::window_state::WindowState;
+#[cfg(feature = "render_integration")]
 use zaroxi_engine_input::event::Event as InputEvent;
 
 #[cfg(feature = "render_integration")]
@@ -17,6 +24,7 @@ use zaroxi_app::AppState;
 
 /// Minimal engine application that implements the winit 0.30 ApplicationHandler
 /// lifecycle. This keeps the runtime small and focused on window + renderer.
+#[allow(dead_code)]
 pub struct App {
     title: String,
     width: u32,
