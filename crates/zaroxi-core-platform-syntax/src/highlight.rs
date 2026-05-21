@@ -375,6 +375,11 @@ pub fn map_capture_name(name: &str) -> Highlight {
     }
 }
 
+/// Retrieve the highlights.scm query text for the given language.
+///
+/// Returns an owned static string reference for efficient reuse, or an empty
+/// string when no query is available. Read errors are logged and a graceful
+/// empty query is returned so highlighting can fail softly.
 pub fn get_query_for_language(language: LanguageId) -> Result<&'static str, SyntaxError> {
     let language_id = language.as_str();
 
