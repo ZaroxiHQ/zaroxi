@@ -6,3 +6,4 @@ description = "Engine input event translation and handling."
 license = "MIT"
 
 [dependencies]
+winit = { workspace = true }
