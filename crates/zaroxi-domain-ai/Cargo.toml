@@ -6,4 +6,6 @@ description = "zaroxi-domain-ai (auto-generated)"
 license = "MIT"
 
 [dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
 # Add crate-specific dependencies when replacing stubbed manifests.
