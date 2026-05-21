@@ -193,22 +193,22 @@ async fn main() -> Result<(), String> {
                     if let Some(win) = composition.latest_window() {
                         println!("Harness: visible render window (composition): top_line={} total_lines={}", win.top_line, win.total_lines);
                         for rl in win.lines.iter() {
+                            // Build visible line text using only user-facing Normal spans.
+                            // Marker spans (Cursor, Selection, SelectionCursor) are intentionally
+                            // skipped here to avoid injecting inline debug markers such as "|^|" or "|/|/"
+                            // into the plain visible text printed for end users. Cursor/selection state
+                            // is available separately via composition accessors (latest_active_document_summary, latest_status_bar_line, etc).
                             let mut out = String::new();
                             for sp in rl.spans.iter() {
                                 match sp.kind {
-                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => out.push_str(&sp.text),
-                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection => {
-                                        out.push_str(&format!("[{}]", sp.text));
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Normal => {
+                                        out.push_str(&sp.text);
                                     }
-                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor => {
-                                        if sp.text.is_empty() {
-                                            out.push_str("|^|");
-                                        } else {
-                                            out.push_str(&format!("|{}|", sp.text));
-                                        }
-                                    }
-                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
-                                        out.push_str(&format!("[|{}|]", sp.text));
+                                    // Skip marker spans entirely for harness plain-text output.
+                                    zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Selection
+                                    | zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::Cursor
+                                    | zaroxi_interface_desktop::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                                        // intentionally no-op
                                     }
                                 }
                             }
