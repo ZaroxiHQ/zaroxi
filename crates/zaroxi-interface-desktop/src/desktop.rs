@@ -602,8 +602,13 @@ impl DesktopComposition {
             let display_label = opened_list.iter().find(|i| i.buffer_id == bid).and_then(|i| i.display.clone())
                 .or_else(|| bid.path().map(|p| p.to_string_lossy().to_string()));
 
-            // Use presenter's latest window (if present) to obtain a line_count metric.
-            let line_count = self.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize);
+            // Use visible-window projection when present to obtain a reliable line_count metric,
+            // otherwise fall back to the presenter's latest snapshot.
+            let line_count = if let Some(vw) = &visible_window_opt {
+                vw.total_lines
+            } else {
+                self.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize)
+            };
 
             Some(ActiveBufferDetails {
                 buffer_id: bid.clone(),
