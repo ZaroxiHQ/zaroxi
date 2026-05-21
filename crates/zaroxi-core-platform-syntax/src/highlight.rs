@@ -15,21 +15,37 @@ pub struct HighlightSpan {
     pub highlight: Highlight,
 }
 
-/// Highlight types (maps to Tree-sitter capture names)
+/// Highlight types (maps to Tree-sitter capture names).
+///
+/// These categories are intentionally small and map from Tree-sitter capture
+/// names to a limited set of highlighting roles used by the presenter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Highlight {
+    /// Comment text (line/block/documentation).
     Comment,
+    /// String and literal text.
     String,
+    /// Language keywords and control tokens.
     Keyword,
+    /// Function and call sites.
     Function,
+    /// Variables and identifiers.
     Variable,
+    /// Type names and annotations.
     Type,
+    /// Constants and literal constants.
     Constant,
+    /// Attributes, annotations, or decorators.
     Attribute,
+    /// Operators and punctuation-like operators.
     Operator,
+    /// Numeric literals.
     Number,
+    /// Property/field-like accessors.
     Property,
+    /// Namespace/module identifiers and imports.
     Namespace,
+    /// Plain text / no special highlighting.
     Plain,
 }
 
@@ -231,6 +247,10 @@ impl Default for HighlightEngine {
     }
 }
 
+/// Map a Tree-sitter capture name to a Highlight classification.
+///
+/// This provides a stable mapping from varied capture names used by different
+/// grammars into the small set of Highlight categories used by the presenter.
 pub fn map_capture_name(name: &str) -> Highlight {
     match name {
         // Comments

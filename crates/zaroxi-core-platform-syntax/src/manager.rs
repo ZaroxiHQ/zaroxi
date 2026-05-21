@@ -7,6 +7,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::{Parser, Tree};
 
+/// Manager that coordinates documents, parsing, and highlighting.
+///
+/// `SyntaxManager` holds document text, parser instances and the highlight
+/// engine. Consumers use this type to update documents and obtain highlight
+/// spans in a thread-local manager instance.
 pub struct SyntaxManager {
     documents: HashMap<String, SyntaxDocument>,
     // Cache parsers per language to avoid recreating them
@@ -24,6 +29,7 @@ struct SyntaxDocument {
 }
 
 impl SyntaxManager {
+    /// Create a new SyntaxManager with empty state.
     pub fn new() -> Self {
         Self {
             documents: HashMap::new(),
@@ -33,8 +39,10 @@ impl SyntaxManager {
         }
     }
 
-    /// Set large file mode for the manager.
-    /// When enabled, syntax parsing is skipped for all documents.
+    /// Set large-file mode on or off.
+    ///
+    /// When enabled parsing/highlighting is disabled and existing syntax trees
+    /// are dropped to conserve memory for very large files.
     pub fn set_large_file_mode(&mut self, enabled: bool) {
         self.large_file_mode = enabled;
         if enabled {
@@ -45,11 +53,15 @@ impl SyntaxManager {
         }
     }
 
-    /// Check if large file mode is active.
+    /// Return true when large-file mode is active.
     pub fn is_large_file_mode(&self) -> bool {
         self.large_file_mode
     }
 
+    /// Insert or replace a document's contents and (re)parse it.
+    ///
+    /// If the manager is in large-file mode or no grammar is available for the
+    /// detected language, the document is stored without a parse tree.
     pub fn update_document(
         &mut self,
         doc_id: &str,
@@ -92,6 +104,10 @@ impl SyntaxManager {
         Ok(())
     }
 
+    /// Apply an edit to an existing document.
+    ///
+    /// The edit is applied to the stored text and the parse tree is cleared;
+    /// the tree will be re-parsed on the next highlight request.
     pub fn edit_document(
         &mut self,
         doc_id: &str,
@@ -117,10 +133,15 @@ impl SyntaxManager {
         Ok(())
     }
 
+    /// Return true if a document with the given id is managed.
     pub fn contains_document(&self, doc_id: &str) -> bool {
         self.documents.contains_key(doc_id)
     }
 
+    /// Compute highlight spans for a document.
+    ///
+    /// Returns an empty vector when no parse tree is available or when in
+    /// large-file mode.
     pub fn highlight_spans(&self, doc_id: &str) -> Result<Vec<HighlightSpan>, SyntaxError> {
         // If in large file mode, return empty highlights
         if self.large_file_mode {

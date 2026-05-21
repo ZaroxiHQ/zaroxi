@@ -5,13 +5,71 @@ use zaroxi_theme::colors::Color;
 use zaroxi_theme::theme::SemanticColors;
 
 /// A semantic token type that maps to a theme color.
+///
+/// These token types are used to convert highlight spans into theme-aware
+/// styled spans for presentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SemanticTokenType {
-    Keyword, Function, Method, String, Comment, Type, Variable, Constant,
-    Number, Operator, Punctuation, Attribute, Tag, Namespace, Macro,
-    Property, Parameter, Builtin, Escape, Embedded, Regex,
-    MarkupHeading, MarkupList, MarkupQuote, MarkupLink, MarkupCode,
-    MarkupBold, MarkupItalic, MarkupStrikethrough, Plain,
+    /// Keywords (control flow, declarations).
+    Keyword,
+    /// Function names and calls.
+    Function,
+    /// Method names (object-oriented calls).
+    Method,
+    /// String literals.
+    String,
+    /// Comments and documentation.
+    Comment,
+    /// Type and class names.
+    Type,
+    /// Variable identifiers.
+    Variable,
+    /// Constants and literals.
+    Constant,
+    /// Numeric literals.
+    Number,
+    /// Operators and similar tokens.
+    Operator,
+    /// Punctuation characters.
+    Punctuation,
+    /// Attributes, annotations.
+    Attribute,
+    /// Markup/HTML tags.
+    Tag,
+    /// Namespace or module identifiers.
+    Namespace,
+    /// Macro invocations.
+    Macro,
+    /// Property or field accessors.
+    Property,
+    /// Function parameters.
+    Parameter,
+    /// Built-in identifiers.
+    Builtin,
+    /// Escape sequences.
+    Escape,
+    /// Embedded language spans.
+    Embedded,
+    /// Regular expression tokens.
+    Regex,
+    /// Markdown heading tokens.
+    MarkupHeading,
+    /// Markdown list tokens.
+    MarkupList,
+    /// Markdown quote tokens.
+    MarkupQuote,
+    /// Markdown link tokens.
+    MarkupLink,
+    /// Markdown code tokens.
+    MarkupCode,
+    /// Markdown bold text tokens.
+    MarkupBold,
+    /// Markdown italic text tokens.
+    MarkupItalic,
+    /// Markdown strikethrough tokens.
+    MarkupStrikethrough,
+    /// Plain/unclassified text.
+    Plain,
 }
 
 impl SemanticTokenType {
@@ -106,15 +164,26 @@ impl SemanticTokenType {
 }
 
 /// A styled span with its semantic token type and theme color.
+///
+/// Represents a contiguous region in the document annotated with a semantic
+/// token type and the resolved theme color for presentation.
 #[derive(Debug, Clone)]
 pub struct StyledSpan {
+    /// Start byte offset of the span.
     pub start: usize,
+    /// End byte offset of the span (exclusive).
     pub end: usize,
+    /// The semantic token type for this span.
     pub token_type: SemanticTokenType,
+    /// Resolved color from the current theme.
     pub color: Color,
 }
 
 impl StyledSpan {
+    /// Construct a StyledSpan from a HighlightSpan and the active SemanticColors.
+    ///
+    /// Converts the highlight classification into a semantic token type and
+    /// resolves the color using the provided theme colors.
     pub fn from_highlight_span(
         span: &crate::highlight::HighlightSpan,
         colors: &SemanticColors,
