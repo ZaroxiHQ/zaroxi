@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use zaroxi_kernel_id::UuidId;
-use uuid;
 
 /// Buffer identity newtype backed by the canonical kernel id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,10 +33,11 @@ impl fmt::Display for BufferId {
 }
 
 impl FromStr for BufferId {
-    type Err = uuid::Error;
+    type Err = <UuidId as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(BufferId(s.parse()?))
+        let u: UuidId = s.parse()?;
+        Ok(BufferId(u))
     }
 }
 
