@@ -445,8 +445,30 @@ impl DesktopComposition {
     }
 
     /// Get the latest renderable window from the underlying presenter (if any).
+    ///
+    /// For shell-facing consumption we return a copy of the presenter's window
+    /// with inline marker/debug span content removed. The span kinds (Cursor,
+    /// Selection, SelectionCursor) are preserved so structured metadata (cursor
+    /// coordinates, selection flags) remains available, but their `text` field
+    /// is cleared to avoid polluting visible text renderings (e.g. "|^|" or "|/|/").
     pub fn latest_window(&self) -> Option<InterfaceRenderableWindow> {
-        self.presenter.latest()
+        let win_opt = self.presenter.latest();
+        win_opt.map(|mut w| {
+            for line in w.lines.iter_mut() {
+                for sp in line.spans.iter_mut() {
+                    match sp.kind {
+                        crate::view_adapter::InterfaceSpanKind::SelectionCursor
+                        | crate::view_adapter::InterfaceSpanKind::Cursor
+                        | crate::view_adapter::InterfaceSpanKind::Selection => {
+                            // clear inline marker/debug text while preserving span kind/coords
+                            sp.text.clear();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            w
+        })
     }
 
     /// Get the recorded session id (if composition was refreshed).

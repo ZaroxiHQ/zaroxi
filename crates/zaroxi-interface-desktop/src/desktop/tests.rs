@@ -509,3 +509,28 @@ async fn latest_shell_context_is_composed() {
     assert_eq!(ctx.latest_refresh_reason.unwrap(), RefreshReason::AiProjectionUpdated);
     assert!(ctx.has_ai_projection);
 }
+
+#[tokio::test]
+async fn latest_window_contains_no_inline_marker_text() {
+    use std::sync::Arc;
+    use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
+
+    let v = FakeView::new();
+    let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+    let sid = SessionId(zaroxi_kernel_types::Id::new());
+    let wid = zaroxi_kernel_types::Id::new();
+
+    let mut comp = DesktopComposition::new();
+    comp.refresh(arc.clone(), sid.clone(), Some(wid.clone())).await.expect("refresh ok");
+
+    // Ensure the shell-facing latest_window text does not contain inline marker tokens
+    let win = comp.latest_window().expect("window present");
+    for line in win.lines.iter() {
+        let mut reconstructed = String::new();
+        for sp in line.spans.iter() {
+            reconstructed.push_str(&sp.text);
+        }
+        assert!(!reconstructed.contains("|^|"), "visible line must not contain cursor marker");
+        assert!(!reconstructed.contains("|/|/"), "visible line must not contain debug marker");
+    }
+}
