@@ -130,6 +130,27 @@ pub struct ViewportSummary {
     pub anchoring: ViewportAnchoring,
 }
 
+/// Small basic visible-window projection derived from WorkspaceView VisibleLinesWindow.
+/// This representation is intentionally tiny and decoupled from presenter view_adapter types.
+/// It is a best-effort, read-only projection populated during `refresh_with_service` when
+/// the caller's WorkspaceView can provide VisibleLinesWindow data. Consumers prefer this
+/// projection over presenter snapshots when available to strengthen the editor viewport path.
+#[derive(Clone, Debug)]
+pub struct VisibleWindowBasic {
+    /// 1-based top visible line number.
+    pub top_line: usize,
+    /// Total number of lines in the buffer/document.
+    pub total_lines: usize,
+    /// Visible lines' textual content, in order from `top_line`.
+    pub lines: Vec<String>,
+    /// Optional 1-based cursor line if present in the visible window.
+    pub cursor_line: Option<usize>,
+    /// Optional 0-based cursor column within the cursor line.
+    pub cursor_column: Option<usize>,
+    /// Whether any selection intersects the visible window.
+    pub selection_present: bool,
+}
+
 /// Tiny AI projection: a small, shell-facing read-only snapshot of the most recent AI outcome.
 ///
 /// Keep this intentionally minimal:
@@ -220,6 +241,10 @@ pub struct DesktopMetadata {
     pub active_buffer_details: Option<ActiveBufferDetails>,
     /// New: small AI projection exposing the last AI result relevant to this session (if any).
     pub ai_projection: Option<AiProjection>,
+    /// New: best-effort visible-window projection when available from WorkspaceView.
+    /// This strengthens the editor viewport path by preferring direct VisibleLinesWindow
+    /// data over presentation transcripts when present.
+    pub visible_window: Option<VisibleWindowBasic>,
     /// Tiny, read-only textual last command line (shell-facing): short command name + success marker.
     pub last_command_line: Option<String>,
     /// New: the reason the composition was refreshed most recently (shell-facing).
@@ -484,6 +509,40 @@ impl DesktopComposition {
             Err(_) => None,
         };
 
+        // 2b) Attempt to obtain a direct visible-lines projection from the WorkspaceView.
+        // When available, we capture a small, stable VisibleWindowBasic projection that
+        // strengthens the editor viewport semantics for shells (preferred over transcripts).
+        let visible_window_opt: Option<VisibleWindowBasic> = match view.get_visible_lines(crate::ports::GetVisibleLinesRequest { session_id: session_id.clone() }).await {
+            Ok(resp) => {
+                // Build a tiny basic projection decoupled from presenter view types.
+                let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
+                let mut cursor_line: Option<usize> = None;
+                let mut cursor_column: Option<usize> = None;
+                let mut selection_present: bool = false;
+                for vl in resp.window.lines.iter() {
+                    lines_vec.push(vl.text.clone());
+                    if vl.is_cursor_line {
+                        cursor_line = Some(vl.line_number as usize);
+                        if let Some(col) = vl.cursor_column {
+                            cursor_column = Some(col as usize);
+                        }
+                    }
+                    if vl.selection_intersects {
+                        selection_present = true;
+                    }
+                }
+                Some(VisibleWindowBasic {
+                    top_line: resp.window.top_line as usize,
+                    total_lines: resp.window.total_lines as usize,
+                    lines: lines_vec,
+                    cursor_line,
+                    cursor_column,
+                    selection_present,
+                })
+            }
+            Err(_) => None,
+        };
+
         // Prepare default conservative projection values.
         let mut opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
         let mut opened_list: Vec<OpenedBufferItem> = Vec::new();
@@ -678,6 +737,8 @@ impl DesktopComposition {
             opened_buffers: opened_list.clone(),
             active_buffer_details: active_buffer_details.clone(),
             ai_projection: ai_proj.clone(),
+            // Surface visible-window projection when we could obtain one from the WorkspaceView.
+            visible_window: visible_window_opt.clone(),
             last_command_line: last_command_line.clone(),
             refresh_reason: Some(reason),
         };
@@ -737,59 +798,80 @@ impl DesktopComposition {
         let meta = self.metadata.as_ref()?;
         let abd = meta.active_buffer_details.clone()?;
 
-        // Derive cursor and selection info from the presenter's latest renderable window.
-        let win_opt = self.presenter.latest();
+        // Prefer a direct visible-window projection from WorkspaceView when available;
+        // otherwise fall back to the presenter's latest renderable window.
+        let vw_opt = self.metadata.as_ref().and_then(|m| m.visible_window.clone());
         let mut cursor_line: Option<usize> = None;
         let mut cursor_column: Option<usize> = None;
         let mut selection_present = false;
         let mut current_line_snippet: Option<String> = None;
 
-        if let Some(win) = win_opt {
-            // Scan spans to find a cursor or selection.
-            for line in win.lines.iter() {
-                for sp in line.spans.iter() {
-                    match sp.kind {
-                        crate::view_adapter::InterfaceSpanKind::SelectionCursor | crate::view_adapter::InterfaceSpanKind::Cursor => {
-                            cursor_line = Some(line.line_number);
-                            cursor_column = Some(sp.start_col);
+        if let Some(vw) = vw_opt {
+            // Use the basic visible-window projection to fill cursor/selection/snippet.
+            cursor_line = vw.cursor_line;
+            cursor_column = vw.cursor_column;
+            selection_present = vw.selection_present;
+
+            // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
+            let snippet_line_no = cursor_line.unwrap_or(vw.top_line);
+            // Convert snippet_line_no into an index in vw.lines (lines stored from top_line).
+            if snippet_line_no >= vw.top_line {
+                let idx = snippet_line_no.saturating_sub(vw.top_line);
+                if let Some(line_text) = vw.lines.get(idx) {
+                    let snippet: String = line_text.chars().take(120).collect();
+                    current_line_snippet = Some(snippet);
+                }
+            }
+        } else {
+            // Fallback: inspect the presenter's InterfaceRenderableWindow spans as before.
+            let win_opt = self.presenter.latest();
+            if let Some(win) = win_opt {
+                // Scan spans to find a cursor or selection.
+                for line in win.lines.iter() {
+                    for sp in line.spans.iter() {
+                        match sp.kind {
+                            crate::view_adapter::InterfaceSpanKind::SelectionCursor | crate::view_adapter::InterfaceSpanKind::Cursor => {
+                                cursor_line = Some(line.line_number);
+                                cursor_column = Some(sp.start_col);
+                            }
+                            crate::view_adapter::InterfaceSpanKind::Selection => {
+                                selection_present = true;
+                            }
+                            _ => {}
                         }
-                        crate::view_adapter::InterfaceSpanKind::Selection => {
-                            selection_present = true;
+                        // stop early if we found both
+                        if cursor_line.is_some() && selection_present {
+                            break;
                         }
-                        _ => {}
                     }
-                    // stop early if we found both
                     if cursor_line.is_some() && selection_present {
                         break;
                     }
                 }
-                if cursor_line.is_some() && selection_present {
-                    break;
-                }
-            }
 
-            // If we didn't detect selection while scanning for cursor, do a secondary lightweight check.
-            if !selection_present {
-                'outer: for line in win.lines.iter() {
-                    for sp in line.spans.iter() {
-                        if let crate::view_adapter::InterfaceSpanKind::Selection = sp.kind {
-                            selection_present = true;
-                            break 'outer;
+                // If we didn't detect selection while scanning for cursor, do a secondary lightweight check.
+                if !selection_present {
+                    'outer2: for line in win.lines.iter() {
+                        for sp in line.spans.iter() {
+                            if let crate::view_adapter::InterfaceSpanKind::Selection = sp.kind {
+                                selection_present = true;
+                                break 'outer2;
+                            }
                         }
                     }
                 }
-            }
 
-            // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
-            let snippet_line_no = cursor_line.unwrap_or(win.top_line);
-            if let Some(l) = win.lines.iter().find(|l| l.line_number == snippet_line_no) {
-                let mut s = String::new();
-                for sp in l.spans.iter() {
-                    s.push_str(&sp.text);
+                // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
+                let snippet_line_no = cursor_line.unwrap_or(win.top_line);
+                if let Some(l) = win.lines.iter().find(|l| l.line_number == snippet_line_no) {
+                    let mut s = String::new();
+                    for sp in l.spans.iter() {
+                        s.push_str(&sp.text);
+                    }
+                    // Truncate to 120 Unicode scalars for compactness.
+                    let snippet: String = s.chars().take(120).collect();
+                    current_line_snippet = Some(snippet);
                 }
-                // Truncate to 120 Unicode scalars for compactness.
-                let snippet: String = s.chars().take(120).collect();
-                current_line_snippet = Some(snippet);
             }
         }
 
@@ -814,6 +896,39 @@ impl DesktopComposition {
     ///   inside the visible window (not equal to top and not equal to bottom) we prefer
     ///   Centered; if the cursor is exactly at the top we report Top; otherwise Unknown.
     pub fn latest_viewport_summary(&self) -> Option<ViewportSummary> {
+        // Prefer the WorkspaceView-provided visible-window when present; otherwise use presenter's latest snapshot.
+        if let Some(vw) = self.metadata.as_ref().and_then(|m| m.visible_window.clone()) {
+            let top = vw.top_line;
+            let visible_count = vw.lines.len();
+            let total = vw.total_lines;
+
+            // Determine if any cursor-like marker is present in the visible window.
+            let cursor_visible = vw.cursor_line.is_some();
+            let cursor_line_opt = vw.cursor_line;
+
+            // Heuristic anchoring inference using the basic projection.
+            let anchoring = if let Some(cursor_line) = cursor_line_opt {
+                let bottom = top.saturating_add(visible_count.saturating_sub(1));
+                if cursor_line == top {
+                    ViewportAnchoring::Top
+                } else if cursor_line > top && cursor_line < bottom {
+                    ViewportAnchoring::Centered
+                } else {
+                    ViewportAnchoring::Unknown
+                }
+            } else {
+                ViewportAnchoring::Unknown
+            };
+
+            return Some(ViewportSummary {
+                top_visible_line: top,
+                visible_line_count: visible_count,
+                total_lines: total,
+                cursor_visible,
+                anchoring,
+            });
+        }
+
         let win = self.presenter.latest()?;
         let top = win.top_line;
         let visible_count = win.lines.len();
