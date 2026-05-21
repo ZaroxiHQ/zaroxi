@@ -22,6 +22,9 @@ pub struct SyntaxManager {
     highlight_engine: HighlightEngine,
 }
 
+/// Internal per-document representation.
+///
+/// Kept private to avoid exposing internal buffer/text details to callers.
 struct SyntaxDocument {
     text: String,
     language: LanguageId,

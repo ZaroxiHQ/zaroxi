@@ -16,28 +16,40 @@ mod no_dynamic {
     use super::tree_sitter;
 
     /// Stubs when dynamic loading is disabled.
+    ///
+    /// These functions allow callers to compile against the optional API
+    /// without enabling the heavy native-loading feature.
     pub fn load_language(_language_id: &str) -> Option<tree_sitter::Language> {
         // Dynamic loading disabled at compile time.
         None
     }
 
+    /// No-op placeholder used when dynamic loading is disabled.
     pub fn preload_available_grammars() {
         // Nothing to do when dynamic loading is disabled.
     }
 
+    /// Always returns false when dynamic loading is disabled.
     pub fn is_grammar_available(_language_id: &str) -> bool {
         false
     }
 
+    /// Lightweight shim type so callers can refer to `DynamicGrammarLoader`
+    /// even when dynamic loading is disabled at compile time.
     pub struct DynamicGrammarLoader;
 
     impl DynamicGrammarLoader {
+        /// Attempt to load a language; always returns None in stub build.
         pub fn load(_language_id: &str) -> Option<tree_sitter::Language> {
             None
         }
+
+        /// Check availability; always false in stub build.
         pub fn is_available(_language_id: &str) -> bool {
             false
         }
+
+        /// Preload all grammars; noop in stub build.
         pub fn preload_all() {
             // noop
         }
@@ -175,7 +187,10 @@ mod enabled {
         }
     }
 
-    /// Preload all available grammars to warm up the cache
+    /// Preload all available grammars to warm up the cache.
+    ///
+    /// This performs a best-effort load of every language registered in the
+    /// global registry; failures are logged but not returned.
     pub fn preload_available_grammars() {
         let registry = GrammarRegistry::global();
         for language_id in registry.language_ids() {
@@ -184,28 +199,34 @@ mod enabled {
         }
     }
 
-    /// Check if a grammar is available for loading
+    /// Check if a grammar shared library exists in the runtime directory.
+    ///
+    /// This checks the runtime layout for the platform-specific shared library
+    /// corresponding to `language_id`.
     pub fn is_grammar_available(language_id: &str) -> bool {
         let runtime = Runtime::new();
         let library_path = runtime.grammar_library_path(language_id);
         library_path.exists()
     }
 
-    /// Dynamic grammar loader struct (for re-export)
+    /// High-level dynamic grammar loader facade exported by the crate.
+    ///
+    /// Consumers can use this stable facade to attempt language loads,
+    /// check availability, or warm caches without depending on internal details.
     pub struct DynamicGrammarLoader;
 
     impl DynamicGrammarLoader {
-        /// Load a language
+        /// Load a language by id using the runtime.
         pub fn load(language_id: &str) -> Option<tree_sitter::Language> {
             load_language(language_id)
         }
 
-        /// Check if a grammar is available
+        /// Return whether the language is available.
         pub fn is_available(language_id: &str) -> bool {
             is_grammar_available(language_id)
         }
 
-        /// Preload all grammars
+        /// Preload all grammars to warm up caches.
         pub fn preload_all() {
             preload_available_grammars();
         }
