@@ -73,6 +73,10 @@ pub enum SemanticTokenType {
 }
 
 impl SemanticTokenType {
+    /// Convert a Highlight classification into a semantic token type used for theming.
+    ///
+    /// This maps the small presenter-side highlight categories to the broader
+    /// semantic token types consumed by theme resolution.
     pub fn from_highlight(highlight: Highlight) -> Self {
         match highlight {
             Highlight::Comment => SemanticTokenType::Comment,
@@ -127,6 +131,9 @@ impl SemanticTokenType {
         ]
     }
 
+    /// Resolve this semantic token type to a concrete Color from the provided theme.
+    ///
+    /// Returns the theme color that corresponds to the token role.
     pub fn theme_color(&self, colors: &SemanticColors) -> Color {
         match self {
             SemanticTokenType::Keyword => colors.syntax_keyword,

@@ -4,7 +4,11 @@ use crate::error::SyntaxError;
 use crate::language::LanguageId;
 use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
 
-/// A highlight span in the document
+/// A highlight span in the document.
+///
+/// Represents a contiguous byte range in the source with its highlight
+/// classification. Consumers use these spans to drive renderer tokenization
+/// or presenter-level styling.
 #[derive(Debug, Clone)]
 pub struct HighlightSpan {
     /// Start byte offset
