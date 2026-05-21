@@ -21,7 +21,7 @@ pollster = "0.3"
 # This allows code to `use zaroxi_engine_input::...` while the real package is
 # `zaroxi-core-engine-input` in the workspace.
 zaroxi_engine_input = { package = "zaroxi-core-engine-input", path = "../zaroxi-core-engine-input" }
-zaroxi_engine_render = { package = "zaroxi-core-engine-render", path = "../zaroxi-core-engine-render" }
+zaroxi_engine_render = { package = "zaroxi-core-engine-render", path = "../zaroxi-core-engine-render", features = ["full_renderer"] }
 
 # `zaroxi_app` in source maps to the application workspace crate that provides AppState.
 zaroxi_app = { package = "zaroxi-application-workspace", path = "../zaroxi-application-workspace" }
