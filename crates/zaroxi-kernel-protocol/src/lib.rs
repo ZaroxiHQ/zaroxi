@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../README.md"))]
 //! Kernel-level protocol definitions for Zaroxi.
 //!
 //! This crate lives in the kernel-* layer and exposes stable, minimal wire
