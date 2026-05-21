@@ -512,35 +512,41 @@ impl DesktopComposition {
         // 2b) Attempt to obtain a direct visible-lines projection from the WorkspaceView.
         // When available, we capture a small, stable VisibleWindowBasic projection that
         // strengthens the editor viewport semantics for shells (preferred over transcripts).
-        let visible_window_opt: Option<VisibleWindowBasic> = match view.get_visible_lines(crate::ports::GetVisibleLinesRequest { session_id: session_id.clone() }).await {
-            Ok(resp) => {
-                // Build a tiny basic projection decoupled from presenter view types.
-                let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
-                let mut cursor_line: Option<usize> = None;
-                let mut cursor_column: Option<usize> = None;
-                let mut selection_present: bool = false;
-                for vl in resp.window.lines.iter() {
-                    lines_vec.push(vl.text.clone());
-                    if vl.is_cursor_line {
-                        cursor_line = Some(vl.line_number as usize);
-                        if let Some(col) = vl.cursor_column {
-                            cursor_column = Some(col as usize);
+        // Note: GetVisibleLinesRequest requires a buffer_id; only call the port when we
+        // have an active buffer id available from the earlier active_buf_opt read.
+        let visible_window_opt: Option<VisibleWindowBasic> = if let Some(bid) = active_buf_opt.clone() {
+            match view.get_visible_lines(crate::ports::GetVisibleLinesRequest { session_id: session_id.clone(), buffer_id: bid.clone() }).await {
+                Ok(resp) => {
+                    // Build a tiny basic projection decoupled from presenter view types.
+                    let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
+                    let mut cursor_line: Option<usize> = None;
+                    let mut cursor_column: Option<usize> = None;
+                    let mut selection_present: bool = false;
+                    for vl in resp.window.lines.iter() {
+                        lines_vec.push(vl.text.clone());
+                        if vl.is_cursor_line {
+                            cursor_line = Some(vl.line_number as usize);
+                            if let Some(col) = vl.cursor_column {
+                                cursor_column = Some(col as usize);
+                            }
+                        }
+                        if vl.selection_intersects {
+                            selection_present = true;
                         }
                     }
-                    if vl.selection_intersects {
-                        selection_present = true;
-                    }
+                    Some(VisibleWindowBasic {
+                        top_line: resp.window.top_line as usize,
+                        total_lines: resp.window.total_lines as usize,
+                        lines: lines_vec,
+                        cursor_line,
+                        cursor_column,
+                        selection_present,
+                    })
                 }
-                Some(VisibleWindowBasic {
-                    top_line: resp.window.top_line as usize,
-                    total_lines: resp.window.total_lines as usize,
-                    lines: lines_vec,
-                    cursor_line,
-                    cursor_column,
-                    selection_present,
-                })
+                Err(_) => None,
             }
-            Err(_) => None,
+        } else {
+            None
         };
 
         // Prepare default conservative projection values.
