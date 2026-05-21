@@ -16,6 +16,11 @@ tempfile = { workspace = true }
 ropey = { workspace = true }
 cc = { workspace = true }
 
+# Explicit dependency mapping for the theme crate used by theme_map.rs.
+# The source imports `zaroxi_theme::...` so we provide an alias named
+# `zaroxi_theme` that points at the interface-theme package in the workspace.
+zaroxi_theme = { package = "zaroxi-interface-theme", path = "../zaroxi-interface-theme" }
+
 [features]
 # Optional dynamic loading for runtime plugins / grammars.
 dynamic-loading = ["libloading"]

@@ -8,3 +8,8 @@ license = "MIT"
 [dependencies]
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-kernel-errors = { path = "../zaroxi-kernel-errors" }
+
+# Restored explicit workspace-owned dependencies required by ids.rs.
+# Use workspace = true so versions/features are centrally controlled.
+serde = { workspace = true }
+uuid = { workspace = true }
