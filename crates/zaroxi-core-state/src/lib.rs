@@ -15,6 +15,7 @@ pub mod state {
     /// Small state holder (placeholder for more specialized types).
     #[derive(Clone, Debug)]
     pub struct SmallState {
+        /// Current version token for this state.
         pub version: Version,
     }
 
