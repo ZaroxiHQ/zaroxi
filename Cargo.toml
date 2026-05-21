@@ -236,6 +236,13 @@ thiserror = "2.0.18"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 
+# Patch local overrides to ensure workspace crates that request
+# `zaroxi-kernel-id = { workspace = true }` resolve to the local path
+# during migration/testing runs. This avoids accidental crates.io lookup
+# while the workspace pins are being adjusted incrementally.
+[patch.crates-io]
+zaroxi-kernel-id = { path = "crates/zaroxi-kernel-id" }
+
 # Async & serialization (workspace-owned features)
 tokio = { version = "1.52.3", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

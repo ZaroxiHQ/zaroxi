@@ -1,8 +1,6 @@
 # Migration note (updated):
-# - The mistaken nested crate `crates/zaroxi-core-workspace-files/zaroxi-workspace`
-#   was removed in a previous commit. This manifest now targets the flat
-#   workspace layout: `crates/zaroxi-core-workspace-files`.
-# - No remaining references to `zaroxi-workspace` should exist in this crate.
+# - The previous nested crate path was removed in an earlier commit.
+# - This manifest targets the flat workspace layout: `crates/zaroxi-core-workspace-files`.
 [package]
 name = "zaroxi-core-workspace-files"
 version = "0.1.0"
