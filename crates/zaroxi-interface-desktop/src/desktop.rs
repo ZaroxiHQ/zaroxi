@@ -18,6 +18,8 @@ use crate::presenter::Presenter;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use zaroxi_kernel_types::Id;
 mod composition;
+mod projections;
+pub use projections::VisibleWindowBasic;
 
 /// Helper: convert CommandKind to short name string for tiny shell-facing LastCommandLine.
 fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
@@ -131,26 +133,6 @@ pub struct ViewportSummary {
     pub anchoring: ViewportAnchoring,
 }
 
-/// Small basic visible-window projection derived from WorkspaceView VisibleLinesWindow.
-/// This representation is intentionally tiny and decoupled from presenter view_adapter types.
-/// It is a best-effort, read-only projection populated during `refresh_with_service` when
-/// the caller's WorkspaceView can provide VisibleLinesWindow data. Consumers prefer this
-/// projection over presenter snapshots when available to strengthen the editor viewport path.
-#[derive(Clone, Debug)]
-pub struct VisibleWindowBasic {
-    /// 1-based top visible line number.
-    pub top_line: usize,
-    /// Total number of lines in the buffer/document.
-    pub total_lines: usize,
-    /// Visible lines' textual content, in order from `top_line`.
-    pub lines: Vec<String>,
-    /// Optional 1-based cursor line if present in the visible window.
-    pub cursor_line: Option<usize>,
-    /// Optional 0-based cursor column within the cursor line.
-    pub cursor_column: Option<usize>,
-    /// Whether any selection intersects the visible window.
-    pub selection_present: bool,
-}
 
 /// Tiny AI projection: a small, shell-facing read-only snapshot of the most recent AI outcome.
 ///
@@ -534,94 +516,8 @@ impl DesktopComposition {
         composition::latest_active_document_summary(self)
     }
 
-    /// Tiny read-only viewport summary derived from the presenter's latest renderable window.
-    ///
-    /// - Returns None when the presenter has no latest window snapshot.
-    /// - The method performs a small deterministic scan of the InterfaceRenderableWindow
-    ///   to compute the top line, visible count, total lines, and whether any Cursor /
-    ///   SelectionCursor span is present in the visible lines (cursor_visible).
-    /// - Anchoring is a best-effort hint: when a cursor line is present and lies strictly
-    ///   inside the visible window (not equal to top and not equal to bottom) we prefer
-    ///   Centered; if the cursor is exactly at the top we report Top; otherwise Unknown.
     pub fn latest_viewport_summary(&self) -> Option<ViewportSummary> {
-        // Prefer the WorkspaceView-provided visible-window when present; otherwise use presenter's latest snapshot.
-        if let Some(vw) = self.metadata.as_ref().and_then(|m| m.visible_window.clone()) {
-            let top = vw.top_line;
-            let visible_count = vw.lines.len();
-            let total = vw.total_lines;
-
-            // Determine if any cursor-like marker is present in the visible window.
-            let cursor_visible = vw.cursor_line.is_some();
-            let cursor_line_opt = vw.cursor_line;
-
-            // Heuristic anchoring inference using the basic projection.
-            let anchoring = if let Some(cursor_line) = cursor_line_opt {
-                let bottom = top.saturating_add(visible_count.saturating_sub(1));
-                if cursor_line == top {
-                    ViewportAnchoring::Top
-                } else if cursor_line > top && cursor_line < bottom {
-                    ViewportAnchoring::Centered
-                } else {
-                    ViewportAnchoring::Unknown
-                }
-            } else {
-                ViewportAnchoring::Unknown
-            };
-
-            return Some(ViewportSummary {
-                top_visible_line: top,
-                visible_line_count: visible_count,
-                total_lines: total,
-                cursor_visible,
-                anchoring,
-            });
-        }
-
-        let win = self.presenter.latest()?;
-        let top = win.top_line;
-        let visible_count = win.lines.len();
-        let total = win.total_lines;
-
-        // Determine if any span marks a cursor in the visible window and record its line number.
-        let mut cursor_visible = false;
-        let mut cursor_line_opt: Option<usize> = None;
-        for line in win.lines.iter() {
-            for sp in line.spans.iter() {
-                match sp.kind {
-                    crate::view_adapter::InterfaceSpanKind::Cursor | crate::view_adapter::InterfaceSpanKind::SelectionCursor => {
-                        cursor_visible = true;
-                        cursor_line_opt = Some(line.line_number);
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-            if cursor_visible {
-                break;
-            }
-        }
-
-        // Heuristic anchoring inference
-        let anchoring = if let Some(cursor_line) = cursor_line_opt {
-            let bottom = top.saturating_add(visible_count.saturating_sub(1));
-            if cursor_line == top {
-                ViewportAnchoring::Top
-            } else if cursor_line > top && cursor_line < bottom {
-                ViewportAnchoring::Centered
-            } else {
-                ViewportAnchoring::Unknown
-            }
-        } else {
-            ViewportAnchoring::Unknown
-        };
-
-        Some(ViewportSummary {
-            top_visible_line: top,
-            visible_line_count: visible_count,
-            total_lines: total,
-            cursor_visible,
-            anchoring,
-        })
+        projections::latest_viewport_summary(self)
     }
 
     /// Tiny read-only status snapshot indicating which composition projections are populated.
