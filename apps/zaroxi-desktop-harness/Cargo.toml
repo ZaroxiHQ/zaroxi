@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+# Use workspace tokio pin (features centralized in workspace).
+# Validation (after applying workspace unification): run `cargo update && cargo check && ./scripts/architecture_check.sh`
+tokio = { workspace = true }
 
 # Application and interface crates (workspace members)
 zaroxi-interface-desktop = { path = "../../crates/zaroxi-interface-desktop" }

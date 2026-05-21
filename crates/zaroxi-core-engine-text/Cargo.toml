@@ -6,7 +6,8 @@ description = "Engine text shaping and rendering primitives."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Glyphon remains an optional, feature-gated backend. Keep it isolated here behind
+# the `glyphon_backend` feature so workspace default builds do not pull Glyphon.
 glyphon = { version = "0.11.0", optional = true }
 
 [features]
