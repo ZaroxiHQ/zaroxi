@@ -11,3 +11,10 @@ git-fetch-with-cli = true
 # Some build scripts use Git for version information.
 # If they fail due to index version issues, you can try
 # setting rustflags or other options here.
+
+# Workspace-level lint/safety policy:
+# Deny usage of `unsafe` globally during normal builds via RUSTFLAGS.
+# If an individual crate requires `unsafe`, add a minimal crate-level
+# exemption `#![allow(unsafe_code)]` with a short comment justifying it.
+[env]
+RUSTFLAGS = "-D unsafe-code"
