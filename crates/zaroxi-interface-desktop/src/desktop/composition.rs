@@ -362,11 +362,26 @@ pub fn latest_active_document_summary(comp: &super::DesktopComposition) -> Optio
             }
 
             // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
+            // NOTE: Only include user-facing text in the snippet. Exclude presenter marker spans
+            // (cursor/selection/debug) so the produced snippet is clean and free of inline
+            // debug markers like "|^|" or "|/|/" that some renderers may inject.
             let snippet_line_no = cursor_line.unwrap_or(win.top_line);
             if let Some(l) = win.lines.iter().find(|l| l.line_number == snippet_line_no) {
                 let mut s = String::new();
+                // Only include "text" spans in the plain snippet. Exclude cursor/selection/debug spans
+                // so that the resulting snippet remains clean and user-facing.
                 for sp in l.spans.iter() {
-                    s.push_str(&sp.text);
+                    match sp.kind {
+                        crate::view_adapter::InterfaceSpanKind::SelectionCursor
+                        | crate::view_adapter::InterfaceSpanKind::Cursor
+                        | crate::view_adapter::InterfaceSpanKind::Selection => {
+                            // skip marker spans from presenter (cursor/selection); these are surfaced
+                            // separately via cursor_line/cursor_column/selection_present.
+                        }
+                        _ => {
+                            s.push_str(&sp.text);
+                        }
+                    }
                 }
                 // Truncate to 120 Unicode scalars for compactness.
                 let snippet: String = s.chars().take(120).collect();
