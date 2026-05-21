@@ -26,6 +26,7 @@ members = [
   "crates/zaroxi-kernel-traits",
   "crates/zaroxi-kernel-config",
   "crates/zaroxi-kernel-protocol",
+  "crates/zaroxi-kernel-id",
 
   # CORE ENGINE
   "crates/zaroxi-core-engine-root",

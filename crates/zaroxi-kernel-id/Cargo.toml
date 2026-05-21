@@ -1,0 +1,11 @@
+[package]
+name = "zaroxi-kernel-id"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Kernel-layer crate providing stable identity types and lightweight ID primitives for the workspace."
+authors = ["Zaroxi"]
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
