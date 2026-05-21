@@ -304,6 +304,6 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_st
 /// This returns an error signaling that the runtime's rendering integration
 /// is intentionally disabled in the current build. Enable the
 /// `render_integration` feature to enable full runtime behavior.
-pub fn run(_title: String, _width: u32, _height: u32, _clear_color: [f64; 4], _app_state: Arc<Mutex<zaroxi_app::AppState>>) -> Result<()> {
+pub fn run(_title: String, _width: u32, _height: u32, _clear_color: [f64; 4], _app_state: Arc<Mutex<()>>) -> Result<()> {
     Err(anyhow::anyhow!("runtime render integration disabled; build with feature=\"render_integration\" to enable"))
 }
