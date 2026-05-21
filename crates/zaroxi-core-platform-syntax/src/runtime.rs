@@ -353,6 +353,10 @@ impl Runtime {
         }
     }
 
+    /// Load a Tree-sitter language when dynamic-loading is not enabled.
+    ///
+    /// Returns an error indicating that the `dynamic-loading` feature is
+    /// required to perform runtime library loading.
     #[cfg(not(feature = "dynamic-loading"))]
     pub fn load_language(&self, language_id: &str) -> Result<tree_sitter::Language, String> {
         Err(format!(
