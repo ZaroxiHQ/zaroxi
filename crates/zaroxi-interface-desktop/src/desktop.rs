@@ -20,20 +20,11 @@ use zaroxi_kernel_types::Id;
 mod composition;
 mod consistency;
 mod projections;
+mod state;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
+pub(crate) use state::command_kind_short_name;
 
-/// Helper: convert CommandKind to short name string for tiny shell-facing LastCommandLine.
-fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
-    match kind {
-        crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace",
-        crate::ports::CommandKind::OpenBuffer { .. } => "OpenBuffer",
-        crate::ports::CommandKind::UpdateBuffer { .. } => "UpdateBuffer",
-        crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer",
-        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
-        crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand",
-    }
-}
 use crate::view_adapter::InterfaceRenderableWindow;
 
 /// Single opened-buffer projection item exposed to the shell.
