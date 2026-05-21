@@ -1,8 +1,5 @@
-pub mod runtime;
-pub mod window_state;
+ //! Core runtime helpers for small application execution harness.
 
-pub use runtime::run;
-pub use window_state::WindowState;
  pub mod runtime;
  pub mod window_state;
 

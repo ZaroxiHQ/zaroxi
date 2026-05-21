@@ -6,4 +6,6 @@ description = "zaroxi-interface-theme (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Serialization helpers used by theme types; use the workspace pins so versions remain centralized.
+serde = { workspace = true }
+serde_json = { workspace = true }
