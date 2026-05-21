@@ -79,6 +79,11 @@ FAMILY_PATTERNS["^zaroxi-infrastructure-"]="infrastructure"
 FAMILY_PATTERNS["^zaroxi-intelligence-"]="intelligence"
 FAMILY_PATTERNS["^zaroxi-security-"]="security"
 FAMILY_PATTERNS["^zaroxi-kernel-"]="kernel"
+# Explicit mapping for recently added kernel crates to ensure deterministic
+# classification and to avoid unknown-family warnings for new kernel members.
+# This keeps the inventory/count stable and enforces kernel-family checks for
+# these crates without changing existing dependency rules.
+FAMILY_PATTERNS["^zaroxi-kernel-id$"]="kernel"
 
 # explicit app/tooling patterns (avoid them being treated as unknown)
 FAMILY_PATTERNS["^apps/"]="app_bin"
