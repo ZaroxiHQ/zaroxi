@@ -234,6 +234,7 @@ libloading = "0.9.0"
 tempfile = "3.27.0"
 uuid = { version = "1.4", features = ["serde", "v4"] }
 thiserror = "2.0.18"
+tracing = "0.1"
 
 # Async & serialization (workspace-owned features)
 tokio = { version = "1.52.3", features = ["full"] }
