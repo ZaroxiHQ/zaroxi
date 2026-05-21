@@ -6,4 +6,4 @@ description = "zaroxi-core-input (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+winit = { workspace = true }
