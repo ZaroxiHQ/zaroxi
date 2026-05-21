@@ -278,7 +278,12 @@ impl Runtime {
         self.root.join("grammars").join(&subdir).join(&lib_name)
     }
 
-    /// Load a Tree-sitter language from a shared library in the runtime directory.
+    /// Load a Tree-sitter language by dynamically opening its shared library.
+    ///
+    /// Attempts to locate and open the platform shared library for `language_id`
+    /// in the runtime directory, looks up the `tree_sitter_{language}` symbol,
+    /// and returns the produced `tree_sitter::Language`. Errors are returned as
+    /// human-readable strings.
     ///
     /// This uses `libloading` to dynamically load the grammar library and retrieve
     /// the `tree_sitter_{language}` function.
