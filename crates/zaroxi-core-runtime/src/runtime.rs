@@ -31,7 +31,7 @@ pub struct App {
     height: u32,
     clear_color: [f64; 4],
 
-    window: Option<Arc<Window>>,
+    window: Option<Arc<winit::window::Window>>,
     #[cfg(feature = "render_integration")]
     renderer: Option<Renderer<'static>>,
     window_state: Option<WindowState>,
