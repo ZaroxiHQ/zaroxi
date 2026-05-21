@@ -124,8 +124,7 @@ async fn summary_updates_after_cursor_change() {
     assert_eq!(s1.cursor_column, Some(5));
 
     // mutate cursor in the underlying view and refresh again
-    let concrete: &MutableFakeView = unsafe { &*(&*arc_v as *const _ as *const MutableFakeView) };
-    concrete.set_cursor(EditorCursor { line: 0, column: 0 });
+    arc_v.set_cursor(EditorCursor { line: 0, column: 0 });
     comp.refresh(view_clone.clone(), sid.clone(), None).await.expect("refresh ok");
     let s2 = comp.latest_active_document_summary().expect("summary present");
     assert_eq!(s2.cursor_column, Some(0));
@@ -144,11 +143,10 @@ async fn summary_updates_after_content_change_and_buffer_switch() {
     assert_eq!(s1.display.unwrap(), "one".to_string());
 
     // mutate content and buffer id (simulate open/switch)
-    let concrete: &MutableFakeView = unsafe { &*(&*arc_v as *const _ as *const MutableFakeView) };
-    concrete.set_content(Some("first\nsecond\nthird".to_string()));
+    arc_v.set_content(Some("first\nsecond\nthird".to_string()));
     // Manually change internal buffer id to simulate a switch (testing projection behavior)
     {
-        let mut d = concrete.inner.lock().unwrap();
+        let mut d = arc_v.inner.lock().unwrap();
         d.buffer_id = BufferId::from("buf:two");
     }
     comp.refresh(view_clone.clone(), sid.clone(), None).await.expect("refresh ok");
