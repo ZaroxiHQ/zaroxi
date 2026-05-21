@@ -1,8 +1,8 @@
-# Migration note:
+# Migration note (updated):
 # - The mistaken nested crate `crates/zaroxi-core-workspace-files/zaroxi-workspace`
-#   has been removed. Move the kernel-id-backed WorkspaceId implementation into
-#   the flat crate `crates/zaroxi-core-workspace-files`.
-# - Add the minimal workspace dependencies required for the new state.rs.
+#   was removed in a previous commit. This manifest now targets the flat
+#   workspace layout: `crates/zaroxi-core-workspace-files`.
+# - No remaining references to `zaroxi-workspace` should exist in this crate.
 [package]
 name = "zaroxi-core-workspace-files"
 version = "0.1.0"
@@ -11,7 +11,7 @@ description = "Filesystem view and metadata for workspaces."
 license = "MIT"
 
 [dependencies]
-# Core workspace files crate now depends on serde for (de)serializing state
-# and on the canonical kernel id crate for UuidId.
+# Core workspace files crate depends on serde for (de)serializing state and
+# on the canonical kernel id crate for UuidId.
 serde = { workspace = true }
 zaroxi-kernel-id = { workspace = true }
