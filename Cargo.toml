@@ -229,6 +229,7 @@ arboard = "2.2.0"
 accesskit = "0.5.0"
 candle-core = "0.7.0"
 uuid = { version = "1.4", features = ["serde", "v4"] }
+thiserror = "2.0.18"
 
 # Async & serialization (workspace-owned features)
 tokio = { version = "1.52.3", features = ["full"] }
