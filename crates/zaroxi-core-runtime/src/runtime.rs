@@ -8,7 +8,11 @@ use winit::window::{Window, WindowId};
 
 use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
-use zaroxi_engine_render::{Renderer, RenderLayout, Rect};
+
+#[cfg(feature = "render_integration")]
+use zaroxi_engine_render::{Renderer, RenderLayout, Rect, UiBlock};
+
+#[cfg(feature = "render_integration")]
 use zaroxi_app::AppState;
 
 /// Minimal engine application that implements the winit 0.30 ApplicationHandler
@@ -20,16 +24,19 @@ pub struct App {
     clear_color: [f64; 4],
 
     window: Option<Arc<Window>>,
+    #[cfg(feature = "render_integration")]
     renderer: Option<Renderer<'static>>,
     window_state: Option<WindowState>,
     fatal_error: Option<anyhow::Error>,
 
     continuous: bool,
     /// Shared app state (read-only rendering & command dispatch).
+    #[cfg(feature = "render_integration")]
     app_state: Option<Arc<Mutex<AppState>>>,
 }
 
 impl App {
+    #[cfg(feature = "render_integration")]
     pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Self {
         Self {
             title,
@@ -44,8 +51,23 @@ impl App {
             app_state: Some(app_state),
         }
     }
+
+    #[cfg(not(feature = "render_integration"))]
+    pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4]) -> Self {
+        Self {
+            title,
+            width,
+            height,
+            clear_color,
+            window: None,
+            window_state: None,
+            fatal_error: None,
+            continuous: false,
+        }
+    }
 }
 
+#[cfg(feature = "render_integration")]
 impl ApplicationHandler for App {
     /// Called when the application is resumed; create window and renderer here.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -248,7 +270,9 @@ impl ApplicationHandler for App {
         }
     }
 }
+#endif
 
+#[cfg(feature = "render_integration")]
 /// Run the application using winit 0.30 Application API.
 pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Result<()> {
     // Initialize logging
@@ -273,4 +297,14 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_st
     }
 
     Ok(())
+}
+
+#[cfg(not(feature = "render_integration"))]
+/// Stubbed runtime entry when render integration is disabled.
+///
+/// This returns an error signaling that the runtime's rendering integration
+/// is intentionally disabled in the current build. Enable the
+/// `render_integration` feature to enable full runtime behavior.
+pub fn run(_title: String, _width: u32, _height: u32, _clear_color: [f64; 4], _app_state: Arc<Mutex<zaroxi_app::AppState>>) -> Result<()> {
+    Err(anyhow::anyhow!("runtime render integration disabled; build with feature=\"render_integration\" to enable"))
 }
