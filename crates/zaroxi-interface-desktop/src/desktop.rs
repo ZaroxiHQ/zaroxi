@@ -679,6 +679,6 @@ impl DesktopComposition {
         consistency::latest_consistency_report(self)
     }
 }
-// test
+ // test
 #[cfg(test)]
 mod tests;
