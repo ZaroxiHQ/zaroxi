@@ -59,15 +59,15 @@ impl ShellLayout {
         const MIN_EDITOR_CONTENT_H: f32 = 40.0;
 
         // Clamp the full window size to non-negative (defensive).
-        let W = w.max(0.0);
-        let H = h.max(0.0);
+        let w_avail = w.max(0.0);
+        let h_avail = h.max(0.0);
 
         // Titlebar and status heights cannot exceed total height.
-        let title_h = TITLEBAR_H.min(H);
-        let status_h = STATUS_H.min((H - title_h).max(0.0));
+        let title_h = TITLEBAR_H.min(h_avail);
+        let status_h = STATUS_H.min((h_avail - title_h).max(0.0));
 
         // Height available for the central editor stack.
-        let editor_stack_h = (H - title_h - status_h).max(0.0);
+        let editor_stack_h = (h_avail - title_h - status_h).max(0.0);
 
         // Editor subregion heights: tab + breadcrumb + bottom + content (content gets remainder).
         let tab_h = TABBAR_H.min(editor_stack_h);
@@ -80,21 +80,21 @@ impl ShellLayout {
 
         // Width allocation:
         // Start with preferred sidebar and AI widths, clamp against total width.
-        let mut sidebar_w = SIDEBAR_W.min(W);
-        let mut ai_w = AI_PANEL_W.min((W - sidebar_w).max(0.0));
-        let mut editor_w = (W - sidebar_w - ai_w).max(0.0);
+        let mut sidebar_w = SIDEBAR_W.min(w_avail);
+        let mut ai_w = AI_PANEL_W.min((w_avail - sidebar_w).max(0.0));
+        let mut editor_w = (w_avail - sidebar_w - ai_w).max(0.0);
 
         // If editor width would be too small, try to preserve a minimum editor content width
         // by shrinking side panels proportionally. If impossible, collapse side panels.
         if editor_w < MIN_EDITOR_CONTENT_W {
-            let required_for_panels = (sidebar_w + ai_w);
-            let avail_for_panels = (W - MIN_EDITOR_CONTENT_W).max(0.0);
+            let _required_for_panels = sidebar_w + ai_w;
+            let avail_for_panels = (w_avail - MIN_EDITOR_CONTENT_W).max(0.0);
 
             if avail_for_panels <= 0.0 {
                 // Not enough room for side panels; collapse them to zero and give editor full width.
                 sidebar_w = 0.0;
                 ai_w = 0.0;
-                editor_w = W;
+                editor_w = w_avail;
             } else {
                 // Shrink panels proportionally based on their desired sizes.
                 let total_pref = SIDEBAR_W + AI_PANEL_W;
@@ -103,7 +103,7 @@ impl ShellLayout {
                     sidebar_w = (avail_for_panels * sidebar_prop).min(SIDEBAR_W);
                     ai_w = (avail_for_panels * (1.0 - sidebar_prop)).min(AI_PANEL_W);
                     // Recompute editor width defensively.
-                    editor_w = (W - sidebar_w - ai_w).max(0.0);
+                    editor_w = (w_avail - sidebar_w - ai_w).max(0.0);
                 }
             }
         }
@@ -114,13 +114,13 @@ impl ShellLayout {
         editor_w = editor_w.max(0.0);
 
         // Build Rects (absolute window-space).
-        let titlebar = Rect::new(0.0, 0.0, W, title_h);
+        let titlebar = Rect::new(0.0, 0.0, w_avail, title_h);
         let editor_y = title_h;
         let editor_h = editor_stack_h;
         let sidebar = Rect::new(0.0, editor_y, sidebar_w, editor_h);
         let editor = Rect::new(sidebar_w, editor_y, editor_w, editor_h);
         let ai_panel = Rect::new(sidebar_w + editor_w, editor_y, ai_w, editor_h);
-        let status_bar = Rect::new(0.0, title_h + editor_h, W, status_h);
+        let status_bar = Rect::new(0.0, title_h + editor_h, w_avail, status_h);
 
         // Editor subregions (absolute coords).
         let mut cursor_y = editor_y;
@@ -133,7 +133,7 @@ impl ShellLayout {
         let editor_bottom_panel = Rect::new(sidebar_w, cursor_y, editor_w, bottom_h);
 
         ShellLayout {
-            window_size: Size::new(W, H),
+            window_size: Size::new(w_avail, h_avail),
             titlebar,
             sidebar,
             editor,
