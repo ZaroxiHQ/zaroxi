@@ -75,13 +75,21 @@ impl Span {
 /// Programming language identifier for editor/workspace usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
+    /// TypeScript with JSX (files ending in .tsx)
     TypeScriptJsx,
+    /// TypeScript (files ending in .ts)
     TypeScript,
+    /// JavaScript (files ending in .js/.mjs/.cjs)
     JavaScript,
+    /// JavaScript configuration-style files (e.g. config.js)
     JavaScriptConfig,
+    /// JSON files (.json)
     Json,
+    /// Rust source files (.rs)
     Rust,
+    /// TOML files (.toml)
     Toml,
+    /// Unknown or plain text files
     Unknown,
 }
 
@@ -132,8 +140,11 @@ impl Language {
 /// Line ending representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineEnding {
+    /// LF ("\n")
     Lf,
+    /// CRLF ("\r\n")
     CrLf,
+    /// CR ("\r")
     Cr,
 }
 
@@ -151,8 +162,11 @@ impl LineEnding {
 /// Text encoding representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoding {
+    /// UTF-8 encoding
     Utf8,
+    /// UTF-16 Little Endian
     Utf16Le,
+    /// UTF-16 Big Endian
     Utf16Be,
 }
 
@@ -170,7 +184,9 @@ impl Encoding {
 /// Indentation style for editors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndentStyle {
+    /// Use tab characters for indentation.
     Tabs,
+    /// Use spaces for indentation, parameter is the number of spaces.
     Spaces(u8),
 }
 
