@@ -11,7 +11,8 @@ drive presentation without depending on winit from many places.
 
 use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoop;
-use winit::window::{Window, WindowBuilder};
+use winit::window::Window;
+use winit::window::WindowBuilder;
 
 /// A thin handle to the native window used by the engine.
 pub struct ZaroxiWindow {
