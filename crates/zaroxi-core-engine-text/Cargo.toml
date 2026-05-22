@@ -10,6 +10,10 @@ license = "MIT"
 # the `glyphon_backend` feature so workspace default builds do not pull Glyphon.
 glyphon = { version = "0.11.0", optional = true }
 
+# Workspace engine crates required for Phase 5 editor-text rendering.
+zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
+zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
+
 [features]
 default = []
 glyphon_backend = ["glyphon"]

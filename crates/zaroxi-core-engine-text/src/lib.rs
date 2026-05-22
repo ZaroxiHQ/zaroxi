@@ -16,7 +16,7 @@ mod label;
 pub use label::TextLabel;
 
 mod backend;
-pub use backend::{TextBackend, TextLayout, new_backend};
+pub use backend::{TextBackend, new_backend};
 // NOTE: We intentionally DO NOT re-export the GlyphonBackend concrete type here.
 // Keeping Glyphon types fully private to this crate preserves the architecture
 // invariant that implementation details (Glyphon) never leak into higher layers.
