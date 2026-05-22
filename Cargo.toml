@@ -208,8 +208,8 @@ unsafe_code = "forbid"
 # avoid accidental transitive version coupling.
 [workspace.dependencies]
 # Rendering & windowing
-wgpu = "0.16.2"
-vello = "0.9.0"
+wgpu = "0.29.3"
+vello = "0.20.0"
 winit = "0.30.13"
 
 # Layout & text
