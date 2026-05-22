@@ -94,6 +94,20 @@ impl TextView {
             let line_number = self.top_line.saturating_add(idx);
             if Some(line_number) == self.cursor_line {
                 if let Some(col) = self.cursor_column {
+                    // Special-case insertion at column 0 to preserve an intentional
+                    // single separating space between the marker and the visible text.
+                    // - If the line already starts with a space, do not add another.
+                    // - Otherwise, insert exactly one space after the marker.
+                    // This keeps other cursor positions behaviour unchanged.
+                    if col == 0 {
+                        if line.starts_with(' ') {
+                            out.push(format!("{}{}", marker, line));
+                        } else {
+                            out.push(format!("{} {}", marker, line));
+                        }
+                        continue;
+                    }
+
                     // Insert marker at character column `col` (0-based). Be Unicode-safe by using char indices.
                     let mut acc = String::new();
                     let mut char_iter = line.chars();
@@ -117,5 +131,36 @@ impl TextView {
             out.push(line.clone());
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_marker_at_col0_inserts_space() {
+        // Cursor at column 0 on a line that does not start with a space should yield
+        // "|^| sample file"
+        let tv = TextView {
+            top_line: 1,
+            total_lines: 1,
+            lines: vec!["sample file".to_string()],
+            cursor_line: Some(1),
+            cursor_column: Some(0),
+        };
+        let out = tv.lines_with_cursor_marker("|^|");
+        assert_eq!(out, vec!["|^| sample file".to_string()]);
+
+        // If the visible line already starts with a space, do not insert an extra space.
+        let tv2 = TextView {
+            top_line: 1,
+            total_lines: 1,
+            lines: vec![" sample file".to_string()],
+            cursor_line: Some(1),
+            cursor_column: Some(0),
+        };
+        let out2 = tv2.lines_with_cursor_marker("|^|");
+        assert_eq!(out2, vec!["|^| sample file".to_string()]);
     }
 }
