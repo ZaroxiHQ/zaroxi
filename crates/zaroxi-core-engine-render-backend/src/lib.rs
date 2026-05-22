@@ -11,29 +11,37 @@ Responsibilities:
 - Provide resize handling and a render_frame(scene) entry that presents a frame
 */
 
-use std::num::NonZeroU32;
-
-use wgpu::util::DeviceExt;
-use wgpu::{CommandEncoderDescriptor, PresentMode, SurfaceError, TextureUsages};
+use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages};
 use zaroxi_core_engine_window::ZaroxiWindow;
 
 /// Simple render backend that drives a wgpu surface and presents frames.
-pub struct RenderBackend {
+///
+/// The backend stores a surface tied to the window lifetime; the `'a` lifetime
+/// parameter represents the borrow of the native window used to create the
+/// surface.
+pub struct RenderBackend<'a> {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub surface: wgpu::Surface,
+    pub surface: wgpu::Surface<'a>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub surface_format: wgpu::TextureFormat,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl RenderBackend {
+impl<'a> RenderBackend<'a> {
     /// Create a new RenderBackend for the supplied window.
     ///
     /// This is async because wgpu adapter / device requests are async.
-    pub async fn new(window: &ZaroxiWindow) -> Self {
-        // Create instance and surface
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let surface = unsafe { instance.create_surface(window.window()) };
+    pub async fn new(window: &'a ZaroxiWindow) -> Self {
+        // Create instance and surface using the v29 InstanceDescriptor API.
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            dx12_shader_compiler: Default::default(),
+        });
+
+        // create_surface returns a Result in this wgpu version; unwrap to get the Surface.
+        let surface = unsafe { instance.create_surface(window.window()) }
+            .expect("failed to create wgpu surface");
 
         // Choose a high-performance adapter when available and prefer a surface-compatible adapter.
         let adapter = instance
@@ -45,13 +53,14 @@ impl RenderBackend {
             .await
             .expect("failed to request wgpu adapter");
 
-        // Request device with conservative, sane limits.
+        // Request device with conservative, sane limits. Adapter::request_device returns a Result<(Device, Queue), _>.
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("zaroxi-render-device"),
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::default(),
+                    ..Default::default()
                 },
                 None,
             )
@@ -79,6 +88,8 @@ impl RenderBackend {
             present_mode: PresentMode::Fifo, // V-sync; stable and widely supported
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
+            // optional latency target — keep None for now
+            desired_maximum_frame_latency: None,
         };
 
         surface.configure(&device, &surface_config);
@@ -89,6 +100,7 @@ impl RenderBackend {
             surface,
             surface_config,
             surface_format,
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -139,12 +151,16 @@ impl RenderBackend {
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(bg_color),
-                                store: true,
+                                store: wgpu::StoreOp::Store,
                             },
                         })],
                         depth_stencil_attachment: None,
+                        multiview_mask: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
                     });
                     // drop _rpass to finish the pass
                 }
@@ -155,18 +171,18 @@ impl RenderBackend {
             Err(err) => {
                 // Handle surface errors gracefully. Do not panic on transient issues.
                 match err {
-                    SurfaceError::Lost => {
+                    wgpu::SurfaceError::Lost => {
                         // Recreate swap chain
                         eprintln!("wgpu surface lost; reconfiguring");
                         self.surface
                             .configure(&self.device, &self.surface_config);
                     }
-                    SurfaceError::OutOfMemory => {
+                    wgpu::SurfaceError::OutOfMemory => {
                         // OutOfMemory is fatal for the application.
                         eprintln!("wgpu surface out of memory; exiting: {:?}", err);
                         // Let caller decide; for now we attempt to continue.
                     }
-                    SurfaceError::Timeout | SurfaceError::Outdated => {
+                    wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated => {
                         // Transient; skip this frame.
                         eprintln!("wgpu surface transient error, skipping frame: {:?}", err);
                     }

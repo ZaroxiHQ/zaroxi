@@ -32,6 +32,7 @@ impl ZaroxiWindow {
     /// - initial size: 1400x900
     /// - resizable: true
     /// - transparent: false
+    #[allow(deprecated)]
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         // winit 0.30.x removed WindowBuilder in favor of creating windows via the EventLoop
         // using WindowAttributes. Build attributes here and ask the EventLoop to create the window.
