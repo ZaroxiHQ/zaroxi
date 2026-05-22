@@ -2,7 +2,9 @@
 name = "zaroxi-core-engine-window"
 version = "0.1.0"
 edition = "2024"
-description = "Window and native surface integration for the engine."
+description = "Thin winit window wrapper for the Zaroxi engine."
 license = "MIT"
 
 [dependencies]
+winit = { workspace = true }
+raw-window-handle = "0.4.4"
