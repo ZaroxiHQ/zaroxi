@@ -33,14 +33,9 @@ impl<'a> RenderBackend<'a> {
     ///
     /// This is async because wgpu adapter / device requests are async.
     pub async fn new(window: &'a ZaroxiWindow) -> Self {
-        // Create instance and surface using the v29 InstanceDescriptor API.
-        // Use a conservative InstanceDescriptor matching the locally-resolved wgpu v29 API.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            flags: wgpu::InstanceFlags::empty(),
-            memory_budget_thresholds: None,
-            backend_options: wgpu::BackendOptions::default(),
-            display: None,
-        });
+        // Create instance using the wgpu default constructor for the resolved local API.
+        // This avoids constructing InstanceDescriptor by hand and matches the local wgpu.
+        let instance = wgpu::Instance::default();
 
         // create_surface returns a Result in this wgpu version; unwrap to get the Surface.
         let surface = unsafe { instance.create_surface(window.window()) }
@@ -132,13 +127,13 @@ impl<'a> RenderBackend<'a> {
             a: 1.0,
         };
 
-        // Acquire next surface texture. If acquisition fails, log and try to reconfigure,
-        // then skip this frame (best-effort handling for transient surface errors).
+        // Acquire next surface texture. The local wgpu API returns a `CurrentSurfaceTexture`
+        // enum (not a Result). Match on variants and handle errors gracefully.
         let surface_texture = match self.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(err) => {
-                eprintln!("wgpu surface error acquiring next texture: {:?}", err);
-                // Best-effort reconfigure; ignore panics from configure and return early.
+            wgpu::CurrentSurfaceTexture::Ok(tex) => tex,
+            other => {
+                // Log the unexpected acquisition result and try to recover by reconfiguring.
+                eprintln!("wgpu surface acquisition returned {:?}; reconfiguring/skip frame", other);
                 let _ = std::panic::catch_unwind(|| {
                     self.surface.configure(&self.device, &self.surface_config);
                 });
