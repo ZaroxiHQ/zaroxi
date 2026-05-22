@@ -7,6 +7,64 @@ use core::hash::Hash;
 use core::cmp::{Eq, PartialEq};
 use core::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::str::FromStr;
+use uuid::Uuid;
+
+/// Compatibility UUID-backed identifier used across older crates.
+///
+/// Some existing crates import `zaroxi_kernel_id::UuidId`. To preserve
+/// compatibility we provide a small, ergonomic UuidId wrapper here. The
+/// representation uses the `uuid` crate for stability.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UuidId(pub Uuid);
+
+impl UuidId {
+    /// Generate a new random (v4) identifier.
+    pub fn new_v4() -> Self {
+        UuidId(Uuid::new_v4())
+    }
+
+    /// Construct from an existing Uuid.
+    pub fn from_uuid(u: Uuid) -> Self {
+        UuidId(u)
+    }
+
+    /// Borrow the inner Uuid.
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Consume the wrapper and return the inner Uuid.
+    pub fn into_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl fmt::Display for UuidId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for UuidId {
+    type Err = uuid::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(UuidId(Uuid::parse_str(s)?))
+    }
+}
+
+impl From<Uuid> for UuidId {
+    fn from(u: Uuid) -> Self {
+        UuidId(u)
+    }
+}
+
+impl From<UuidId> for Uuid {
+    fn from(id: UuidId) -> Uuid {
+        id.0
+    }
+}
 
 /// Strongly-typed identifier newtype using a phantom marker.
 ///
