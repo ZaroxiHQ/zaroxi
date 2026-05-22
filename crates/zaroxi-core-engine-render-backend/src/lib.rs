@@ -38,7 +38,8 @@ impl<'a> RenderBackend<'a> {
         let instance = wgpu::Instance::default();
 
         // create_surface returns a Result in this wgpu version; unwrap to get the Surface.
-        let surface = unsafe { instance.create_surface(window.window()) }
+        let surface = instance
+            .create_surface(window.window())
             .expect("failed to create wgpu surface");
 
         // Choose a high-performance adapter when available and prefer a surface-compatible adapter.
@@ -128,11 +129,14 @@ impl<'a> RenderBackend<'a> {
         };
 
         // Acquire next surface texture. The local wgpu API returns a `CurrentSurfaceTexture`
-        // enum (not a Result). Match on variants and handle errors gracefully.
+        // enum. Handle Success and Suboptimal as valid textures; treat other variants as errors.
         let surface_texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Ok(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Success(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
+                eprintln!("wgpu surface acquired suboptimal texture; proceeding but consider reconfigure");
+                tex
+            }
             other => {
-                // Log the unexpected acquisition result and try to recover by reconfiguring.
                 eprintln!("wgpu surface acquisition returned {:?}; reconfiguring/skip frame", other);
                 let _ = std::panic::catch_unwind(|| {
                     self.surface.configure(&self.device, &self.surface_config);
