@@ -8,7 +8,6 @@ license = "MIT"
 
 [dependencies]
 zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
-zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
 
 # Local developer notes:
 # To validate this crate run:
