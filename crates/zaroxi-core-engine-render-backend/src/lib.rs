@@ -20,10 +20,15 @@ use zaroxi_core_engine_window::ZaroxiWindow;
 /// parameter represents the borrow of the native window used to create the
 /// surface.
 pub struct RenderBackend<'a> {
+    /// The GPU device used to create GPU resources and encode work.
     pub device: wgpu::Device,
+    /// The submission queue associated with `device` used for command submission.
     pub queue: wgpu::Queue,
+    /// The presentation surface obtained from the window.
     pub surface: wgpu::Surface<'a>,
+    /// Current configuration for the surface (format, size, present mode, etc.).
     pub surface_config: wgpu::SurfaceConfiguration,
+    /// Chosen texture format for surface presentation.
     pub surface_format: wgpu::TextureFormat,
     _marker: std::marker::PhantomData<&'a ()>,
 }
