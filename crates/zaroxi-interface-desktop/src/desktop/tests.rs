@@ -521,6 +521,7 @@ fn latest_status_bar_line_prefers_ai_result() {
         opened_buffers: Vec::new(),
         active_buffer_details: None,
         ai_projection: Some(AiProjection { kind: None, result: Some("ai-result".to_string()), target_buffer: None }),
+        visible_window: None,
         last_command_line: None,
         refresh_reason: None,
     });
