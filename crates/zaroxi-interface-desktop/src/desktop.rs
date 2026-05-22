@@ -463,7 +463,15 @@ impl DesktopComposition {
                             // clear inline marker/debug text while preserving span kind/coords
                             sp.text.clear();
                         }
-                        _ => {}
+                        _ => {
+                            // Defensive cleanup: some renderers may accidentally embed
+                            // inline marker/debug tokens into otherwise Normal spans.
+                            // Strip well-known marker tokens to ensure shell-facing
+                            // visible text remains clean while preserving structural span kinds.
+                            if sp.text.contains("|^|") || sp.text.contains("|/|/") {
+                                sp.text = sp.text.replace("|^|", "").replace("|/|/", "");
+                            }
+                        }
                     }
                 }
             }

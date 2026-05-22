@@ -532,5 +532,9 @@ async fn latest_window_contains_no_inline_marker_text() {
         }
         assert!(!reconstructed.contains("|^|"), "visible line must not contain cursor marker");
         assert!(!reconstructed.contains("|/|/"), "visible line must not contain debug marker");
+        // Defensive: also ensure we do not emit a leading stray slash commonly produced
+        // by partial/debug token leakage (symptom observed in harness output).
+        let trimmed = reconstructed.trim_start();
+        assert!(!trimmed.starts_with('/'), "visible line must not start with standalone '/' marker");
     }
 }
