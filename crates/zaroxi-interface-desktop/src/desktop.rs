@@ -454,16 +454,14 @@ impl DesktopComposition {
     pub fn latest_window(&self) -> Option<InterfaceRenderableWindow> {
         let win_opt = self.presenter.latest();
         win_opt.map(|mut w| {
-            // First pass: clear marker span texts and strip known complete marker tokens
-            // from non-marker spans. This preserves span kinds/coords while removing
-            // inline debug markers that would otherwise leak into shell-facing text.
+            // First pass: clear explicit marker span texts and perform per-span defensive token stripping.
             for line in w.lines.iter_mut() {
                 for sp in line.spans.iter_mut() {
                     match sp.kind {
                         crate::view_adapter::InterfaceSpanKind::SelectionCursor
                         | crate::view_adapter::InterfaceSpanKind::Cursor
                         | crate::view_adapter::InterfaceSpanKind::Selection => {
-                            // clear inline marker/debug text while preserving span kind/coords
+                            // Clear inline marker/debug text while preserving span kind/coords.
                             sp.text.clear();
                         }
                         _ => {
@@ -478,13 +476,12 @@ impl DesktopComposition {
                     }
                 }
 
-                // Second pass, per-line: ensure that marker tokens that may have been
+                // Second pass, per-line: ensure that any marker tokens that may have been
                 // split across span boundaries are removed from the final plain-text
-                // visible line. We do this by concatenating Normal spans, removing
-                // known literal tokens from the combined string, and writing the
-                // cleaned result back into the first Normal span while clearing the
-                // remaining Normal spans. This avoids leaving assembled tokens that
-                // only appear when spans are joined.
+                // visible line. Concatenate Normal spans, remove known literal tokens,
+                // then write the cleaned result back into the first Normal span while
+                // clearing the remaining Normal spans. This prevents assembled tokens
+                // that only appear when spans are joined.
                 let mut combined = String::new();
                 for sp in line.spans.iter() {
                     if matches!(sp.kind, crate::view_adapter::InterfaceSpanKind::Normal) {
@@ -495,21 +492,18 @@ impl DesktopComposition {
                 // Remove only the explicit, known marker tokens from the combined text.
                 let mut cleaned = combined.replace("|^|", "").replace("|/|/", "");
 
-                // If we removed tokens and the cleaned result now starts with a stray '/'
-                // (a common artifact when tokens abutted a slash), remove a single
-                // leading "/" or "/ " once. We only apply this removal when tokens
-                // were present and removed to avoid mutating legitimate leading slashes.
-                if cleaned != combined {
-                    if cleaned.starts_with("/ ") {
-                        cleaned = cleaned.replacen("/ ", "", 1);
-                    } else if cleaned.starts_with('/') {
-                        cleaned = cleaned.replacen("/", "", 1);
-                    }
+                // Additionally, defensively remove a single leading "/ " when present.
+                // Rationale: a common marker/debug pattern introduces a standalone "/" followed
+                // by a space which is not meaningful user content for the shell-facing view.
+                // We only remove the "/ " prefix (slash+space) to avoid stripping legitimate
+                // absolute paths (e.g. "/home/..."). This keeps mutation minimal and targeted.
+                if cleaned.starts_with("/ ") {
+                    cleaned = cleaned.replacen("/ ", "", 1);
                 }
 
+                // If the cleaned string differs from the combined one, write it back into the
+                // first Normal span and clear subsequent Normal spans to preserve span shapes.
                 if cleaned != combined {
-                    // Write the cleaned visible text back into the first Normal span and
-                    // clear subsequent Normal spans to preserve the overall span structure.
                     if let Some(first_normal_idx) = line.spans.iter().position(|s| matches!(s.kind, crate::view_adapter::InterfaceSpanKind::Normal)) {
                         // assign cleaned to first normal span
                         line.spans[first_normal_idx].text = cleaned.clone();
