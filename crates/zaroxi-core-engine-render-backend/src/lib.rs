@@ -139,7 +139,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("solid-rect-pipeline-layout"),
             bind_group_layouts: &[],
-            push_constant_ranges: &[],
         });
 
         let vertex_size = std::mem::size_of::<Vertex>() as wgpu::BufferAddress;
@@ -165,17 +164,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &vertex_buffers,
+                compilation_options: None,
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: None,
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -188,7 +189,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
+            cache: None,
         });
 
         Self {
@@ -259,7 +261,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // Helper to convert rect -> two triangles (6 vertices)
         let mut vertices: Vec<Vertex> = Vec::new();
-        let mut add_rect = |r: &zaroxi_core_engine_layout::layout::Rect, color: [f32; 4]| {
+        let mut add_rect = |r, color: [f32; 4]| {
             let left = r.x as f32;
             let top = r.y as f32;
             let right = (r.x + r.width) as f32;
@@ -315,7 +317,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    depth_stencil_attachment: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(bg_color),
                         store: wgpu::StoreOp::Store,
