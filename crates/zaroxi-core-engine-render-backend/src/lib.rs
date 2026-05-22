@@ -34,9 +34,12 @@ impl<'a> RenderBackend<'a> {
     /// This is async because wgpu adapter / device requests are async.
     pub async fn new(window: &'a ZaroxiWindow) -> Self {
         // Create instance and surface using the v29 InstanceDescriptor API.
+        // Use a conservative InstanceDescriptor matching the locally-resolved wgpu v29 API.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+            flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: None,
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
         });
 
         // create_surface returns a Result in this wgpu version; unwrap to get the Surface.
@@ -55,15 +58,12 @@ impl<'a> RenderBackend<'a> {
 
         // Request device with conservative, sane limits. Adapter::request_device returns a Result<(Device, Queue), _>.
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("zaroxi-render-device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    ..Default::default()
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("zaroxi-render-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
             .await
             .expect("failed to request wgpu device");
 
@@ -88,8 +88,8 @@ impl<'a> RenderBackend<'a> {
             present_mode: PresentMode::Fifo, // V-sync; stable and widely supported
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
-            // optional latency target — keep None for now
-            desired_maximum_frame_latency: None,
+            // Use 0 as unspecified / default latency target for this backend.
+            desired_maximum_frame_latency: 0,
         };
 
         surface.configure(&device, &surface_config);
@@ -132,62 +132,51 @@ impl<'a> RenderBackend<'a> {
             a: 1.0,
         };
 
-        // Acquire next surface texture.
-        match self.surface.get_current_texture() {
-            Ok(surface_texture) => {
-                let view = surface_texture
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                let mut encoder = self
-                    .device
-                    .create_command_encoder(&CommandEncoderDescriptor {
-                        label: Some("zaroxi-clear-encoder"),
-                    });
-
-                {
-                    let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("zaroxi-clear-pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            depth_slice: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(bg_color),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        multiview_mask: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-                    // drop _rpass to finish the pass
-                }
-
-                self.queue.submit(Some(encoder.finish()));
-                surface_texture.present();
-            }
+        // Acquire next surface texture. If acquisition fails, log and try to reconfigure,
+        // then skip this frame (best-effort handling for transient surface errors).
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(tex) => tex,
             Err(err) => {
-                // Handle surface errors gracefully. Do not panic on transient issues.
-                match err {
-                    wgpu::SurfaceError::Lost => {
-                        // Recreate swap chain
-                        eprintln!("wgpu surface lost; reconfiguring");
-                        self.surface
-                            .configure(&self.device, &self.surface_config);
-                    }
-                    wgpu::SurfaceError::OutOfMemory => {
-                        // OutOfMemory is fatal for the application.
-                        eprintln!("wgpu surface out of memory; exiting: {:?}", err);
-                        // Let caller decide; for now we attempt to continue.
-                    }
-                    wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Outdated => {
-                        // Transient; skip this frame.
-                        eprintln!("wgpu surface transient error, skipping frame: {:?}", err);
-                    }
-                }
+                eprintln!("wgpu surface error acquiring next texture: {:?}", err);
+                // Best-effort reconfigure; ignore panics from configure and return early.
+                let _ = std::panic::catch_unwind(|| {
+                    self.surface.configure(&self.device, &self.surface_config);
+                });
+                return;
             }
+        };
+
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("zaroxi-clear-encoder"),
+            });
+
+        {
+            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("zaroxi-clear-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(bg_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                multiview_mask: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            // drop _rpass to finish the pass
         }
+
+        self.queue.submit(Some(encoder.finish()));
+        surface_texture.present();
     }
 }
