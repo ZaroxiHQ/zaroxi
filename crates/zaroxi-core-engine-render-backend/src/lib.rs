@@ -261,11 +261,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // Helper to convert rect coordinates -> two triangles (6 vertices)
         let mut vertices: Vec<Vertex> = Vec::new();
-        let mut add_rect_from = |x: u32, y: u32, w: u32, h: u32, color: [f32; 4]| {
-            let left = x as f32;
-            let top = y as f32;
-            let right = (x + w) as f32;
-            let bottom = (y + h) as f32;
+        let mut add_rect_from = |x: f32, y: f32, w: f32, h: f32, color: [f32; 4]| {
+            let left = x;
+            let top = y;
+            let right = x + w;
+            let bottom = y + h;
 
             let to_ndc = |px: f32, py: f32| -> [f32; 2] {
                 let nx = (px / (width as f32)) * 2.0 - 1.0;
