@@ -238,3 +238,13 @@ impl ShellRenderTranscript {
         lines.join("\n")
     }
 }
+
+// Optional minimal wiring: expose a tiny feature-gated adapter that allows
+// interface code to derive a deterministic debug-lines view directly from the
+// core layout ShellLayout. This is intentionally feature-gated ("layout")
+// so default builds remain unchanged unless the dependency and feature are
+// explicitly enabled in Cargo.toml.
+#[cfg(feature = "layout")]
+pub fn layout_debug_lines_from_shell(layout: &zaroxi_core_engine_layout::ShellLayout) -> Vec<String> {
+    layout.to_debug_lines()
+}
