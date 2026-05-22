@@ -6,4 +6,7 @@ description = "Backend-specific renderer adapters."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+wgpu = { workspace = true }
+vello = { workspace = true }
+winit = { workspace = true }
+zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
