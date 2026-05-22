@@ -155,5 +155,3 @@ impl Rect {
         (left, right)
     }
 }
-
-pub use Rect;

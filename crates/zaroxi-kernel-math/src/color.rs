@@ -78,5 +78,3 @@ pub const SYN_GREEN: Color = Color::rgba(152, 195, 121, 255);
 pub const SYN_TEAL: Color = Color::rgba(78, 201, 176, 255);
 pub const TERMINAL_GREEN: Color = Color::rgba(35, 209, 139, 255);
 pub const GIT_GREEN: Color = Color::rgba(35, 209, 139, 255);
-
-pub use Color;

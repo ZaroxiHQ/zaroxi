@@ -64,5 +64,3 @@ impl Mul<f32> for Vec2 {
         }
     }
 }
-
-pub use Vec2;

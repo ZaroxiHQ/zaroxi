@@ -20,5 +20,3 @@ impl Size {
         }
     }
 }
-
-pub use Size;
