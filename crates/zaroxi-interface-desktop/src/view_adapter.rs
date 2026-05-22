@@ -103,9 +103,26 @@ pub async fn fetch_renderable_window(
                 AppSpanKind::Cursor => InterfaceSpanKind::Cursor,
                 AppSpanKind::SelectionCursor => InterfaceSpanKind::SelectionCursor,
             };
+
+            // Defensive interface boundary sanitization:
+            // - Preserve span.kind and coordinates.
+            // - For Normal spans only, strip known render-debug tokens that sometimes
+            //   are embedded by renderers (e.g. "|^|" and "|/|/") and remove a single
+            //   leading "/ " prefix if present. This keeps the interface-facing DTO
+            //   safe for shell printing while avoiding broader mutations of user text.
+            let mut text = s.text;
+            if matches!(kind, InterfaceSpanKind::Normal) {
+                if text.contains("|^|") || text.contains("|/|/") {
+                    text = text.replace("|^|", "").replace("|/|/", "");
+                }
+                if text.starts_with("/ ") {
+                    text = text.replacen("/ ", "", 1);
+                }
+            }
+
             spans.push(InterfaceRenderSpan {
                 kind,
-                text: s.text,
+                text,
                 start_col: s.start_col,
                 end_col: s.end_col,
             });
@@ -208,5 +225,82 @@ mod tests {
         p.refresh(arc, sid).await.expect("refresh ok");
         let win = p.latest().expect("window present");
         assert_eq!(win.total_lines, 1);
+    }
+
+    #[tokio::test]
+    async fn fetch_renderable_strips_leading_slash() {
+        use std::sync::Arc;
+        use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
+        use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
+
+        // Minimal fake view that returns one visible line starting with "/ sample file"
+        struct FakeViewSlash {
+            doc: EditorDocument,
+            window: VisibleLinesWindow,
+        }
+
+        impl FakeViewSlash {
+            fn new() -> Self {
+                let content = Some("/ sample file".to_string());
+                let ed = EditorDocument {
+                    buffer_id: BufferId::from("buf:fake"),
+                    content: content.clone(),
+                    cursor: EditorCursor { line: 0, column: 0 },
+                    selection: None,
+                    line_count: 1,
+                    current_line: content.and_then(|c| c.lines().nth(0).map(|s| s.to_string())),
+                };
+
+                let vl = VisibleLine {
+                    line_number: 1,
+                    text: "/ sample file".to_string(),
+                    is_cursor_line: true,
+                    cursor_column: Some(0),
+                    selection_intersects: false,
+                    selection_start_column: None,
+                    selection_end_column: None,
+                };
+                let vw = VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
+
+                FakeViewSlash { doc: ed, window: vw }
+            }
+        }
+
+        impl WorkspaceView for FakeViewSlash {
+            fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+                Box::pin(async move { Ok(Some("".to_string())) })
+            }
+
+            fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+                Box::pin(async move { Ok(Some("".to_string())) })
+            }
+
+            fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+                let d = self.doc.clone();
+                Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
+            }
+
+            fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+                let w = self.window.clone();
+                Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
+            }
+        }
+
+        let v = FakeViewSlash::new();
+        let arc: Arc<dyn WorkspaceView> = Arc::new(v);
+        let sid = SessionId(zaroxi_kernel_types::Id::new());
+        let res = fetch_renderable_window(arc, sid).await.expect("fetch ok");
+        assert_eq!(res.total_lines, 1);
+        assert_eq!(res.lines.len(), 1);
+        let rl = &res.lines[0];
+
+        // Ensure no Normal span starts with a stray "/ " and no debug tokens remain.
+        for sp in rl.spans.iter() {
+            if sp.kind == InterfaceSpanKind::Normal {
+                assert!(!sp.text.contains("|^|"), "normal span must not contain cursor marker");
+                assert!(!sp.text.contains("|/|/"), "normal span must not contain debug marker");
+                assert!(!sp.text.starts_with("/ "), "normal span must not start with leading '/ '");
+            }
+        }
     }
 }
