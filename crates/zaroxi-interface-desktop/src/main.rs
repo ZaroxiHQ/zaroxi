@@ -9,6 +9,7 @@ enabled, the real GUI binary is compiled and run. When disabled, a small
 no-op stub main is provided so CI/test builds do not pull GUI deps.
 */
 
+#[cfg(feature = "gpu_shell_bin")]
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "gpu_shell_bin")]
@@ -19,11 +20,11 @@ use winit::{
 };
 
 #[cfg(feature = "gpu_shell_bin")]
-use zaroxi_core_engine_window::ZaroxiWindow;
+use vello;
 #[cfg(feature = "gpu_shell_bin")]
 use zaroxi_core_engine_render_backend::RenderBackend;
 #[cfg(feature = "gpu_shell_bin")]
-use vello;
+use zaroxi_core_engine_window::ZaroxiWindow;
 
 /// No-op stub main when the gpu_shell_bin feature is not enabled.
 /// Keeps the crate usable as a library during CI/test builds.
