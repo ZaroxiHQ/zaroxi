@@ -11,7 +11,7 @@ drive presentation without depending on winit from many places.
 
 use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoop;
-use winit::window::Window;
+use winit::window::{Window, WindowBuilder};
 
 /// A thin handle to the native window used by the engine.
 pub struct ZaroxiWindow {
@@ -29,7 +29,7 @@ impl ZaroxiWindow {
     /// - resizable: true
     /// - transparent: false
     pub fn new(event_loop: &EventLoop<()>) -> Self {
-        let builder = winit::window::WindowBuilder::new()
+        let builder = WindowBuilder::new()
             .with_title("Zaroxi Studio")
             .with_inner_size(PhysicalSize::new(1400u32, 900u32))
             .with_resizable(true)
