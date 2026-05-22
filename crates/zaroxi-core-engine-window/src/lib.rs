@@ -33,7 +33,7 @@ impl ZaroxiWindow {
     /// - resizable: true
     /// - transparent: false
     pub fn new(event_loop: &EventLoop<()>) -> Self {
-        let builder = winit_window::WindowBuilder::new()
+        let builder = winit::window::WindowBuilder::new()
             .with_title("Zaroxi Studio")
             .with_inner_size(PhysicalSize::new(1400u32, 900u32))
             .with_resizable(true)
