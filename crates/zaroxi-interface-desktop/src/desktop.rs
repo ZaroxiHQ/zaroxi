@@ -454,6 +454,9 @@ impl DesktopComposition {
     pub fn latest_window(&self) -> Option<InterfaceRenderableWindow> {
         let win_opt = self.presenter.latest();
         win_opt.map(|mut w| {
+            // First pass: clear marker span texts and strip known complete marker tokens
+            // from non-marker spans. This preserves span kinds/coords while removing
+            // inline debug markers that would otherwise leak into shell-facing text.
             for line in w.lines.iter_mut() {
                 for sp in line.spans.iter_mut() {
                     match sp.kind {
@@ -470,6 +473,52 @@ impl DesktopComposition {
                             // visible text remains clean while preserving structural span kinds.
                             if sp.text.contains("|^|") || sp.text.contains("|/|/") {
                                 sp.text = sp.text.replace("|^|", "").replace("|/|/", "");
+                            }
+                        }
+                    }
+                }
+
+                // Second pass, per-line: remove a stray leading '/' that sometimes
+                // remains when marker tokens are partially removed by the above logic.
+                //
+                // Rationale: the harness prints plain visible text by concatenating
+                // Normal spans. If that concatenation begins with a standalone '/'
+                // (optionally followed by a space) it is a strong signal the slash
+                // is a leftover marker fragment rather than meaningful user text.
+                // Remove only a single leading '/' (and one following space if present)
+                // from the first Normal span to avoid broader text mutation.
+                let mut combined = String::new();
+                for sp in line.spans.iter() {
+                    match sp.kind {
+                        crate::view_adapter::InterfaceSpanKind::Normal => combined.push_str(&sp.text),
+                        _ => {}
+                    }
+                }
+                // Inspect the combined visible text for a leading slash.
+                let trimmed = combined.trim_start();
+                if trimmed.starts_with('/') {
+                    // Find the first Normal span and strip a leading '/' or "/ " prefix.
+                    if let Some(first_normal_idx) = line.spans.iter().position(|s| matches!(s.kind, crate::view_adapter::InterfaceSpanKind::Normal)) {
+                        let sp = &mut line.spans[first_normal_idx];
+                        if sp.text.starts_with("/ ") {
+                            // remove "/ " prefix once
+                            sp.text = sp.text.replacen("/ ", "", 1);
+                        } else if sp.text.starts_with('/') {
+                            // remove single leading '/' once
+                            sp.text = sp.text.replacen("/", "", 1);
+                        } else {
+                            // Fallback: if the first normal span did not start with '/',
+                            // attempt to remove the prefix from a subsequent Normal span.
+                            for sp2 in line.spans.iter_mut().skip(first_normal_idx + 1) {
+                                if matches!(sp2.kind, crate::view_adapter::InterfaceSpanKind::Normal) {
+                                    if sp2.text.starts_with("/ ") {
+                                        sp2.text = sp2.text.replacen("/ ", "", 1);
+                                        break;
+                                    } else if sp2.text.starts_with('/') {
+                                        sp2.text = sp2.text.replacen("/", "", 1);
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
