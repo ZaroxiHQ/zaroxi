@@ -138,9 +138,10 @@ impl<'a> RenderBackend<'a> {
             }
             other => {
                 eprintln!("wgpu surface acquisition returned {:?}; reconfiguring/skip frame", other);
-                let _ = std::panic::catch_unwind(|| {
-                    self.surface.configure(&self.device, &self.surface_config);
-                });
+                // Reconfigure the surface for the next frame. Do not use catch_unwind here;
+                // wgpu internals are not guaranteed UnwindSafe and calling catch_unwind
+                // causes hard-to-resolve trait errors. If configure panics it will propagate.
+                self.surface.configure(&self.device, &self.surface_config);
                 return;
             }
         };
