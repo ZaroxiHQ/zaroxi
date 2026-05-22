@@ -22,6 +22,7 @@ mod consistency;
 mod projections;
 mod status_bar;
 mod state;
+mod summary;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
 pub(crate) use state::command_kind_short_name;
@@ -579,45 +580,10 @@ impl DesktopComposition {
 
     /// Return a tiny, read-only AI projection summary intended for shell consumption.
     ///
-    /// This function composes the existing AiProjection (if present) into a small,
-    /// stable shape suitable for printing and simple diagnostics in shells/harnesses.
-    /// - Maps free-form `kind` strings to the small `AiKind` enum using a best-effort,
-    ///   case-insensitive substring match.
-    /// - Sets `AiState::Ready` when `result` is present; `Running` when a kind is
-    ///   declared but no result text is present; otherwise `Failed`.
-    ///
-    /// Returns None when no AI projection exists in the composition metadata.
+    /// Delegates to the extracted summary builders module to keep `desktop.rs`
+    /// compact. Behaviour is unchanged.
     pub fn latest_ai_projection_summary(&self) -> Option<AiProjectionSummary> {
-        let ap = self.latest_ai_projection()?;
-        // Map kind string to small enum
-        let kind_opt = ap.kind.as_ref().map(|k| {
-            let kl = k.to_lowercase();
-            if kl.contains("explain") {
-                AiKind::Explain
-            } else if kl.contains("suggest") || kl.contains("suggestion") {
-                AiKind::Suggest
-            } else if kl.contains("refactor") || kl.contains("refactoring") {
-                AiKind::Refactor
-            } else {
-                AiKind::Other(k.clone())
-            }
-        });
-
-        // Determine a minimal state hint
-        let state = if ap.result.is_some() {
-            AiState::Ready
-        } else if ap.kind.is_some() {
-            AiState::Running
-        } else {
-            AiState::Failed
-        };
-
-        Some(AiProjectionSummary {
-            present: true,
-            kind: kind_opt,
-            target_buffer: ap.target_buffer.clone(),
-            state,
-        })
+        summary::latest_ai_projection_summary(self)
     }
 
     /// Return the most recent composition revision (monotonic counter).
