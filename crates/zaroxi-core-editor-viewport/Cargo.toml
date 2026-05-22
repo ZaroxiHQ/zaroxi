@@ -6,3 +6,4 @@ description = "Viewport calculations and scroll math."
 license = "MIT"
 
 [dependencies]
+zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }

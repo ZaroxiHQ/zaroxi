@@ -6,3 +6,4 @@ description = "Gutter and line number primitives."
 license = "MIT"
 
 [dependencies]
+zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
