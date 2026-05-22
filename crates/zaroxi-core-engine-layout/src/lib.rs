@@ -13,3 +13,6 @@ pub mod shell_layout_input;
 pub use shell_layout_input::{
     LayoutBlock, SelectionBlock, ShellLayoutInput, StatusBlock, TextBlock, ViewportFacts,
 };
+
+pub mod layout;
+pub use layout::ShellLayout;
