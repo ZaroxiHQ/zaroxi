@@ -136,10 +136,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("solid-rect-pipeline-layout"),
-            bind_group_layouts: &[],
-        });
+        // Use implicit pipeline layout (None) so we avoid tying into pipeline-layout
+        // descriptor fields that vary across wgpu versions. The render pipeline below
+        // will be created with layout: None.
 
         let vertex_size = std::mem::size_of::<Vertex>() as wgpu::BufferAddress;
         let vertex_buffers = [wgpu::VertexBufferLayout {
@@ -161,12 +160,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("solid-rect-pipeline"),
-            layout: Some(&pipeline_layout),
+            // Use implicit layout to maintain compatibility across wgpu versions.
+            layout: None,
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 buffers: &vertex_buffers,
-                compilation_options: None,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -176,7 +176,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: None,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -259,13 +259,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let height = self.surface_config.height;
         let layout = ShellLayout::from_window_size(width, height);
 
-        // Helper to convert rect -> two triangles (6 vertices)
+        // Helper to convert rect coordinates -> two triangles (6 vertices)
         let mut vertices: Vec<Vertex> = Vec::new();
-        let mut add_rect = |r, color: [f32; 4]| {
-            let left = r.x as f32;
-            let top = r.y as f32;
-            let right = (r.x + r.width) as f32;
-            let bottom = (r.y + r.height) as f32;
+        let mut add_rect_from = |x: u32, y: u32, w: u32, h: u32, color: [f32; 4]| {
+            let left = x as f32;
+            let top = y as f32;
+            let right = (x + w) as f32;
+            let bottom = (y + h) as f32;
 
             let to_ndc = |px: f32, py: f32| -> [f32; 2] {
                 let nx = (px / (width as f32)) * 2.0 - 1.0;
@@ -288,11 +288,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         };
 
         // Panel colors (distinct, muted palette)
-        add_rect(&layout.titlebar, [0.18, 0.18, 0.22, 1.0]); // titlebar
-        add_rect(&layout.sidebar, [0.12, 0.12, 0.14, 1.0]); // sidebar
-        add_rect(&layout.editor, [0.08, 0.09, 0.11, 1.0]); // editor area
-        add_rect(&layout.ai_panel, [0.12, 0.06, 0.18, 1.0]); // ai panel
-        add_rect(&layout.status_bar, [0.15, 0.15, 0.17, 1.0]); // status bar
+        add_rect_from(layout.titlebar.x, layout.titlebar.y, layout.titlebar.width, layout.titlebar.height, [0.18, 0.18, 0.22, 1.0]); // titlebar
+        add_rect_from(layout.sidebar.x, layout.sidebar.y, layout.sidebar.width, layout.sidebar.height, [0.12, 0.12, 0.14, 1.0]); // sidebar
+        add_rect_from(layout.editor.x, layout.editor.y, layout.editor.width, layout.editor.height, [0.08, 0.09, 0.11, 1.0]); // editor area
+        add_rect_from(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, layout.ai_panel.height, [0.12, 0.06, 0.18, 1.0]); // ai panel
+        add_rect_from(layout.status_bar.x, layout.status_bar.y, layout.status_bar.width, layout.status_bar.height, [0.15, 0.15, 0.17, 1.0]); // status bar
 
         // Create a transient vertex buffer for this frame (small, recreated each frame).
         let vertex_buffer = if !vertices.is_empty() {
@@ -317,6 +317,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(bg_color),
                         store: wgpu::StoreOp::Store,
