@@ -11,8 +11,10 @@ Responsibilities:
 - Provide resize handling and a render_frame(scene) entry that presents a frame
 */
 
-use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages};
+use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_window::ZaroxiWindow;
+use zaroxi_core_engine_layout::layout::ShellLayout;
+use bytemuck;
 
 /// Simple render backend that drives a wgpu surface and presents frames.
 ///
@@ -30,7 +32,16 @@ pub struct RenderBackend<'a> {
     pub surface_config: wgpu::SurfaceConfiguration,
     /// Chosen texture format for surface presentation.
     pub surface_format: wgpu::TextureFormat,
+    /// Simple pipeline used to render solid rectangles for the shell regions.
+    pub pipeline: wgpu::RenderPipeline,
     _marker: std::marker::PhantomData<&'a ()>,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 2],
+    color: [f32; 4],
 }
 
 impl<'a> RenderBackend<'a> {
@@ -95,12 +106,98 @@ impl<'a> RenderBackend<'a> {
 
         surface.configure(&device, &surface_config);
 
+        // Create a minimal shader/pipeline used to render solid-colored rectangles
+        // that visualize the ShellLayout regions. This keeps Phase 4 rendering local
+        // to the backend and avoids touching broader presenter APIs.
+        let shader_src = r#"
+struct VertexInput {
+    @location(0) position: vec2<f32>;
+    @location(1) color: vec4<f32>;
+};
+struct VertexOutput {
+    @builtin(position) pos: vec4<f32>;
+    @location(0) color: vec4<f32>;
+};
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.pos = vec4<f32>(in.position, 0.0, 1.0);
+    out.color = in.color;
+    return out;
+}
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("solid-rect-shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("solid-rect-pipeline-layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let vertex_size = std::mem::size_of::<Vertex>() as wgpu::BufferAddress;
+        let vertex_buffers = [wgpu::VertexBufferLayout {
+            array_stride: vertex_size,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 8,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }];
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("solid-rect-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &vertex_buffers,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
         Self {
             device,
             queue,
             surface,
             surface_config,
             surface_format,
+            pipeline: render_pipeline,
             _marker: std::marker::PhantomData,
         }
     }
@@ -155,19 +252,70 @@ impl<'a> RenderBackend<'a> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Build deterministic ShellLayout and convert regions to a vertex list.
+        let width = self.surface_config.width;
+        let height = self.surface_config.height;
+        let layout = ShellLayout::from_window_size(width, height);
+
+        // Helper to convert rect -> two triangles (6 vertices)
+        let mut vertices: Vec<Vertex> = Vec::new();
+        let mut add_rect = |r: &zaroxi_core_engine_layout::layout::Rect, color: [f32; 4]| {
+            let left = r.x as f32;
+            let top = r.y as f32;
+            let right = (r.x + r.width) as f32;
+            let bottom = (r.y + r.height) as f32;
+
+            let to_ndc = |px: f32, py: f32| -> [f32; 2] {
+                let nx = (px / (width as f32)) * 2.0 - 1.0;
+                let ny = 1.0 - (py / (height as f32)) * 2.0;
+                [nx, ny]
+            };
+
+            let tl = to_ndc(left, top);
+            let tr = to_ndc(right, top);
+            let br = to_ndc(right, bottom);
+            let bl = to_ndc(left, bottom);
+
+            vertices.push(Vertex { position: tl, color });
+            vertices.push(Vertex { position: tr, color });
+            vertices.push(Vertex { position: br, color });
+
+            vertices.push(Vertex { position: tl, color });
+            vertices.push(Vertex { position: br, color });
+            vertices.push(Vertex { position: bl, color });
+        };
+
+        // Panel colors (distinct, muted palette)
+        add_rect(&layout.titlebar, [0.18, 0.18, 0.22, 1.0]); // titlebar
+        add_rect(&layout.sidebar, [0.12, 0.12, 0.14, 1.0]); // sidebar
+        add_rect(&layout.editor, [0.08, 0.09, 0.11, 1.0]); // editor area
+        add_rect(&layout.ai_panel, [0.12, 0.06, 0.18, 1.0]); // ai panel
+        add_rect(&layout.status_bar, [0.15, 0.15, 0.17, 1.0]); // status bar
+
+        // Create a transient vertex buffer for this frame (small, recreated each frame).
+        let vertex_buffer = if !vertices.is_empty() {
+            Some(self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("zaroxi-rect-verts"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }))
+        } else {
+            None
+        };
+
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("zaroxi-clear-encoder"),
+                label: Some("zaroxi-draw-encoder"),
             });
 
         {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("zaroxi-clear-pass"),
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("zaroxi-root-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    depth_slice: None,
+                    depth_stencil_attachment: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(bg_color),
                         store: wgpu::StoreOp::Store,
@@ -178,7 +326,17 @@ impl<'a> RenderBackend<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            // drop _rpass to finish the pass
+
+            if let Some(vb) = &vertex_buffer {
+                rpass.set_pipeline(&self.pipeline);
+                rpass.set_vertex_buffer(0, vb.slice(..));
+                // draw all vertices
+                let vert_count = vertices.len() as u32;
+                if vert_count > 0 {
+                    rpass.draw(0..vert_count, 0..1);
+                }
+            }
+            // rpass dropped here
         }
 
         self.queue.submit(Some(encoder.finish()));

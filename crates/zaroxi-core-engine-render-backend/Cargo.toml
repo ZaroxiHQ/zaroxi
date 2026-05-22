@@ -10,3 +10,5 @@ wgpu = { workspace = true }
 vello = { workspace = true }
 winit = { workspace = true }
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
+zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
+bytemuck = "1.13"
