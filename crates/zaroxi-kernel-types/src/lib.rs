@@ -71,3 +71,115 @@ impl Span {
         self.start == self.end
     }
 }
+
+/// Programming language identifier for editor/workspace usage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    TypeScriptJsx,
+    TypeScript,
+    JavaScript,
+    JavaScriptConfig,
+    Json,
+    Rust,
+    Toml,
+    Unknown,
+}
+
+impl Language {
+    /// Map a file extension (without dot) to a language.
+    pub fn from_extension(ext: &str) -> Self {
+        match ext {
+            "tsx" => Language::TypeScriptJsx,
+            "ts" => Language::TypeScript,
+            "jsx" => Language::JavaScript,
+            "js" | "mjs" | "cjs" => Language::JavaScript,
+            "json" => Language::Json,
+            "rs" => Language::Rust,
+            "toml" => Language::Toml,
+            _ => Language::Unknown,
+        }
+    }
+
+    /// Human-friendly display name.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Language::TypeScriptJsx => "TypeScript JSX",
+            Language::TypeScript => "TypeScript",
+            Language::JavaScript => "JavaScript",
+            Language::JavaScriptConfig => "JavaScript Config",
+            Language::Json => "JSON",
+            Language::Rust => "Rust",
+            Language::Toml => "TOML",
+            Language::Unknown => "Plain Text",
+        }
+    }
+
+    /// Short label used for small UI badges.
+    pub fn icon_label(self) -> &'static str {
+        match self {
+            Language::TypeScriptJsx => "TS",
+            Language::TypeScript => "TS",
+            Language::JavaScript => "JS",
+            Language::JavaScriptConfig => "JS",
+            Language::Json => "{}",
+            Language::Rust => "RS",
+            Language::Toml => "TL",
+            Language::Unknown => "TXT",
+        }
+    }
+}
+
+/// Line ending representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+    Cr,
+}
+
+impl LineEnding {
+    /// Short display string.
+    pub fn display(self) -> &'static str {
+        match self {
+            LineEnding::Lf => "LF",
+            LineEnding::CrLf => "CRLF",
+            LineEnding::Cr => "CR",
+        }
+    }
+}
+
+/// Text encoding representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Encoding {
+    Utf8,
+    Utf16Le,
+    Utf16Be,
+}
+
+impl Encoding {
+    /// Display name for the encoding.
+    pub fn display(self) -> &'static str {
+        match self {
+            Encoding::Utf8 => "UTF-8",
+            Encoding::Utf16Le => "UTF-16 LE",
+            Encoding::Utf16Be => "UTF-16 BE",
+        }
+    }
+}
+
+/// Indentation style for editors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentStyle {
+    Tabs,
+    Spaces(u8),
+}
+
+impl IndentStyle {
+    /// User-facing display string.
+    pub fn display(self) -> String {
+        match self {
+            IndentStyle::Tabs => "Tabs".to_string(),
+            IndentStyle::Spaces(n) => format!("Spaces {}", n),
+        }
+    }
+}
