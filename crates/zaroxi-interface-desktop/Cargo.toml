@@ -6,6 +6,16 @@ description = "Desktop UI shell glue (editor+gui surface)."
 license = "MIT"
 
 [dependencies]
+# Workspace-owned pins (inherit features from workspace)
+tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread", "time"] }
+winit = { workspace = true }
+vello = { workspace = true }
+
+# Local workspace crates
+zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
+zaroxi-core-engine-render-backend = { path = "../zaroxi-core-engine-render-backend" }
+
+# Other local application/domain deps
 serde = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
@@ -15,26 +25,16 @@ zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render" }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
 zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 
-# Minimal native window + pixel buffer dependencies for a thin GPU-backed shell.
-# Kept intentionally small: winit for window/event loop, pixels for an RGBA framebuffer
-# surface that's easy to draw into. No heavy GUI or widget frameworks are added.
-# Switched to workspace-managed winit so the workspace root controls the version.
-winit = { workspace = true, optional = true }
-pixels = { version = "0.17.1", optional = true }
-minifb = { version = "0.24.0", optional = true }
-
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
 
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
 [features]
-gpu_shell_bin = ["winit", "pixels", "minifb"]
+gpu_shell_bin = []
 
-# Make the gpu_shell binary conditional on the feature so it is only compiled
-# when explicitly requested:
+# The gpu_shell binary is now an optional binary (feature gated at top-level).
 [[bin]]
 name = "gpu_shell"
 path = "src/bin/gpu_shell.rs"

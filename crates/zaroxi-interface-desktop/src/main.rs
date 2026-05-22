@@ -23,7 +23,7 @@ async fn main() {
     let mut zwin = ZaroxiWindow::new(&event_loop);
 
     // Initialize the render backend
-    let mut backend = RenderBackend::new(&zwin).await;
+    let mut backend: RenderBackend<'_> = RenderBackend::new(&zwin).await;
 
     // Request an initial redraw to start rendering
     zwin.window().request_redraw();
