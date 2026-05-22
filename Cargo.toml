@@ -209,7 +209,7 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 # Rendering & windowing
 wgpu = "0.29.3"
-vello = "0.20.0"
+vello = "0.9.0"
 winit = "0.30.13"
 
 # Layout & text
