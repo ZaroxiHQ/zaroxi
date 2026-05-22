@@ -8,6 +8,7 @@ use core::cmp::{Eq, PartialEq};
 use core::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::str::FromStr;
+use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 /// Compatibility UUID-backed identifier used across older crates.
@@ -15,7 +16,7 @@ use uuid::Uuid;
 /// Some existing crates import `zaroxi_kernel_id::UuidId`. To preserve
 /// compatibility we provide a small, ergonomic UuidId wrapper here. The
 /// representation uses the `uuid` crate for stability.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UuidId(pub Uuid);
 
 impl UuidId {
