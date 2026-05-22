@@ -1,8 +1,12 @@
+#![cfg(feature = "gpu_shell_bin")]
 /*!
 Desktop entrypoint for Phase 2 bootstrap:
 - create the winit event loop and window
 - initialize the render backend (wgpu)
 - on redraw, build a trivial vello::Scene and ask backend to render it
+
+This binary is feature-gated behind `gpu_shell_bin` so the crate can be
+compiled/tested as a library in CI without pulling platform GUI deps.
 */
 
 use std::time::{Duration, Instant};
