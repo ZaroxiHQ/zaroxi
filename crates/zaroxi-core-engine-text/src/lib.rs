@@ -33,7 +33,6 @@ pub use backend::{TextBackend, new_backend};
 /// first editor content rendering. It intentionally avoids shaping and complex
 /// attributes.
 pub mod plain {
-    use crate::TextLayout;
     use zaroxi_core_engine_font::Font;
     use zaroxi_core_engine_scene::TextPrimitive;
 
