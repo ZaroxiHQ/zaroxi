@@ -9,12 +9,10 @@ drive presentation without depending on winit from many places.
 
 #![deny(missing_docs)]
 
-use raw_window_handle::HasRawWindowHandle;
-use winit::{
-    dpi::PhysicalSize,
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
-};
+use raw_window_handle::HasWindowHandle;
+use winit::dpi::PhysicalSize;
+use winit::event_loop::EventLoop;
+use winit::window::Window;
 
 /// A thin handle to the native window used by the engine.
 pub struct ZaroxiWindow {
@@ -62,8 +60,11 @@ impl ZaroxiWindow {
         &self.window
     }
 
-    /// Return a RawWindowHandle for backend initialisation if needed.
-    pub fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
+    /// Return a RawWindowHandle for backend initialization if needed.
+    /// Returns a Result due to raw-window-handle 0.6 API.
+    pub fn raw_window_handle(
+        &self,
+    ) -> Result<raw_window_handle::RawWindowHandle, raw_window_handle::HandleError> {
         self.window.raw_window_handle()
     }
 
