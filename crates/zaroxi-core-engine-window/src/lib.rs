@@ -9,14 +9,17 @@ drive presentation without depending on winit from many places.
 
 #![deny(missing_docs)]
 
-use winit::dpi::PhysicalSize;
-use winit::event_loop::EventLoop;
-use winit::window::Window;
-use winit::window::WindowBuilder;
+ // Use a module alias for the winit window module to avoid
+ // ambiguous import resolution across different winit/raw-window-handle
+ // versions and to match the actual public API surface in 0.30.13.
+ use winit::dpi::PhysicalSize;
+ use winit::event_loop::EventLoop;
+ use winit::window as winit_window;
 
 /// A thin handle to the native window used by the engine.
+/// Thin handle storing the concrete winit Window type from the aliased module.
 pub struct ZaroxiWindow {
-    window: Window,
+    window: winit_window::Window,
     width: u32,
     height: u32,
 }
@@ -30,7 +33,7 @@ impl ZaroxiWindow {
     /// - resizable: true
     /// - transparent: false
     pub fn new(event_loop: &EventLoop<()>) -> Self {
-        let builder = WindowBuilder::new()
+        let builder = winit_window::WindowBuilder::new()
             .with_title("Zaroxi Studio")
             .with_inner_size(PhysicalSize::new(1400u32, 900u32))
             .with_resizable(true)
@@ -56,7 +59,7 @@ impl ZaroxiWindow {
 
     /// Borrow the underlying winit Window for cases where the caller needs
     /// direct access (for example, creating a wgpu surface).
-    pub fn window(&self) -> &Window {
+    pub fn window(&self) -> &winit_window::Window {
         &self.window
     }
 
