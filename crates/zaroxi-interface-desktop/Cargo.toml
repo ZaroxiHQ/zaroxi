@@ -33,6 +33,7 @@ chrono = { workspace = true }
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
 [features]
 gpu_shell_bin = []
+layout = []
 
 # The gpu_shell binary is now an optional binary (feature gated at top-level).
 [[bin]]
