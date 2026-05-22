@@ -20,6 +20,7 @@ use zaroxi_kernel_types::Id;
 mod composition;
 mod consistency;
 mod projections;
+mod status_bar;
 mod state;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;

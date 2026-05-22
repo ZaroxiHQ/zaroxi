@@ -510,6 +510,25 @@ async fn latest_shell_context_is_composed() {
     assert!(ctx.has_ai_projection);
 }
 
+#[test]
+fn latest_status_bar_line_prefers_ai_result() {
+    let mut comp = DesktopComposition::new();
+    comp.metadata = Some(DesktopMetadata {
+        session_id: None,
+        workspace_id: None,
+        active_buffer: None,
+        opened_buffer_count: 0,
+        opened_buffers: Vec::new(),
+        active_buffer_details: None,
+        ai_projection: Some(AiProjection { kind: None, result: Some("ai-result".to_string()), target_buffer: None }),
+        last_command_line: None,
+        refresh_reason: None,
+    });
+
+    let s = comp.latest_status_bar_line().expect("status present");
+    assert_eq!(s.text, "AI: ai-result".to_string());
+}
+
 #[tokio::test]
 async fn latest_window_contains_no_inline_marker_text() {
     use std::sync::Arc;
