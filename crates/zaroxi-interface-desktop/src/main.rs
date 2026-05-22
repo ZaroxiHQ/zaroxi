@@ -1,25 +1,39 @@
-#![cfg(feature = "gpu_shell_bin")]
 /*!
 Desktop entrypoint for Phase 2 bootstrap:
 - create the winit event loop and window
 - initialize the render backend (wgpu)
 - on redraw, build a trivial vello::Scene and ask backend to render it
 
-This binary is feature-gated behind `gpu_shell_bin` so the crate can be
-compiled/tested as a library in CI without pulling platform GUI deps.
+This binary supports a runtime feature `gpu_shell_bin`. When the feature is
+enabled, the real GUI binary is compiled and run. When disabled, a small
+no-op stub main is provided so CI/test builds do not pull GUI deps.
 */
 
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "gpu_shell_bin")]
 use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
 };
 
+#[cfg(feature = "gpu_shell_bin")]
 use zaroxi_core_engine_window::ZaroxiWindow;
+#[cfg(feature = "gpu_shell_bin")]
 use zaroxi_core_engine_render_backend::RenderBackend;
+#[cfg(feature = "gpu_shell_bin")]
+use vello;
 
+/// No-op stub main when the gpu_shell_bin feature is not enabled.
+/// Keeps the crate usable as a library during CI/test builds.
+#[cfg(not(feature = "gpu_shell_bin"))]
+fn main() {
+    // Intentionally empty when GUI binary is disabled.
+}
+
+/// Full GUI binary entrypoint when feature is enabled.
+#[cfg(feature = "gpu_shell_bin")]
 #[tokio::main]
 async fn main() {
     // Create the event loop and window
@@ -57,7 +71,10 @@ async fn main() {
                                 zwin.update_size(w, h);
                                 backend.resize(w, h);
                             }
-                            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                            WindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
+                                // winit's ScaleFactorChanged provides both scale_factor and
+                                // a mutable reference to a new_inner_size value in this version.
+                                // Accept the new_inner_size by value for our backend use.
                                 let size: PhysicalSize<u32> = *new_inner_size;
                                 let w = size.width.max(1);
                                 let h = size.height.max(1);
@@ -68,8 +85,8 @@ async fn main() {
                         }
                     }
                 }
-                Event::RedrawRequested(id) => {
-                    if id == zwin.window().id() {
+                Event::RedrawRequested(window_id) => {
+                    if window_id == zwin.window().id() {
                         // Build an empty vello::Scene for now; backend clears the background.
                         let scene = vello::Scene::new();
                         backend.render_frame(&scene);
