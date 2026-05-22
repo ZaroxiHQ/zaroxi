@@ -14,7 +14,7 @@ drive presentation without depending on winit from many places.
  // versions and to match the actual public API surface in 0.30.13.
  use winit::dpi::PhysicalSize;
  use winit::event_loop::EventLoop;
- use winit::window::{Window, WindowBuilder};
+ use winit::window::Window;
 
 /// A thin handle to the native window used by the engine.
 /// Thin handle storing the concrete winit Window type from the aliased module.
@@ -33,13 +33,17 @@ impl ZaroxiWindow {
     /// - resizable: true
     /// - transparent: false
     pub fn new(event_loop: &EventLoop<()>) -> Self {
-        let builder = WindowBuilder::new()
-            .with_title("Zaroxi Studio")
+        // winit 0.30.x removed WindowBuilder in favor of creating windows via the EventLoop
+        // using WindowAttributes. Build attributes here and ask the EventLoop to create the window.
+        let attrs = Window::default_attributes()
+            .with_title("Zaroxi Studio".to_string())
             .with_inner_size(PhysicalSize::new(1400u32, 900u32))
             .with_resizable(true)
             .with_transparent(false);
 
-        let window = builder.build(event_loop).expect("failed to create window");
+        let window = event_loop
+            .create_window(attrs)
+            .expect("failed to create window");
 
         let size = window.inner_size();
         let width = size.width.max(1);
