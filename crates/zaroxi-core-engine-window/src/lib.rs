@@ -12,7 +12,8 @@ drive presentation without depending on winit from many places.
 use raw_window_handle::HasWindowHandle;
 use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoop;
-use winit::window::{Window, WindowBuilder};
+use winit::window::Window;
+use winit::window::WindowBuilder;
 
 /// A thin handle to the native window used by the engine.
 pub struct ZaroxiWindow {
@@ -61,8 +62,13 @@ impl ZaroxiWindow {
     }
 
     /// Return a RawWindowHandle for backend initialization if needed.
-    pub fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
-        self.window.window_handle()
+    pub fn raw_window_handle(
+        &self,
+    ) -> Result<raw_window_handle::RawWindowHandle, raw_window_handle::HandleError> {
+        // raw-window-handle 0.6 exposes window_handle() -> Result<WindowHandle<'_>, HandleError>.
+        // Convert to the owned RawWindowHandle for consumers.
+        let wh = self.window.window_handle()?;
+        Ok(wh.raw_window_handle())
     }
 
     /// Update the cached window size (driver code should call this on resize).
