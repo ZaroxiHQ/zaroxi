@@ -23,6 +23,7 @@ mod projections;
 mod status_bar;
 mod state;
 mod summary;
+mod snapshot;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
 pub(crate) use state::command_kind_short_name;
@@ -653,14 +654,7 @@ impl DesktopComposition {
     /// - The ShellSnapshot is a read-only convenience for shells and harnesses; it does not
     ///   duplicate or re-derive any projection logic.
     pub fn latest_shell_snapshot(&self) -> Option<ShellSnapshot> {
-        // Require at least the shell context to produce a snapshot.
-        let ctx = self.latest_shell_context()?;
-        let active_document = self.latest_active_document_summary();
-        let viewport = self.latest_viewport_summary();
-        let ai_summary = self.latest_ai_projection_summary();
-        let opened_buffers = self.latest_opened_buffers_summary();
-
-        Some(ShellSnapshot { context: ctx, active_document, viewport, ai_summary, opened_buffers })
+        snapshot::latest_shell_snapshot(self)
     }
 
     pub fn latest_consistency_report(&self) -> DesktopConsistencyReport {
