@@ -552,4 +552,113 @@ impl ShellRenderTranscript {
 
         set
     }
+
+    /// Parse plan_lines slice and return EditorPrimitiveSet without needing a full ShellRenderTranscript.
+    ///
+    /// This helper mirrors the parsing logic used in `to_editor_primitives` but
+    /// operates on an explicit slice of plan lines. It allows tests and harnesses
+    /// to validate the presenter's deterministic plan format without constructing
+    /// a full transcript (view/engine chrome/etc).
+    pub fn parse_plan_lines(plan_lines: &[String]) -> EditorPrimitiveSet {
+        let mut set = EditorPrimitiveSet::new();
+
+        for line in plan_lines {
+            let s = line.trim();
+            if s.starts_with("Text ") {
+                // tokens: Text x={} y={} text="..." color={:?}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut text = String::new();
+
+                // Extract quoted text payload if present.
+                if let Some(start) = s.find("text=\"") {
+                    let after = &s[start + 6..];
+                    if let Some(end) = after.find('"') {
+                        text = after[..end].to_string();
+                    }
+                }
+
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+
+                set.texts.push(TextPrimitive {
+                    x,
+                    y,
+                    text,
+                    font_name: "ZaroxiMono".to_string(),
+                    max_width: None,
+                });
+            } else if s.starts_with("Gutter ") {
+                // Gutter x={} y={} label="..."
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut label = String::new();
+
+                if let Some(start) = s.find("label=\"") {
+                    let after = &s[start + 7..];
+                    if let Some(end) = after.find('"') {
+                        label = after[..end].to_string();
+                    }
+                }
+
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+
+                set.gutter_labels.push(TextPrimitive {
+                    x,
+                    y,
+                    text: label,
+                    font_name: "ZaroxiMono".to_string(),
+                    max_width: None,
+                });
+            } else if s.starts_with("Caret ") {
+                // Caret x={} y={} h={}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut h: u32 = 0;
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("h=") {
+                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+                set.carets.push(CaretItem { x, y, height: h });
+            } else if s.starts_with("Selection ") {
+                // Selection x={} y={} w={} h={}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut w: u32 = 0;
+                let mut h: u32 = 0;
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("w=") {
+                        w = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("h=") {
+                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+                if w > 0 && h > 0 {
+                    set.selections.push(SelectionRect { x, y, width: w, height: h });
+                }
+            }
+        }
+
+        set
+    }
 }
