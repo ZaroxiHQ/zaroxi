@@ -1,6 +1,6 @@
 use zaroxi_application_workspace::editor_service::EditorService;
-use crate::clipboard::InMemoryClipboard;
-use crate::presenters::transcript::render::ShellRenderTranscript;
+use zaroxi_interface_desktop::InMemoryClipboard;
+use zaroxi_interface_desktop::presenters::transcript::render::ShellRenderTranscript;
 
 #[test]
 fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {

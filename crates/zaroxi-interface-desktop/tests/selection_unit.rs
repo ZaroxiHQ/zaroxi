@@ -1,5 +1,5 @@
 use zaroxi_application_workspace::editor_service::EditorService;
-use crate::clipboard::InMemoryClipboard;
+use zaroxi_interface_desktop::InMemoryClipboard;
 
 #[test]
 fn shift_arrow_expands_and_shrinks_selection() {
