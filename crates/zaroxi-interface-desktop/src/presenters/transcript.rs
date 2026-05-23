@@ -12,6 +12,10 @@ use zaroxi_core_engine_scene::{TextPrimitive, CaretItem, SelectionRect, EditorPr
  // cursor/selection fields and stable monospace metrics for transcript math.
  #[derive(Clone, Debug)]
  pub struct EditorLayoutSpec {
+     /// 1-based top-most visible line index (when known). This is used to
+     /// convert absolute document line numbers (cursor/selection) into visible
+     /// row offsets inside the provided `editor_lines` slice.
+     pub top_line: Option<u32>,
      pub cursor_line: Option<u32>,
      pub cursor_column: Option<u32>,
      pub selection: Option<(u32, u32, u32, u32)>,
@@ -117,12 +121,18 @@ impl ShellRenderTranscript {
             // Gutter x is placed to the left of the content rect (reserve gutter width).
             let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
 
+            // Determine the absolute top-most visible document line (1-based)
+            // so that gutter labels and caret/selection math can be expressed in
+            // document coordinates and then projected into the visible slice.
+            let top_line_val = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
+
             for (i, text) in ed_lines.iter().enumerate() {
-                let row = (i as u32) + 1; // 1-based visible row index for readability
+                // Document row (1-based) for this visible entry.
+                let doc_row = top_line_val.saturating_add(i as u32);
                 let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
 
                 // Gutter label (right-aligned, deterministic width).
-                let label = format!("{:>4}", row);
+                let label = format!("{:>4}", doc_row);
                 plan_lines.push(format!("Gutter x={} y={} label=\"{}\"", gutter_x, y, label));
 
                 // Content text entry (slight inset from left content edge for readability).
@@ -144,17 +154,22 @@ impl ShellRenderTranscript {
                 // Caret: single vertical thin rect at (col,char_w).
                 if let Some(cl) = layout.cursor_line {
                     let col = layout.cursor_column.unwrap_or(0);
-                    // layout.cursor_line is 1-based; visible rows start at 1 for transcript.
+                    let top_line_val = layout.top_line.unwrap_or(1);
+                    // Compute the caret y relative to the visible slice. Both `cl`
+                    // and `top_line_val` are 1-based document lines.
+                    let offset_rows = cl.saturating_sub(top_line_val);
                     let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
-                    let caret_y = base_y.saturating_add((cl.saturating_sub(1)).saturating_mul(lh));
+                    let caret_y = base_y.saturating_add(offset_rows.saturating_mul(lh));
                     plan_lines.push(format!("Caret x={} y={} h={}", caret_x, caret_y, lh));
                 }
 
                 // Selection: produce one Selection plan entry per visible line that intersects.
                 if let Some((sline, scol, eline, ecol)) = layout.selection {
+                    let top_line_val = layout.top_line.unwrap_or(1);
                     // Iterate visible rows and emit selection rects for intersections.
                     for (i, _) in ed_lines.iter().enumerate() {
-                        let row = (i as u32) + 1;
+                        // document row for this visible entry (1-based)
+                        let row = top_line_val.saturating_add(i as u32);
                         if row < sline || row > eline {
                             continue;
                         }
@@ -168,7 +183,8 @@ impl ShellRenderTranscript {
                         }
                         let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
                         let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
-                        let sy = base_y.saturating_add((row.saturating_sub(1)).saturating_mul(lh));
+                        // sy is based on the visible row offset (i)
+                        let sy = base_y.saturating_add((i as u32).saturating_mul(lh));
                         plan_lines.push(format!("Selection x={} y={} w={} h={}", sx, sy, w, lh));
                     }
                 }
