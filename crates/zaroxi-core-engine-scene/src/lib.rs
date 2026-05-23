@@ -9,7 +9,12 @@
 pub const CRATE_NAME: &str = "zaroxi-core-engine-scene";
 
 pub mod scene;
-pub use scene::{ShellSceneModel, CaretItem, SelectionRect};
+pub use scene::{
+    ShellSceneModel, CaretItem, SelectionRect,
+    // Phase 4 runtime seam: expose simple getters/setters and input helpers so
+    // renderers/harnesses can publish & mutate the current ShellSceneModel.
+    get_current_scene, set_current_scene, insert_char, backspace, move_cursor, scroll_by_lines,
+};
 // NOTE:
 // EditorPrimitiveSet is defined in this crate root (below) and is NOT provided
 // by the `scene` module. Attempting to import it from `scene` caused the

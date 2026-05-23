@@ -555,5 +555,95 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+
+        // --- Overlay: engine-driven editor text surface (Phase 4) ---
+        // Query the engine scene model (published by the harness/interface)
+        // and convert it into EditorPrimitiveSet for rendering. This replaces
+        // the prior hard-coded sample_lines and makes the backend reflect live
+        // editor state when the application publishes it.
+        {
+            let scene_model = zaroxi_core_engine_scene::get_current_scene();
+
+            // Load bundled monospace font metrics used by engine text layout.
+            let font = load_bundled_monospace();
+            let char_w: u32 = font.char_width;
+            let line_h: u32 = font.line_height;
+
+            // Compute editor content origin from the deterministic ShellLayout.
+            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(width, height);
+            let editor_x = layout.editor_content.x.max(0.0) as u32;
+            let editor_y = layout.editor_content.y.max(0.0) as u32;
+
+            // Determine visible slice based on scene.viewport_top_line and the
+            // available editor content height.
+            let avail_h = layout.editor_content.height.max(0.0) as u32;
+            let visible_rows = if line_h > 0 { (avail_h / line_h) as usize } else { scene_model.text_lines.len() };
+
+            let top_line = scene_model.viewport_top_line.max(1) as usize;
+            let start_idx = top_line.saturating_sub(1);
+            let end_idx = std::cmp::min(start_idx + visible_rows, scene_model.text_lines.len());
+            let visible_slice: Vec<String> = scene_model.text_lines[start_idx..end_idx].to_vec();
+
+            // Use the engine text layout to shape visible lines into TextPrimitive items.
+            // We pass the content inset (6px) so text runs and caret math align with presenter expectations.
+            let content_inset: u32 = 6;
+            let content_text_x = editor_x.saturating_add(content_inset);
+            let line_layout = zaroxi_core_engine_text::plain::layout_plain_lines(
+                &visible_slice,
+                &font,
+                content_text_x,
+                editor_y,
+                None,
+            );
+
+            // Convert text primitives into an EditorPrimitiveSet for renderer consumption.
+            let mut set = zaroxi_core_engine_scene::EditorPrimitiveSet::new();
+
+            // Text runs (already positioned at content_text_x by layout_plain_lines)
+            for tp in line_layout.primitives.into_iter() {
+                set.texts.push(zaroxi_core_engine_scene::TextPrimitive {
+                    x: tp.x,
+                    y: tp.y,
+                    text: tp.text,
+                    font_name: tp.font_name,
+                    max_width: tp.max_width,
+                });
+            }
+
+            // Gutter labels (right-aligned numeric labels, deterministic width)
+            let gutter_width: u32 = 48;
+            let gutter_x = if editor_x > gutter_width { editor_x - gutter_width } else { 0 };
+            for (i, _) in visible_slice.iter().enumerate() {
+                let doc_row = (top_line as u32).saturating_add(i as u32);
+                let y = editor_y.saturating_add((i as u32).saturating_mul(line_h));
+                set.gutter_labels.push(zaroxi_core_engine_scene::TextPrimitive {
+                    x: gutter_x,
+                    y,
+                    text: format!("{:>4}", doc_row),
+                    font_name: font.family.clone(),
+                    max_width: None,
+                });
+            }
+
+            // Caret: project from live scene cursor_line / cursor_column into absolute coords
+            if let Some(cl) = scene_model.cursor_line {
+                let col = scene_model.cursor_column.unwrap_or(0);
+                // Check if caret is inside the visible slice
+                if cl >= scene_model.viewport_top_line && (cl as usize) < (start_idx + visible_rows + 1) {
+                    let offset_rows = (cl as usize).saturating_sub(top_line);
+                    let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
+                    let caret_y = editor_y.saturating_add((offset_rows as u32).saturating_mul(line_h));
+                    set.carets.push(zaroxi_core_engine_scene::CaretItem { x: caret_x, y: caret_y, height: line_h });
+                }
+            }
+
+            // Simple selection rendering is intentionally omitted here unless the scene
+            // exposes explicit selection ranges. The scene currently offers only a
+            // `selection_present` flag; real selection rects will be produced by the
+            // presenter or application in a later phase.
+
+            // Render the editor primitives as an overlay.
+            self.render_editor_primitives(&set);
+        }
     }
 }
