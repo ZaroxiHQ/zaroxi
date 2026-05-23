@@ -73,3 +73,22 @@ impl From<EngineShellViewInput> for ShellSceneModel {
         }
     }
 }
+
+/// Caret primitive describing a thin vertical caret. Coordinates are absolute
+/// window-space and sized in integer pixels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaretItem {
+    pub x: u32,
+    pub y: u32,
+    pub height: u32,
+}
+
+/// Selection rectangle primitive covering a contiguous highlighted area.
+/// Consumers may emit multiple SelectionRect entries for multi-line selections.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectionRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}

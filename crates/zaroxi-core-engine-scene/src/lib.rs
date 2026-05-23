@@ -9,7 +9,7 @@
 pub const CRATE_NAME: &str = "zaroxi-core-engine-scene";
 
 pub mod scene;
-pub use scene::ShellSceneModel;
+pub use scene::{ShellSceneModel, CaretItem, SelectionRect};
 
 /// Primitive describing a single laid-out text run for the scene.
 ///

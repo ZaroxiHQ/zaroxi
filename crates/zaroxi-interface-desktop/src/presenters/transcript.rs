@@ -3,6 +3,10 @@ use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 
+// editor layout / font helpers for caret/selection projection into transcript.
+use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_editor_view::EditorViewLayout;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
     pub width: u32,
