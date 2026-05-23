@@ -50,7 +50,8 @@ fn copy_cut_paste_via_inmemory_clipboard() {
     // select "ne2" from line2 (characters 2..5)
     {
         let mut b = svc.buffer.lock().unwrap();
-        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 1, anchor_col: 1, active_line: 1, active_col: 4 });
+        // select "ne2" from line2 (characters 2..5)
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 1, anchor_col: 2, active_line: 1, active_col: 5 });
     }
     // copy
     if let Some(t) = svc.copy_selection() {

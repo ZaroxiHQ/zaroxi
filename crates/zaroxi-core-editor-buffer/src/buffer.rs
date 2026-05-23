@@ -215,8 +215,26 @@ impl Buffer {
         } else {
             let before = self.lines[sl].chars().take(sc).collect::<String>();
             let after = self.lines[el].chars().skip(ec).collect::<String>();
-            // remove middle lines and replace with merged before+after
-            self.lines.splice(sl..=el, std::iter::once(format!("{}{}", before, after)));
+
+            // When joining across a deleted multi-line selection, prefer inserting a
+            // single space between the head and tail if neither side already has
+            // surrounding whitespace. This matches user-visible expectations where
+            // removing a newline often leaves a visible gap rather than concatenating
+            // two words together.
+            let merged = if before.is_empty() || after.is_empty() {
+                format!("{}{}", before, after)
+            } else {
+                let last_before = before.chars().rev().next().unwrap();
+                let first_after = after.chars().next().unwrap();
+                if last_before.is_whitespace() || first_after.is_whitespace() {
+                    format!("{}{}", before, after)
+                } else {
+                    format!("{} {}", before, after)
+                }
+            };
+
+            // remove middle lines and replace with merged before+after (possibly with inserted space)
+            self.lines.splice(sl..=el, std::iter::once(merged));
             self.cursor_line = sl;
             self.cursor_col = sc;
         }
