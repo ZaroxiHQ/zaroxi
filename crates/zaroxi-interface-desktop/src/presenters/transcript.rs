@@ -593,6 +593,20 @@ pub fn layout_debug_lines_from_shell(layout: &zaroxi_core_engine_layout::ShellLa
     layout.to_debug_lines()
 }
 
+/// Helper wrapper so tests and other module-level callers can invoke the
+/// presenter's deterministic primitive builder without referencing the
+/// ShellRenderTranscript type directly. The real implementation lives as an
+/// associated function on ShellRenderTranscript to keep presenter internals
+/// grouped; this free function provides the backward-compatible test seam.
+pub fn build_editor_primitives_from_lines(
+    content_x: u32,
+    base_y: u32,
+    editor_lines: &[String],
+    editor_layout: Option<&EditorLayoutSpec>,
+) -> EditorPrimitiveSet {
+    ShellRenderTranscript::build_editor_primitives_from_lines(content_x, base_y, editor_lines, editor_layout)
+}
+
 #[cfg(test)]
 mod editor_render_tests {
     use super::*;
