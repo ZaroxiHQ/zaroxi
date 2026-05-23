@@ -34,6 +34,7 @@ impl ShellRenderTranscript {
         view: &GpuShellView,
         plan: &GpuPaintPlan,
         tabs: &TabStrip,
+        editor_lines: Option<&[String]>,
     ) -> Self {
         let mut plan_lines = Vec::with_capacity(plan.ops.len());
         for op in plan.ops.iter() {
@@ -56,6 +57,14 @@ impl ShellRenderTranscript {
                         x, y, text, color
                     ));
                 }
+            }
+        }
+
+        // Append editor-visible lines if provided.
+        if let Some(ed_lines) = editor_lines {
+            for (i, text) in ed_lines.iter().enumerate() {
+                // 1-based visible line index in the appended transcript for readability.
+                plan_lines.push(format!("EditorLine {}: {}", i + 1, text));
             }
         }
 
