@@ -4,6 +4,8 @@
 /// domain contracts and core ports, but not on infrastructure or interface.
 /// For Phase 1 keep implementations minimal and focused on the single slice.
 pub mod service;
+pub mod editor_service;
+pub use editor_service::EditorService;
 pub mod workspace_manager;
 pub mod ports;
 pub mod in_memory_adapters;

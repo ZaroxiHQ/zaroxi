@@ -12,6 +12,8 @@ pub mod selection_view;
 pub mod events;
 pub mod gpu_shell_adapter;
 pub mod gpu_shell_runtime;
+pub mod clipboard;
+pub mod input;
 
 // Re-export application ports so tests and internal modules can refer to `crate::ports`.
 // This keeps the interface crate surface small while enabling test modules to implement
@@ -37,6 +39,7 @@ pub use render_debug_text::render_debug_text;
 pub mod presenters;
 pub use presenters::ShellRenderPresenter;
 pub use presenters::GpuShellPresenter;
+pub use clipboard::InMemoryClipboard;
 
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.
