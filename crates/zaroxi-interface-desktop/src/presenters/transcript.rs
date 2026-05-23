@@ -22,7 +22,7 @@ impl ShellRenderTranscript {
     /// and contain concise, deterministic descriptions of each op.
     /// This legacy constructor produces a transcript with an empty TabStrip.
     pub fn from_view_and_plan(width: u32, height: u32, view: &GpuShellView, plan: &GpuPaintPlan) -> Self {
-        Self::from_view_and_plan_with_tabs(width, height, view, plan, &TabStrip::default())
+        Self::from_view_and_plan_with_tabs(width, height, view, plan, &TabStrip::default(), None)
     }
 
     /// Construct a transcript from the stable presenter view + paint plan and
