@@ -298,3 +298,126 @@ pub fn scroll_by_lines(delta: i32) {
     s.viewport_top_line = top as u32;
     clamp_top_line(&mut s);
 }
+
+/// Map a window-space click (x,y) into a document cursor (1-based line, 0-based column).
+///
+/// - click_x/click_y: absolute window-space click coordinates (pixels).
+/// - content_x/base_y: absolute window-space origin of the editor content area
+///   (content_x refers to the left edge of the content rect).
+/// - top_line: document 1-based top-of-viewport line.
+/// - char_w/line_h: monospace character width & line height in pixels.
+/// - content_inset: content inset (pixels) applied by presenters (default 6).
+///
+/// Returns (line, column) where `line` is 1-based and `column` is 0-based.
+pub fn map_click_to_cursor(
+    click_x: u32,
+    click_y: u32,
+    content_x: u32,
+    base_y: u32,
+    top_line: u32,
+    char_w: u32,
+    line_h: u32,
+    content_inset: u32,
+) -> (u32, u32) {
+    // compute the content text origin (presenter applies a small inset)
+    let content_text_x = content_x.saturating_add(content_inset);
+
+    // row offset within the visible slice (0-based)
+    let row_offset = if click_y < base_y {
+        0u32
+    } else if line_h == 0 {
+        0u32
+    } else {
+        (click_y.saturating_sub(base_y)) / line_h
+    };
+
+    let line = top_line.saturating_add(row_offset).max(1);
+
+    let col = if click_x < content_text_x || char_w == 0 {
+        0u32
+    } else {
+        (click_x.saturating_sub(content_text_x)) / char_w
+    };
+
+    (line, col)
+}
+
+/// Place the global scene cursor based on a window-space click. The function
+/// updates the engine-owned ShellSceneModel (protected by RwLock) so callers
+/// can simply invoke this from input handlers.
+///
+/// Parameters mirror those of `map_click_to_cursor` except `top_line` is taken
+/// from the current scene so callers need not provide it.
+pub fn place_cursor_from_click(
+    click_x: u32,
+    click_y: u32,
+    content_x: u32,
+    base_y: u32,
+    char_w: u32,
+    line_h: u32,
+    content_inset: u32,
+) {
+    let lock = scene_lock();
+    let mut s = lock.write().unwrap();
+
+    // derive top_line from live scene state
+    let top_line = s.viewport_top_line.max(1);
+
+    let (line, col) = map_click_to_cursor(
+        click_x,
+        click_y,
+        content_x,
+        base_y,
+        top_line,
+        char_w,
+        line_h,
+        content_inset,
+    );
+
+    s.cursor_line = Some(line);
+    s.cursor_column = Some(col);
+    // enforce invariants after mutation
+    normalize_cursor(&mut s);
+    clamp_top_line(&mut s);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn click_to_cursor_basic() {
+        // content_x = 100, base_y = 50, content_inset = 6, char_w = 8, line_h = 16
+        // click at x=106 => relative to content_text_x(106) => column 0
+        // click at x=130 => column = (130 - 106)/8 = 3
+        // click at y=66 => row_offset = (66 - 50)/16 = 1 => line = top_line + 1
+        let (line, col) = map_click_to_cursor(130, 66, 100, 50, 1, 8, 16, 6);
+        assert_eq!((line, col), (2, 3));
+    }
+
+    #[test]
+    fn place_cursor_updates_scene() {
+        // prepare a small scene with two lines
+        let model = ShellSceneModel {
+            text_lines: vec!["alpha".to_string(), "beta".to_string()],
+            viewport_top_line: 1,
+            viewport_total_lines: 2,
+            viewport_summary: None,
+            cursor_line: Some(1),
+            cursor_column: Some(0),
+            selection_present: false,
+            status_text: None,
+            chrome_text: None,
+            last_command: None,
+            ai_status_present: false,
+        };
+        set_current_scene(model);
+
+        // perform click that should map to line 2, column 3
+        place_cursor_from_click(130, 66, 100, 50, 8, 16, 6);
+
+        let s = get_current_scene();
+        assert_eq!(s.cursor_line.unwrap(), 2);
+        assert_eq!(s.cursor_column.unwrap(), 3);
+    }
+}
