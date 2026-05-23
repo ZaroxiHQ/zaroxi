@@ -1,5 +1,5 @@
 use crate::scene::RectPrimitive;
-use zaroxi_core_engine_layout::layout::ShellLayout;
+use zaroxi_core_engine_layout::ShellLayout;
 
 /// Build a simple, deterministic shell UI composed of:
 /// - background (full window)
