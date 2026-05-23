@@ -15,6 +15,29 @@ pub struct EditorViewLayout {
     pub line_positions: Vec<(u32, f32)>,
 }
 
+impl EditorViewLayout {
+    /// Return the visible text lines (cloned) from the provided document slice.
+    ///
+    /// This helper preserves the top-to-bottom order of visible rows and will
+    /// produce an output entry for each visible row. If the document is shorter
+    /// than the visible range the missing rows are represented by empty strings
+    /// so downstream consumers observe a stable row count.
+    pub fn visible_texts(&self, doc: &[String]) -> Vec<String> {
+        let (first, last) = self.visible_range;
+        if doc.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = Vec::new();
+        for idx in first..=last {
+            match doc.get(idx as usize) {
+                Some(s) => out.push(s.clone()),
+                None => out.push(String::new()),
+            }
+        }
+        out
+    }
+}
+
 /// EditorView composes gutter + viewport math and projects visible line positions
 /// into absolute window coordinates suitable for presenters/renderers.
 #[derive(Clone, Debug)]

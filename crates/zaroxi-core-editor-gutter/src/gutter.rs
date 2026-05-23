@@ -29,4 +29,13 @@ impl GutterModel {
         let content_w = (editor_rect.width - inset).max(0.0);
         Rect::new(editor_rect.x + inset, editor_rect.y, content_w, editor_rect.height)
     }
+
+    /// Format a 1-based logical line number into a narrow right-aligned label.
+    ///
+    /// The formatting here is intentionally deterministic and stable: it produces
+    /// a 4-character, right-aligned string. Presenters may use this label when
+    /// composing gutter paint operations.
+    pub fn line_number_string(&self, line_one_based: u32) -> String {
+        format!("{:>4}", line_one_based)
+    }
 }
