@@ -1,4 +1,4 @@
-use zaroxi_core_editor_buffer::buffer::Buffer;
+use zaroxi_core_editor_buffer::buffer::{Buffer, Selection};
 use std::sync::{Arc, Mutex};
 
 /// Public snapshot type that the interface can consume to build presenter editor layout.
@@ -92,9 +92,24 @@ impl EditorService {
     }
 
     /// Paste: replace selection or insert text at caret.
+    /// After pasting, set the selection to the inserted range (anchor at
+    /// insertion start, active at insertion end) so presenters can highlight
+    /// pasted content in downstream projections/tests.
     pub fn paste_text(&self, text: &str) {
         let mut b = self.buffer.lock().unwrap();
+        // record insertion start
+        let start_line = b.cursor_line;
+        let start_col = b.cursor_col;
         b.replace_selection_or_insert(text);
+        // record insertion end (cursor is placed at end of inserted text)
+        let end_line = b.cursor_line;
+        let end_col = b.cursor_col;
+        b.selection = Some(Selection {
+            anchor_line: start_line,
+            anchor_col: start_col,
+            active_line: end_line,
+            active_col: end_col,
+        });
     }
 
     /// Snapshot for presenter consumption (adapter in interface layer will map 0-based -> 1-based).
