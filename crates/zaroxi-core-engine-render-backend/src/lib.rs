@@ -13,7 +13,6 @@ Responsibilities:
 
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_window::ZaroxiWindow;
-use zaroxi_core_engine_layout::layout::ShellLayout;
 use bytemuck;
 use zaroxi_core_engine_font::load_bundled_monospace;
 
