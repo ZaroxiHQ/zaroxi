@@ -341,6 +341,89 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+
+        // --- Overlay: simple editor text surface (Phase 4 demo) ---
+        // Build a minimal EditorPrimitiveSet using the engine text layout and
+        // the shell layout so the backend can render a real text surface inside
+        // the editor content area. This is intentionally small and deterministic:
+        // - uses the bundled monospace font metrics
+        // - layouts a tiny sample buffer (replaceable by real buffer plumbing)
+        // - emits text runs, gutter labels, and a demo caret
+        //
+        // NOTE: This double-presents (background first, then editor overlay).
+        // It's a conservative, low-risk integration point for Phase 4 so we can
+        // incrementally wire real editor primitives without refactoring the
+        // broader render loop. Future phases should integrate these primitives
+        // earlier in the single-pass render_frame path.
+        {
+            // Sample lines (placeholder for real buffer content from editor state).
+            let sample_lines = vec![
+                "fn main() {".to_string(),
+                "    println!(\"Hello, Zaroxi!\");".to_string(),
+                "}".to_string(),
+            ];
+
+            // Load bundled monospace font metrics used by engine text layout.
+            let font = load_bundled_monospace();
+            let char_w: u32 = font.char_width;
+            let line_h: u32 = font.line_height;
+
+            // Compute editor content origin from the deterministic ShellLayout.
+            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(width, height);
+            // editor_content is an absolute window-space rect
+            let editor_x = layout.editor_content.x.max(0.0) as u32;
+            let editor_y = layout.editor_content.y.max(0.0) as u32;
+
+            // Use the engine text layout to shape visible lines into TextPrimitive items.
+            let line_layout = zaroxi_core_engine_text::plain::layout_plain_lines(
+                &sample_lines,
+                &font,
+                editor_x,
+                editor_y,
+                None,
+            );
+
+            // Convert text primitives into an EditorPrimitiveSet for renderer consumption.
+            let mut set = zaroxi_core_engine_scene::EditorPrimitiveSet::new();
+
+            // Text runs
+            for tp in line_layout.primitives.into_iter() {
+                set.texts.push(zaroxi_core_engine_scene::TextPrimitive {
+                    x: tp.x,
+                    y: tp.y,
+                    text: tp.text,
+                    font_name: tp.font_name,
+                    max_width: tp.max_width,
+                });
+            }
+
+            // Gutter labels (right-aligned numeric labels, deterministic width)
+            let gutter_width: u32 = 48;
+            let gutter_x = if editor_x > gutter_width { editor_x - gutter_width } else { 0 };
+            for (i, _) in sample_lines.iter().enumerate() {
+                let doc_row = 1u32.saturating_add(i as u32);
+                let y = editor_y.saturating_add((i as u32).saturating_mul(line_h));
+                set.gutter_labels.push(zaroxi_core_engine_scene::TextPrimitive {
+                    x: gutter_x,
+                    y,
+                    text: format!("{:>4}", doc_row),
+                    font_name: font.family.clone(),
+                    max_width: None,
+                });
+            }
+
+            // Demo caret (place at line 2, column 4). In Phase 4 this will be driven
+            // by real editor state: cursor_line / cursor_column.
+            let caret_line = 2u32;
+            let caret_col = 4u32;
+            let content_text_x = editor_x.saturating_add(6);
+            let caret_x = content_text_x.saturating_add(caret_col.saturating_mul(char_w));
+            let caret_y = editor_y.saturating_add((caret_line.saturating_sub(1)).saturating_mul(line_h));
+            set.carets.push(zaroxi_core_engine_scene::CaretItem { x: caret_x, y: caret_y, height: line_h });
+
+            // Render the editor primitives as an overlay.
+            self.render_editor_primitives(&set);
+        }
     }
 
     /// Render editor primitives (text glyph boxes, caret, selections) as simple rectangles.

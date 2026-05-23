@@ -14,5 +14,6 @@ zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
 zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
+zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
 zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
 bytemuck = "1.13"
