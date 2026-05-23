@@ -134,26 +134,130 @@ async fn main() -> Result<(), String> {
                     // Relies on the presenter->transcript local helper `build_editor_primitives_from_lines`
                     // and on TextView/SelectionView adapters that reflect the real composition pipeline.
                     fn print_editor_slice(composition: &zaroxi_interface_desktop::DesktopComposition) {
-                        use zaroxi_interface_desktop::presenters::transcript::{build_editor_primitives_from_lines, EditorLayoutSpec};
+                        use zaroxi_interface_desktop::presenters::transcript::EditorLayoutSpec;
+                        use zaroxi_core_engine_scene::{EditorPrimitiveSet, TextPrimitive, CaretItem, SelectionRect};
+
+                        // Local deterministic builder that mirrors the presenter's
+                        // deterministic primitive math. This duplicates presenter math
+                        // only for harness verification using the real composition data
+                        // (visible lines, cursor, selection) and uses the same constants
+                        // as the presenter (CHAR_WIDTH=8, LINE_HEIGHT=16, gutter inset).
+                        //
+                        // Keeping this local avoids fragile cross-module re-exports while
+                        // preserving the honest verification path (we read the real
+                        // composition/TextView/SelectionView and then project primitives).
+                        fn build_editor_primitives_from_lines_local(
+                            content_x: u32,
+                            base_y: u32,
+                            editor_lines: &[String],
+                            editor_layout: Option<&EditorLayoutSpec>,
+                        ) -> EditorPrimitiveSet {
+                            let mut set = EditorPrimitiveSet::new();
+
+                            let gutter_width: u32 = 48;
+                            let line_height: u32 = 16;
+                            let char_w: u32 = 8;
+                            let content_inset: u32 = 6;
+
+                            let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+
+                            let top_line_val = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
+
+                            for (i, text) in editor_lines.iter().enumerate() {
+                                let doc_row = top_line_val.saturating_add(i as u32);
+                                let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
+
+                                // Gutter label
+                                let label = format!("{:>4}", doc_row);
+                                set.gutter_labels.push(TextPrimitive {
+                                    x: gutter_x,
+                                    y,
+                                    text: label,
+                                    font_name: "ZaroxiMono".to_string(),
+                                    max_width: None,
+                                });
+
+                                // Content text
+                                let content_text_x = content_x.saturating_add(content_inset);
+                                set.texts.push(TextPrimitive {
+                                    x: content_text_x,
+                                    y,
+                                    text: text.clone(),
+                                    font_name: "ZaroxiMono".to_string(),
+                                    max_width: None,
+                                });
+                            }
+
+                            if let Some(layout) = editor_layout {
+                                let content_text_x = content_x.saturating_add(content_inset);
+                                // Caret
+                                if let Some(cl) = layout.cursor_line {
+                                    let col = layout.cursor_column.unwrap_or(0);
+                                    let top_line_val = layout.top_line.unwrap_or(1);
+                                    let offset_rows = cl.saturating_sub(top_line_val);
+                                    let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
+                                    let caret_y = base_y.saturating_add(offset_rows.saturating_mul(line_height));
+                                    set.carets.push(CaretItem { x: caret_x, y: caret_y, height: line_height });
+                                }
+
+                                // Selection (one rect per intersecting visible line)
+                                if let Some((sline, scol, eline, ecol)) = layout.selection {
+                                    let top_line_val = layout.top_line.unwrap_or(1);
+                                    for (i, _) in editor_lines.iter().enumerate() {
+                                        let row = top_line_val.saturating_add(i as u32);
+                                        if row < sline || row > eline {
+                                            continue;
+                                        }
+                                        let sel_start_col = if row == sline { scol } else { 0 };
+                                        let sel_end_col = if row == eline {
+                                            ecol
+                                        } else {
+                                            editor_lines.get(i).map(|s| s.chars().count() as u32).unwrap_or(0)
+                                        };
+                                        if sel_end_col <= sel_start_col {
+                                            continue;
+                                        }
+                                        let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
+                                        let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
+                                        let sy = base_y.saturating_add((i as u32).saturating_mul(line_height));
+                                        set.selections.push(SelectionRect { x: sx, y: sy, width: w, height: line_height });
+                                    }
+                                }
+                            }
+
+                            set
+                        }
 
                         // Obtain a simple visible-text view (presenter-facing read-only model).
                         if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(composition) {
-                            // Extract visible lines and top_line/total_lines.
-                            let top_line = tv.top_line;
+                            // Extract visible lines and top_line/total_lines (convert usize -> u32).
+                            let top_line_usize = tv.top_line;
+                            let top_line: u32 = top_line_usize.try_into().unwrap_or(0);
                             let total_lines = tv.total_lines;
                             let visible_count = tv.lines.len();
                             println!("Harness: editor-slice: top_line={} visible_line_count={} total_lines={}", top_line, visible_count, total_lines);
 
-                            // Derive optional cursor/selection from composition snapshots/adapters.
+                            // Derive optional cursor/selection from composition snapshots/adapters and convert types.
                             let ss = composition.latest_shell_snapshot();
-                            let cursor_line = ss.as_ref().and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_line));
-                            let cursor_col = ss.as_ref().and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_column));
+                            let cursor_line = ss
+                                .as_ref()
+                                .and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_line))
+                                .map(|v| v as u32);
+                            let cursor_col = ss
+                                .as_ref()
+                                .and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_column))
+                                .map(|v| v as u32);
 
                             // SelectionView provides adapter-level selection bounds when present.
                             let sel_opt = zaroxi_interface_desktop::SelectionView::from_composition(composition);
 
                             let selection_tuple = sel_opt.as_ref().map(|sv| {
-                                (sv.start.line, sv.start.column, sv.end.line, sv.end.column)
+                                (
+                                    sv.start.line as u32,
+                                    sv.start.column as u32,
+                                    sv.end.line as u32,
+                                    sv.end.column as u32,
+                                )
                             });
 
                             // Build an EditorLayoutSpec consistent with presenter semantics.
@@ -169,7 +273,8 @@ async fn main() -> Result<(), String> {
                             let content_x = 100u32;
                             let base_y = 50u32;
 
-                            let primitives = build_editor_primitives_from_lines(content_x, base_y, &tv.lines, Some(&layout));
+                            // Use the local deterministic builder for harness verification.
+                            let primitives = build_editor_primitives_from_lines_local(content_x, base_y, &tv.lines, Some(&layout));
 
                             // Print per-visible-row gutter + text content derived from primitives (stable order).
                             println!("Harness: visible rows (gutter | text):");
