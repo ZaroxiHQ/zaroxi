@@ -1,4 +1,4 @@
-mod render;
+pub mod render;
 mod editor_projection;
 mod scene_snapshot;
 mod input_bridge;
