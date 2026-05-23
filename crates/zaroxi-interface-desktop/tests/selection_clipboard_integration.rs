@@ -26,8 +26,13 @@ fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {
 
     // place cursor at end of first line and paste
     {
+        // compute col without holding a long-lived mutable borrow
+        let col = {
+            let b_snapshot = svc.buffer.lock().unwrap();
+            b_snapshot.lines[0].chars().count()
+        };
         let mut b = svc.buffer.lock().unwrap();
-        b.set_cursor(0, b.lines[0].chars().count(), false);
+        b.set_cursor(0, col, false);
     }
     if let Some(t) = clipboard.get() {
         svc.paste_text(&t);
