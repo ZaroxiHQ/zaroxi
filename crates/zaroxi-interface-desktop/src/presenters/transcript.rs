@@ -218,6 +218,51 @@ impl ShellRenderTranscript {
 
         let engine_chrome = ChromePrimitive::from(scene_chrome);
 
+        // Publish a lightweight engine-facing ShellSceneModel snapshot so the
+        // engine runtime seam (zaroxi-core-engine-scene) reflects the active
+        // presenter's visible lines and optional editor layout (caret/selection).
+        // This makes renderer backends that query the global scene (get_current_scene)
+        // render the real active-buffer text and caret without further plumbing.
+        //
+        // We intentionally avoid mutating presenter-local state here; this is a
+        // best-effort, deterministic snapshot useful for early Phase 4 wiring.
+        let scene_model = {
+            // prefer explicit editor_lines if provided; otherwise fall back to a
+            // single-line content_preview (when present) or an empty vec.
+            let text_lines: Vec<String> = editor_lines
+                .map(|s| s.to_vec())
+                .unwrap_or_else(|| view.content_preview.as_ref().map(|p| vec![p.clone()]).unwrap_or_else(|| vec![]));
+
+            let top_line = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
+            let total_lines = if !text_lines.is_empty() {
+                text_lines.len() as u32
+            } else {
+                view.content_preview.as_ref().map(|_| 1u32).unwrap_or(0u32)
+            };
+
+            let cursor_line = editor_layout.and_then(|l| l.cursor_line);
+            let cursor_column = editor_layout.and_then(|l| l.cursor_column);
+            let selection_present = editor_layout.and_then(|l| l.selection).is_some() || cursor_line.is_some();
+
+            zaroxi_core_engine_scene::ShellSceneModel {
+                text_lines,
+                viewport_top_line: top_line,
+                viewport_total_lines: total_lines,
+                viewport_summary: None,
+                cursor_line,
+                cursor_column,
+                selection_present,
+                status_text: view.status_text.clone(),
+                chrome_text: view.chrome_label.clone(),
+                last_command: None,
+                ai_status_present: view.ai_indicator.is_some(),
+            }
+        };
+
+        // Publish snapshot to the engine seam so backends rendering later in the
+        // frame will observe the presenter's active buffer & caret.
+        zaroxi_core_engine_scene::set_current_scene(scene_model);
+
         ShellRenderTranscript {
             width,
             height,
@@ -605,6 +650,65 @@ pub fn build_editor_primitives_from_lines(
     editor_layout: Option<&EditorLayoutSpec>,
 ) -> EditorPrimitiveSet {
     ShellRenderTranscript::build_editor_primitives_from_lines(content_x, base_y, editor_lines, editor_layout)
+}
+
+/// ---------------------------------------------------------------------------
+/// Lightweight input-adapter helpers (Phase 4)
+///
+/// These small adapters provide a minimal, well-named API that other parts of
+/// the interface/harness can call to update the engine-owned scene seam.
+/// They simply forward to the engine-scene helpers added for Phase 4 and keep
+/// interface-side wiring explicit and testable without importing internal
+/// engine modules everywhere.
+/// ---------------------------------------------------------------------------
+pub fn handle_key_char(ch: char) {
+    zaroxi_core_engine_scene::insert_char(ch);
+}
+
+pub fn handle_backspace() {
+    zaroxi_core_engine_scene::backspace();
+}
+
+pub fn handle_arrow_up() {
+    // move cursor up one line
+    zaroxi_core_engine_scene::move_cursor(-1, 0);
+}
+
+pub fn handle_arrow_down() {
+    // move cursor down one line
+    zaroxi_core_engine_scene::move_cursor(1, 0);
+}
+
+pub fn handle_arrow_left() {
+    // move cursor left one column
+    zaroxi_core_engine_scene::move_cursor(0, -1);
+}
+
+pub fn handle_arrow_right() {
+    // move cursor right one column
+    zaroxi_core_engine_scene::move_cursor(0, 1);
+}
+
+pub fn handle_scroll_lines(delta: i32) {
+    zaroxi_core_engine_scene::scroll_by_lines(delta);
+}
+
+/// Map a window-space mouse click into the engine scene cursor and publish it.
+///
+/// This wrapper mirrors the presenter's click->cursor mapping assumptions:
+/// content_x/base_y are absolute window-space origins provided by the presenter
+/// and char_w/line_h should match the presenter's deterministic metrics used
+/// when emitting transcripts.
+pub fn handle_mouse_click_and_place_cursor(
+    click_x: u32,
+    click_y: u32,
+    content_x: u32,
+    base_y: u32,
+    char_w: u32,
+    line_h: u32,
+    content_inset: u32,
+) {
+    zaroxi_core_engine_scene::place_cursor_from_click(click_x, click_y, content_x, base_y, char_w, line_h, content_inset);
 }
 
 #[cfg(test)]
