@@ -133,6 +133,7 @@ async fn main() -> Result<(), String> {
                     // Reusable helper: print an editor-focused verification slice using the real presenter helper.
                     // Relies on the presenter->transcript local helper `build_editor_primitives_from_lines`
                     // and on TextView/SelectionView adapters that reflect the real composition pipeline.
+                    #[allow(dead_code)]
                     fn print_editor_slice(composition: &zaroxi_interface_desktop::DesktopComposition) {
                         use zaroxi_interface_desktop::presenters::transcript::EditorLayoutSpec;
                         // Local minimal primitive types for harness verification (avoid adding a crate dep).
@@ -164,16 +165,6 @@ async fn main() -> Result<(), String> {
                             pub selections: Vec<SelectionRect>,
                             pub gutter_labels: Vec<TextPrimitive>,
                         }
-                        impl EditorPrimitiveSet {
-                            fn new() -> Self {
-                                EditorPrimitiveSet {
-                                    texts: Vec::new(),
-                                    carets: Vec::new(),
-                                    selections: Vec::new(),
-                                    gutter_labels: Vec::new(),
-                                }
-                            }
-                        }
 
                         // Local deterministic builder that mirrors the presenter's
                         // deterministic primitive math. This duplicates presenter math
@@ -190,7 +181,12 @@ async fn main() -> Result<(), String> {
                             editor_lines: &[String],
                             editor_layout: Option<&EditorLayoutSpec>,
                         ) -> EditorPrimitiveSet {
-                            let mut set = EditorPrimitiveSet::new();
+                            let mut set = EditorPrimitiveSet {
+                                texts: Vec::new(),
+                                carets: Vec::new(),
+                                selections: Vec::new(),
+                                gutter_labels: Vec::new(),
+                            };
 
                             let gutter_width: u32 = 48;
                             let line_height: u32 = 16;
