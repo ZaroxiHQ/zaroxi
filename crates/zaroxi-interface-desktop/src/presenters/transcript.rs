@@ -2,7 +2,6 @@ use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
-use zaroxi_core_editor_gutter::GutterModel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
@@ -73,7 +72,6 @@ impl ShellRenderTranscript {
             // Presenters/renderers should later replace these heuristics with real font metrics.
             let gutter_width: u32 = 48;
             let line_height: u32 = 16;
-            let gutter = GutterModel::new(gutter_width);
 
             // Base positions derived from the shell view content rect.
             // Use conservative casting to u32 for transcript readability.
@@ -87,7 +85,7 @@ impl ShellRenderTranscript {
                 let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
 
                 // Gutter label (right-aligned, deterministic width).
-                let label = gutter.line_number_string(row);
+                let label = format!("{:>4}", row);
                 plan_lines.push(format!("Gutter x={} y={} label=\"{}\"", gutter_x, y, label));
 
                 // Content text entry (slight inset from left content edge for readability).
