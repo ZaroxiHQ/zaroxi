@@ -3,9 +3,21 @@ use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 
-// editor layout / font helpers for caret/selection projection into transcript.
-use zaroxi_core_engine_font::load_bundled_monospace;
-use zaroxi_core_editor_view::EditorViewLayout;
+ // editor layout / font helpers for caret/selection projection into transcript.
+ // Provide a tiny, local layout/font shim so this presenter does not
+ // require adding new workspace crate dependencies in Cargo.toml.
+ //
+ // This keeps the presenter lightweight and deterministic: we only need
+ // cursor/selection fields and stable monospace metrics for transcript math.
+ #[derive(Clone, Debug)]
+ pub struct EditorLayoutSpec {
+     pub cursor_line: Option<u32>,
+     pub cursor_column: Option<u32>,
+     pub selection: Option<(u32, u32, u32, u32)>,
+ }
+ 
+ const DEFAULT_CHAR_WIDTH: u32 = 8;
+ const DEFAULT_LINE_HEIGHT: u32 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
@@ -58,7 +70,7 @@ impl ShellRenderTranscript {
         plan: &GpuPaintPlan,
         tabs: &TabStrip,
         editor_lines: Option<&[String]>,
-        editor_layout: Option<&EditorViewLayout>,
+        editor_layout: Option<&EditorLayoutSpec>,
     ) -> Self {
         let mut plan_lines = Vec::with_capacity(plan.ops.len());
         for op in plan.ops.iter() {
@@ -119,9 +131,10 @@ impl ShellRenderTranscript {
 
             // If an editor layout/state is provided, derive caret & selection plan entries.
             if let Some(layout) = editor_layout {
-                let font = load_bundled_monospace();
-                let char_w = font.char_width;
-                let lh = font.line_height;
+                // Use conservative, deterministic monospace metrics local to the presenter.
+                // Avoids pulling a new crate dependency during this phase.
+                let char_w = DEFAULT_CHAR_WIDTH;
+                let lh = DEFAULT_LINE_HEIGHT;
 
                 let content_x = view.content.x as u32;
                 let base_y = view.content.y as u32;
