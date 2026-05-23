@@ -15,6 +15,8 @@ use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt
 use zaroxi_core_engine_window::ZaroxiWindow;
 use zaroxi_core_engine_layout::layout::ShellLayout;
 use bytemuck;
+use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_engine_scene::EditorPrimitiveSet;
 
 /// Simple render backend that drives a wgpu surface and presents frames.
 ///
@@ -339,6 +341,137 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
             }
             // rpass dropped here
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        surface_texture.present();
+    }
+
+    /// Render editor primitives (text glyph boxes, caret, selections) as simple rectangles.
+    ///
+    /// This method provides a minimal, deterministic editor overlay rendering
+    /// using the existing rectangle pipeline. It intentionally renders glyph
+    /// runs as monospace boxes (no shaping) using the bundled monospace metrics.
+    pub fn render_editor_primitives(&mut self, primitives: &zaroxi_core_engine_scene::EditorPrimitiveSet) {
+        // Acquire next surface texture.
+        let surface_texture = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
+                eprintln!("wgpu surface acquired suboptimal texture; proceeding but consider reconfigure");
+                tex
+            }
+            other => {
+                eprintln!("wgpu surface acquisition returned {:?}; skip editor primitives", other);
+                // Reconfigure for safety and return.
+                self.surface.configure(&self.device, &self.surface_config);
+                return;
+            }
+        };
+
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let width = self.surface_config.width as f32;
+        let height = self.surface_config.height as f32;
+
+        // Helper to convert rect coordinates -> two triangles (6 vertices)
+        let mut vertices: Vec<Vertex> = Vec::new();
+        let to_ndc = |px: f32, py: f32| -> [f32; 2] {
+            let nx = (px / width) * 2.0 - 1.0;
+            let ny = 1.0 - (py / height) * 2.0;
+            [nx, ny]
+        };
+
+        let mut add_rect = |x: f32, y: f32, w: f32, h: f32, color: [f32; 4]| {
+            let left = x;
+            let top = y;
+            let right = x + w;
+            let bottom = y + h;
+
+            let tl = to_ndc(left, top);
+            let tr = to_ndc(right, top);
+            let br = to_ndc(right, bottom);
+            let bl = to_ndc(left, bottom);
+
+            vertices.push(Vertex { position: tl, color });
+            vertices.push(Vertex { position: tr, color });
+            vertices.push(Vertex { position: br, color });
+
+            vertices.push(Vertex { position: tl, color });
+            vertices.push(Vertex { position: br, color });
+            vertices.push(Vertex { position: bl, color });
+        };
+
+        // Measure text glyph width using bundled monospace metrics.
+        let font = load_bundled_monospace();
+        let char_w = font.char_width as f32;
+        let line_h = font.line_height as f32;
+
+        // Selections (semi-transparent overlay)
+        for s in &primitives.selections {
+            add_rect(s.x as f32, s.y as f32, s.width as f32, s.height as f32, [0.2, 0.4, 0.8, 0.4]);
+        }
+
+        // Carets (thin opaque rectangle)
+        for c in &primitives.carets {
+            add_rect(c.x as f32, c.y as f32, 2.0, c.height as f32, [1.0, 0.5, 0.0, 1.0]);
+        }
+
+        // Text runs (monospace glyph boxes as deterministic stand-ins)
+        for t in &primitives.texts {
+            let w = (t.text.chars().count() as f32) * char_w;
+            add_rect(t.x as f32, t.y as f32, w.max(1.0), line_h, [1.0, 1.0, 1.0, 1.0]);
+        }
+
+        // Gutter labels (smaller, muted boxes)
+        for g in &primitives.gutter_labels {
+            let w = (g.text.chars().count() as f32) * (char_w * 0.8);
+            add_rect(g.x as f32, g.y as f32, w.max(1.0), line_h, [0.8, 0.8, 0.8, 1.0]);
+        }
+
+        if vertices.is_empty() {
+            surface_texture.present();
+            return;
+        }
+
+        let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("zaroxi-editor-verts"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("zaroxi-editor-encoder"),
+            });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("zaroxi-editor-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        // Load so we preserve the background/panels already drawn.
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                multiview_mask: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            let vert_count = vertices.len() as u32;
+            if vert_count > 0 {
+                rpass.draw(0..vert_count, 0..1);
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));

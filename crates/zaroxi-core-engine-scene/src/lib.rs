@@ -9,7 +9,7 @@
 pub const CRATE_NAME: &str = "zaroxi-core-engine-scene";
 
 pub mod scene;
-pub use scene::{ShellSceneModel, CaretItem, SelectionRect};
+pub use scene::{ShellSceneModel, CaretItem, SelectionRect, EditorPrimitiveSet};
 
 /// Primitive describing a single laid-out text run for the scene.
 ///
@@ -29,6 +29,33 @@ pub struct TextPrimitive {
 impl TextPrimitive {
     pub fn to_debug_line(&self) -> String {
         format!("text@({},{}): \"{}\" font={} max_w={:?}", self.x, self.y, self.text, self.font_name, self.max_width)
+    }
+}
+
+// Editor primitives bundle exported for renderer backends.
+//
+// This small, stable bundle groups the minimal set of editor-facing primitives
+// that renderers/backends need to draw the visible editor surface:
+// - texts: text runs (monospace, position is top-left of run)
+// - carets: thin vertical caret items
+// - selections: highlighted selection rects
+// - gutter_labels: textual gutter labels (line numbers) represented as text runs
+#[derive(Clone, Debug)]
+pub struct EditorPrimitiveSet {
+    pub texts: Vec<TextPrimitive>,
+    pub carets: Vec<CaretItem>,
+    pub selections: Vec<SelectionRect>,
+    pub gutter_labels: Vec<TextPrimitive>,
+}
+
+impl EditorPrimitiveSet {
+    pub fn new() -> Self {
+        EditorPrimitiveSet {
+            texts: Vec::new(),
+            carets: Vec::new(),
+            selections: Vec::new(),
+            gutter_labels: Vec::new(),
+        }
     }
 }
 

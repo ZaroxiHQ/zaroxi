@@ -12,4 +12,6 @@ winit = { workspace = true }
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
 zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
+zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
+zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
 bytemuck = "1.13"

@@ -2,6 +2,7 @@ use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
+use zaroxi_core_engine_scene::{TextPrimitive, CaretItem, SelectionRect, EditorPrimitiveSet};
 
  // editor layout / font helpers for caret/selection projection into transcript.
  // Provide a tiny, local layout/font shim so this presenter does not
@@ -351,6 +352,120 @@ impl ShellRenderTranscript {
             lines.push(format!("  {}", l));
         }
         lines.join("\n")
+    }
+    /// Produce a minimal engine-facing EditorPrimitiveSet by parsing the
+    /// deterministic plan_lines emitted by this presenter.
+    ///
+    /// The presenter intentionally emits stable "plan" lines such as:
+    ///  - "Gutter x={} y={} label=\"...\""
+    ///  - "Text x={} y={} text=\"...\""
+    ///  - "Caret x={} y={} h={}"
+    ///  - "Selection x={} y={} w={} h={}"
+    ///
+    /// This helper parses those lines and constructs the small EditorPrimitiveSet
+    /// that renderer backends can consume to draw the editor surface without
+    /// pulling presenter internals into engine backends.
+    pub fn to_editor_primitives(&self) -> EditorPrimitiveSet {
+        let mut set = EditorPrimitiveSet::new();
+
+        for line in &self.plan_lines {
+            let s = line.trim();
+            if s.starts_with("Text ") {
+                // tokens: Text x={} y={} text="..." color={:?}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut text = String::new();
+
+                // Extract quoted text payload if present.
+                if let Some(start) = s.find("text=\"") {
+                    let after = &s[start + 6..];
+                    if let Some(end) = after.find('"') {
+                        text = after[..end].to_string();
+                    }
+                }
+
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+
+                set.texts.push(TextPrimitive {
+                    x,
+                    y,
+                    text,
+                    font_name: "ZaroxiMono".to_string(),
+                    max_width: None,
+                });
+            } else if s.starts_with("Gutter ") {
+                // Gutter x={} y={} label="..."
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut label = String::new();
+
+                if let Some(start) = s.find("label=\"") {
+                    let after = &s[start + 7..];
+                    if let Some(end) = after.find('"') {
+                        label = after[..end].to_string();
+                    }
+                }
+
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+
+                set.gutter_labels.push(TextPrimitive {
+                    x,
+                    y,
+                    text: label,
+                    font_name: "ZaroxiMono".to_string(),
+                    max_width: None,
+                });
+            } else if s.starts_with("Caret ") {
+                // Caret x={} y={} h={}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut h: u32 = 0;
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("h=") {
+                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+                set.carets.push(CaretItem { x, y, height: h });
+            } else if s.starts_with("Selection ") {
+                // Selection x={} y={} w={} h={}
+                let mut x: u32 = 0;
+                let mut y: u32 = 0;
+                let mut w: u32 = 0;
+                let mut h: u32 = 0;
+                for token in s.split_whitespace() {
+                    if let Some(v) = token.strip_prefix("x=") {
+                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("y=") {
+                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("w=") {
+                        w = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    } else if let Some(v) = token.strip_prefix("h=") {
+                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                    }
+                }
+                if w > 0 && h > 0 {
+                    set.selections.push(SelectionRect { x, y, width: w, height: h });
+                }
+            }
+        }
+
+        set
     }
 }
 
