@@ -369,6 +369,104 @@ impl ShellRenderTranscript {
         }
         lines.join("\n")
     }
+
+    /// Build a minimal engine-facing EditorPrimitiveSet directly from the
+    /// presenter's deterministic visible-line inputs (visible rows and an optional
+    /// EditorLayoutSpec). This re-implements the same projection math the
+    /// presenter uses to emit "Gutter"/"Text"/"Caret"/"Selection" plan lines so
+    /// tests and harnesses can validate the exact primitives without pulling
+    /// presenter internals into engine backends.
+    ///
+    /// This function is intentionally stable and deterministic: it mirrors
+    /// the presenter's metrics constants (DEFAULT_CHAR_WIDTH / DEFAULT_LINE_HEIGHT)
+    /// and uses the same content inset heuristics.
+    pub fn build_editor_primitives_from_lines(
+        content_x: u32,
+        base_y: u32,
+        editor_lines: &[String],
+        editor_layout: Option<&EditorLayoutSpec>,
+    ) -> EditorPrimitiveSet {
+        let mut set = EditorPrimitiveSet::new();
+
+        // Stable presenter heuristics (must match presenter emission)
+        let gutter_width: u32 = 48;
+        let line_height: u32 = DEFAULT_LINE_HEIGHT;
+        let char_w: u32 = DEFAULT_CHAR_WIDTH;
+        let content_inset: u32 = 6;
+
+        // gutter_x placed to the left of the content rect
+        let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+
+        // Determine the absolute top-most visible document line (1-based)
+        let top_line_val = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
+
+        // Emit gutter/text primitives per visible row
+        for (i, text) in editor_lines.iter().enumerate() {
+            let doc_row = top_line_val.saturating_add(i as u32);
+            let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
+
+            // Gutter label
+            let label = format!("{:>4}", doc_row);
+            set.gutter_labels.push(TextPrimitive {
+                x: gutter_x,
+                y,
+                text: label,
+                font_name: "ZaroxiMono".to_string(),
+                max_width: None,
+            });
+
+            // Content text entry (slight inset)
+            let content_text_x = content_x.saturating_add(content_inset);
+            set.texts.push(TextPrimitive {
+                x: content_text_x,
+                y,
+                text: text.clone(),
+                font_name: "ZaroxiMono".to_string(),
+                max_width: None,
+            });
+        }
+
+        // If layout provided, project caret & selections into primitives.
+        if let Some(layout) = editor_layout {
+            let content_text_x = content_x.saturating_add(content_inset);
+
+            // Caret projection
+            if let Some(cl) = layout.cursor_line {
+                let col = layout.cursor_column.unwrap_or(0);
+                let top_line_val = layout.top_line.unwrap_or(1);
+                let offset_rows = cl.saturating_sub(top_line_val);
+                let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
+                let caret_y = base_y.saturating_add(offset_rows.saturating_mul(line_height));
+                set.carets.push(CaretItem { x: caret_x, y: caret_y, height: line_height });
+            }
+
+            // Selection projection: one rect per visible row intersection.
+            if let Some((sline, scol, eline, ecol)) = layout.selection {
+                let top_line_val = layout.top_line.unwrap_or(1);
+                for (i, _) in editor_lines.iter().enumerate() {
+                    let row = top_line_val.saturating_add(i as u32);
+                    if row < sline || row > eline {
+                        continue;
+                    }
+                    let sel_start_col = if row == sline { scol } else { 0 };
+                    let sel_end_col = if row == eline {
+                        ecol
+                    } else {
+                        editor_lines.get(i).map(|s| s.chars().count() as u32).unwrap_or(0)
+                    };
+                    if sel_end_col <= sel_start_col {
+                        continue;
+                    }
+                    let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
+                    let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
+                    let sy = base_y.saturating_add((i as u32).saturating_mul(line_height));
+                    set.selections.push(SelectionRect { x: sx, y: sy, width: w, height: line_height });
+                }
+            }
+        }
+
+        set
+    }
     /// Produce a minimal engine-facing EditorPrimitiveSet by parsing the
     /// deterministic plan_lines emitted by this presenter.
     ///
@@ -493,4 +591,102 @@ impl ShellRenderTranscript {
 #[cfg(feature = "layout")]
 pub fn layout_debug_lines_from_shell(layout: &zaroxi_core_engine_layout::ShellLayout) -> Vec<String> {
     layout.to_debug_lines()
+}
+
+#[cfg(test)]
+mod editor_render_tests {
+    use super::*;
+
+    #[test]
+    fn initial_refresh_small_file() {
+        let lines = vec![
+            "one".to_string(),
+            "two".to_string(),
+            "three".to_string(),
+        ];
+        // content_x/base_y chosen to exercise gutter_x > 0 branch
+        let set = build_editor_primitives_from_lines(100, 50, &lines, None);
+        assert_eq!(set.gutter_labels.len(), 3, "expected 3 gutter labels");
+        assert_eq!(set.texts.len(), 3, "expected 3 text runs");
+        assert_eq!(set.gutter_labels[0].text.trim(), "1", "first gutter should label line 1");
+        assert_eq!(set.texts[0].text, "one", "first content line mismatch");
+        assert!(set.carets.is_empty(), "no caret expected without layout");
+        assert!(set.selections.is_empty(), "no selection expected without layout");
+    }
+
+    #[test]
+    fn caret_projection_inside_visible_range() {
+        let lines = vec![
+            "line1".to_string(),
+            "line2".to_string(),
+            "line3".to_string(),
+        ];
+        let layout = EditorLayoutSpec {
+            top_line: Some(1),
+            cursor_line: Some(2),
+            cursor_column: Some(3),
+            selection: None,
+        };
+        let set = build_editor_primitives_from_lines(100, 50, &lines, Some(&layout));
+        assert_eq!(set.carets.len(), 1, "caret should be present");
+        // compute expected caret position according to presenter math:
+        // content_text_x = 100 + 6 = 106, char_w = 8 => x = 106 + 3*8 = 130
+        // caret_y = base_y + (cursor_line - top_line) * line_h = 50 + 1*16 = 66
+        assert_eq!(set.carets[0].x, 130, "caret x mismatch");
+        assert_eq!(set.carets[0].y, 66, "caret y mismatch");
+        assert_eq!(set.carets[0].height, DEFAULT_LINE_HEIGHT, "caret height should match line height");
+    }
+
+    #[test]
+    fn top_line_offset_changes_gutter_numbers() {
+        let lines = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let layout = EditorLayoutSpec {
+            top_line: Some(3),
+            cursor_line: None,
+            cursor_column: None,
+            selection: None,
+        };
+        let set = build_editor_primitives_from_lines(200, 10, &lines, Some(&layout));
+        assert_eq!(set.gutter_labels.len(), 3);
+        assert_eq!(set.gutter_labels[0].text.trim(), "3", "gutter should start at top_line value");
+        assert_eq!(set.gutter_labels[1].text.trim(), "4", "gutter should increment per visible row");
+    }
+
+    #[test]
+    fn selection_projection_multi_line() {
+        let lines = vec![
+            "first line".to_string(),
+            "second line".to_string(),
+            "third line".to_string(),
+        ];
+        // selection from line 1 col 1 to line 2 col 3 (1-based lines)
+        let layout = EditorLayoutSpec {
+            top_line: Some(1),
+            cursor_line: None,
+            cursor_column: None,
+            selection: Some((1, 1, 2, 3)),
+        };
+        let set = build_editor_primitives_from_lines(80, 20, &lines, Some(&layout));
+        // Expect at least one selection rect (should cover two rows intersecting)
+        assert!(set.selections.len() >= 1, "expected selection rect(s) for intersecting visible rows");
+        // verify selection rects are inside content x area (inset by +6)
+        for s in &set.selections {
+            assert!(s.x >= 86 || s.x == 0, "selection x should be at/after content inset (x >= content_x+6)");
+            assert_eq!(s.height, DEFAULT_LINE_HEIGHT, "selection height must equal line height");
+        }
+    }
+
+    #[test]
+    fn active_buffer_switch_reflects_new_text() {
+        let buf_a = vec!["alpha".to_string(), "beta".to_string()];
+        let buf_b = vec!["uno".to_string(), "dos".to_string(), "tres".to_string()];
+
+        let set_a = build_editor_primitives_from_lines(120, 30, &buf_a, None);
+        let set_b = build_editor_primitives_from_lines(120, 30, &buf_b, None);
+
+        assert_eq!(set_a.texts[0].text, "alpha");
+        assert_eq!(set_b.texts[0].text, "uno");
+        assert_eq!(set_a.texts.len(), 2);
+        assert_eq!(set_b.texts.len(), 3);
+    }
 }
