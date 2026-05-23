@@ -255,10 +255,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Build deterministic ShellLayout and convert regions to a vertex list.
+        // Build UI via the engine UI composer and convert to vertices.
         let width = self.surface_config.width;
         let height = self.surface_config.height;
-        let layout = ShellLayout::from_window_size(width, height);
+        let ui_rects = zaroxi_core_engine_ui::composer::build_shell_ui(width, height);
 
         // Helper to convert rect coordinates -> two triangles (6 vertices)
         let mut vertices: Vec<Vertex> = Vec::new();
@@ -288,12 +288,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             vertices.push(Vertex { position: bl, color });
         };
 
-        // Panel colors (distinct, muted palette)
-        add_rect_from(layout.titlebar.x, layout.titlebar.y, layout.titlebar.width, layout.titlebar.height, [0.18, 0.18, 0.22, 1.0]); // titlebar
-        add_rect_from(layout.sidebar.x, layout.sidebar.y, layout.sidebar.width, layout.sidebar.height, [0.12, 0.12, 0.14, 1.0]); // sidebar
-        add_rect_from(layout.editor.x, layout.editor.y, layout.editor.width, layout.editor.height, [0.08, 0.09, 0.11, 1.0]); // editor area
-        add_rect_from(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, layout.ai_panel.height, [0.12, 0.06, 0.18, 1.0]); // ai panel
-        add_rect_from(layout.status_bar.x, layout.status_bar.y, layout.status_bar.width, layout.status_bar.height, [0.15, 0.15, 0.17, 1.0]); // status bar
+        // Panel rectangles from the UI composer (stable deterministic order).
+        for r in ui_rects {
+            add_rect_from(r.x, r.y, r.width, r.height, r.color);
+        }
 
         // Create a transient vertex buffer for this frame (small, recreated each frame).
         let vertex_buffer = if !vertices.is_empty() {

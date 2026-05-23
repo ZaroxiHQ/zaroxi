@@ -41,6 +41,7 @@ members = [
   "crates/zaroxi-core-engine-element",
   "crates/zaroxi-core-engine-view",
   "crates/zaroxi-core-engine-scene",
+  "crates/zaroxi-core-engine-ui",
   "crates/zaroxi-core-engine-overlay",
   "crates/zaroxi-core-engine-text",
   "crates/zaroxi-core-engine-font",

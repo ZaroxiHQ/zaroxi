@@ -1,0 +1,12 @@
+[package]
+name = "zaroxi-core-engine-ui"
+version = "0.1.0"
+edition = "2024"
+description = "Engine-owned lightweight UI primitives + taffy-based layout runtime for Zaroxi Studio (Phase 3)"
+license = "MIT"
+
+[dependencies]
+taffy = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+# Keep this crate small and engine-owned; no interface/application deps.
