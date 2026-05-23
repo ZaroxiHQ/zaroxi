@@ -24,9 +24,14 @@ impl ShellRenderTranscript {
     /// Construct a transcript from the stable presenter view + paint plan.
     /// The produced plan_lines mirror the exact order of GpuPaintPlan.ops
     /// and contain concise, deterministic descriptions of each op.
-    /// This legacy constructor produces a transcript with an empty TabStrip.
-    pub fn from_view_and_plan(width: u32, height: u32, view: &GpuShellView, plan: &GpuPaintPlan) -> Self {
-        Self::from_view_and_plan_with_tabs(width, height, view, plan, &TabStrip::default(), None)
+    pub fn from_view_and_plan(
+        width: u32,
+        height: u32,
+        view: &GpuShellView,
+        plan: &GpuPaintPlan,
+    ) -> Self {
+        // Legacy convenience constructor delegates to the tabbed variant without editor layout.
+        Self::from_view_and_plan_with_tabs_and_editor(width, height, view, plan, &TabStrip::default(), None, None)
     }
 
     /// Construct a transcript from the stable presenter view + paint plan and
@@ -39,6 +44,21 @@ impl ShellRenderTranscript {
         plan: &GpuPaintPlan,
         tabs: &TabStrip,
         editor_lines: Option<&[String]>,
+    ) -> Self {
+        // Backwards-compatible: call the extended constructor without editor layout.
+        Self::from_view_and_plan_with_tabs_and_editor(width, height, view, plan, tabs, editor_lines, None)
+    }
+
+    /// Extended constructor that accepts an optional EditorViewLayout so the
+    /// presenter can append deterministic Caret/Selection plan entries.
+    pub fn from_view_and_plan_with_tabs_and_editor(
+        width: u32,
+        height: u32,
+        view: &GpuShellView,
+        plan: &GpuPaintPlan,
+        tabs: &TabStrip,
+        editor_lines: Option<&[String]>,
+        editor_layout: Option<&EditorViewLayout>,
     ) -> Self {
         let mut plan_lines = Vec::with_capacity(plan.ops.len());
         for op in plan.ops.iter() {
@@ -95,6 +115,49 @@ impl ShellRenderTranscript {
                 // Content text entry (slight inset from left content edge for readability).
                 let content_text_x = content_x.saturating_add(6);
                 plan_lines.push(format!("Text x={} y={} text=\"{}\"", content_text_x, y, text));
+            }
+
+            // If an editor layout/state is provided, derive caret & selection plan entries.
+            if let Some(layout) = editor_layout {
+                let font = load_bundled_monospace();
+                let char_w = font.char_width;
+                let lh = font.line_height;
+
+                let content_x = view.content.x as u32;
+                let base_y = view.content.y as u32;
+                let content_text_x = content_x.saturating_add(6);
+
+                // Caret: single vertical thin rect at (col,char_w).
+                if let Some(cl) = layout.cursor_line {
+                    let col = layout.cursor_column.unwrap_or(0);
+                    // layout.cursor_line is 1-based; visible rows start at 1 for transcript.
+                    let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
+                    let caret_y = base_y.saturating_add((cl.saturating_sub(1)).saturating_mul(lh));
+                    plan_lines.push(format!("Caret x={} y={} h={}", caret_x, caret_y, lh));
+                }
+
+                // Selection: produce one Selection plan entry per visible line that intersects.
+                if let Some((sline, scol, eline, ecol)) = layout.selection {
+                    // Iterate visible rows and emit selection rects for intersections.
+                    for (i, _) in ed_lines.iter().enumerate() {
+                        let row = (i as u32) + 1;
+                        if row < sline || row > eline {
+                            continue;
+                        }
+                        let sel_start_col = if row == sline { scol } else { 0 };
+                        let sel_end_col = if row == eline { ecol } else { // rough fallback: full line
+                            // fallback width: use length of the provided visible text if available
+                            ed_lines.get(i).map(|s| s.chars().count() as u32).unwrap_or(0)
+                        };
+                        if sel_end_col <= sel_start_col {
+                            continue;
+                        }
+                        let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
+                        let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
+                        let sy = base_y.saturating_add((row.saturating_sub(1)).saturating_mul(lh));
+                        plan_lines.push(format!("Selection x={} y={} w={} h={}", sx, sy, w, lh));
+                    }
+                }
             }
         }
 
