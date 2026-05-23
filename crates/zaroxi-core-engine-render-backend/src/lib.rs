@@ -570,7 +570,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let line_h: u32 = font.line_height;
 
             // Compute editor content origin from the deterministic ShellLayout.
-            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(width, height);
+            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(width as u32, height as u32);
             let editor_x = layout.editor_content.x.max(0.0) as u32;
             let editor_y = layout.editor_content.y.max(0.0) as u32;
 
