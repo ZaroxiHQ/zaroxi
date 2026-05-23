@@ -19,7 +19,7 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     const SIDEBAR_W: f32 = 240.0;
 
     // Build a taffy layout tree
-    let mut taffy = Taffy::new();
+    let mut taffy = taffy::Taffy::new();
 
     // Root: column, size = viewport
     let root_style = Style {
