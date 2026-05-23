@@ -19,13 +19,13 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     const SIDEBAR_W: f32 = 240.0;
 
     // Build a taffy layout tree
-    let mut taffy = taffy::Taffy::new();
+    let mut taffy = Taffy::new();
 
     // Root: column, size = viewport
     let root_style = Style {
         size: Size {
-            width: Dimension::Points(w),
-            height: Dimension::Points(h),
+            width: Dimension::length(w),
+            height: Dimension::length(h),
         },
         flex_direction: FlexDirection::Column,
         ..Default::default()
@@ -35,8 +35,8 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     // topbar
     let top_style = Style {
         size: Size {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Points(TITLE_H),
+            width: Dimension::percent(1.0),
+            height: Dimension::length(TITLE_H),
         },
         ..Default::default()
     };
@@ -45,8 +45,8 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     // middle row (sidebar + editor)
     let middle_style = Style {
         size: Size {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Auto,
+            width: Dimension::percent(1.0),
+            height: Dimension::auto(),
         },
         flex_grow: 1.0,
         flex_direction: FlexDirection::Row,
@@ -57,8 +57,8 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     // sidebar
     let side_style = Style {
         size: Size {
-            width: Dimension::Points(SIDEBAR_W),
-            height: Dimension::Percent(1.0),
+            width: Dimension::length(SIDEBAR_W),
+            height: Dimension::percent(1.0),
         },
         ..Default::default()
     };
@@ -67,8 +67,8 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     // editor area
     let editor_style = Style {
         size: Size {
-            width: Dimension::Auto,
-            height: Dimension::Percent(1.0),
+            width: Dimension::auto(),
+            height: Dimension::percent(1.0),
         },
         flex_grow: 1.0,
         ..Default::default()
@@ -82,8 +82,8 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     // status bar
     let status_style = Style {
         size: Size {
-            width: Dimension::Percent(1.0),
-            height: Dimension::Points(STATUS_H),
+            width: Dimension::percent(1.0),
+            height: Dimension::length(STATUS_H),
         },
         ..Default::default()
     };
@@ -94,9 +94,9 @@ pub fn build_shell_ui(window_w: u32, window_h: u32) -> Vec<RectPrimitive> {
     taffy.add_child(root, middle).unwrap();
     taffy.add_child(root, status).unwrap();
 
-    // compute layout
+    // compute layout constrained to the window size
     taffy
-        .compute_layout(root, taffy::geometry::Size::undefined())
+        .compute_layout(root, taffy::geometry::Size::from_lengths(w, h))
         .expect("taffy compute layout");
 
     // gather computed rects
