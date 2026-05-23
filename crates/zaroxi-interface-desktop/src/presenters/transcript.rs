@@ -2,6 +2,7 @@ use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
+use zaroxi_core_editor_gutter::GutterModel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellRenderTranscript {
@@ -61,10 +62,37 @@ impl ShellRenderTranscript {
         }
 
         // Append editor-visible lines if provided.
+        // We produce two deterministic, presenter-facing plan entries per visible row:
+        //  - a gutter label ("Gutter ...")
+        //  - a content text line ("Text ...")
+        // The caller is expected to pass only visible rows in top-to-bottom order.
         if let Some(ed_lines) = editor_lines {
+            // Stable layout assumptions for presenter-level transcript:
+            // - deterministic line height (pixels)
+            // - stable gutter width (pixels)
+            // Presenters/renderers should later replace these heuristics with real font metrics.
+            let gutter_width: u32 = 48;
+            let line_height: u32 = 16;
+            let gutter = GutterModel::new(gutter_width);
+
+            // Base positions derived from the shell view content rect.
+            // Use conservative casting to u32 for transcript readability.
+            let content_x = view.content.x as u32;
+            let base_y = view.content.y as u32;
+            // Gutter x is placed to the left of the content rect (reserve gutter width).
+            let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+
             for (i, text) in ed_lines.iter().enumerate() {
-                // 1-based visible line index in the appended transcript for readability.
-                plan_lines.push(format!("EditorLine {}: {}", i + 1, text));
+                let row = (i as u32) + 1; // 1-based visible row index for readability
+                let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
+
+                // Gutter label (right-aligned, deterministic width).
+                let label = gutter.line_number_string(row);
+                plan_lines.push(format!("Gutter x={} y={} label=\"{}\"", gutter_x, y, label));
+
+                // Content text entry (slight inset from left content edge for readability).
+                let content_text_x = content_x.saturating_add(6);
+                plan_lines.push(format!("Text x={} y={} text=\"{}\"", content_text_x, y, text));
             }
         }
 
