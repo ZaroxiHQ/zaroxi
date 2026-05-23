@@ -14,6 +14,10 @@ pub use scene::{
     // Phase 4 runtime seam: expose simple getters/setters and input helpers so
     // renderers/harnesses can publish & mutate the current ShellSceneModel.
     get_current_scene, set_current_scene, insert_char, backspace, move_cursor, scroll_by_lines,
+    // Click-to-cursor helpers published at crate root so interface presenters
+    // and render backends can easily invoke them without importing internal
+    // `scene` module paths.
+    place_cursor_from_click, map_click_to_cursor,
 };
 // NOTE:
 // EditorPrimitiveSet is defined in this crate root (below) and is NOT provided
