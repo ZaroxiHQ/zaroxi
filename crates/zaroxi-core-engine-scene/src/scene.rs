@@ -228,7 +228,7 @@ pub fn backspace() {
         s.cursor_column = Some(0);
     }
     let mut cl = s.cursor_line.unwrap_or(1).max(1);
-    let mut col = s.cursor_column.unwrap_or(0) as usize;
+    let col = s.cursor_column.unwrap_or(0) as usize;
 
     if cl == 1 && col == 0 {
         // nothing to delete
