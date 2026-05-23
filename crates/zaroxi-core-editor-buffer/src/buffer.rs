@@ -206,12 +206,31 @@ impl Buffer {
         let sel = self.selection.as_ref().unwrap().clone();
         let (sl, sc, el, ec) = sel.normalized();
         if sl == el {
-            let line = &self.lines[sl];
-            let before = line.chars().take(sc).collect::<String>();
-            let after = line.chars().skip(ec).collect::<String>();
-            self.lines[sl] = format!("{}{}", before, after);
-            self.cursor_line = sl;
-            self.cursor_col = sc;
+            // Single-line deletion. If the selection covers the entire line, remove the
+            // line element so we don't leave an empty line that would render as a
+            // leading newline when joined. Otherwise splice the remaining pieces.
+            let line_len = self.lines[sl].chars().count();
+            if sc == 0 && ec >= line_len {
+                // Remove the whole line.
+                self.lines.remove(sl);
+                if self.lines.is_empty() {
+                    // Ensure there's at least one empty line to keep buffer well-formed.
+                    self.lines.push(String::new());
+                    self.cursor_line = 0;
+                    self.cursor_col = 0;
+                } else {
+                    // Place cursor at start of the next logical line (which shifts into `sl`).
+                    self.cursor_line = if sl >= self.lines.len() { self.lines.len() - 1 } else { sl };
+                    self.cursor_col = 0;
+                }
+            } else {
+                let line = &self.lines[sl];
+                let before = line.chars().take(sc).collect::<String>();
+                let after = line.chars().skip(ec).collect::<String>();
+                self.lines[sl] = format!("{}{}", before, after);
+                self.cursor_line = sl;
+                self.cursor_col = sc;
+            }
         } else {
             let before = self.lines[sl].chars().take(sc).collect::<String>();
             let after = self.lines[el].chars().skip(ec).collect::<String>();
