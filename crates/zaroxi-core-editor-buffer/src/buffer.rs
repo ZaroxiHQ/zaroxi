@@ -1,4 +1,4 @@
-use std::cmp::{max, min};
+use std::cmp::min;
 
 /// Simple in-memory text buffer with stable line/column addressing and a basic
 /// selection model suitable for use by the application and interface layers.
@@ -187,10 +187,10 @@ impl Buffer {
             new_lines.extend(insert_lines.into_iter());
             new_lines.push(last);
             // replace current line with new_lines
+            let new_count = new_lines.len();
             self.lines.splice(cur_line..=cur_line, new_lines.into_iter());
-            self.cursor_line = cur_line + (new_lines.len() - 1);
-            self.cursor_col = self.lines[self.cursor_line].chars().take(new_lines.last().unwrap().chars().count()).count() - tail.chars().count();
-            // simpler: place cursor at end of inserted text (last line, at its length minus tail)
+            self.cursor_line = cur_line + (new_count - 1);
+            // place cursor at end of inserted text (last line length minus tail length)
             self.cursor_col = self.lines[self.cursor_line].chars().count() - tail.chars().count();
         }
         self.clear_selection();
