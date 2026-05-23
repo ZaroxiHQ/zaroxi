@@ -48,6 +48,8 @@ FAMILY_PATTERNS["^zaroxi-interface-"]="interface"
 FAMILY_PATTERNS["^zaroxi-application-"]="application"
 FAMILY_PATTERNS["^zaroxi-domain-"]="domain"
 FAMILY_PATTERNS["^zaroxi-core-engine-"]="core-engine"
+# Explicit mapping for the new engine UI crate to ensure deterministic classification.
+FAMILY_PATTERNS["^zaroxi-core-engine-ui$"]="core-engine"
 FAMILY_PATTERNS["^zaroxi-core-editor-"]="core-editor"
 FAMILY_PATTERNS["^zaroxi-core-platform-"]="core-platform"
 FAMILY_PATTERNS["^zaroxi-core-workspace-"]="core-workspace"
