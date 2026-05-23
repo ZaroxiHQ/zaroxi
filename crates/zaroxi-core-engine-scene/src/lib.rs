@@ -9,7 +9,12 @@
 pub const CRATE_NAME: &str = "zaroxi-core-engine-scene";
 
 pub mod scene;
-pub use scene::{ShellSceneModel, CaretItem, SelectionRect, EditorPrimitiveSet};
+pub use scene::{ShellSceneModel, CaretItem, SelectionRect};
+// NOTE:
+// EditorPrimitiveSet is defined in this crate root (below) and is NOT provided
+// by the `scene` module. Attempting to import it from `scene` caused the
+// unresolved import error. Keep the module imports aligned with actual
+// definitions to avoid compilation failures.
 
 /// Primitive describing a single laid-out text run for the scene.
 ///
