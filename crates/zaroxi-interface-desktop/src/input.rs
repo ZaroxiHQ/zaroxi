@@ -1,4 +1,4 @@
-use crates::zaroxi_application_workspace::editor_service::{EditorService};
+use zaroxi_application_workspace::editor_service::EditorService;
 use crate::clipboard::InMemoryClipboard;
 
 /// A tiny input bridge used in tests and harnesses to map high-level actions

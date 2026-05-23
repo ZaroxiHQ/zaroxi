@@ -1,4 +1,4 @@
-use crates::zaroxi_application_workspace::editor_service::EditorService;
+use zaroxi_application_workspace::editor_service::EditorService;
 use crate::clipboard::InMemoryClipboard;
 use crate::presenters::transcript::render::ShellRenderTranscript;
 
@@ -14,7 +14,7 @@ fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {
         let mut b = svc.buffer.lock().unwrap();
         b.cursor_line = 1;
         b.cursor_col = 0;
-        b.selection = Some(crate::buffer::Selection { anchor_line: 1, anchor_col: 0, active_line: 1, active_col: 6 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 1, anchor_col: 0, active_line: 1, active_col: 6 });
     }
 
     // copy

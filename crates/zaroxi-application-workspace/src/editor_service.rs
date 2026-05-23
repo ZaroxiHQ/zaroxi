@@ -1,4 +1,4 @@
-use crate::buffer::{Buffer, Selection};
+use zaroxi_core_editor_buffer::buffer::{Buffer, Selection};
 use std::sync::{Arc, Mutex};
 
 /// Public snapshot type that the interface can consume to build presenter editor layout.

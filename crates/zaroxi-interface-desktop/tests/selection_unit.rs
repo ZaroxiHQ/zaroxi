@@ -1,4 +1,4 @@
-use crates::zaroxi_application_workspace::editor_service::EditorService;
+use zaroxi_application_workspace::editor_service::EditorService;
 use crate::clipboard::InMemoryClipboard;
 
 #[test]
@@ -23,7 +23,7 @@ fn typing_replaces_selected_text_and_clears_selection() {
     // select "bc" (1..3)
     {
         let mut b = svc.buffer.lock().unwrap();
-        b.selection = Some(crate::buffer::Selection { anchor_line: 0, anchor_col: 1, active_line: 0, active_col: 3 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 0, anchor_col: 1, active_line: 0, active_col: 3 });
     }
     svc.type_text("XY");
     assert_eq!(svc.get_text(), "aXYde");
@@ -37,7 +37,7 @@ fn backspace_delete_removes_selected_text() {
         let mut b = svc.buffer.lock().unwrap();
         b.cursor_line = 0;
         b.cursor_col = 2;
-        b.selection = Some(crate::buffer::Selection { anchor_line: 0, anchor_col: 1, active_line: 1, active_col: 1 }); // selects "b\nc"
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 0, anchor_col: 1, active_line: 1, active_col: 1 }); // selects "b\nc"
     }
     svc.backspace();
     assert_eq!(svc.get_text(), "a d");
@@ -50,7 +50,7 @@ fn copy_cut_paste_via_inmemory_clipboard() {
     // select "ne2" from line2 (characters 2..5)
     {
         let mut b = svc.buffer.lock().unwrap();
-        b.selection = Some(crate::buffer::Selection { anchor_line: 1, anchor_col: 1, active_line: 1, active_col: 4 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 1, anchor_col: 1, active_line: 1, active_col: 4 });
     }
     // copy
     if let Some(t) = svc.copy_selection() {
@@ -71,7 +71,7 @@ fn copy_cut_paste_via_inmemory_clipboard() {
     // now select and cut
     {
         let mut b = svc.buffer.lock().unwrap();
-        b.selection = Some(crate::buffer::Selection { anchor_line: 0, anchor_col: 0, active_line: 0, active_col: 5 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 0, anchor_col: 0, active_line: 0, active_col: 5 });
     }
     // cut: copy then delete
     if let Some(t) = svc.copy_selection() {
@@ -89,7 +89,7 @@ fn paste_over_selection_replaces_selected_text() {
     {
         let mut b = svc.buffer.lock().unwrap();
         // select "world"
-        b.selection = Some(crate::buffer::Selection { anchor_line: 0, anchor_col: 6, active_line: 0, active_col: 11 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 0, anchor_col: 6, active_line: 0, active_col: 11 });
     }
     // paste over selection
     if let Some(text) = clipboard.get() {
