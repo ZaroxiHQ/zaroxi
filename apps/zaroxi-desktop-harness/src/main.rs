@@ -130,6 +130,84 @@ async fn main() -> Result<(), String> {
                 Ok(action_result) => {
                     println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
 
+                    // Reusable helper: print an editor-focused verification slice using the real presenter helper.
+                    // Relies on the presenter->transcript local helper `build_editor_primitives_from_lines`
+                    // and on TextView/SelectionView adapters that reflect the real composition pipeline.
+                    fn print_editor_slice(composition: &zaroxi_interface_desktop::DesktopComposition) {
+                        use zaroxi_interface_desktop::presenters::transcript::{build_editor_primitives_from_lines, EditorLayoutSpec};
+
+                        // Obtain a simple visible-text view (presenter-facing read-only model).
+                        if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(composition) {
+                            // Extract visible lines and top_line/total_lines.
+                            let top_line = tv.top_line;
+                            let total_lines = tv.total_lines;
+                            let visible_count = tv.lines.len();
+                            println!("Harness: editor-slice: top_line={} visible_line_count={} total_lines={}", top_line, visible_count, total_lines);
+
+                            // Derive optional cursor/selection from composition snapshots/adapters.
+                            let ss = composition.latest_shell_snapshot();
+                            let cursor_line = ss.as_ref().and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_line));
+                            let cursor_col = ss.as_ref().and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_column));
+
+                            // SelectionView provides adapter-level selection bounds when present.
+                            let sel_opt = zaroxi_interface_desktop::SelectionView::from_composition(composition);
+
+                            let selection_tuple = sel_opt.as_ref().map(|sv| {
+                                (sv.start.line, sv.start.column, sv.end.line, sv.end.column)
+                            });
+
+                            // Build an EditorLayoutSpec consistent with presenter semantics.
+                            let layout = EditorLayoutSpec {
+                                top_line: Some(top_line),
+                                cursor_line,
+                                cursor_column: cursor_col,
+                                selection: selection_tuple,
+                            };
+
+                            // Use deterministic content origin values consistent with presenter heuristics.
+                            // These are conservative absolute coordinates used only for deterministic primitive math.
+                            let content_x = 100u32;
+                            let base_y = 50u32;
+
+                            let primitives = build_editor_primitives_from_lines(content_x, base_y, &tv.lines, Some(&layout));
+
+                            // Print per-visible-row gutter + text content derived from primitives (stable order).
+                            println!("Harness: visible rows (gutter | text):");
+                            let rows = primitives.gutter_labels.len().min(primitives.texts.len());
+                            for i in 0..rows {
+                                let g = &primitives.gutter_labels[i];
+                                let t = &primitives.texts[i];
+                                println!("  row {} -> gutter=\"{}\" text=\"{}\" (g.x={} t.x={} y={})",
+                                    i+1, g.text, t.text, g.x, t.x, g.y);
+                            }
+
+                            // Caret primitives (presence and location)
+                            if !primitives.carets.is_empty() {
+                                for (i, c) in primitives.carets.iter().enumerate() {
+                                    println!("Harness: caret[{}] present x={} y={} h={}", i, c.x, c.y, c.height);
+                                }
+                            } else {
+                                println!("Harness: caret: <absent>");
+                            }
+
+                            // Selection primitives (presence and rectangles)
+                            if !primitives.selections.is_empty() {
+                                for (i, s) in primitives.selections.iter().enumerate() {
+                                    println!("Harness: selection[{}] rect x={} y={} w={} h={}", i, s.x, s.y, s.width, s.height);
+                                }
+                            } else {
+                                println!("Harness: selection: <absent>");
+                            }
+
+                            // Quick sanity checks to make it obvious when top_line slicing is effective.
+                            if let Some(first_label) = primitives.gutter_labels.first() {
+                                println!("Harness: first visible gutter label = \"{}\" (should equal top_line {})", first_label.text.trim(), top_line);
+                            }
+                        } else {
+                            println!("Harness: no TextView available to build editor slice");
+                        }
+                    }
+
                     // After the first successful refresh, the composition is authoritative and may
                     // contain DesktopMetadata/shell snapshot information. Emit a tiny
                     // shell-facing SessionIdentityLine only when the composition contains metadata.
