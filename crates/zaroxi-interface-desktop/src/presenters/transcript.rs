@@ -273,6 +273,26 @@ impl ShellRenderTranscript {
         }
     }
 
+    /// Small helper that returns a multi-line summary derived directly from the
+    /// live engine scene snapshot (zaroxi_core_engine_scene). This is intended
+    /// to be a compact, deterministic view of the active buffer and caret for
+    /// test assertions and early-phase validation.
+    pub fn engine_scene_summary() -> String {
+        use zaroxi_core_engine_scene::get_current_scene;
+
+        let s = get_current_scene();
+        let mut out: Vec<String> = Vec::new();
+        out.push(format!("engine_total_lines: {}", s.viewport_total_lines));
+        out.push(format!("engine_top_line: {}", s.viewport_top_line));
+        out.push(format!("engine_cursor: {:?}:{:?}", s.cursor_line, s.cursor_column));
+        // Emit up to the first 10 lines starting at top_line for visibility.
+        let start = (s.viewport_top_line.max(1) - 1) as usize;
+        for (i, line) in s.text_lines.iter().enumerate().skip(start).take(10) {
+            out.push(format!("engine_line {}: {}", i + 1, line));
+        }
+        out.join("\n")
+    }
+
     /// Produce a compact deterministic multi-line textual snapshot suitable for
     /// test assertions or logging by the native binary. The format is stable
     /// and intentionally small.
@@ -412,6 +432,14 @@ impl ShellRenderTranscript {
         for l in &self.plan_lines {
             lines.push(format!("  {}", l));
         }
+
+        // Append a concise engine-scene snapshot summary so the transcript reflects
+        // the active buffer and caret coming from the engine runtime seam.
+        let scene_summary = ShellRenderTranscript::engine_scene_summary();
+        for line in scene_summary.lines() {
+            lines.push(format!("  {}", line));
+        }
+
         lines.join("\n")
     }
 
@@ -806,5 +834,43 @@ mod editor_render_tests {
         assert_eq!(set_b.texts[0].text, "uno");
         assert_eq!(set_a.texts.len(), 2);
         assert_eq!(set_b.texts.len(), 3);
+    }
+
+    #[test]
+    fn end_to_end_click_and_type_updates_scene_and_transcript() {
+        // prepare a small scene with two lines
+        let model = zaroxi_core_engine_scene::ShellSceneModel {
+            text_lines: vec!["ab".to_string(), "cd".to_string()],
+            viewport_top_line: 1,
+            viewport_total_lines: 2,
+            viewport_summary: None,
+            cursor_line: Some(1),
+            cursor_column: Some(0),
+            selection_present: false,
+            status_text: None,
+            chrome_text: None,
+            last_command: None,
+            ai_status_present: false,
+        };
+        zaroxi_core_engine_scene::set_current_scene(model);
+
+        // simulate a click to place cursor at line 1, column 1:
+        // content_x = 100, base_y = 50, content_inset = 6, char_w = 8, line_h = 16
+        // content_text_x = 106; to place at column 1 click_x = 106 + 1*8 = 114
+        handle_mouse_click_and_place_cursor(114, 50, 100, 50, DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, 6);
+
+        // type 'X' at the caret
+        handle_key_char('X');
+
+        // check the live engine scene was updated
+        let s = zaroxi_core_engine_scene::get_current_scene();
+        assert_eq!(s.text_lines[0], "aXb");
+        assert_eq!(s.cursor_line.unwrap(), 1);
+        assert_eq!(s.cursor_column.unwrap(), 2);
+
+        // verify the transcript scene summary reflects the live changes
+        let summary = ShellRenderTranscript::engine_scene_summary();
+        assert!(summary.contains("engine_line 1: aXb"));
+        assert!(summary.contains("engine_cursor: Some(1):Some(2)"));
     }
 }
