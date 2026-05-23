@@ -135,7 +135,45 @@ async fn main() -> Result<(), String> {
                     // and on TextView/SelectionView adapters that reflect the real composition pipeline.
                     fn print_editor_slice(composition: &zaroxi_interface_desktop::DesktopComposition) {
                         use zaroxi_interface_desktop::presenters::transcript::EditorLayoutSpec;
-                        use zaroxi_core_engine_scene::{EditorPrimitiveSet, TextPrimitive, CaretItem, SelectionRect};
+                        // Local minimal primitive types for harness verification (avoid adding a crate dep).
+                        #[derive(Clone, Debug)]
+                        struct TextPrimitive {
+                            pub x: u32,
+                            pub y: u32,
+                            pub text: String,
+                            pub font_name: String,
+                            pub max_width: Option<u32>,
+                        }
+                        #[derive(Clone, Debug)]
+                        struct CaretItem {
+                            pub x: u32,
+                            pub y: u32,
+                            pub height: u32,
+                        }
+                        #[derive(Clone, Debug)]
+                        struct SelectionRect {
+                            pub x: u32,
+                            pub y: u32,
+                            pub width: u32,
+                            pub height: u32,
+                        }
+                        #[derive(Clone, Debug)]
+                        struct EditorPrimitiveSet {
+                            pub texts: Vec<TextPrimitive>,
+                            pub carets: Vec<CaretItem>,
+                            pub selections: Vec<SelectionRect>,
+                            pub gutter_labels: Vec<TextPrimitive>,
+                        }
+                        impl EditorPrimitiveSet {
+                            fn new() -> Self {
+                                EditorPrimitiveSet {
+                                    texts: Vec::new(),
+                                    carets: Vec::new(),
+                                    selections: Vec::new(),
+                                    gutter_labels: Vec::new(),
+                                }
+                            }
+                        }
 
                         // Local deterministic builder that mirrors the presenter's
                         // deterministic primitive math. This duplicates presenter math
