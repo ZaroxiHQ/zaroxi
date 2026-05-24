@@ -109,11 +109,33 @@ impl Buffer {
     }
 
     fn restore_snapshot(&mut self, s: Snapshot) {
+        // Restore textual content and cursor/selection state from the snapshot.
+        // After restoring lines we must ensure both the cursor and any selection
+        // indices are clamped to valid ranges for the restored content. This
+        // prevents subtle off-by-one or out-of-range selection values when the
+        // document shape differs between snapshots (and fixes tests where
+        // selection/caret restoration was unstable).
         self.lines = s.lines;
         self.cursor_line = s.cursor_line;
         self.cursor_col = s.cursor_col;
         self.selection = s.selection;
+
+        // Ensure cursor is within bounds for the restored text.
         self.clamp_cursor();
+
+        // Also ensure selection endpoints are within the restored document bounds.
+        if let Some(sel) = &mut self.selection {
+            // Clamp line indices to available range.
+            let max_line_idx = if self.lines.is_empty() { 0 } else { self.lines.len().saturating_sub(1) };
+            sel.anchor_line = min(sel.anchor_line, max_line_idx);
+            sel.active_line = min(sel.active_line, max_line_idx);
+
+            // Clamp column indices to the respective line lengths.
+            let anchor_line_len = self.lines.get(sel.anchor_line).map(|l| l.chars().count()).unwrap_or(0);
+            let active_line_len = self.lines.get(sel.active_line).map(|l| l.chars().count()).unwrap_or(0);
+            sel.anchor_col = min(sel.anchor_col, anchor_line_len);
+            sel.active_col = min(sel.active_col, active_line_len);
+        }
     }
 
     /// Record an "undo boundary" before a mutating operation.
