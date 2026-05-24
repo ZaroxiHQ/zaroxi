@@ -6,6 +6,7 @@ use zaroxi_application_workspace::ports::{
 };
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_application_workspace::ports as ports;
 
 /// Minimal fake WorkspaceView used to populate a DesktopComposition for tests.
 struct FakeView {
