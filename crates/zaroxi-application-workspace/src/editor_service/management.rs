@@ -27,7 +27,7 @@ impl EditorService {
     }
 
     /// Helper: obtain the Arc<Mutex<Buffer>> for the active buffer (if any).
-    fn get_active_buffer_arc(&self) -> Option<Arc<Mutex<Buffer>>> {
+    pub(crate) fn get_active_buffer_arc(&self) -> Option<Arc<Mutex<Buffer>>> {
         let st = self.inner.lock().unwrap();
         match st.active {
             Some(i) => Some(st.buffers[i].clone()),

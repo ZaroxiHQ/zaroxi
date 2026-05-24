@@ -14,7 +14,7 @@ impl EditorService {
             let b = buf_arc.lock().unwrap();
             b.to_text()
         };
-        std::fs::write(path, text.as_bytes())?;
+        fs::write(path, text.as_bytes())?;
         // update buffer saved state
         let mut b = buf_arc.lock().unwrap();
         b.set_saved_state();
@@ -23,7 +23,7 @@ impl EditorService {
 
     /// Reload active buffer contents from disk: replace buffer text and reset history.
     pub fn reload(&self, path: &Path) -> io::Result<()> {
-        let content = std::fs::read_to_string(path)?;
+        let content = fs::read_to_string(path)?;
         let buf_arc = match self.get_active_buffer_arc() {
             Some(a) => a,
             None => return Err(io::Error::new(io::ErrorKind::NotFound, "no active buffer")),
