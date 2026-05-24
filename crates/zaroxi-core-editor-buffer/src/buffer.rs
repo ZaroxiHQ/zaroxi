@@ -316,18 +316,12 @@ impl Buffer {
             // leading newline when joined. Otherwise splice the remaining pieces.
             let line_len = self.lines[sl].chars().count();
             if sc == 0 && ec >= line_len {
-                // Remove the whole line.
-                self.lines.remove(sl);
-                if self.lines.is_empty() {
-                    // Ensure there's at least one empty line to keep buffer well-formed.
-                    self.lines.push(String::new());
-                    self.cursor_line = 0;
-                    self.cursor_col = 0;
-                } else {
-                    // Place cursor at start of the next logical line (which shifts into `sl`).
-                    self.cursor_line = if sl >= self.lines.len() { self.lines.len() - 1 } else { sl };
-                    self.cursor_col = 0;
-                }
+                // Replace the whole line content with an empty line instead of removing the line.
+                // This preserves the visible blank line (user expectation when deleting a full-line
+                // selection) and keeps document line indices stable for selection/undo semantics.
+                self.lines[sl] = String::new();
+                self.cursor_line = sl;
+                self.cursor_col = 0;
             } else {
                 let line = &self.lines[sl];
                 let before = line.chars().take(sc).collect::<String>();
