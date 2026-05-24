@@ -19,27 +19,27 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_buffer_content(&self, _buffer_id: BufferId) -> ports::BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_active_buffer_content(&self, _session_id: SessionId) -> ports::BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
-        let doc = crate::ports::EditorDocument {
+    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> ports::BoxFuture<'static, Result<ports::GetActiveEditorDocumentResponse, ports::UseCaseError>> {
+        let doc = ports::EditorDocument {
             buffer_id: self.buffer_id.clone(),
             content: Some("line1".to_string()),
-            cursor: crate::ports::EditorCursor::zero(),
+            cursor: ports::EditorCursor::zero(),
             selection: None,
             line_count: 1,
             current_line: Some("line1".to_string()),
         };
-        Box::pin(async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: doc }) })
+        Box::pin(async move { Ok(ports::GetActiveEditorDocumentResponse { document: doc }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> ports::BoxFuture<'static, Result<ports::GetVisibleLinesResponse, ports::UseCaseError>> {
         let vl = VisibleLine {
             line_number: 1,
             text: "line1".to_string(),
@@ -50,7 +50,7 @@ impl WorkspaceView for FakeView {
             selection_end_column: None,
         };
         let vw = VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
-        Box::pin(async move { Ok(crate::ports::GetVisibleLinesResponse { window: vw }) })
+        Box::pin(async move { Ok(ports::GetVisibleLinesResponse { window: vw }) })
     }
 }
 
