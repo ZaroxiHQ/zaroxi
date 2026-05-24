@@ -48,6 +48,35 @@ pub enum ResolveDirtyCloseResult {
     NotDirty,
 }
 
+/// Result of attempting to close an entire workspace/session.
+///
+/// - Closed: session had no dirty buffers and was closed (buffers removed).
+/// - BlockedByDirty: one or more buffers are dirty; caller may resolve via
+///   resolve_close_session_save_all / resolve_close_session_discard_all.
+///   Each tuple is (buffer_index, Option<PathBuf>) where None indicates an unnamed buffer.
+/// - SessionNotFound: (reserved) no session/workspace found (keeps parity with single-buffer APIs).
+#[derive(Debug, PartialEq, Eq)]
+pub enum AttemptCloseSessionResult {
+    Closed,
+    BlockedByDirty { dirty_buffers: Vec<(usize, Option<PathBuf>)> },
+    SessionNotFound,
+}
+
+/// Result of attempting to resolve a previously-blocked session close.
+#[derive(Debug)]
+pub enum ResolveCloseSessionResult {
+    ClosedAfterSaveAll,
+    ClosedAfterDiscardAll,
+    /// Save-all failed; failed_buffers contains tuples (buffer_index, Option<PathBuf>)
+    /// with None indicating unnamed buffers that could not be saved.
+    SaveAllFailed { failed_buffers: Vec<(usize, Option<PathBuf>)> },
+    /// IO error while attempting to discard (reload) buffers from disk.
+    IoError(std::io::Error),
+    SessionNotFound,
+    /// Nothing to resolve (no dirty buffers).
+    NothingToResolve,
+}
+
 /// Internal state holding opened buffers and their optional file paths.
 /// All indices correspond between paths and buffers vecs.
 struct BuffersState {
@@ -99,10 +128,11 @@ impl EditorService {
     }
 }
 
-// Submodules split for maintainability (behavior preserved).
+ // Submodules split for maintainability (behavior preserved).
 mod management;
 mod snapshot;
 mod persistence;
 mod editing;
 mod close;
 mod dirty_close;
+mod session_close;
