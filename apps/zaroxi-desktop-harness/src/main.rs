@@ -884,46 +884,52 @@ async fn main() -> Result<(), String> {
         println!("Harness: no status banner present after resolution");
     }
 
-    // --- New harness demonstration: simple command-bar flow ---
-    println!("Harness: demonstrating command-bar: open -> choose Refresh -> execute");
-    composition.open_command_bar();
+    // --- New harness demonstration: keyboard-driven command-bar flow ---
+    println!("Harness: demonstrating keyboard-driven command-bar: open -> navigate -> execute (keyboard)");
+    // Open via keyboard action
+    let _ = zaroxi_interface_desktop::actions::open_command_bar(&mut composition).await;
     if let Some(cb) = composition.latest_command_bar() {
         println!("Harness: command bar opened; commands = {:?}", cb.commands);
     } else {
         println!("Harness: command bar failed to open");
     }
 
-    // Choose the Refresh command if present, otherwise index 0.
-    let cmd_idx = composition
-        .latest_command_bar()
-        .and_then(|cb| cb.commands.iter().position(|c| c == "Refresh"))
-        .unwrap_or(0);
+    // Navigate to "Refresh" deterministically using keyboard-next action and then confirm.
+    if let Some(cb) = composition.latest_command_bar() {
+        let refresh_idx = cb.commands.iter().position(|c| c == "Refresh").unwrap_or(0);
+        // Move selection forward refresh_idx steps (keyboard-driven)
+        for _ in 0..refresh_idx {
+            let _ = zaroxi_interface_desktop::actions::navigate_command_bar_next(&mut composition).await;
+        }
 
-    match zaroxi_interface_desktop::actions::execute_command_by_index(
-        &mut composition,
-        view_dyn.clone(),
-        None,
-        boot_res.session.session_id.clone(),
-        Some(boot_res.session.workspace_id),
-        cmd_idx,
-    )
-    .await
-    {
-        Ok(ar) => {
-            println!(
-                "Harness: command result: success={} refreshed={} message={:?}",
-                ar.success, ar.refreshed, ar.message
-            );
+        // Confirm the selected command via keyboard confirm action
+        match zaroxi_interface_desktop::actions::confirm_selected_command(
+            &mut composition,
+            view_dyn.clone(),
+            None,
+            boot_res.session.session_id.clone(),
+            Some(boot_res.session.workspace_id),
+        )
+        .await
+        {
+            Ok(ar) => {
+                println!(
+                    "Harness: keyboard command result: success={} refreshed={} message={:?}",
+                    ar.success, ar.refreshed, ar.message
+                );
+            }
+            Err(e) => {
+                println!("Harness: keyboard command execution error: {}", e);
+            }
         }
-        Err(e) => {
-            println!("Harness: command execution error: {}", e);
-        }
+    } else {
+        println!("Harness: no command bar to drive via keyboard");
     }
 
     if let Some(sline) = composition.latest_status_bar_line() {
-        println!("Harness: status after command -> {}", sline.text);
+        println!("Harness: status after keyboard command -> {}", sline.text);
     } else {
-        println!("Harness: no status banner present after command");
+        println!("Harness: no status banner present after keyboard command");
     }
 
     Ok(())

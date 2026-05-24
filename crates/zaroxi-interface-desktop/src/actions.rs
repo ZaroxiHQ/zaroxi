@@ -364,6 +364,69 @@ pub async fn close_command_bar(
     Ok(ActionResult { success: true, message: None, refreshed: false })
 }
 
+/// Keyboard-oriented navigation: move selection to the next command.
+///
+/// This mirrors the existing `select_next_command` composition helper but exposes
+/// it as a tiny async action so tests and harnesses may treat keyboard input as
+/// a small action with normalized ActionResult.
+pub async fn navigate_command_bar_next(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.select_next_command();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+/// Keyboard-oriented navigation: move selection to the previous command.
+pub async fn navigate_command_bar_prev(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.select_prev_command();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+/// Confirm the currently-selected command in the open command bar.
+///
+/// Behavior:
+/// - If no command bar is open, returns a failing ActionResult.
+/// - Otherwise dispatches the selected command via existing `execute_command_by_index`.
+/// - On successful command execution the command bar is closed (typical palette UX).
+/// - The returned ActionResult is the normalized result from the underlying command.
+pub async fn confirm_selected_command(
+    comp: &mut crate::desktop::DesktopComposition,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+) -> Result<ActionResult, String> {
+    let cb = match comp.latest_command_bar() {
+        Some(cb) => cb,
+        None => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some("command bar is not open".to_string()),
+                refreshed: false,
+            })
+        }
+    };
+
+    let idx = cb.selected;
+    // Delegate to existing command executor. If it returns Ok and the action succeeded,
+    // close the command bar to mirror palette UX.
+    let res = execute_command_by_index(comp, view, service, session_id.clone(), workspace_id, idx).await?;
+    if res.success {
+        comp.close_command_bar();
+    }
+    Ok(res)
+}
+
+/// Cancel the open command bar (keyboard Escape).
+pub async fn cancel_command_bar(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.close_command_bar();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
 /// Execute the command at `index` from the composition's current command bar list.
 ///
 /// Behavior:
