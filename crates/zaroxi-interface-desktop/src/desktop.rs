@@ -24,8 +24,10 @@ mod status_bar;
 mod state;
 mod summary;
 mod snapshot;
+mod close;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
+pub use close::PendingClose;
 pub(crate) use state::command_kind_short_name;
 
 use crate::view_adapter::InterfaceRenderableWindow;
@@ -395,6 +397,9 @@ pub struct DesktopComposition {
     revision: u64,
     /// Optional pending refresh reason set by callers which will be consumed by `refresh_with_service`.
     pending_refresh_reason: Option<RefreshReason>,
+    /// Optional pending close resolution requested by the UI (buffer or session).
+    /// This models in-progress user decisions (save/discard/cancel) in a single place.
+    pending_close: Option<PendingClose>,
 }
 
 impl DesktopComposition {
@@ -601,6 +606,27 @@ impl DesktopComposition {
     /// Query whether a pending refresh reason has been set.
     pub fn has_pending_refresh_reason(&self) -> bool {
         self.pending_refresh_reason.is_some()
+    }
+
+    /// Set the pending-close model (buffer/session close resolution) which will be presented
+    /// to the UI until cleared or resolved.
+    pub fn set_pending_close(&mut self, pending: PendingClose) {
+        self.pending_close = Some(pending);
+    }
+
+    /// Clear any pending-close UI state (e.g. after cancel or successful resolution).
+    pub fn clear_pending_close(&mut self) {
+        self.pending_close = None;
+    }
+
+    /// Query whether a pending-close resolution is currently set.
+    pub fn has_pending_close(&self) -> bool {
+        self.pending_close.is_some()
+    }
+
+    /// Read-only accessor for the current pending-close state.
+    pub fn latest_pending_close(&self) -> Option<PendingClose> {
+        self.pending_close.clone()
     }
 
     /// Return the most recent refresh reason recorded in the composition metadata.
