@@ -713,7 +713,16 @@ impl DesktopComposition {
             let text = format!("{}  {}", pc.render_summary(), hint);
             return Some(StatusBarLine { text, sticky: Some("pending-close".to_string()) });
         }
-        // No pending close: fall back to existing status bar helper.
+
+        // If a transient status message was set by the UI (e.g. "Saved and closed"),
+        // surface it immediately so simple shells and tests can observe the outcome.
+        if let Some(m) = self.metadata.as_ref() {
+            if let Some(ref last) = m.last_command_line {
+                return Some(StatusBarLine { text: last.clone(), sticky: Some("status-message".to_string()) });
+            }
+        }
+
+        // No pending close and no transient status: fall back to existing status bar helper.
         status_bar::latest_status_bar_line(self)
     }
 
