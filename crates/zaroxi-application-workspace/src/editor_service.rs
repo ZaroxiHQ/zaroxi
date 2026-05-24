@@ -211,6 +211,75 @@ impl EditorService {
     // Editing / clipboard / undo
     // --------------------------
 
+    /// Move arrow with optional shift (expand selection).
+    pub fn arrow_left(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.move_left(shift);
+        }
+    }
+    pub fn arrow_right(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.move_right(shift);
+        }
+    }
+    pub fn arrow_up(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.move_up(shift);
+        }
+    }
+    pub fn arrow_down(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.move_down(shift);
+        }
+    }
+
+    pub fn home(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.home(shift);
+        }
+    }
+
+    pub fn end(&self, shift: bool) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.end(shift);
+        }
+    }
+
+    /// Type a string (inserts or replaces selection).
+    pub fn type_text(&self, text: &str) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.replace_selection_or_insert(text);
+        }
+    }
+
+    pub fn backspace(&self) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.backspace();
+        }
+    }
+
+    pub fn delete(&self) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.delete();
+        }
+    }
+
+    pub fn enter(&self) {
+        if let Some(buf_arc) = self.get_active_buffer_arc() {
+            let mut b = buf_arc.lock().unwrap();
+            b.enter();
+        }
+    }
+
     /// Copy selection into a String (application-layer returns the text; the interface
     /// layer owns the clipboard seam).
     pub fn copy_selection(&self) -> Option<String> {
