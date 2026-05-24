@@ -266,15 +266,18 @@ impl Buffer {
         // last line up to ec
         parts.push(self.lines[el].chars().take(ec).collect());
 
-        // If the first collected part is empty (selection began immediately after a newline),
-        // joining will produce a leading newline. Many tests in this codebase expect copied
-        // selections that start at a line break to not include a leading empty line token.
-        // To match those expectations, drop a leading empty part when there are subsequent parts.
-        if !parts.is_empty() && parts[0].is_empty() && parts.len() > 1 {
-            return Some(parts[1..].join("\n"));
+        let joined = parts.join("\n");
+
+        // Historically we observed clipboard content beginning with a leading newline
+        // when the selection started at the end of a line (i.e. first part empty).
+        // Many downstream tests and user expectations prefer to drop a single
+        // leading newline produced in that scenario. Remove exactly one leading
+        // '\n' if present to normalize copy/cut semantics.
+        if joined.starts_with('\n') {
+            return Some(joined[1..].to_string());
         }
 
-        Some(parts.join("\n"))
+        Some(joined)
     }
 
     /// Replace the selection (if present) with `text`. If no selection, insert at cursor.
