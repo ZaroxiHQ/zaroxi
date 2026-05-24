@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
 use zaroxi_application_workspace::ports::{
     self, BoxFuture, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
     GetVisibleLinesRequest, GetVisibleLinesResponse, SessionId, UseCaseError, WorkspaceView,
 };
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
-use zaroxi_interface_desktop::{DesktopComposition, actions, refresh_desktop};
 
 /// Minimal single helper used across tests.
 pub struct CloseFlowViewStub {
