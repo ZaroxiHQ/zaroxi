@@ -429,6 +429,8 @@ pub struct DesktopComposition {
     /// Optional pending close resolution requested by the UI (buffer or session).
     /// This models in-progress user decisions (save/discard/cancel) in a single place.
     pending_close: Option<PendingClose>,
+    /// Optional command bar (palette) state exposed to shells/presenters.
+    command_bar: Option<CommandBarState>,
 }
 
 impl DesktopComposition {
