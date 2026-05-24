@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use zaroxi_interface_desktop::{DesktopComposition, refresh_desktop, actions};
 use zaroxi_application_workspace::ports::{
-    WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId,
+    WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, BoxFuture,
 };
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
@@ -20,15 +20,15 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: BufferId) -> ports::BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_buffer_content(&self, _buffer_id: BufferId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: SessionId) -> ports::BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_active_buffer_content(&self, _session_id: SessionId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> ports::BoxFuture<'static, Result<ports::GetActiveEditorDocumentResponse, ports::UseCaseError>> {
+    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<ports::GetActiveEditorDocumentResponse, ports::UseCaseError>> {
         let doc = ports::EditorDocument {
             buffer_id: self.buffer_id.clone(),
             content: Some("line1".to_string()),
@@ -40,7 +40,7 @@ impl WorkspaceView for FakeView {
         Box::pin(async move { Ok(ports::GetActiveEditorDocumentResponse { document: doc }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> ports::BoxFuture<'static, Result<ports::GetVisibleLinesResponse, ports::UseCaseError>> {
+    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<ports::GetVisibleLinesResponse, ports::UseCaseError>> {
         let vl = VisibleLine {
             line_number: 1,
             text: "line1".to_string(),
