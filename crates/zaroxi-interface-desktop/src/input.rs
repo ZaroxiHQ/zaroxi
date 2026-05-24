@@ -68,4 +68,14 @@ impl InputBridge {
             self.svc.paste_text(&t);
         }
     }
+
+    /// Undo last edit (maps to Ctrl+Z semantics in tests/harnesses).
+    pub fn undo(&self) {
+        self.svc.undo();
+    }
+
+    /// Redo last undone edit (maps to Ctrl+Y / Ctrl+Shift+Z semantics).
+    pub fn redo(&self) {
+        self.svc.redo();
+    }
 }

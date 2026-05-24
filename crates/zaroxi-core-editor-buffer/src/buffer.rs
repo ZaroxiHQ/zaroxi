@@ -42,6 +42,46 @@ impl Selection {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    pub lines: Vec<String>,
+    pub cursor_line: usize,
+    pub cursor_col: usize,
+    pub selection: Option<Selection>,
+}
+
+impl Snapshot {
+    fn from_buffer(b: &Buffer) -> Self {
+        Snapshot {
+            lines: b.lines.clone(),
+            cursor_line: b.cursor_line,
+            cursor_col: b.cursor_col,
+            selection: b.selection.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Buffer {
+    pub lines: Vec<String>,
+    /// Cursor (caret) position: 0-based line and column.
+    pub cursor_line: usize,
+    pub cursor_col: usize,
+    /// Optional selection anchor/active (both inclusive/exclusive semantics:
+    /// anchor is fixed, active is the caret). When `selection` is None, there
+    /// is no active selection and the cursor is at (cursor_line, cursor_col).
+    pub selection: Option<Selection>,
+
+    // Undo/redo history: store full snapshots for correctness and simplicity.
+    pub undo_stack: Vec<Snapshot>,
+    pub redo_stack: Vec<Snapshot>,
+
+    // Simple typing-group model: if successive single-char inserts happen at the
+    // immediate continuation position we merge them into a single undo entry.
+    pub last_edit_was_typing: bool,
+    pub last_typing_end: (usize, usize),
+}
+
 impl Buffer {
     /// Create a buffer from full text. Lines split on '\n' (do not keep newlines).
     pub fn from_text(text: &str) -> Self {
@@ -51,6 +91,10 @@ impl Buffer {
             cursor_line: 0,
             cursor_col: 0,
             selection: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            last_edit_was_typing: false,
+            last_typing_end: (usize::MAX, usize::MAX),
         }
     }
 
@@ -72,6 +116,66 @@ impl Buffer {
         }
         let line_len = self.lines[self.cursor_line].chars().count();
         self.cursor_col = min(self.cursor_col, line_len);
+    }
+
+    // Snapshot helpers for undo/redo ------------------------------------------------
+    fn capture_snapshot(&self) -> Snapshot {
+        Snapshot::from_buffer(self)
+    }
+
+    fn restore_snapshot(&mut self, s: Snapshot) {
+        self.lines = s.lines;
+        self.cursor_line = s.cursor_line;
+        self.cursor_col = s.cursor_col;
+        self.selection = s.selection;
+        self.clamp_cursor();
+    }
+
+    /// Record an "undo boundary" before a mutating operation.
+    /// - is_typing: whether this operation should be considered typing (single-char inserts).
+    /// Consecutive typing operations at contiguous positions are merged.
+    fn record_undo_before(&mut self, is_typing: bool) {
+        let insert_start = (self.cursor_line, self.cursor_col);
+        if is_typing && self.last_edit_was_typing && self.last_typing_end == insert_start {
+            // continuation of previous typing group: do not push a new snapshot.
+        } else {
+            self.undo_stack.push(self.capture_snapshot());
+            // bound history size to avoid unbounded growth
+            if self.undo_stack.len() > 200 {
+                self.undo_stack.remove(0);
+            }
+            self.last_edit_was_typing = is_typing;
+        }
+        // Any new edit clears the redo stack.
+        self.redo_stack.clear();
+    }
+
+    /// Perform undo by restoring the most recent snapshot (if any).
+    /// Returns true if an undo was performed.
+    pub fn undo(&mut self) -> bool {
+        if let Some(prev) = self.undo_stack.pop() {
+            let cur = self.capture_snapshot();
+            self.redo_stack.push(cur);
+            self.restore_snapshot(prev);
+            self.last_edit_was_typing = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Perform redo by restoring top of redo stack (if any).
+    /// Returns true if a redo was performed.
+    pub fn redo(&mut self) -> bool {
+        if let Some(next) = self.redo_stack.pop() {
+            let cur = self.capture_snapshot();
+            self.undo_stack.push(cur);
+            self.restore_snapshot(next);
+            self.last_edit_was_typing = false;
+            true
+        } else {
+            false
+        }
     }
 
     /// Set the cursor explicitly and clear selection unless `keep_selection` is true.
@@ -160,9 +264,18 @@ impl Buffer {
     /// Replace the selection (if present) with `text`. If no selection, insert at cursor.
     /// After operation the cursor is placed at the end of the inserted text and selection cleared.
     pub fn replace_selection_or_insert(&mut self, text: &str) {
+        // Determine whether this should be treated as "typing" (groupable single-char insert).
+        let text_char_count = text.chars().count();
+        let is_typing = text_char_count == 1 && !text.contains('\n') && self.selection.is_none();
+
+        // Record undo boundary before the mutation (may merge for typing).
+        self.record_undo_before(is_typing);
+
+        // If there is an active selection, remove it first (do not double-record).
         if self.selection.is_some() {
-            self.delete_selection_and_return_cursor_at_start();
+            self.delete_selection_and_return_cursor_at_start(false);
         }
+
         // insert at cursor_line/cursor_col
         let cur_line = self.cursor_line;
         let cur_col = self.cursor_col;
@@ -193,15 +306,22 @@ impl Buffer {
             // place cursor at end of inserted text (last line length minus tail length)
             self.cursor_col = self.lines[self.cursor_line].chars().count() - tail.chars().count();
         }
+        // clear selection and update typing-group end position
         self.clear_selection();
+        self.last_typing_end = (self.cursor_line, self.cursor_col);
         self.clamp_cursor();
     }
 
     /// Delete the selected range and place the cursor at the start of the removed range.
     /// Returns true if something was deleted.
-    pub fn delete_selection_and_return_cursor_at_start(&mut self) -> bool {
+    ///
+    /// `record_undo`: when true record an undo snapshot before performing deletion.
+    pub fn delete_selection_and_return_cursor_at_start(&mut self, record_undo: bool) -> bool {
         if self.selection.is_none() {
             return false;
+        }
+        if record_undo {
+            self.record_undo_before(false);
         }
         let sel = self.selection.as_ref().unwrap().clone();
         let (sl, sc, el, ec) = sel.normalized();
@@ -258,6 +378,8 @@ impl Buffer {
             self.cursor_col = sc;
         }
         self.selection = None;
+        // any deletion is a non-typing action
+        self.last_edit_was_typing = false;
         self.clamp_cursor();
         true
     }
@@ -265,8 +387,12 @@ impl Buffer {
     /// Backspace behavior: if selection present, delete it. Otherwise remove char
     /// before the cursor, handling line joins at line starts.
     pub fn backspace(&mut self) {
+        // Record undo boundary for this destructive action.
+        self.record_undo_before(false);
+
         if self.selection.is_some() {
-            self.delete_selection_and_return_cursor_at_start();
+            // selection deletion already handled; avoid double-recording
+            self.delete_selection_and_return_cursor_at_start(false);
             return;
         }
         if self.cursor_col == 0 {
@@ -288,14 +414,19 @@ impl Buffer {
             self.cursor_col -= 1;
         }
         self.selection = None;
+        // destructive op resets typing-grouping
+        self.last_edit_was_typing = false;
         self.clamp_cursor();
     }
 
     /// Delete key behavior: if selection present delete it. Otherwise remove char at cursor,
     /// or join with next line at end-of-line.
     pub fn delete(&mut self) {
+        // record undo boundary for this destructive action
+        self.record_undo_before(false);
+
         if self.selection.is_some() {
-            self.delete_selection_and_return_cursor_at_start();
+            self.delete_selection_and_return_cursor_at_start(false);
             return;
         }
         let line_len = self.lines[self.cursor_line].chars().count();
@@ -313,13 +444,17 @@ impl Buffer {
             self.lines[self.cursor_line] = format!("{}{}", before, after);
         }
         self.selection = None;
+        self.last_edit_was_typing = false;
         self.clamp_cursor();
     }
 
     /// Press Enter: if selection exists replace it with a newline; otherwise split the line.
     pub fn enter(&mut self) {
+        // record undo boundary for this structural edit
+        self.record_undo_before(false);
+
         if self.selection.is_some() {
-            self.delete_selection_and_return_cursor_at_start();
+            self.delete_selection_and_return_cursor_at_start(false);
         }
         let line = self.lines[self.cursor_line].clone();
         let head: String = line.chars().take(self.cursor_col).collect();
@@ -328,6 +463,7 @@ impl Buffer {
         self.cursor_line += 1;
         self.cursor_col = 0;
         self.selection = None;
+        self.last_edit_was_typing = false;
         self.clamp_cursor();
     }
 

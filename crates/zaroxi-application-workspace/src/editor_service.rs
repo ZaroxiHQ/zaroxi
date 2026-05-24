@@ -88,7 +88,7 @@ impl EditorService {
     /// Delete selection content (cut should call copy_selection first).
     pub fn delete_selection(&self) -> bool {
         let mut b = self.buffer.lock().unwrap();
-        b.delete_selection_and_return_cursor_at_start()
+        b.delete_selection_and_return_cursor_at_start(true)
     }
 
     /// Paste: replace selection or insert text at caret.
@@ -141,5 +141,17 @@ impl EditorService {
     pub fn get_selection_normalized(&self) -> Option<(usize, usize, usize, usize)> {
         let b = self.buffer.lock().unwrap();
         b.selection.as_ref().map(|s| s.normalized())
+    }
+
+    /// Undo last edit (returns true if an undo was performed).
+    pub fn undo(&self) -> bool {
+        let mut b = self.buffer.lock().unwrap();
+        b.undo()
+    }
+
+    /// Redo previously undone edit (returns true if a redo was performed).
+    pub fn redo(&self) -> bool {
+        let mut b = self.buffer.lock().unwrap();
+        b.redo()
     }
 }
