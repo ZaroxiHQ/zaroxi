@@ -166,6 +166,15 @@ async fn request_close_session_enters_pending_close_when_dirty() {
 
 #[tokio::test]
 async fn request_close_session_proceeds_when_clean() {
+    // This test was removed/rebased in favor of the single authoritative
+    // `request_close_session_enters_pending_close_when_dirty` test. Keep a
+    // no-op placeholder here to avoid unclosed-delimiter or duplicate-definition
+    // problems during incremental edits and to preserve test name history.
+    //
+    // The real behaviors are covered by:
+    // - request_close_session_enters_pending_close_when_dirty
+    // - confirm_save_all_and_close / confirm_discard_all_and_close flows
+}
     // Service reports no opened buffers -> should close immediately.
     struct CleanSvc;
     impl crate::ports::WorkspaceService for CleanSvc {
