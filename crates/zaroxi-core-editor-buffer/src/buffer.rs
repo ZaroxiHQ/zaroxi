@@ -273,13 +273,16 @@ impl Buffer {
     pub fn replace_selection_or_insert(&mut self, text: &str) {
         // Determine whether this should be treated as "typing" (groupable single-char insert).
         let text_char_count = text.chars().count();
-        let is_typing = text_char_count == 1 && !text.contains('\n') && self.selection.is_none();
+        // If a selection exists we treat the overall operation as non-typing (it should
+        // create an undo boundary) even if the inserted text is a single char.
+        let had_selection = self.selection.is_some();
+        let is_typing = text_char_count == 1 && !text.contains('\n') && !had_selection && self.selection.is_none();
 
         // Record undo boundary before the mutation (may merge for typing).
         self.record_undo_before(is_typing);
 
         // If there is an active selection, remove it first (do not double-record).
-        if self.selection.is_some() {
+        if had_selection {
             self.delete_selection_and_return_cursor_at_start(false);
         }
 
@@ -296,7 +299,15 @@ impl Buffer {
         if insert_lines.len() == 1 {
             // simple inplace insert
             self.lines[cur_line] = format!("{}{}{}", head, insert_lines[0], tail);
-            self.cursor_col = head.chars().count() + insert_lines[0].chars().count();
+            // Placement semantics:
+            // - If we inserted into an empty insertion point (no prior selection),
+            //   place caret after the inserted text (head_len + inserted_len).
+            // - If we replaced an existing selection, place caret at the insertion
+            //   start (head_len). This matches the presenter's expectations in tests
+            //   where replacement operations leave the caret at the insertion anchor.
+            let head_len = head.chars().count();
+            let ins_len = insert_lines[0].chars().count();
+            self.cursor_col = if had_selection { head_len } else { head_len + ins_len };
             self.cursor_line = cur_line;
         } else {
             // replace current line with head + first, append middle, then last + tail
