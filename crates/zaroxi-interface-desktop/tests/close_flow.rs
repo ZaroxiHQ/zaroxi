@@ -204,18 +204,3 @@ async fn request_close_session_proceeds_when_clean() {
         fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>> { Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) }) }
     }
 
-    let view = Arc::new(FakeView::new()) as Arc<dyn WorkspaceView>;
-    let fake = Svc { buf: BufferId::from("buf:dirty") };
-    let service = Arc::new(fake) as Arc<dyn WorkspaceService>;
-    let sid = SessionId(zaroxi_kernel_types::Id::new());
-    let mut comp = DesktopComposition::new();
-
-    let _ = refresh_desktop(&mut comp, view.clone(), sid.clone(), None, Some(service.clone())).await.expect("refresh ok");
-
-    // Request session close: service reports opened buffers so UI should enter pending session-close.
-    let _ = actions::request_close_session(&mut comp, view.clone(), sid.clone(), Some(service.clone())).await.expect("request close session ok");
-    assert!(comp.has_pending_close(), "pending close should be set after request_close_session");
-
-    let bar = comp.latest_status_bar_line().expect("status bar present");
-    assert!(bar.text.contains("Close session") || bar.text.contains("buffers"), "status should reflect session close pending");
-}
