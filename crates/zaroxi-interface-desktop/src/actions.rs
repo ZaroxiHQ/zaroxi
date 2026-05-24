@@ -4,6 +4,7 @@ pub use actions_inner::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop::RefreshReason;
     use std::sync::Arc;
     use std::sync::Arc as StdArc;
     use std::sync::atomic::{AtomicBool, Ordering};
