@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, OpenBufferRequest, GetActiveBufferRequest};
 use crate::desktop::{DesktopComposition};
 
-use super::actions_refresh::{ActionResult, refresh_desktop, refresh_and_get_shell_context};
+use super::actions_refresh::{ActionResult, refresh_desktop};
 use super::actions_buffer::set_active_buffer_and_get_shell_context;
 use super::actions_close_flow::{request_close_active, confirm_save_and_close, confirm_discard_and_close, confirm_cancel_close};
 

@@ -1,9 +1,7 @@
 use std::sync::Arc;
 use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, SaveCheckpointRequest};
-use zaroxi_kernel_types::Id;
 
 use super::actions_refresh::ActionResult;
-use crate::desktop::RefreshReason;
 
 /// Request to close the active tab (desktop-level). Behavior:
 /// - If there is an active buffer, present the pending-close UI so the user can
