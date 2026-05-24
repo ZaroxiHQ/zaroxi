@@ -1,8 +1,7 @@
-use std::sync::Arc;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, SetActiveBufferRequest};
+use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use crate::desktop::RefreshReason;
 
-use super::actions_refresh::{ActionResult, refresh_and_get_shell_context, refresh_desktop};
+use super::actions_refresh::{ActionResult, refresh_and_get_shell_context};
 
 /// Tiny convenience shell action:
 /// - Set the active buffer via the provided WorkspaceService.
