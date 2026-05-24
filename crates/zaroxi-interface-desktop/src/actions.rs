@@ -87,6 +87,65 @@ pub async fn refresh_desktop(
     }
 }
 
+/// Request to close the active tab (desktop-level). Behavior:
+/// - If there is an active buffer, present the pending-close UI so the user can
+///   choose Save / Discard / Cancel. This action sets DesktopComposition.pending_close.
+///
+/// Note:
+/// - For simplicity this helper does not synchronously perform saves/closes; it
+///   only sets the pending-close model so the UI can prompt the user. Resolution
+///   helpers below perform the simple resolution semantics (clear or report failure).
+pub async fn request_close_active(
+    comp: &mut crate::desktop::DesktopComposition,
+    _view: std::sync::Arc<dyn WorkspaceView>,
+    _session_id: SessionId,
+) -> Result<ActionResult, String> {
+    if let Some(details) = comp.latest_active_buffer_details() {
+        let pending = crate::desktop::PendingClose::BufferClose {
+            buffer_id: details.buffer_id.clone(),
+            display: details.display.clone(),
+            // We do not have authoritative dirty info in the composition; be conservative.
+            dirty: true,
+        };
+        comp.set_pending_close(pending);
+        Ok(ActionResult { success: true, message: None, refreshed: false })
+    } else {
+        Ok(ActionResult { success: false, message: Some("no active buffer".to_string()), refreshed: false })
+    }
+}
+
+/// Confirm "Save and close" for the currently pending buffer-close.
+/// For this simplified interface-level implementation we assume the caller/adapter
+/// will perform the real save/close side-effects. Here we clear the pending state
+/// and return a success ActionResult. If callers want to surface a failure they
+/// should replace the pending state with PendingClose::ResolutionFailure.
+pub async fn confirm_save_and_close(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    // In a full integration this would call into a desktop adapter which in turn
+    // invokes WorkspaceService to persist the buffer then close it. Here we model
+    // the UI-side state transition.
+    comp.clear_pending_close();
+    Ok(ActionResult { success: true, message: None, refreshed: true })
+}
+
+/// Confirm "Discard and close" for the currently pending buffer-close.
+/// Clears the pending state and returns success (real discard/close must be done by adapter).
+pub async fn confirm_discard_and_close(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.clear_pending_close();
+    Ok(ActionResult { success: true, message: None, refreshed: true })
+}
+
+/// Cancel the pending-close flow and return to normal UI state.
+pub async fn confirm_cancel_close(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.clear_pending_close();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
 /// Small shell action: move the editor cursor for the active buffer to the document start
 /// (line 0, column 0) and refresh the desktop composition.
 ///
