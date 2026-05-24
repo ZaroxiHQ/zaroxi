@@ -250,10 +250,27 @@ pub async fn confirm_discard_all_and_close(
 pub async fn confirm_save_and_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
-    // Simulate a successful save+close operation from the UI's perspective:
-    // - Clear the pending-close overlay.
-    // - Set a small transient success message visible in the status bar.
-    comp.clear_pending_close();
+    // If there is a pending buffer-close request, perform a UI-level removal of that buffer.
+    if let Some(pc) = comp.latest_pending_close() {
+        match pc {
+            crate::desktop::PendingClose::BufferClose { buffer_id, .. } => {
+                // Attempt to remove the buffer from the opened-buffer projection.
+                let _removed = comp.close_opened_buffer(&buffer_id);
+                // Clear pending overlay and set transient status message indicating success.
+                comp.clear_pending_close();
+                comp.set_status_message("Saved and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            _ => {
+                // Not a buffer-close (session close or other): fall back to previous behavior.
+                comp.clear_pending_close();
+                comp.set_status_message("Saved and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+        }
+    }
+
+    // No pending close: behave as before (idempotent).
     comp.set_status_message("Saved and closed".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: true })
 }
@@ -266,7 +283,24 @@ pub async fn confirm_save_and_close(
 pub async fn confirm_discard_and_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
-    comp.clear_pending_close();
+    // If there is a pending buffer-close, perform the UI-level buffer removal.
+    if let Some(pc) = comp.latest_pending_close() {
+        match pc {
+            crate::desktop::PendingClose::BufferClose { buffer_id, .. } => {
+                let _removed = comp.close_opened_buffer(&buffer_id);
+                comp.clear_pending_close();
+                comp.set_status_message("Discarded and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            _ => {
+                comp.clear_pending_close();
+                comp.set_status_message("Discarded and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+        }
+    }
+
+    // No pending close: behave as before.
     comp.set_status_message("Discarded and closed".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: true })
 }

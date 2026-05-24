@@ -373,6 +373,52 @@ impl DesktopComposition {
         pending_close::latest_pending_close(self)
     }
 
+    /// Remove an opened buffer from the composition's opened-buffer projection.
+    ///
+    /// Returns true when a buffer was found and removed; false otherwise.
+    ///
+    /// Deterministic active-buffer selection policy:
+    /// - If the removed buffer was active, prefer the previous neighbor (index-1),
+    ///   otherwise pick the first buffer (index 0) when any remain.
+    /// - If no buffers remain, clear active buffer and active buffer details.
+    pub fn close_opened_buffer(&mut self, buffer_id: &crate::ports::BufferId) -> bool {
+        if let Some(m) = self.metadata.as_mut() {
+            if let Some(pos) = m.opened_buffers.iter().position(|it| &it.buffer_id == buffer_id) {
+                let was_active = m.active_buffer.as_ref().map(|b| b == buffer_id).unwrap_or(false);
+                m.opened_buffers.remove(pos);
+                m.opened_buffer_count = m.opened_buffers.len();
+
+                if was_active {
+                    if m.opened_buffers.is_empty() {
+                        m.active_buffer = None;
+                        m.active_buffer_details = None;
+                    } else {
+                        let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                        let new_buf = m.opened_buffers[new_idx].buffer_id.clone();
+                        m.active_buffer = Some(new_buf.clone());
+                        let display = m.opened_buffers.iter().find(|it| it.buffer_id == new_buf).and_then(|it| it.display.clone());
+                        m.active_buffer_details = Some(ActiveBufferDetails {
+                            buffer_id: new_buf,
+                            display,
+                            line_count: 0,
+                        });
+                    }
+                } else {
+                    // Ensure active_buffer still refers to a present buffer; if not, clear details.
+                    if let Some(ab) = &m.active_buffer {
+                        if !m.opened_buffers.iter().any(|it| &it.buffer_id == ab) {
+                            m.active_buffer = None;
+                            m.active_buffer_details = None;
+                        }
+                    }
+                }
+
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn set_status_message(&mut self, text: String) {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = Some(text);
