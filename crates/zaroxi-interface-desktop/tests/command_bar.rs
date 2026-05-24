@@ -76,7 +76,7 @@ async fn execute_refresh_command_triggers_refresh() {
     assert!(ar.success);
     // Composition should record a refresh reason for this explicit refresh action.
     let rr = comp.latest_refresh_reason().expect("reason present");
-    assert_eq!(rr, crate::desktop::RefreshReason::RefreshAction);
+    assert_eq!(rr, zaroxi_interface_desktop::desktop::RefreshReason::RefreshAction);
 }
 
 #[tokio::test]
