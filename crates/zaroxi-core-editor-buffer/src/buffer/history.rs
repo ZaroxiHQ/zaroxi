@@ -1,5 +1,5 @@
 use std::cmp::min;
-use super::types::{Buffer, Snapshot, Selection};
+use super::types::{Buffer, Snapshot};
 
 impl Snapshot {
     fn from_buffer(b: &Buffer) -> Self {
@@ -58,7 +58,7 @@ impl Buffer {
     /// Record an "undo boundary" before a mutating operation.
     /// - is_typing: whether this operation should be considered typing (single-char inserts).
     /// Consecutive typing operations at contiguous positions are merged.
-    fn record_undo_before(&mut self, is_typing: bool) {
+    pub(crate) fn record_undo_before(&mut self, is_typing: bool) {
         let insert_start = (self.cursor_line, self.cursor_col);
         if is_typing && self.last_edit_was_typing && self.last_typing_end == insert_start {
             // continuation of previous typing group: do not push a new snapshot.

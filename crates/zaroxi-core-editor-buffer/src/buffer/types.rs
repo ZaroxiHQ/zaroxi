@@ -66,7 +66,7 @@ impl Buffer {
     }
 
     /// Ensure internal cursor is within valid bounds for the current line.
-    fn clamp_cursor(&mut self) {
+    pub(crate) fn clamp_cursor(&mut self) {
         if self.cursor_line >= self.lines.len() {
             if self.lines.is_empty() {
                 self.cursor_line = 0;
