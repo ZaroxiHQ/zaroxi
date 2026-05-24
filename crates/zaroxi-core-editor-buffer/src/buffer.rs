@@ -1,20 +1,5 @@
 use std::cmp::min;
 
-/// Simple in-memory text buffer with stable line/column addressing and a basic
-/// selection model suitable for use by the application and interface layers.
-/// This intentionally stays small and dependency-free to keep the Phase-5
-/// implementation focused on ergonomics (no undo/redo yet).
-#[derive(Debug, Clone)]
-pub struct Buffer {
-    pub lines: Vec<String>,
-    /// Cursor (caret) position: 0-based line and column.
-    pub cursor_line: usize,
-    pub cursor_col: usize,
-    /// Optional selection anchor/active (both inclusive/exclusive semantics:
-    /// anchor is fixed, active is the caret). When `selection` is None, there
-    /// is no active selection and the cursor is at (cursor_line, cursor_col).
-    pub selection: Option<Selection>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
