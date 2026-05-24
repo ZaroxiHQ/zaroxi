@@ -379,7 +379,7 @@ pub async fn execute_command_by_index(
     index: usize,
 ) -> Result<ActionResult, String> {
     // Obtain command label
-    let label = match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
+    let label: String = match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
         Some(l) => l,
         None => {
             return Ok(ActionResult { success: false, message: Some("no command at index".to_string()), refreshed: false })
