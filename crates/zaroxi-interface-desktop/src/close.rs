@@ -1,4 +1,3 @@
-use crate::ports::BufferId;
 
 /// Small, single-source-of-truth model describing an in-progress close resolution
 /// flow that the desktop UI will present to the user.
