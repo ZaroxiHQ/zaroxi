@@ -830,5 +830,59 @@ async fn main() -> Result<(), String> {
         println!("Harness: shell render presenter:\n{}", rendered);
     }
 
+    // --- New harness demonstration: pending-close dirty-tab flow ---
+    println!("Harness: demonstrating pending-close flow (dirty tab)");
+
+    // Mark active buffer as edited by applying a tiny text transaction (makes it dirty).
+    // If the orchestrator supports apply_text_transaction this will mark the buffer dirty.
+    // We ignore errors here as the purpose is to exercise the interface pending-close UI.
+    use zaroxi_application_workspace::ports::ApplyTextTransactionRequest;
+    let _ = orchestrator.apply_text_transaction(ApplyTextTransactionRequest {
+        session_id: boot_res.session.session_id.clone(),
+        buffer_id: open1_res.buffer_id.clone(),
+        transaction: zaroxi_application_workspace::ports::TextEdit::Insert { index: 0, text: " //edited".to_string() },
+    }).await;
+
+    // Refresh composition so the interface sees the updated presenter/window.
+    let _ = zaroxi_interface_desktop::refresh_desktop(
+        &mut composition,
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+        Some(boot_res.session.workspace_id),
+        Some(service_dyn.clone()),
+    ).await;
+
+    // Request to close the active tab via the desktop action (this should set the pending-close).
+    let _ = zaroxi_interface_desktop::actions::request_close_active(
+        &mut composition,
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+    ).await.expect("request_close_active");
+
+    // Print the status banner which should now contain the pending-close UI text.
+    if let Some(sline) = composition.latest_status_bar_line() {
+        println!("Harness: pending-close banner -> {}", sline.text);
+    } else {
+        println!("Harness: no status banner present after request_close_active");
+    }
+
+    // Simulate user choosing "Discard and close" via the desktop action helper.
+    let _ = zaroxi_interface_desktop::actions::confirm_discard_and_close(&mut composition).await.expect("confirm_discard_and_close");
+
+    // Refresh composition post-resolution to observe cleared pending state.
+    let _ = zaroxi_interface_desktop::refresh_desktop(
+        &mut composition,
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+        Some(boot_res.session.workspace_id),
+        Some(service_dyn.clone()),
+    ).await;
+
+    if let Some(sline) = composition.latest_status_bar_line() {
+        println!("Harness: status after resolution -> {}", sline.text);
+    } else {
+        println!("Harness: no status banner present after resolution");
+    }
+
     Ok(())
 }

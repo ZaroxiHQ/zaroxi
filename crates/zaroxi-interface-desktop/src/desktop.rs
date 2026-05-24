@@ -629,6 +629,37 @@ impl DesktopComposition {
         self.pending_close.clone()
     }
 
+    /// Convenience helper for interface code to set a transient one-line status message
+    /// that shells/harnesses can show in the status bar. This is intentionally small and
+    /// lightweight: callers may set a short message such as "Saved and closed".
+    pub fn set_status_message(&mut self, text: String) {
+        // Ensure metadata exists and set last_command_line as a small transient status.
+        if let Some(m) = self.metadata.as_mut() {
+            m.last_command_line = Some(text);
+        } else {
+            // Construct a minimal DesktopMetadata so the status is visible to shells.
+            self.metadata = Some(DesktopMetadata {
+                session_id: self.session_id.clone(),
+                workspace_id: self.workspace_id.clone(),
+                active_buffer: None,
+                opened_buffer_count: 0,
+                opened_buffers: Vec::new(),
+                active_buffer_details: None,
+                ai_projection: None,
+                visible_window: None,
+                last_command_line: Some(text),
+                refresh_reason: None,
+            });
+        }
+    }
+
+    /// Clear any transient status message previously set by `set_status_message`.
+    pub fn clear_status_message(&mut self) {
+        if let Some(m) = self.metadata.as_mut() {
+            m.last_command_line = None;
+        }
+    }
+
     /// Return the most recent refresh reason recorded in the composition metadata.
     pub fn latest_refresh_reason(&self) -> Option<RefreshReason> {
         self.metadata.as_ref().and_then(|m| m.refresh_reason.clone())
@@ -664,9 +695,25 @@ impl DesktopComposition {
 
     /// Build a tiny, one-line StatusBarLine suitable for shells/harnesses.
     ///
-    /// Delegates to an extracted helper in `desktop::status_bar` to keep the
-    /// DesktopComposition facade compact while preserving existing behavior.
+    /// If a pending-close UI is active we produce an unmistakable, actionable
+    /// status banner that prompts the user to Save / Discard / Cancel (or
+    /// Save all / Discard all / Cancel for session-close). This keeps the UI
+    /// surface minimal while ensuring the pending state is always visible to
+    /// harnesses and simple shells.
     pub fn latest_status_bar_line(&self) -> Option<StatusBarLine> {
+        if let Some(pc) = self.pending_close.as_ref() {
+            // Render a compact banner with inline action hints.
+            let mut hint = "[S]ave [D]iscard [C]ancel".to_string();
+            match pc {
+                PendingClose::SessionClose { .. } => {
+                    hint = "[S]ave all [D]iscard all [C]ancel".to_string();
+                }
+                _ => {}
+            }
+            let text = format!("{}  {}", pc.render_summary(), hint);
+            return Some(StatusBarLine { text, sticky: Some("pending-close".to_string()) });
+        }
+        // No pending close: fall back to existing status bar helper.
         status_bar::latest_status_bar_line(self)
     }
 

@@ -115,26 +115,34 @@ pub async fn request_close_active(
 }
 
 /// Confirm "Save and close" for the currently pending buffer-close.
-/// For this simplified interface-level implementation we assume the caller/adapter
-/// will perform the real save/close side-effects. Here we clear the pending state
-/// and return a success ActionResult. If callers want to surface a failure they
-/// should replace the pending state with PendingClose::ResolutionFailure.
+///
+/// Note:
+/// - This interface-layer helper models the UI transition: set a short success
+///   message and clear the pending-close UI. In a full integration the adapter
+///   would call WorkspaceService to persist the buffer and then close it; if
+///   that operation failed the adapter should surface PendingClose::ResolutionFailure
+///   so the UI can present the error and keep the pending state.
 pub async fn confirm_save_and_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
-    // In a full integration this would call into a desktop adapter which in turn
-    // invokes WorkspaceService to persist the buffer then close it. Here we model
-    // the UI-side state transition.
+    // Simulate a successful save+close operation from the UI's perspective:
+    // - Clear the pending-close overlay.
+    // - Set a small transient success message visible in the status bar.
     comp.clear_pending_close();
+    comp.set_status_message("Saved and closed".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: true })
 }
 
 /// Confirm "Discard and close" for the currently pending buffer-close.
-/// Clears the pending state and returns success (real discard/close must be done by adapter).
+///
+/// Note:
+/// - This helper models the UI resolution. Real discard/close semantics should
+///   be performed by an adapter calling into WorkspaceService; UI simply orchestrates.
 pub async fn confirm_discard_and_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
     comp.clear_pending_close();
+    comp.set_status_message("Discarded and closed".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: true })
 }
 
@@ -143,6 +151,7 @@ pub async fn confirm_cancel_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
     comp.clear_pending_close();
+    comp.set_status_message("Close cancelled".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: false })
 }
 
