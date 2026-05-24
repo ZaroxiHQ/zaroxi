@@ -69,6 +69,16 @@ impl InputBridge {
         }
     }
 
+    /// Save current buffer to disk via application service.
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        self.svc.save(path)
+    }
+
+    /// Reload current buffer from disk via application service.
+    pub fn reload(&self, path: &std::path::Path) -> std::io::Result<()> {
+        self.svc.reload(path)
+    }
+
     /// Undo last edit (maps to Ctrl+Z semantics in tests/harnesses).
     pub fn undo(&self) {
         self.svc.undo();

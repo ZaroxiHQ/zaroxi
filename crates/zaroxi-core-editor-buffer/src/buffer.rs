@@ -57,6 +57,11 @@ pub struct Buffer {
     /// is no active selection and the cursor is at (cursor_line, cursor_col).
     pub selection: Option<Selection>,
 
+    /// Dirty flag: true when current content differs from last saved state.
+    pub dirty: bool,
+    /// Last known saved text (if any). Used to compute dirty state after undo/redo.
+    pub saved_text: Option<String>,
+
     // Undo/redo history: store full snapshots for correctness and simplicity.
     pub undo_stack: Vec<Snapshot>,
     pub redo_stack: Vec<Snapshot>,
@@ -76,6 +81,8 @@ impl Buffer {
             cursor_line: 0,
             cursor_col: 0,
             selection: None,
+            dirty: false,
+            saved_text: Some(text.to_string()),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             last_edit_was_typing: false,
@@ -136,6 +143,13 @@ impl Buffer {
             sel.anchor_col = min(sel.anchor_col, anchor_line_len);
             sel.active_col = min(sel.active_col, active_line_len);
         }
+
+        // Recompute dirty state relative to last saved text (if known).
+        self.dirty = self
+            .saved_text
+            .as_ref()
+            .map(|s| s != &self.to_text())
+            .unwrap_or(true);
     }
 
     /// Record an "undo boundary" before a mutating operation.
@@ -339,6 +353,8 @@ impl Buffer {
         // clear selection and update typing-group end position
         self.clear_selection();
         self.last_typing_end = (self.cursor_line, self.cursor_col);
+        // mark as dirty (a text mutation)
+        self.dirty = true;
         self.clamp_cursor();
     }
 
@@ -428,6 +444,8 @@ impl Buffer {
         self.selection = None;
         // any deletion is a non-typing action
         self.last_edit_was_typing = false;
+        // mark as dirty (a structural edit)
+        self.dirty = true;
         self.clamp_cursor();
         true
     }
@@ -464,6 +482,8 @@ impl Buffer {
         self.selection = None;
         // destructive op resets typing-grouping
         self.last_edit_was_typing = false;
+        // mark as dirty
+        self.dirty = true;
         self.clamp_cursor();
     }
 
@@ -493,6 +513,8 @@ impl Buffer {
         }
         self.selection = None;
         self.last_edit_was_typing = false;
+        // mark as dirty (structural edit)
+        self.dirty = true;
         self.clamp_cursor();
     }
 
@@ -512,6 +534,8 @@ impl Buffer {
         self.cursor_col = 0;
         self.selection = None;
         self.last_edit_was_typing = false;
+        // enter is a structural edit -> dirty
+        self.dirty = true;
         self.clamp_cursor();
     }
 
@@ -613,6 +637,29 @@ impl Buffer {
                 sel.active_col = self.cursor_col;
             }
         }
+        self.clamp_cursor();
+    }
+
+    /// Mark current buffer state as saved (update saved_text and clear dirty).
+    pub fn set_saved_state(&mut self) {
+        self.saved_text = Some(self.to_text());
+        self.dirty = false;
+        // reset typing group state
+        self.last_edit_was_typing = false;
+    }
+
+    /// Replace entire buffer content from provided text and clear history.
+    pub fn load_from_text(&mut self, text: &str) {
+        self.lines = text.split('\n').map(|s| s.to_string()).collect();
+        self.cursor_line = 0;
+        self.cursor_col = 0;
+        self.selection = None;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.last_edit_was_typing = false;
+        self.last_typing_end = (usize::MAX, usize::MAX);
+        self.saved_text = Some(self.to_text());
+        self.dirty = false;
         self.clamp_cursor();
     }
 }

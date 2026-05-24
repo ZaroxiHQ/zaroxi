@@ -15,6 +15,8 @@ pub struct EditorSnapshot {
     pub cursor_column: Option<u32>,
     /// Optional selection as (start_line, start_col, end_line, end_col) all 1-based
     pub selection: Option<(u32, u32, u32, u32)>,
+    /// Whether the buffer contains unsaved edits.
+    pub dirty: bool,
 }
 
 pub struct EditorService {
@@ -27,6 +29,38 @@ impl EditorService {
         Self {
             buffer: Arc::new(Mutex::new(buf)),
         }
+    }
+
+    /// Create an EditorService by loading file contents from path.
+    pub fn new_from_file(path: &std::path::Path) -> std::io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        let buf = Buffer::from_text(&content);
+        Ok(Self {
+            buffer: Arc::new(Mutex::new(buf)),
+        })
+    }
+
+    /// Save current buffer contents to the given path and mark as saved.
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        // copy text under lock to avoid holding lock while writing to disk
+        let text = {
+            let b = self.buffer.lock().unwrap();
+            b.to_text()
+        };
+        std::fs::write(path, text.as_bytes())?;
+        // update buffer saved state
+        let mut b = self.buffer.lock().unwrap();
+        b.saved_text = Some(b.to_text());
+        b.dirty = false;
+        Ok(())
+    }
+
+    /// Reload buffer contents from disk: replace buffer text and reset history.
+    pub fn reload(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let content = std::fs::read_to_string(path)?;
+        let mut b = self.buffer.lock().unwrap();
+        b.load_from_text(&content);
+        Ok(())
     }
 
     /// Move arrow with optional shift (expand selection).
@@ -128,6 +162,7 @@ impl EditorService {
             cursor_line,
             cursor_column,
             selection,
+            dirty: b.dirty,
         }
     }
 
