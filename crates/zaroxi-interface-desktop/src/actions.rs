@@ -13,6 +13,7 @@ Architectural rationale (Phase 14 - minimal desktop action flow):
 - This lets external harnesses or potential future UI shells call a single
   intent-focused function to update presenter/composition state.
 
+
 Public API:
 - A tiny ActionResult returned by interface-facing actions:
     - `success`: true when action completed semantically
@@ -25,7 +26,11 @@ This file implements two tiny actions that return the normalized ActionResult.
 use std::sync::Arc;
 
 use std::path::PathBuf;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit, OpenBufferRequest, SaveCheckpointRequest};
+use zaroxi_application_workspace::ports::{
+    ApplyTextTransactionRequest, EditorCursor, GetActiveBufferRequest, OpenBufferRequest,
+    SaveCheckpointRequest, SessionId, SetEditorCursorRequest, TextEdit, WorkspaceService,
+    WorkspaceView,
+};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::{DesktopComposition, RefreshReason};
@@ -111,7 +116,11 @@ pub async fn request_close_active(
         comp.set_pending_close(pending);
         Ok(ActionResult { success: true, message: None, refreshed: false })
     } else {
-        Ok(ActionResult { success: false, message: Some("no active buffer".to_string()), refreshed: false })
+        Ok(ActionResult {
+            success: false,
+            message: Some("no active buffer".to_string()),
+            refreshed: false,
+        })
     }
 }
 
@@ -129,7 +138,10 @@ pub async fn request_close_session(
     // If service can determine close safety, ask it first.
     if let Some(s) = service {
         // We reuse the existing get_session_snapshot request shape as a light-weight attempt.
-        let req = crate::ports::GetSessionSnapshotRequest { session_id: session_id.clone(), recent_limit: 0 };
+        let req = crate::ports::GetSessionSnapshotRequest {
+            session_id: session_id.clone(),
+            recent_limit: 0,
+        };
         match s.attempt_close_session(req).await {
             Ok(snapshot) => {
                 // Heuristic: if there are no buffer snapshots, proceed to close immediately.
@@ -140,7 +152,10 @@ pub async fn request_close_session(
                     // Build a pending list of buffer ids to show in the UI; callers can resolve.
                     let dirty_ids = snapshot.snapshot.opened_buffers.clone();
                     let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
-                    let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
+                    let pending = crate::desktop::PendingClose::SessionClose {
+                        dirty_buffers: dirty_ids,
+                        summary,
+                    };
                     comp.set_pending_close(pending);
                     return Ok(ActionResult { success: true, message: None, refreshed: false });
                 }
@@ -159,7 +174,8 @@ pub async fn request_close_session(
         Ok(ActionResult { success: true, message: None, refreshed: true })
     } else {
         // Conservatively assume there may be unsaved work and prompt the user.
-        let ids: Vec<crate::ports::BufferId> = obs.items.iter().map(|i| i.buffer_id.clone()).collect();
+        let ids: Vec<crate::ports::BufferId> =
+            obs.items.iter().map(|i| i.buffer_id.clone()).collect();
         let summary = format!("{} open buffers", ids.len());
         let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: ids, summary };
         comp.set_pending_close(pending);
@@ -190,8 +206,14 @@ pub async fn confirm_save_all_and_close(
             }
             Err(e) => {
                 // Keep pending state and surface resolution failure.
-                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Save failed: {}", e) });
-                return Ok(ActionResult { success: false, message: Some("save failed".to_string()), refreshed: false });
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure {
+                    message: format!("Save failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("save failed".to_string()),
+                    refreshed: false,
+                });
             }
         }
     } else {
@@ -226,8 +248,14 @@ pub async fn confirm_discard_all_and_close(
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             Err(e) => {
-                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Discard failed: {}", e) });
-                return Ok(ActionResult { success: false, message: Some("discard failed".to_string()), refreshed: false });
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure {
+                    message: format!("Discard failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("discard failed".to_string()),
+                    refreshed: false,
+                });
             }
         }
     } else {
@@ -334,9 +362,18 @@ pub async fn move_cursor_to_start_and_refresh(
     workspace_id: Option<zaroxi_kernel_types::Id>,
 ) -> Result<ActionResult, String> {
     // Resolve active buffer id from the service (explicit small use-case).
-    let active_resp = match service.get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+    let active_resp = match service
+        .get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
         Ok(r) => r,
-        Err(e) => return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+        Err(e) => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some(e.to_string()),
+                refreshed: false,
+            });
+        }
     };
 
     let buffer_id = active_resp.buffer_id;
@@ -357,7 +394,8 @@ pub async fn move_cursor_to_start_and_refresh(
 
     // Refresh composition via existing tiny action (keeps responsibilities separated).
     // Reuse the normalized refresh_desktop so we return a consistent ActionResult.
-    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
+    let refresh_result =
+        refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(refresh_result)
 }
 
@@ -382,9 +420,18 @@ pub async fn insert_line_at_start_and_refresh(
     workspace_id: Option<zaroxi_kernel_types::Id>,
 ) -> Result<ActionResult, String> {
     // Resolve active buffer id from the service (explicit small use-case).
-    let active_resp = match service.get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+    let active_resp = match service
+        .get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
         Ok(r) => r,
-        Err(e) => return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+        Err(e) => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some(e.to_string()),
+                refreshed: false,
+            });
+        }
     };
 
     let buffer_id = active_resp.buffer_id;
@@ -404,7 +451,8 @@ pub async fn insert_line_at_start_and_refresh(
     comp.set_pending_refresh_reason(RefreshReason::BufferUpdated);
 
     // Refresh composition via existing tiny action and return its result.
-    let refresh_result = refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
+    let refresh_result =
+        refresh_desktop(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(refresh_result)
 }
 
@@ -455,7 +503,10 @@ pub async fn set_active_buffer_and_get_shell_context(
     // requested buffer is already active we avoid calling set_active_buffer to
     // prevent redundant commands/events. If we cannot read the active buffer we
     // conservatively attempt to set it (preserve existing behavior).
-    match service.get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() }).await {
+    match service
+        .get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
         Ok(get_res) => {
             if get_res.buffer_id == buffer_id {
                 // Already active: previously we always used a generic RefreshAction here to
@@ -478,9 +529,19 @@ pub async fn set_active_buffer_and_get_shell_context(
                 }
             } else {
                 // Different buffer: proceed to set active and mark ActiveBufferChanged.
-                if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+                if let Err(e) = service
+                    .set_active_buffer(crate::ports::SetActiveBufferRequest {
+                        session_id: session_id.clone(),
+                        buffer_id: buffer_id.clone(),
+                    })
+                    .await
+                {
                     return Ok(ShellActionResult {
-                        action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                        action: ActionResult {
+                            success: false,
+                            message: Some(e.to_string()),
+                            refreshed: false,
+                        },
                         context: None,
                     });
                 }
@@ -490,9 +551,19 @@ pub async fn set_active_buffer_and_get_shell_context(
         Err(_e) => {
             // Could not determine current active buffer (e.g. UnknownSession). Fall back
             // to attempting to set the active buffer to preserve previous semantics.
-            if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+            if let Err(e) = service
+                .set_active_buffer(crate::ports::SetActiveBufferRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: buffer_id.clone(),
+                })
+                .await
+            {
                 return Ok(ShellActionResult {
-                    action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                    action: ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    },
                     context: None,
                 });
             }
@@ -501,7 +572,8 @@ pub async fn set_active_buffer_and_get_shell_context(
     }
 
     // Delegate to the existing refresh_and_get_shell_context helper so we reuse projection/consistency logic.
-    let res = refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
+    let res =
+        refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(res)
 }
 
@@ -563,14 +635,15 @@ pub async fn confirm_selected_command(
                 success: false,
                 message: Some("command bar is not open".to_string()),
                 refreshed: false,
-            })
+            });
         }
     };
 
     let idx = cb.selected;
     // Delegate to existing command executor. If it returns Ok and the action succeeded,
     // close the command bar to mirror palette UX.
-    let res = execute_command_by_index(comp, view, service, session_id.clone(), workspace_id, idx).await?;
+    let res = execute_command_by_index(comp, view, service, session_id.clone(), workspace_id, idx)
+        .await?;
     if res.success {
         comp.close_command_bar();
     }
@@ -600,12 +673,17 @@ pub async fn execute_command_by_index(
     index: usize,
 ) -> Result<ActionResult, String> {
     // Obtain command label
-    let label: String = match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
-        Some(l) => l,
-        None => {
-            return Ok(ActionResult { success: false, message: Some("no command at index".to_string()), refreshed: false })
-        }
-    };
+    let label: String =
+        match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
+            Some(l) => l,
+            None => {
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("no command at index".to_string()),
+                    refreshed: false,
+                });
+            }
+        };
 
     match label.as_str() {
         "Refresh" => {
@@ -616,18 +694,34 @@ pub async fn execute_command_by_index(
         "Open buffer" => {
             // deterministic fixture path for now
             if let Some(s) = service {
-                let open_req = OpenBufferRequest { session_id: session_id.clone(), path: PathBuf::from("new_buffer.rs") };
+                let open_req = OpenBufferRequest {
+                    session_id: session_id.clone(),
+                    path: PathBuf::from("new_buffer.rs"),
+                };
                 match s.open_buffer(open_req).await {
                     Ok(_) => {
                         comp.set_status_message("Opened buffer: new_buffer.rs".to_string());
                         // Trigger a refresh to make opened buffers visible to composition
-                        let _ = refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
-                        Ok(ActionResult { success: true, message: Some("opened buffer".to_string()), refreshed: true })
+                        let _ =
+                            refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult {
+                            success: true,
+                            message: Some("opened buffer".to_string()),
+                            refreshed: true,
+                        })
                     }
-                    Err(e) => Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+                    Err(e) => Ok(ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    }),
                 }
             } else {
-                Ok(ActionResult { success: false, message: Some("open-buffer requires WorkspaceService".to_string()), refreshed: false })
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("open-buffer requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
             }
         }
         "Set active buffer" => {
@@ -636,29 +730,63 @@ pub async fn execute_command_by_index(
                 let obs = comp.latest_opened_buffers_summary();
                 if let Some(item) = obs.items.get(0) {
                     let buf = item.buffer_id.clone();
-                    let res = set_active_buffer_and_get_shell_context(comp, s, view, session_id, workspace_id, buf).await?;
+                    let res = set_active_buffer_and_get_shell_context(
+                        comp,
+                        s,
+                        view,
+                        session_id,
+                        workspace_id,
+                        buf,
+                    )
+                    .await?;
                     Ok(res.action)
                 } else {
-                    Ok(ActionResult { success: false, message: Some("no opened buffers to activate".to_string()), refreshed: false })
+                    Ok(ActionResult {
+                        success: false,
+                        message: Some("no opened buffers to activate".to_string()),
+                        refreshed: false,
+                    })
                 }
             } else {
-                Ok(ActionResult { success: false, message: Some("set-active requires WorkspaceService".to_string()), refreshed: false })
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("set-active requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
             }
         }
         "Explain active buffer" => {
             if let Some(s) = service {
                 // Fire explain and update a tiny status message on success/failure.
-                match s.explain_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+                match s
+                    .explain_active_buffer(GetActiveBufferRequest {
+                        session_id: session_id.clone(),
+                    })
+                    .await
+                {
                     Ok(resp) => {
                         comp.set_status_message(format!("Explain dispatched: {:?}", resp));
                         // refresh using service to allow AI projection to be picked up
-                        let _ = refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
-                        Ok(ActionResult { success: true, message: Some("explain dispatched".to_string()), refreshed: true })
+                        let _ =
+                            refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult {
+                            success: true,
+                            message: Some("explain dispatched".to_string()),
+                            refreshed: true,
+                        })
                     }
-                    Err(e) => Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+                    Err(e) => Ok(ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    }),
                 }
             } else {
-                Ok(ActionResult { success: false, message: Some("explain requires WorkspaceService".to_string()), refreshed: false })
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("explain requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
             }
         }
         "Request close active" => {
@@ -677,7 +805,11 @@ pub async fn execute_command_by_index(
             let ar = confirm_cancel_close(comp).await?;
             Ok(ar)
         }
-        _ => Ok(ActionResult { success: false, message: Some(format!("unsupported command: {}", label)), refreshed: false }),
+        _ => Ok(ActionResult {
+            success: false,
+            message: Some(format!("unsupported command: {}", label)),
+            refreshed: false,
+        }),
     }
 }
 
@@ -685,13 +817,14 @@ pub async fn execute_command_by_index(
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::sync::Arc as StdArc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use zaroxi_application_workspace::ports::{
-        WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor,
+        EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetVisibleLinesRequest,
+        SessionId, WorkspaceView,
     };
     use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
     use zaroxi_core_editor_buffer::ports::BufferId;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc as StdArc;
 
     /// Minimal in-test WorkspaceView stub that returns a tiny document and a prebuilt visible window.
     struct FakeView {
@@ -729,20 +862,42 @@ mod tests {
     }
 
     impl WorkspaceView for FakeView {
-        fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        fn get_buffer_content(
+            &self,
+            _buffer_id: crate::ports::BufferId,
+        ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+        {
             Box::pin(async move { Ok(Some("".to_string())) })
         }
 
-        fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        fn get_active_buffer_content(
+            &self,
+            _session_id: crate::ports::SessionId,
+        ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+        {
             Box::pin(async move { Ok(Some("".to_string())) })
         }
 
-        fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+        fn get_active_editor_document(
+            &self,
+            _req: GetActiveEditorDocumentRequest,
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>,
+        > {
             let d = self.doc.clone();
-            Box::pin(async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: d }) })
+            Box::pin(
+                async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: d }) },
+            )
         }
 
-        fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+        fn get_visible_lines(
+            &self,
+            _req: GetVisibleLinesRequest,
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>,
+        > {
             let w = self.window.clone();
             Box::pin(async move { Ok(crate::ports::GetVisibleLinesResponse { window: w }) })
         }
@@ -759,29 +914,69 @@ mod tests {
 
     impl FakeService {
         fn new(buffer_id: BufferId) -> Self {
-            Self { buffer_id, set_called: StdArc::new(AtomicBool::new(false)), apply_called: StdArc::new(AtomicBool::new(false)) }
+            Self {
+                buffer_id,
+                set_called: StdArc::new(AtomicBool::new(false)),
+                apply_called: StdArc::new(AtomicBool::new(false)),
+            }
         }
     }
 
     impl crate::ports::WorkspaceService for FakeService {
-        fn boot_workspace(&self, _req: crate::ports::WorkspaceBootRequest) -> crate::BoxFuture<'static, Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>> {
+        fn boot_workspace(
+            &self,
+            _req: crate::ports::WorkspaceBootRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::WorkspaceBootResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownWorkspace) })
         }
-        fn open_buffer(&self, _req: crate::ports::OpenBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>> {
+        fn open_buffer(
+            &self,
+            _req: crate::ports::OpenBufferRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::OpenBufferResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn list_open_buffers(&self, _req: crate::ports::ListBuffersRequest) -> crate::BoxFuture<'static, Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>> {
+        fn list_open_buffers(
+            &self,
+            _req: crate::ports::ListBuffersRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::ListBuffersResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn set_active_buffer(&self, _req: crate::ports::SetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>> {
+        fn set_active_buffer(
+            &self,
+            _req: crate::ports::SetActiveBufferRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::SetActiveBufferResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn get_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetActiveBufferResponse, crate::ports::UseCaseError>> {
+        fn get_active_buffer(
+            &self,
+            _req: crate::ports::GetActiveBufferRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::GetActiveBufferResponse, crate::ports::UseCaseError>,
+        > {
             let bid = self.buffer_id.clone();
             Box::pin(async move { Ok(crate::ports::GetActiveBufferResponse { buffer_id: bid }) })
         }
 
-        fn set_editor_cursor(&self, req: crate::ports::SetEditorCursorRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>> {
+        fn set_editor_cursor(
+            &self,
+            req: crate::ports::SetEditorCursorRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::SetEditorCursorResponse, crate::ports::UseCaseError>,
+        > {
             let expected = self.buffer_id.clone();
             let set_called = self.set_called.clone();
             Box::pin(async move {
@@ -794,61 +989,164 @@ mod tests {
             })
         }
 
-        fn set_editor_selection(&self, _req: crate::ports::SetSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>> {
+        fn set_editor_selection(
+            &self,
+            _req: crate::ports::SetSelectionRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::SetSelectionResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn clear_editor_selection(&self, _req: crate::ports::ClearSelectionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>> {
+        fn clear_editor_selection(
+            &self,
+            _req: crate::ports::ClearSelectionRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::ClearSelectionResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn get_editor_state(&self, _req: crate::ports::GetEditorStateRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>> {
+        fn get_editor_state(
+            &self,
+            _req: crate::ports::GetEditorStateRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::GetEditorStateResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
 
-        fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>> {
+        fn set_viewport_state(
+            &self,
+            _req: crate::ports::SetViewportRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::SetViewportResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> crate::BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>> {
+        fn scroll_viewport(
+            &self,
+            _req: crate::ports::ScrollViewportRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::ScrollViewportResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+        fn explain_active_buffer(
+            &self,
+            _req: crate::ports::GetActiveBufferRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::NoActiveBuffer) })
         }
-        fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> crate::BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>> {
+        fn dispatch_command(
+            &self,
+            _req: crate::ports::DispatchCommandRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::DispatchCommandResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn update_buffer(&self, _req: crate::ports::UpdateBufferRequest) -> crate::BoxFuture<'static, Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>> {
+        fn update_buffer(
+            &self,
+            _req: crate::ports::UpdateBufferRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::UpdateBufferResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn apply_text_transaction(&self, _req: crate::ports::ApplyTextTransactionRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>> {
+        fn apply_text_transaction(
+            &self,
+            _req: crate::ports::ApplyTextTransactionRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::ApplyTextTransactionResponse, crate::ports::UseCaseError>,
+        > {
             let apply_called = self.apply_called.clone();
             Box::pin(async move {
                 apply_called.store(true, Ordering::SeqCst);
-                Ok(crate::ports::ApplyTextTransactionResponse { ok: true, state: crate::ports::EditorState { cursor: crate::ports::EditorCursor::zero(), selection: None }, content: None })
+                Ok(crate::ports::ApplyTextTransactionResponse {
+                    ok: true,
+                    state: crate::ports::EditorState {
+                        cursor: crate::ports::EditorCursor::zero(),
+                        selection: None,
+                    },
+                    content: None,
+                })
             })
         }
 
-        fn get_recent_commands(&self, _req: crate::ports::GetRecentCommandsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>> {
+        fn get_recent_commands(
+            &self,
+            _req: crate::ports::GetRecentCommandsRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::GetRecentCommandsResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
         }
-        fn get_recent_events(&self, _req: crate::ports::GetRecentEventsRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>> {
+        fn get_recent_events(
+            &self,
+            _req: crate::ports::GetRecentEventsRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::GetRecentEventsResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Ok(crate::ports::GetRecentEventsResponse { events: Vec::new() }) })
         }
 
-        fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> crate::BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>> {
+        fn get_session_snapshot(
+            &self,
+            _req: crate::ports::GetSessionSnapshotRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::GetSessionSnapshotResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
 
-        fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>> {
+        fn create_checkpoint(
+            &self,
+            _req: crate::ports::CreateCheckpointRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::CreateCheckpointResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
 
-        fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>> {
+        fn save_checkpoint(
+            &self,
+            _req: crate::ports::SaveCheckpointRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::SaveCheckpointResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn load_checkpoint(&self, _req: crate::ports::LoadCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, crate::ports::UseCaseError>> {
+        fn load_checkpoint(
+            &self,
+            _req: crate::ports::LoadCheckpointRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::LoadCheckpointResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
-        fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> crate::BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>> {
+        fn restore_checkpoint(
+            &self,
+            _req: crate::ports::RestoreCheckpointRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::RestoreCheckpointResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async { Err(crate::ports::UseCaseError::UnknownSession) })
         }
     }
@@ -860,7 +1158,8 @@ mod tests {
         let sid = SessionId(zaroxi_kernel_types::Id::new());
         let mut comp = crate::desktop::DesktopComposition::new();
         // Call the tiny action (no service available in this test)
-        let ar = refresh_desktop(&mut comp, arc, sid.clone(), None, None).await.expect("refresh ok");
+        let ar =
+            refresh_desktop(&mut comp, arc, sid.clone(), None, None).await.expect("refresh ok");
         assert!(ar.success);
         assert!(ar.refreshed);
         assert_eq!(comp.get_session_id().unwrap(), sid);
@@ -894,11 +1193,20 @@ mod tests {
         let mut comp = crate::desktop::DesktopComposition::new();
 
         // First refresh to populate presenter state
-        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None, None)
+            .await
+            .expect("initial refresh ok");
 
         // Execute the move-cursor action which should call set_editor_cursor on the service
         // and then refresh the composition again.
-        let res = move_cursor_to_start_and_refresh(&mut comp, service_arc.clone(), view_arc.clone(), sid.clone(), None).await;
+        let res = move_cursor_to_start_and_refresh(
+            &mut comp,
+            service_arc.clone(),
+            view_arc.clone(),
+            sid.clone(),
+            None,
+        )
+        .await;
         assert!(res.is_ok(), "move cursor action should succeed");
         let ar = res.unwrap();
         assert!(ar.success);
@@ -922,11 +1230,20 @@ mod tests {
         let mut comp = crate::desktop::DesktopComposition::new();
 
         // First refresh to populate presenter state
-        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+        let _ = refresh_desktop(&mut comp, view_arc.clone(), sid.clone(), None, None)
+            .await
+            .expect("initial refresh ok");
 
         // Execute the insert-line action which should call apply_text_transaction on the service
         // and then refresh the composition again.
-        let res = insert_line_at_start_and_refresh(&mut comp, service_arc.clone(), view_arc.clone(), sid.clone(), None).await;
+        let res = insert_line_at_start_and_refresh(
+            &mut comp,
+            service_arc.clone(),
+            view_arc.clone(),
+            sid.clone(),
+            None,
+        )
+        .await;
         assert!(res.is_ok(), "insert-line action should succeed");
         let ar = res.unwrap();
         assert!(ar.success);
@@ -947,9 +1264,19 @@ mod tests {
         let mut comp = crate::desktop::DesktopComposition::new();
 
         // Fake service reports buf:two as the currently active buffer.
-        let fake_service = std::sync::Arc::new(FakeService::new(BufferId::from("buf:two"))) as std::sync::Arc<dyn crate::ports::WorkspaceService>;
+        let fake_service = std::sync::Arc::new(FakeService::new(BufferId::from("buf:two")))
+            as std::sync::Arc<dyn crate::ports::WorkspaceService>;
 
-        let res = set_active_buffer_and_get_shell_context(&mut comp, fake_service.clone(), arc.clone(), sid.clone(), None, BufferId::from("buf:two")).await.expect("action ok");
+        let res = set_active_buffer_and_get_shell_context(
+            &mut comp,
+            fake_service.clone(),
+            arc.clone(),
+            sid.clone(),
+            None,
+            BufferId::from("buf:two"),
+        )
+        .await
+        .expect("action ok");
         assert!(res.action.success);
 
         let rr = comp.latest_refresh_reason().expect("reason present");
