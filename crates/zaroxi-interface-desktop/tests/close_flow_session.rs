@@ -3,8 +3,7 @@ use std::sync::Arc;
 use close_flow_common::CloseFlowViewStub;
 
 use zaroxi_application_workspace::ports;
-use zaroxi_application_workspace::ports::{GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, WorkspaceView};
-use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_interface_desktop::{DesktopComposition, actions, refresh_desktop};
 
