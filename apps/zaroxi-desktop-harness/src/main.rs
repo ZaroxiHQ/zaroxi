@@ -884,6 +884,38 @@ async fn main() -> Result<(), String> {
         println!("Harness: no status banner present after resolution");
     }
 
+    // --- New harness demonstration: pending-close session/window flow ---
+    println!("Harness: demonstrating pending-close flow for session/window (dirty session)");
+
+    // Request a session/window close. The orchestrator's snapshot or internal state
+    // should cause the interface to surface a SessionClose pending UI if unsaved work exists.
+    let _ = zaroxi_interface_desktop::actions::request_close_session(
+        &mut composition,
+        view_dyn.clone(),
+        boot_res.session.session_id.clone(),
+        Some(service_dyn.clone()),
+    ).await.expect("request_close_session");
+
+    if let Some(sline) = composition.latest_status_bar_line() {
+        println!("Harness: pending-session-close banner -> {}", sline.text);
+    } else {
+        println!("Harness: no status banner present after request_close_session");
+    }
+
+    // Simulate user choosing "Save all and close" via the desktop action helper.
+    let _ = zaroxi_interface_desktop::actions::confirm_save_all_and_close(
+        &mut composition,
+        Some(service_dyn.clone()),
+        boot_res.session.session_id.clone(),
+    ).await.expect("confirm_save_all_and_close");
+
+    // After a successful save-and-close the composition should reflect a closed session.
+    if composition.get_session_id().is_none() {
+        println!("Harness: composition reports session closed after save-all-and-close");
+    } else {
+        println!("Harness: composition still shows session present after save-all (unexpected)");
+    }
+
     // --- New harness demonstration: keyboard-driven command-bar flow ---
     println!("Harness: demonstrating keyboard-driven command-bar: open -> navigate -> execute (keyboard)");
     // Open via keyboard action

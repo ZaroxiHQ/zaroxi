@@ -569,6 +569,10 @@
  
  /// Very small service trait. Implementations are in application layer.
  /// Methods are explicit use-case entry points for Phase 5 multi-buffer behavior.
+ ///
+ /// NOTE: we add a small, backwards-compatible session-close surface here so the
+ /// interface layer can coordinate visible session/window close flows without
+ /// introducing layer violations. Default implementations are conservative.
  pub trait WorkspaceService: Send + Sync {
      /// Boot/open a workspace and create a UI session.
      fn boot_workspace(&self, req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>>;
@@ -640,6 +644,36 @@
 
      /// Restore a session from a checkpoint. Returns the restored session and optional replaced id.
      fn restore_checkpoint(&self, req: RestoreCheckpointRequest) -> BoxFuture<'static, Result<RestoreCheckpointResponse, UseCaseError>>;
+
+     // ----------------------------
+     // Session close helpers (small, conservative defaults)
+     // ----------------------------
+     /// Attempt to close the given session. Implementations should return `Closed`
+     /// when there are no dirty buffers and it is safe to close immediately. When
+     /// dirty buffers exist return `BlockedByDirty` listing affected buffer ids.
+     fn attempt_close_session(&self, _req: GetSessionSnapshotRequest) -> BoxFuture<'static, Result<GetSessionSnapshotResponse, UseCaseError>> {
+         // Conservative default: forward to get_session_snapshot (no layering violation),
+         // but leave decision to the application. By default we simply return the snapshot
+         // so callers may inspect buffer list; higher-level orchestrators should provide
+         // a richer attempt_close_session when they can determine dirty state.
+         let req = GetSessionSnapshotRequest { session_id: _req.session_id.clone(), recent_limit: 0 };
+         self.get_session_snapshot(req)
+     }
+
+     /// Resolve a previously-blocked session close by saving all buffers and allowing close.
+     /// Default implementation attempts a durability save via `save_checkpoint` and reports success.
+     fn resolve_close_session_save_all(&self, req: SaveCheckpointRequest) -> BoxFuture<'static, Result<SaveCheckpointResponse, UseCaseError>> {
+         // Default: delegate to save_checkpoint to persist a durable checkpoint and
+         // return the checkpoint location as the success signal.
+         self.save_checkpoint(req)
+     }
+
+     /// Resolve a previously-blocked session close by discarding all unsaved changes and allowing close.
+     /// Default implementation signals success; orchestrators that need to perform reload should override.
+     fn resolve_close_session_discard_all(&self, _req: SaveCheckpointRequest) -> BoxFuture<'static, Result<SaveCheckpointResponse, UseCaseError>> {
+         // Default: no-op discard (caller will proceed to close). Return a dummy success.
+         Box::pin(async move { Ok(SaveCheckpointResponse { location: String::new() }) })
+     }
  }
  
  pub type DynWorkspaceService = Arc<dyn WorkspaceService>;

@@ -398,6 +398,22 @@ impl DesktopComposition {
         }
     }
 
+    /// Perform a local in-process "close" of the composition to reflect a session/window
+    /// being closed. This clears session metadata and presenter snapshots so callers
+    /// (harnesses/shells) may observe a closed state without performing a process exit.
+    /// This intentionally stays UI-facing and does not attempt to tear down application
+    /// state (that should be owned by the orchestrator).
+    pub fn perform_session_close(&mut self) {
+        self.pending_close = None;
+        self.command_bar = None;
+        self.metadata = None;
+        self.status = None;
+        self.presenter = Presenter::new();
+        self.session_id = None;
+        self.workspace_id = None;
+        self.revision = 0;
+    }
+
     // Command-bar helpers delegated to command_bar module.
     pub fn open_command_bar(&mut self) {
         command_bar::open_command_bar(self);

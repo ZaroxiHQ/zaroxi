@@ -25,7 +25,7 @@ This file implements two tiny actions that return the normalized ActionResult.
 use std::sync::Arc;
 
 use std::path::PathBuf;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit, OpenBufferRequest};
+use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit, OpenBufferRequest, SaveCheckpointRequest};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::{DesktopComposition, RefreshReason};
@@ -112,6 +112,130 @@ pub async fn request_close_active(
         Ok(ActionResult { success: true, message: None, refreshed: false })
     } else {
         Ok(ActionResult { success: false, message: Some("no active buffer".to_string()), refreshed: false })
+    }
+}
+
+/// Request to close the current session/window. Behavior:
+/// - If the composition/service indicates the session can close immediately, perform a local
+///   session close (UI-facing) and return success.
+/// - If there are unsaved buffers, set a PendingClose::SessionClose so the UI can prompt
+///   Save all / Discard all / Cancel. If a service is provided, prefer its `attempt_close_session` semantics.
+pub async fn request_close_session(
+    comp: &mut crate::desktop::DesktopComposition,
+    _view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: SessionId,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+) -> Result<ActionResult, String> {
+    // If service can determine close safety, ask it first.
+    if let Some(s) = service {
+        // We reuse the existing get_session_snapshot request shape as a light-weight attempt.
+        let req = crate::ports::GetSessionSnapshotRequest { session_id: session_id.clone(), recent_limit: 0 };
+        match s.attempt_close_session(req).await {
+            Ok(snapshot) => {
+                // Heuristic: if there are no buffer snapshots, proceed to close immediately.
+                if snapshot.snapshot.opened_buffers.is_empty() {
+                    comp.perform_session_close();
+                    return Ok(ActionResult { success: true, message: None, refreshed: true });
+                } else {
+                    // Build a pending list of buffer ids to show in the UI; callers can resolve.
+                    let dirty_ids = snapshot.snapshot.opened_buffers.clone();
+                    let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
+                    let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
+                    comp.set_pending_close(pending);
+                    return Ok(ActionResult { success: true, message: None, refreshed: false });
+                }
+            }
+            Err(_) => {
+                // Fall back to conservative UI behavior below.
+            }
+        }
+    }
+
+    // No service or service failed to decide: use composition projection.
+    let obs = comp.latest_opened_buffers_summary();
+    if obs.count == 0 {
+        // nothing open => safe to close
+        comp.perform_session_close();
+        Ok(ActionResult { success: true, message: None, refreshed: true })
+    } else {
+        // Conservatively assume there may be unsaved work and prompt the user.
+        let ids: Vec<crate::ports::BufferId> = obs.items.iter().map(|i| i.buffer_id.clone()).collect();
+        let summary = format!("{} open buffers", ids.len());
+        let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: ids, summary };
+        comp.set_pending_close(pending);
+        Ok(ActionResult { success: true, message: None, refreshed: false })
+    }
+}
+
+/// Confirm "Save all and close" for the currently pending session-close.
+///
+/// Behavior:
+/// - If a WorkspaceService is provided we attempt to persist a checkpoint via save_checkpoint.
+/// - On success the composition performs a local close; on failure the pending-close is converted
+///   into a ResolutionFailure so the UI shows the error and keeps pending state.
+pub async fn confirm_save_all_and_close(
+    comp: &mut crate::desktop::DesktopComposition,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+) -> Result<ActionResult, String> {
+    // Try to persist via service if available.
+    if let Some(s) = service {
+        let save_req = SaveCheckpointRequest { session_id: session_id.clone() };
+        match s.save_checkpoint(save_req).await {
+            Ok(_) => {
+                comp.clear_pending_close();
+                comp.perform_session_close();
+                comp.set_status_message("Saved and closed session".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            Err(e) => {
+                // Keep pending state and surface resolution failure.
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Save failed: {}", e) });
+                return Ok(ActionResult { success: false, message: Some("save failed".to_string()), refreshed: false });
+            }
+        }
+    } else {
+        // No service: best-effort UI close (no durability), perform UI close immediately.
+        comp.clear_pending_close();
+        comp.perform_session_close();
+        comp.set_status_message("Closed session (no service)".to_string());
+        return Ok(ActionResult { success: true, message: None, refreshed: true });
+    }
+}
+
+/// Confirm "Discard all and close" for the currently pending session-close.
+///
+/// Behavior:
+/// - If a WorkspaceService is present we delegate discard semantics to the service (if implemented).
+/// - Regardless, a successful discard performs a local composition close. On service-level failures
+///   we present a ResolutionFailure.
+pub async fn confirm_discard_all_and_close(
+    comp: &mut crate::desktop::DesktopComposition,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+) -> Result<ActionResult, String> {
+    if let Some(s) = service {
+        // The ports do not prescribe a discard-all call; many services may implement a lightweight
+        // `resolve_close_session_discard_all` by delegating to internal persistence. Try and fall back.
+        let req = crate::ports::SaveCheckpointRequest { session_id: session_id.clone() };
+        match s.resolve_close_session_discard_all(req).await {
+            Ok(_) => {
+                comp.clear_pending_close();
+                comp.perform_session_close();
+                comp.set_status_message("Discarded and closed session".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            Err(e) => {
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Discard failed: {}", e) });
+                return Ok(ActionResult { success: false, message: Some("discard failed".to_string()), refreshed: false });
+            }
+        }
+    } else {
+        // No service: perform in-memory close (UI-level).
+        comp.clear_pending_close();
+        comp.perform_session_close();
+        comp.set_status_message("Discarded and closed session (no service)".to_string());
+        return Ok(ActionResult { success: true, message: None, refreshed: true });
     }
 }
 
