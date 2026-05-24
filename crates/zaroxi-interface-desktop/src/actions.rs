@@ -24,7 +24,8 @@ This file implements two tiny actions that return the normalized ActionResult.
 
 use std::sync::Arc;
 
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit};
+use std::path::PathBuf;
+use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService, GetActiveBufferRequest, SetEditorCursorRequest, ApplyTextTransactionRequest, EditorCursor, TextEdit, OpenBufferRequest};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::{DesktopComposition, RefreshReason};
@@ -344,6 +345,119 @@ pub async fn set_active_buffer_and_get_shell_context(
     // Delegate to the existing refresh_and_get_shell_context helper so we reuse projection/consistency logic.
     let res = refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(res)
+}
+
+/// Small command-bar actions exposed to shells/harnesses.
+/// These reuse existing interface actions where possible and keep orchestration
+/// inside the interface layer.
+pub async fn open_command_bar(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.open_command_bar();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+pub async fn close_command_bar(
+    comp: &mut crate::desktop::DesktopComposition,
+) -> Result<ActionResult, String> {
+    comp.close_command_bar();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+/// Execute the command at `index` from the composition's current command bar list.
+///
+/// Behavior:
+/// - Map short human labels to the existing tiny actions above (refresh, open buffer,
+///   set active buffer, explain, request-close, confirm close variants).
+/// - If a service is required by the selected command and none is provided, return a failed ActionResult.
+pub async fn execute_command_by_index(
+    comp: &mut crate::desktop::DesktopComposition,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    index: usize,
+) -> Result<ActionResult, String> {
+    // Obtain command label
+    let label = match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
+        Some(l) => l,
+        None => {
+            return Ok(ActionResult { success: false, message: Some("no command at index".to_string()), refreshed: false })
+        }
+    };
+
+    match label.as_str() {
+        "Refresh" => {
+            // reuse refresh action (service optional)
+            let res = refresh_desktop(comp, view, session_id, workspace_id, service).await?;
+            Ok(res)
+        }
+        "Open buffer" => {
+            // deterministic fixture path for now
+            if let Some(s) = service {
+                let open_req = OpenBufferRequest { session_id: session_id.clone(), path: PathBuf::from("new_buffer.rs") };
+                match s.open_buffer(open_req).await {
+                    Ok(_) => {
+                        comp.set_status_message("Opened buffer: new_buffer.rs".to_string());
+                        // Trigger a refresh to make opened buffers visible to composition
+                        let _ = refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult { success: true, message: Some("opened buffer".to_string()), refreshed: true })
+                    }
+                    Err(e) => Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+                }
+            } else {
+                Ok(ActionResult { success: false, message: Some("open-buffer requires WorkspaceService".to_string()), refreshed: false })
+            }
+        }
+        "Set active buffer" => {
+            if let Some(s) = service {
+                // Choose a deterministic target: first opened buffer if present.
+                let obs = comp.latest_opened_buffers_summary();
+                if let Some(item) = obs.items.get(0) {
+                    let buf = item.buffer_id.clone();
+                    let res = set_active_buffer_and_get_shell_context(comp, s, view, session_id, workspace_id, buf).await?;
+                    Ok(res.action)
+                } else {
+                    Ok(ActionResult { success: false, message: Some("no opened buffers to activate".to_string()), refreshed: false })
+                }
+            } else {
+                Ok(ActionResult { success: false, message: Some("set-active requires WorkspaceService".to_string()), refreshed: false })
+            }
+        }
+        "Explain active buffer" => {
+            if let Some(s) = service {
+                // Fire explain and update a tiny status message on success/failure.
+                match s.explain_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await {
+                    Ok(resp) => {
+                        comp.set_status_message(format!("Explain dispatched: {:?}", resp));
+                        // refresh using service to allow AI projection to be picked up
+                        let _ = refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult { success: true, message: Some("explain dispatched".to_string()), refreshed: true })
+                    }
+                    Err(e) => Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false }),
+                }
+            } else {
+                Ok(ActionResult { success: false, message: Some("explain requires WorkspaceService".to_string()), refreshed: false })
+            }
+        }
+        "Request close active" => {
+            let ar = request_close_active(comp, view, session_id).await?;
+            Ok(ar)
+        }
+        "Confirm close: save" => {
+            let ar = confirm_save_and_close(comp).await?;
+            Ok(ar)
+        }
+        "Confirm close: discard" => {
+            let ar = confirm_discard_and_close(comp).await?;
+            Ok(ar)
+        }
+        "Confirm close: cancel" => {
+            let ar = confirm_cancel_close(comp).await?;
+            Ok(ar)
+        }
+        _ => Ok(ActionResult { success: false, message: Some(format!("unsupported command: {}", label)), refreshed: false }),
+    }
 }
 
 #[cfg(test)]

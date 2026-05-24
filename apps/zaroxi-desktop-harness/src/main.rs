@@ -884,5 +884,47 @@ async fn main() -> Result<(), String> {
         println!("Harness: no status banner present after resolution");
     }
 
+    // --- New harness demonstration: simple command-bar flow ---
+    println!("Harness: demonstrating command-bar: open -> choose Refresh -> execute");
+    composition.open_command_bar();
+    if let Some(cb) = composition.latest_command_bar() {
+        println!("Harness: command bar opened; commands = {:?}", cb.commands);
+    } else {
+        println!("Harness: command bar failed to open");
+    }
+
+    // Choose the Refresh command if present, otherwise index 0.
+    let cmd_idx = composition
+        .latest_command_bar()
+        .and_then(|cb| cb.commands.iter().position(|c| c == "Refresh"))
+        .unwrap_or(0);
+
+    match zaroxi_interface_desktop::actions::execute_command_by_index(
+        &mut composition,
+        view_dyn.clone(),
+        None,
+        boot_res.session.session_id.clone(),
+        Some(boot_res.session.workspace_id),
+        cmd_idx,
+    )
+    .await
+    {
+        Ok(ar) => {
+            println!(
+                "Harness: command result: success={} refreshed={} message={:?}",
+                ar.success, ar.refreshed, ar.message
+            );
+        }
+        Err(e) => {
+            println!("Harness: command execution error: {}", e);
+        }
+    }
+
+    if let Some(sline) = composition.latest_status_bar_line() {
+        println!("Harness: status after command -> {}", sline.text);
+    } else {
+        println!("Harness: no status banner present after command");
+    }
+
     Ok(())
 }

@@ -344,6 +344,36 @@ pub struct StatusBarLine {
     pub sticky: Option<String>,
 }
 
+/// Small command palette model (command bar) used by the desktop shell.
+///
+/// This intentionally minimal model is a pure presentation-state object
+/// stored on DesktopComposition so harnesses and presenters can render the
+/// palette and drive simple staged argument flows. Commands are exposed as
+/// short human labels and an indexable selection.
+#[derive(Clone, Debug)]
+pub enum Command {
+    Refresh,
+    OpenBuffer, // staged: uses deterministic fixture path for harnesses
+    SetActiveBuffer,
+    ExplainActive,
+    RequestCloseActive,
+    ConfirmSaveAndClose,
+    ConfirmDiscardAndClose,
+    ConfirmCancelClose,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommandBarState {
+    /// Whether the command bar overlay is open/visible.
+    pub open: bool,
+    /// Ordered human-visible command labels.
+    pub commands: Vec<String>,
+    /// Currently selected index into `commands` (0-based).
+    pub selected: usize,
+    /// Optional single staged argument (for future use).
+    pub staged_arg: Option<String>,
+}
+
 /// Tiny, read-only aggregate snapshot aimed at shells and harnesses.
 ///
 /// Purpose:
@@ -413,6 +443,7 @@ impl DesktopComposition {
             revision: 0,
             pending_refresh_reason: None,
             pending_close: None,
+            command_bar: None,
         }
     }
 
@@ -657,6 +688,84 @@ impl DesktopComposition {
     pub fn clear_status_message(&mut self) {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = None;
+        }
+    }
+
+    // -------------------------
+    // Command bar accessor helpers
+    // -------------------------
+
+    /// Open the command bar and populate it with a deterministic initial command list.
+    pub fn open_command_bar(&mut self) {
+        let mut labels: Vec<String> = Vec::new();
+        labels.push("Refresh".to_string());
+        labels.push("Open buffer".to_string());
+        labels.push("Set active buffer".to_string());
+        labels.push("Explain active buffer".to_string());
+        labels.push("Request close active".to_string());
+        labels.push("Confirm close: save".to_string());
+        labels.push("Confirm close: discard".to_string());
+        labels.push("Confirm close: cancel".to_string());
+
+        self.command_bar = Some(CommandBarState {
+            open: true,
+            commands: labels,
+            selected: 0,
+            staged_arg: None,
+        });
+    }
+
+    /// Close the command bar overlay (if open).
+    pub fn close_command_bar(&mut self) {
+        if let Some(cb) = self.command_bar.as_mut() {
+            cb.open = false;
+        }
+    }
+
+    /// Toggle command bar visible state.
+    pub fn toggle_command_bar(&mut self) {
+        match self.command_bar.as_mut() {
+            Some(cb) => cb.open = !cb.open,
+            None => self.open_command_bar(),
+        }
+    }
+
+    /// Is the command bar currently open?
+    pub fn is_command_bar_open(&self) -> bool {
+        self.command_bar.as_ref().map(|c| c.open).unwrap_or(false)
+    }
+
+    /// Get a cloned snapshot of the current command bar state (if any).
+    pub fn latest_command_bar(&self) -> Option<CommandBarState> {
+        self.command_bar.clone()
+    }
+
+    /// Select the next command in the list (wrap-around).
+    pub fn select_next_command(&mut self) {
+        if let Some(cb) = self.command_bar.as_mut() {
+            if !cb.commands.is_empty() {
+                cb.selected = (cb.selected + 1) % cb.commands.len();
+            }
+        }
+    }
+
+    /// Select the previous command in the list (wrap-around).
+    pub fn select_prev_command(&mut self) {
+        if let Some(cb) = self.command_bar.as_mut() {
+            if !cb.commands.is_empty() {
+                if cb.selected == 0 {
+                    cb.selected = cb.commands.len() - 1;
+                } else {
+                    cb.selected -= 1;
+                }
+            }
+        }
+    }
+
+    /// Set a staged argument for the command bar (for future extension).
+    pub fn set_command_bar_staged_arg(&mut self, arg: Option<String>) {
+        if let Some(cb) = self.command_bar.as_mut() {
+            cb.staged_arg = arg;
         }
     }
 
