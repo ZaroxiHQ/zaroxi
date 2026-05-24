@@ -24,10 +24,9 @@ mod status_bar;
 mod state;
 mod summary;
 mod snapshot;
-mod close;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
-pub use close::PendingClose;
+pub use crate::close::PendingClose;
 pub(crate) use state::command_kind_short_name;
 
 use crate::view_adapter::InterfaceRenderableWindow;
@@ -413,6 +412,7 @@ impl DesktopComposition {
             status: None,
             revision: 0,
             pending_refresh_reason: None,
+            pending_close: None,
         }
     }
 

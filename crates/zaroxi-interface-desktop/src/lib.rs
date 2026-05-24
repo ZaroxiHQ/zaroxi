@@ -6,6 +6,7 @@ pub mod compose;
 pub mod view_adapter;
 pub mod presenter;
 pub mod desktop;
+pub mod close;
 pub mod actions;
 pub mod text_view;
 pub mod selection_view;
