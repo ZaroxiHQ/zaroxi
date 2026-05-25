@@ -28,7 +28,7 @@ fn main() {
 
     use zaroxi_interface_desktop::GpuShellPresenter;
     use zaroxi_interface_desktop::presenters::model::ShellRegions;
-    use zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch;
+    use zaroxi_interface_desktop::gpu_shell_adapter::{view_model_to_regions_from_scratch, NativeKey, map_native_to_ui_event};
     use zaroxi_interface_desktop::events::{EventBridge, ActionExecutor, Action};
 
     // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.

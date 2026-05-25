@@ -10,6 +10,7 @@ license = "MIT"
 tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread", "time"] }
 winit = { workspace = true }
 vello = { workspace = true }
+minifb = "0.30.0"
 
 # Local workspace crates
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
