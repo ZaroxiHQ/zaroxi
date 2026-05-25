@@ -137,8 +137,9 @@ pub async fn confirm_save_and_close(
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 comp.clear_pending_close();
 
-                // Explicit status message mentioning the closed buffer.
-                comp.set_status_message(format!("Saved and closed {}", label));
+                // Explicit status message mentioning the closed buffer (include explicit id for tests/readability).
+                let id_str = format!("{}", buffer_id);
+                comp.set_status_message(format!("Saved and closed {} ({})", label, id_str));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
@@ -170,8 +171,9 @@ pub async fn confirm_discard_and_close(
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 comp.clear_pending_close();
 
-                // Explicit status message for discarded-and-closed outcome.
-                comp.set_status_message(format!("Discarded changes and closed {}", label));
+                // Explicit status message for discarded-and-closed outcome (include explicit id for tests/readability).
+                let id_str = format!("{}", buffer_id);
+                comp.set_status_message(format!("Discarded changes and closed {} ({})", label, id_str));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
