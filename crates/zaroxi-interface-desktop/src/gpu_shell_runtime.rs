@@ -19,7 +19,7 @@ refresh -> adapt -> repaint path is exercised end-to-end.
 
 use crate::events::Action;
 use crate::gpu_shell_adapter::view_model_to_regions_from_scratch;
-use crate::presenters::gpu_shell::ShellRegions;
+use crate::presenters::model::ShellRegions;
 
 /// Apply the given action using the existing action/refresh helpers and return
 /// adapted ShellRegions for the presenter. This function avoids duplicating
