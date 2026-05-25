@@ -125,10 +125,20 @@ pub async fn confirm_save_and_close(
 ) -> Result<ActionResult, String> {
     if let Some(pc) = comp.latest_pending_close() {
         match pc {
-            crate::desktop::PendingClose::BufferClose { buffer_id, .. } => {
+            crate::desktop::PendingClose::BufferClose { buffer_id, display, .. } => {
+                // Prefer a human-friendly display label when available, otherwise fall back to
+                // buffer path or buffer id string. This makes the status message explicit.
+                let label = display
+                    .clone()
+                    .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| buffer_id.to_string());
+
+                // Remove from opened buffers (composition projection) and clear pending state.
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 comp.clear_pending_close();
-                comp.set_status_message("Saved and closed".to_string());
+
+                // Explicit status message mentioning the closed buffer.
+                comp.set_status_message(format!("Saved and closed {}", label));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
@@ -149,10 +159,19 @@ pub async fn confirm_discard_and_close(
 ) -> Result<ActionResult, String> {
     if let Some(pc) = comp.latest_pending_close() {
         match pc {
-            crate::desktop::PendingClose::BufferClose { buffer_id, .. } => {
+            crate::desktop::PendingClose::BufferClose { buffer_id, display, .. } => {
+                // Prefer human-friendly display when available, otherwise fall back to path or id.
+                let label = display
+                    .clone()
+                    .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| buffer_id.to_string());
+
+                // Remove from opened buffers and clear pending state.
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 comp.clear_pending_close();
-                comp.set_status_message("Discarded and closed".to_string());
+
+                // Explicit status message for discarded-and-closed outcome.
+                comp.set_status_message(format!("Discarded changes and closed {}", label));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
