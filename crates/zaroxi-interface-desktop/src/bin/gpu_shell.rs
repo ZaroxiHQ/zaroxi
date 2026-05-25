@@ -26,8 +26,9 @@ fn main() {
     use std::{thread::sleep, time::Duration};
     use minifb::{Key, Window, WindowOptions};
 
-    use zaroxi_interface_desktop::presenters::gpu_shell::GpuShellPresenter;
-    use zaroxi_interface_desktop::gpu_shell_adapter::{view_model_to_regions_from_scratch, NativeKey, map_native_to_ui_event};
+    use zaroxi_interface_desktop::GpuShellPresenter;
+    use zaroxi_interface_desktop::presenters::model::ShellRegions;
+    use zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch;
     use zaroxi_interface_desktop::events::{EventBridge, ActionExecutor, Action};
 
     // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.
@@ -36,7 +37,7 @@ fn main() {
     struct LocalExecutor {
         width: u32,
         height: u32,
-        regions: zaroxi_interface_desktop::presenters::gpu_shell::ShellRegions,
+        regions: ShellRegions,
     }
 
     impl LocalExecutor {
@@ -47,7 +48,7 @@ fn main() {
             Self { width, height, regions }
         }
 
-        fn current_regions(&self) -> &zaroxi_interface_desktop::presenters::gpu_shell::ShellRegions {
+        fn current_regions(&self) -> &ShellRegions {
             &self.regions
         }
     }
