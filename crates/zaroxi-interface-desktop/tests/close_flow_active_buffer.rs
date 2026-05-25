@@ -231,5 +231,5 @@ async fn confirm_cancel_close_clears_pending_without_closing() {
 
     // Status banner should reflect cancellation or remain coherent (we expect a cancel message).
     let bar = comp.latest_status_bar_line().expect("status present");
-    assert!(bar.text.contains("Close cancelled") || bar.text.contains("pending-close").not(), "status/banner should be coherent after cancel");
+    assert!(bar.text.contains("Close cancelled") || !bar.text.contains("pending-close"), "status/banner should be coherent after cancel");
 }
