@@ -86,10 +86,18 @@ impl CosmicTextRenderer {
         color: [u8; 4],
         _max_w: Option<u32>,
     ) -> Result<(), String> {
+        // Obtain metrics first (copy) while holding the lock briefly, then
+        // re-lock to get a mutable reference for FontSystem to avoid conflicting
+        // mutable/immutable borrows of the mutex guard.
+        let metrics = {
+            let guard = renderer.inner.lock().unwrap();
+            guard.metrics
+        };
+        // Re-acquire the lock mutably for FontSystem usage.
         let mut guard = renderer.inner.lock().unwrap();
 
-        // Create a buffer bound to our FontSystem using the stored metrics.
-        let mut buf = CosmicBuffer::new(&mut guard.font_system, guard.metrics);
+        // Create a buffer bound to our FontSystem using the copied metrics.
+        let mut buf = CosmicBuffer::new(&mut guard.font_system, metrics);
 
         // Use default attributes for now (family selection will use system/project fonts).
         let attrs = Attrs::new();
