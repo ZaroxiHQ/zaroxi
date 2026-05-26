@@ -40,19 +40,14 @@ impl GpuPaintPlan {
     pub fn from_view(v: &GpuShellView) -> Self {
         let mut ops: Vec<GpuPaintOp> = Vec::new();
 
-        // Ensure the full viewport is deterministically covered first. This
-        // inserts a conservative full-viewport background fill using the same
-        // base content color. Doing this at the plan stage guarantees that the
-        // presenter will produce a clearly partitioned viewport (chrome /
-        // content / status) even on minimal binary paths.
-        //
-        // Compute viewport extents from the aggregated region sizes.
-        let total_width = v.chrome.width.max(v.content.width).max(v.status.width);
-        let total_height = v
-            .chrome
-            .height
-            .saturating_add(v.content.height)
-            .saturating_add(v.status.height);
+        // Consume an explicit ShellFrame layout derived from the stable presenter view.
+        // This keeps paint planning deterministic and prevents paint-time geometry
+        // from becoming the source of truth for layout decisions.
+        let frame = crate::presenters::model::ShellFrame::from_view(v);
+
+        // Compute viewport extents from the explicit frame contract.
+        let total_width = frame.total_width();
+        let total_height = frame.total_height();
 
         // Full-viewport background (same tone as content to keep visuals coherent).
         ops.push(GpuPaintOp::FillRect(GpuPaintRect {
@@ -68,24 +63,24 @@ impl GpuPaintPlan {
         // rectangles continue to rely on these deterministic rects overlaying
         // the background.
         ops.push(GpuPaintOp::FillRect(GpuPaintRect {
-            x: v.content.x,
-            y: v.content.y,
-            width: v.content.width,
-            height: v.content.height,
+            x: frame.content.x,
+            y: frame.content.y,
+            width: frame.content.width,
+            height: frame.content.height,
             color: [220u8, 220u8, 225u8, 255u8],
         }));
         ops.push(GpuPaintOp::FillRect(GpuPaintRect {
-            x: v.chrome.x,
-            y: v.chrome.y,
-            width: v.chrome.width,
-            height: v.chrome.height,
+            x: frame.chrome.x,
+            y: frame.chrome.y,
+            width: frame.chrome.width,
+            height: frame.chrome.height,
             color: [32u8, 32u8, 40u8, 255u8],
         }));
         ops.push(GpuPaintOp::FillRect(GpuPaintRect {
-            x: v.status.x,
-            y: v.status.y,
-            width: v.status.width,
-            height: v.status.height,
+            x: frame.status.x,
+            y: frame.status.y,
+            width: frame.status.width,
+            height: frame.status.height,
             color: [48u8, 48u8, 56u8, 255u8],
         }));
 
@@ -102,31 +97,31 @@ impl GpuPaintPlan {
         let border_thickness = 1u32;
         ops.push(GpuPaintOp::BorderRect {
             rect: GpuPaintRect {
-                x: v.chrome.x,
-                y: v.chrome.y,
-                width: v.chrome.width,
-                height: v.chrome.height,
-                color: kind_border_color(&v.chrome.kind),
+                x: frame.chrome.x,
+                y: frame.chrome.y,
+                width: frame.chrome.width,
+                height: frame.chrome.height,
+                color: kind_border_color(&frame.chrome.kind),
             },
             thickness: border_thickness,
         });
         ops.push(GpuPaintOp::BorderRect {
             rect: GpuPaintRect {
-                x: v.content.x,
-                y: v.content.y,
-                width: v.content.width,
-                height: v.content.height,
-                color: kind_border_color(&v.content.kind),
+                x: frame.content.x,
+                y: frame.content.y,
+                width: frame.content.width,
+                height: frame.content.height,
+                color: kind_border_color(&frame.content.kind),
             },
             thickness: border_thickness,
         });
         ops.push(GpuPaintOp::BorderRect {
             rect: GpuPaintRect {
-                x: v.status.x,
-                y: v.status.y,
-                width: v.status.width,
-                height: v.status.height,
-                color: kind_border_color(&v.status.kind),
+                x: frame.status.x,
+                y: frame.status.y,
+                width: frame.status.width,
+                height: frame.status.height,
+                color: kind_border_color(&frame.status.kind),
             },
             thickness: border_thickness,
         });
@@ -139,13 +134,13 @@ impl GpuPaintPlan {
             let b = b0.wrapping_div(2);
             let color = [r, g, b, 255u8];
 
-            let bar_width = 8u32.min(v.chrome.width);
-            let bar_x = v.chrome.x + v.chrome.width.saturating_sub(bar_width);
+            let bar_width = 8u32.min(frame.chrome.width);
+            let bar_x = frame.chrome.x + frame.chrome.width.saturating_sub(bar_width);
             ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                 x: bar_x,
-                y: v.chrome.y,
+                y: frame.chrome.y,
                 width: bar_width,
-                height: v.chrome.height,
+                height: frame.chrome.height,
                 color,
             }));
         }
@@ -155,19 +150,19 @@ impl GpuPaintPlan {
             let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
             let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
 
-            let max_w = v.chrome.width.saturating_sub(16);
+            let max_w = frame.chrome.width.saturating_sub(16);
             let box_w = max_w.min(240); // increase width budget for longer buffer names
             if box_w > 0 {
-                let avail = v.chrome.width.saturating_sub(box_w);
-                let box_x = v.chrome.x + (avail / 2);
+                let avail = frame.chrome.width.saturating_sub(box_w);
+                let box_x = frame.chrome.x + (avail / 2);
 
                 // Smarter chrome label sizing: ensure a minimum readable height and
                 // vertically center the label box inside the chrome. This tightens the
                 // chrome layout and provides balanced vertical placement for the label.
-                let box_h = std::cmp::max(8u32, std::cmp::min(v.chrome.height.saturating_sub(4), 18u32));
-                let box_y = v.chrome.y + (v.chrome.height.saturating_sub(box_h) / 2);
+                let box_h = std::cmp::max(8u32, std::cmp::min(frame.chrome.height.saturating_sub(4), 18u32));
+                let box_y = frame.chrome.y + (frame.chrome.height.saturating_sub(box_h) / 2);
 
-                if box_h > 0 && box_x.saturating_add(box_w) <= v.chrome.x.saturating_add(v.chrome.width) {
+                if box_h > 0 && box_x.saturating_add(box_w) <= frame.chrome.x.saturating_add(frame.chrome.width) {
                     // Decorative background for chrome label for better contrast
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                         x: box_x,
@@ -201,10 +196,10 @@ impl GpuPaintPlan {
             let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
             let color = [255u8.wrapping_sub(b0), b0, 120u8 as u8, 255u8];
 
-            let bar_w = 18u32.min(v.status.width);
-            let bar_x = v.status.x + v.status.width.saturating_sub(bar_w + 2);
-            let bar_y = v.status.y + 1u32.min(v.status.height.saturating_sub(1));
-            let bar_h = 6u32.min(v.status.height.saturating_sub(1));
+            let bar_w = 18u32.min(frame.status.width);
+            let bar_x = frame.status.x + frame.status.width.saturating_sub(bar_w + 2);
+            let bar_y = frame.status.y + 1u32.min(frame.status.height.saturating_sub(1));
+            let bar_h = 6u32.min(frame.status.height.saturating_sub(1));
             if bar_h > 0 && bar_w > 0 {
                 ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                     x: bar_x,
@@ -221,11 +216,11 @@ impl GpuPaintPlan {
             let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
             let _color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
 
-            let text_x = v.content.x + 10;
+            let text_x = frame.content.x + 10;
             // Place preview near the top of the content region with small inset.
-            let text_y = v.content.y + 8;
+            let text_y = frame.content.y + 8;
             // Clip the preview to the content region (inset of 10px).
-            let clip_w = v.content.width.saturating_sub(10);
+            let clip_w = frame.content.width.saturating_sub(10);
             let clip_h = 16u32; // conservative single-line height
             ops.push(GpuPaintOp::Text {
                 x: text_x,
@@ -245,13 +240,12 @@ impl GpuPaintPlan {
         // presenter's estimate and the executor's glyph metrics.
         if !v.tabs.tabs.is_empty() && v.chrome.height > 2 {
             let num = v.tabs.tabs.len() as u32;
-            // Small tab bar: prefer a slightly larger tab bar when chrome allows it,
-            // and vertically center the bar inside the chrome to produce balanced spacing.
-            let tab_bar_h = std::cmp::min(14u32, v.chrome.height.saturating_sub(4));
-            let tab_bar_y = v.chrome.y + (v.chrome.height.saturating_sub(tab_bar_h) / 2);
+            // Small tab bar: use frame-provided tab bar metrics (centralized layout policy).
+            let tab_bar_h = frame.tab_bar_h;
+            let tab_bar_y = frame.tab_bar_y;
             // allocate equal widths deterministically
-            let base_w = if num > 0 { v.chrome.width / num } else { 0 };
-            let mut x = v.chrome.x;
+            let base_w = frame.base_tab_width(num);
+            let mut x = frame.chrome.x;
 
             // Load monospace metrics once so presenter and executor agree.
             let fm = zaroxi_core_engine_font::load_bundled_monospace();

@@ -386,6 +386,69 @@ impl GpuShellView {
 
 }
 
+/// Explicit ShellFrame layout model.
+///
+/// This small, presenter-local helper centralizes shell-frame geometry derived
+/// from the high-level GpuShellView. It provides an explicit, stable contract
+/// that the paint planner consumes instead of recomputing ad-hoc geometry inline.
+/// The intent is to keep layout-policy near the presenter view model while
+/// keeping paint execution purely declarative (consumes ShellFrame).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellFrame {
+    pub chrome: RegionView,
+    pub content: RegionView,
+    pub status: RegionView,
+    /// Precomputed tab bar height (derived from chrome height).
+    pub tab_bar_h: u32,
+    /// Tab bar y origin (already vertically centered inside chrome).
+    pub tab_bar_y: u32,
+}
+
+impl ShellFrame {
+    /// Build a ShellFrame from a stable GpuShellView. All derived layout
+    /// decisions that belong to the frame (tab bar size/position and simple
+    /// tab width allocation) are computed here so paint code consumes a clear
+    /// contract.
+    pub fn from_view(v: &GpuShellView) -> Self {
+        let chrome = v.chrome.clone();
+        let content = v.content.clone();
+        let status = v.status.clone();
+
+        // Small, deterministic tab bar height that fits inside the chrome.
+        let tab_bar_h = std::cmp::min(14u32, chrome.height.saturating_sub(4));
+        let tab_bar_y = chrome.y + (chrome.height.saturating_sub(tab_bar_h) / 2);
+
+        ShellFrame {
+            chrome,
+            content,
+            status,
+            tab_bar_h,
+            tab_bar_y,
+        }
+    }
+
+    /// Total viewport width (derived from region widths). This mirrors the
+    /// previous ad-hoc computation but centralizes it so tests and paint code
+    /// rely on the same contract.
+    pub fn total_width(&self) -> u32 {
+        self.chrome.width.max(self.content.width).max(self.status.width)
+    }
+
+    /// Total viewport height (chrome + content + status).
+    pub fn total_height(&self) -> u32 {
+        self.chrome.height.saturating_add(self.content.height).saturating_add(self.status.height)
+    }
+
+    /// Deterministic base per-tab width for `num` tabs (last tab may take remainder).
+    pub fn base_tab_width(&self, num: u32) -> u32 {
+        if num > 0 {
+            self.chrome.width / num
+        } else {
+            0
+        }
+    }
+}
+
 /// Thin GPU-backed presenter. It does not own any heavy application state;
 /// it provides pure functions for region mapping and buffer painting.
 ///
