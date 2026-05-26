@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod close;
 pub mod actions;
 pub mod text_view;
+pub mod text;
 pub mod selection_view;
 pub mod events;
 pub mod gpu_shell_adapter;

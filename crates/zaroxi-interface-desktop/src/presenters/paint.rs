@@ -417,7 +417,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         // The new renderer provides shaping/layout and a conservative rasterization
         // path producing readable labels. If initialization or drawing fails we
         // fall back to the old behaviour as a controlled, temporary compatibility path.
-        if let Some(renderer) = crate::presenters::super::super::super::text::COSMIC_RENDERER.get() {
+        if let Some(renderer) = crate::text::COSMIC_RENDERER.get() {
             // Try cosmic-text drawable path. We use small signed coordinates here.
             let res = cosmic_text_renderer::CosmicTextRenderer::draw_text(
                 renderer,
