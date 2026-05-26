@@ -415,7 +415,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         // Delegate all shaping/layout/rasterization to the canonical CosmicTextRenderer.
         // If the renderer fails to draw, treat it as a hard error (no fallback).
         cosmic_text_renderer::CosmicTextRenderer::draw_text(
-            renderer,
+            &renderer,
             buffer,
             width,
             height,

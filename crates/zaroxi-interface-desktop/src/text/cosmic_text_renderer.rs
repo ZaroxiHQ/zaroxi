@@ -59,7 +59,7 @@ impl CosmicTextRenderer {
         }
 
         // Create a FontSystem (system fonts available as a fallback).
-        let mut fs = FontSystem::new();
+        let fs = FontSystem::new();
 
         // Default conservative metrics (font size, line height). Callers can tune later.
         let metrics = Metrics::new(16.0, 20.0);
