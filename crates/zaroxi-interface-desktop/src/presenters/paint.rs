@@ -558,8 +558,8 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             cursor_x += (GLYPH_W * SCALE) as i32;
         }
     }
-}
 
+    // Iterate paint ops and execute them into the framebuffer.
     for op in plan.ops.iter() {
         match op {
             GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
@@ -567,3 +567,4 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             GpuPaintOp::Text { x, y, text, color } => draw_text_rect(buffer, width, height, *x, *y, text, *color),
         }
     }
+}
