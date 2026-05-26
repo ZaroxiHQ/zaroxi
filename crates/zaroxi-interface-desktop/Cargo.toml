@@ -10,6 +10,7 @@ license = "MIT"
 tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread", "time"] }
 winit = { workspace = true }
 vello = { workspace = true }
+once_cell = { workspace = true }
 minifb = "0.28.0"
 
 # Local workspace crates

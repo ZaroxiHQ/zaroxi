@@ -22,12 +22,12 @@ binary renders the real composition snapshot rather than a hard-coded demo.
 use std::sync::{Arc, Mutex};
 use once_cell::sync::OnceCell;
 use tokio::runtime::Runtime;
+use zaroxi_application_workspace::view;
 
 use crate::events::Action;
 use crate::presenters::model::{ShellRegions, GpuShellPresenter};
-use crate::desktop::{DesktopComposition, DesktopMetadata, OpenedBufferItem};
+use crate::desktop::{DesktopComposition, DesktopMetadata};
 use crate::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, EditorDocument, EditorCursor};
-use crate::view_adapter::{InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use crate::ports::SessionId;
 use zaroxi_kernel_types::Id;
@@ -86,7 +86,7 @@ impl WorkspaceView for FakeView {
         Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>,
     > {
         // Build a simple EditorDocument using the active_buffer id and a single-line content.
-        let buf = BufferId::from(self.current_active_buffer());
+        let buf = BufferId::from(self.current_active_buffer().as_str());
         let content = Some(self.text.clone());
         let ed = EditorDocument {
             buffer_id: buf,
@@ -107,7 +107,7 @@ impl WorkspaceView for FakeView {
         Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>,
     > {
         // Provide a one-line VisibleLinesWindow that mirrors the tiny document.
-        let vl = crate::view::VisibleLine {
+        let vl = view::VisibleLine {
             line_number: 1,
             text: self.text.clone(),
             is_cursor_line: true,
@@ -116,14 +116,13 @@ impl WorkspaceView for FakeView {
             selection_start_column: None,
             selection_end_column: None,
         };
-        let vw = crate::view::VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
+        let vw = view::VisibleLinesWindow { top_line: 1, total_lines: 1, lines: vec![vl] };
         Box::pin(async move { Ok(crate::ports::GetVisibleLinesResponse { window: vw }) })
     }
 }
 
 // Internal runtime holder initialized on first access.
 struct CompositionRuntime {
-    rt: Runtime,
     comp: DesktopComposition,
     view: Arc<FakeView>,
     session: SessionId,
@@ -133,19 +132,18 @@ static RUNTIME: OnceCell<Mutex<CompositionRuntime>> = OnceCell::new();
 
 fn ensure_runtime_initialized(width: u32, height: u32) -> std::sync::MutexGuard<'static, CompositionRuntime> {
     RUNTIME.get_or_init(|| {
-        // Initialize a tokio runtime for running async composition refresh helpers.
-        let rt = Runtime::new().expect("tokio runtime init");
         // Create an initial fake view and composition.
         let view = Arc::new(FakeView::new("buf:one", "hello from composition"));
         let comp = DesktopComposition::new();
         // Create a session id for the in-process binary.
         let session = SessionId(Id::new());
 
-        let mut holder = CompositionRuntime { rt, comp, view, session };
+        let mut holder = CompositionRuntime { comp, view, session };
         {
-            // Perform an initial refresh synchronously.
+            // Perform an initial refresh synchronously using a temporary runtime.
             let guard_view = holder.view.clone();
-            holder.rt.block_on(async {
+            let rt = Runtime::new().expect("tokio runtime init");
+            rt.block_on(async {
                 // Use the composition's async refresh to populate metadata.
                 let _ = holder.comp.refresh(guard_view, holder.session.clone(), None).await;
             });
@@ -198,7 +196,8 @@ pub fn current_regions(width: u32, height: u32) -> ShellRegions {
     let mut runtime = ensure_runtime_initialized(width, height);
     // Refresh composition (async) to ensure latest metadata is present.
     let view = runtime.view.clone();
-    runtime.rt.block_on(async {
+    let rt = Runtime::new().expect("tokio runtime init");
+    rt.block_on(async {
         let _ = runtime.comp.refresh(view, runtime.session.clone(), None).await;
     });
 
@@ -224,7 +223,8 @@ pub fn apply_action_and_get_regions(action: Action, width: u32, height: u32) -> 
 
     // Run an explicit refresh to update metadata.
     let view = runtime.view.clone();
-    runtime.rt.block_on(async {
+    let rt = Runtime::new().expect("tokio runtime init");
+    rt.block_on(async {
         let _ = runtime.comp.refresh(view, runtime.session.clone(), None).await;
     });
 
