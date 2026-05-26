@@ -208,7 +208,7 @@ impl GpuPaintPlan {
         // content_preview: render the textual preview inside the content region.
         if let Some(ref preview) = v.content_preview {
             let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
-            let color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
+            let _color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
 
             let text_x = v.content.x + 10;
             // Place preview near the top of the content region with small inset.
