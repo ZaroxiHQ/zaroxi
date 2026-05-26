@@ -618,6 +618,14 @@ fn paint_plan_includes_text_for_tabs() {
 }
 
 /// Ensure executor actually paints the label rect for Text ops (pixel-level).
+///
+/// Updated contract:
+/// - draw_text must only modify pixels where glyph coverage exists.
+/// - Other pixels inside the label bbox must remain unchanged.
+/// This test paints a solid distinct background first, executes the plan,
+/// and then asserts that at least one pixel inside the label bbox changed to
+/// something different (glyph was drawn) and that not all pixels were
+/// overwritten (no opaque fill).
 #[test]
 fn execute_paint_plan_renders_label_rect() {
     let width: u32 = 120;
@@ -635,28 +643,61 @@ fn execute_paint_plan_renders_label_rect() {
     };
 
     let plan = GpuPaintPlan::from_view(&view);
+    // Start with a distinct non-zero background so we can detect untouched pixels.
+    let bg_color = [7u8, 7u8, 7u8, 255u8];
     let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
+    for i in 0..(width as usize * height as usize) {
+        let base = i * 4;
+        buf[base] = bg_color[0];
+        buf[base + 1] = bg_color[1];
+        buf[base + 2] = bg_color[2];
+        buf[base + 3] = bg_color[3];
+    }
 
     // Execute plan
     execute_paint_plan(&plan, &mut buf, width, height);
 
-    // Find the first Text op and sample its top-left pixel; it should match the color used.
-    let mut found = false;
+    // Find the first Text op and inspect its bbox to verify partial writes only.
+    let mut validated = false;
     for op in plan.ops.iter() {
-        if let GpuPaintOp::Text { x, y, text, color, .. } = op {
+        if let GpuPaintOp::Text { x, y, text, color, max_w, max_h } = op {
             if text.is_empty() {
                 continue;
             }
-            let idx = (((*y) * width + (*x)) * 4) as usize;
-            if idx + 4 <= buf.len() {
-                let px = [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]];
-                assert_eq!(px, *color, "expected label rect pixel to equal text color");
-                found = true;
-                break;
+
+            let bbox_w = *max_w as usize;
+            let bbox_h = *max_h as usize;
+            if bbox_w == 0 || bbox_h == 0 {
+                continue;
             }
+
+            let mut changed = 0usize;
+            let mut same_as_bg = 0usize;
+            for row in 0..bbox_h {
+                for col in 0..bbox_w {
+                    let px = x.saturating_add(col as u32);
+                    let py = y.saturating_add(row as u32);
+                    let idx = ((py * width + px) * 4) as usize;
+                    if idx + 4 <= buf.len() {
+                        let pixel = [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]];
+                        if pixel != bg_color {
+                            changed += 1;
+                        } else {
+                            same_as_bg += 1;
+                        }
+                    }
+                }
+            }
+
+            let total = bbox_w.saturating_mul(bbox_h);
+            // Expect at least one pixel changed (glyph painted) and not all pixels changed (no opaque fill).
+            assert!(changed > 0, "expected at least one glyph pixel to be drawn inside label bbox");
+            assert!(changed < total, "expected not all pixels in bbox to be overwritten (no opaque fill)");
+            validated = true;
+            break;
         }
     }
-    assert!(found, "expected to find and validate a Text op rendered into buffer");
+    assert!(validated, "expected to find and validate a Text op rendered into buffer");
 }
 
 /// Ensure when no tabs are present there are no Text ops emitted.
