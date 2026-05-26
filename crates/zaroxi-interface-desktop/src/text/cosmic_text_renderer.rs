@@ -28,8 +28,10 @@ pub struct CosmicTextRenderer {
 struct Inner {
     /// Whether the project font bytes were successfully loaded.
     font_loaded: bool,
-    /// Number of bytes loaded (diagnostic).
-    font_bytes_len: usize,
+    /// Number of bytes loaded (diagnostic). Kept with a leading underscore to
+    /// avoid false-positive "never read" warnings while retaining the diagnostic
+    /// payload for future use.
+    _font_bytes_len: usize,
     /// Conservative monospace metrics used by the fallback rasterizer.
     char_width: u32,
     line_height: u32,
@@ -56,7 +58,7 @@ impl CosmicTextRenderer {
 
         let inner = Inner {
             font_loaded: true,
-            font_bytes_len: bytes.len(),
+            _font_bytes_len: bytes.len(),
             char_width: fm.char_width,
             line_height: fm.line_height,
         };
