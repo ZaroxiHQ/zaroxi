@@ -38,13 +38,14 @@ use zaroxi_kernel_types::Id;
 struct FakeView {
     // Active buffer id string (e.g. "buf:one")
     active_buffer: Mutex<String>,
-    // Simple one-line document text for the active buffer.
-    text: String,
+    // Simple one-line document text for the active buffer. Protected by a mutex
+    // so the native binary can toggle visible content from the input thread.
+    text: Mutex<String>,
 }
 
 impl FakeView {
     fn new(initial: &str, text: &str) -> Self {
-        Self { active_buffer: Mutex::new(initial.to_string()), text: text.to_string() }
+        Self { active_buffer: Mutex::new(initial.to_string()), text: Mutex::new(text.to_string()) }
     }
 
     fn set_active_buffer(&self, id: &str) {
@@ -54,6 +55,28 @@ impl FakeView {
 
     fn current_active_buffer(&self) -> String {
         self.active_buffer.lock().unwrap().clone()
+    }
+
+    fn set_text(&self, new_text: &str) {
+        let mut guard = self.text.lock().unwrap();
+        *guard = new_text.to_string();
+    }
+
+    /// Toggle the small in-memory document between two deterministic strings and
+    /// return the new value. This helper is used by the native binary to prove
+    /// a user-driven mutation -> composition -> repaint loop.
+    fn toggle_text(&self) -> String {
+        let mut guard = self.text.lock().unwrap();
+        if guard == "hello from composition" {
+            *guard = "toggled content".to_string();
+        } else {
+            *guard = "hello from composition".to_string();
+        }
+        guard.clone()
+    }
+
+    fn current_text(&self) -> String {
+        self.text.lock().unwrap().clone()
     }
 }
 
@@ -65,7 +88,7 @@ impl WorkspaceView for FakeView {
         _buffer_id: crate::ports::BufferId,
     ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
     {
-        let txt = self.text.clone();
+        let txt = self.current_text();
         Box::pin(async move { Ok(Some(txt)) })
     }
 
@@ -74,7 +97,7 @@ impl WorkspaceView for FakeView {
         _session_id: crate::ports::SessionId,
     ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
     {
-        let txt = self.text.clone();
+        let txt = self.current_text();
         Box::pin(async move { Ok(Some(txt)) })
     }
 
@@ -87,14 +110,14 @@ impl WorkspaceView for FakeView {
     > {
         // Build a simple EditorDocument using the active_buffer id and a single-line content.
         let buf = BufferId::from(self.current_active_buffer().as_str());
-        let content = Some(self.text.clone());
+        let content = Some(self.current_text());
         let ed = EditorDocument {
             buffer_id: buf,
             content,
             cursor: EditorCursor { line: 0, column: 0 },
             selection: None,
             line_count: 1,
-            current_line: Some(self.text.clone()),
+            current_line: Some(self.current_text()),
         };
         Box::pin(async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: ed }) })
     }
@@ -109,7 +132,7 @@ impl WorkspaceView for FakeView {
         // Provide a one-line VisibleLinesWindow that mirrors the tiny document.
         let vl = view::VisibleLine {
             line_number: 1,
-            text: self.text.clone(),
+            text: self.current_text(),
             is_cursor_line: true,
             cursor_column: Some(0),
             selection_intersects: false,
@@ -236,6 +259,56 @@ pub fn apply_action_and_get_regions(action: Action, width: u32, height: u32) -> 
     });
 
     // Build ShellRegions from the updated metadata.
+    let meta = runtime.comp.latest_metadata();
+    metadata_to_regions(width, height, meta)
+}
+
+/// Return the ordered opened buffers (id, display) plus the current active buffer id
+/// derived from the real DesktopComposition. This performs a synchronous refresh
+/// to ensure the returned data is fresh.
+pub fn get_opened_and_active(width: u32, height: u32) -> (Vec<(String, String)>, Option<String>) {
+    let mut runtime = ensure_runtime_initialized(width, height);
+    // Refresh composition (async) to ensure latest metadata is present.
+    let view = runtime.view.clone();
+    let session = runtime.session.clone();
+    let comp_ref = &mut runtime.comp;
+    let rt = Runtime::new().expect("tokio runtime init");
+    rt.block_on(async {
+        let _ = comp_ref.refresh(view, session, None).await;
+    });
+
+    let mut opened: Vec<(String, String)> = Vec::new();
+    if let Some(meta) = runtime.comp.latest_metadata() {
+        for ob in meta.opened_buffers.iter() {
+            let id = ob.buffer_id.to_string();
+            let display = ob.display.clone().unwrap_or_else(|| id.clone());
+            opened.push((id, display));
+        }
+        let active = meta.active_buffer.as_ref().map(|b| b.to_string());
+        (opened, active)
+    } else {
+        (opened, None)
+    }
+}
+
+/// Toggle the small in-memory document text used by the FakeView and return an
+/// updated ShellRegions snapshot after performing a synchronous composition refresh.
+///
+/// This helper proves the loop: user input -> runtime mutation -> composition refresh -> GUI repaint.
+pub fn toggle_text_and_get_regions(width: u32, height: u32) -> ShellRegions {
+    let mut runtime = ensure_runtime_initialized(width, height);
+
+    // Toggle the in-memory fake document text (thread-safe via mutex).
+    let new_text = runtime.view.toggle_text();
+    // Now refresh composition to pick up the text change.
+    let view = runtime.view.clone();
+    let session = runtime.session.clone();
+    let comp_ref = &mut runtime.comp;
+    let rt = Runtime::new().expect("tokio runtime init");
+    rt.block_on(async {
+        let _ = comp_ref.refresh(view, session, None).await;
+    });
+
     let meta = runtime.comp.latest_metadata();
     metadata_to_regions(width, height, meta)
 }

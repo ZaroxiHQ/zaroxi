@@ -99,6 +99,41 @@ fn main() {
             }
         }
 
+        // Tab / Ctrl-Tab / Shift+Tab: drive real tab-activation via the presenter
+        // resolution helpers. This reuses compute_tab_action_target so the decision
+        // logic remains in the presenter and the binary only supplies user intent.
+        if window.is_key_down(Key::Tab) {
+            let shift = window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift);
+            // Query the in-process runtime for the opened buffer list + active id.
+            let (opened, current_opt) = zaroxi_interface_desktop::gpu_shell_runtime::get_opened_and_active(width, height);
+            let current_active = current_opt.as_deref();
+
+            // Choose direction based on Shift (previous) or plain Tab (next).
+            if !opened.is_empty() {
+                let action = if shift {
+                    zaroxi_interface_desktop::presenters::model::TabAction::ActivatePrevious { wrap: true }
+                } else {
+                    zaroxi_interface_desktop::presenters::model::TabAction::ActivateNext { wrap: true }
+                };
+
+                if let Some(target) = zaroxi_interface_desktop::presenters::model::compute_tab_action_target(
+                    action,
+                    &opened,
+                    current_active,
+                ) {
+                    // Execute through the canonical action path so composition is updated.
+                    executor.execute(zaroxi_interface_desktop::events::Action::SetActiveBuffer(target));
+                }
+            }
+        }
+
+        // Space: toggle the small fake document text and refresh composition.
+        // This proves another distinct input -> composition -> repaint path.
+        if window.is_key_down(Key::Space) {
+            let updated = zaroxi_interface_desktop::gpu_shell_runtime::toggle_text_and_get_regions(width, height);
+            executor.regions = updated;
+        }
+
         // Left/Right keys: drive a real SetActiveBuffer action through the existing
         // in-process runtime helper. This toggles the active buffer label between
         // "buf:one" and "buf:two" and uses the canonical action->refresh path so
