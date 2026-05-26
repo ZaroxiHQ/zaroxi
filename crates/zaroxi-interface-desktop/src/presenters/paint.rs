@@ -390,35 +390,10 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             return;
         }
 
-        // Before invoking the canonical Cosmic Text renderer, paint a deterministic
-        // background label rectangle using conservative monospace metrics from the
-        // core font crate. Tests for the presenter expect a filled label rect to
-        // exist with the supplied text color; this preserves that contract while
-        // keeping shaping/rasterization in the single Cosmic Text path.
-        let fm = zaroxi_core_engine_font::load_bundled_monospace();
-        let glyph_w: u32 = fm.char_width;
-        let glyph_h: u32 = fm.line_height;
-        let glyph_count: u32 = text.chars().count() as u32;
-        let text_w = glyph_count.saturating_mul(glyph_w);
-        let text_h = glyph_h;
-
-        if text_w > 0 && text_h > 0 {
-            // clamp to framebuffer bounds
-            let max_w = if x >= width { 0 } else { width.saturating_sub(x) };
-            let max_h = if y >= height { 0 } else { height.saturating_sub(y) };
-            let label_w = text_w.min(max_w);
-            let label_h = text_h.min(max_h);
-            if label_w > 0 && label_h > 0 {
-                for row in y..y.saturating_add(label_h) {
-                    for col in x..x.saturating_add(label_w) {
-                        let idx = ((row * width + col) * 4) as usize;
-                        if idx + 4 <= buffer.len() {
-                            buffer[idx..idx + 4].copy_from_slice(&color);
-                        }
-                    }
-                }
-            }
-        }
+        // Do NOT draw any placeholder/filled-label rectangles here.
+        // Delegate all shaping and rasterization to the canonical Cosmic Text path.
+        // Emit a very small debug message to help trace text draw requests in failing cases.
+        eprintln!("presenter: draw_text_rect request text=\"{}\" x={} y={} w={} h={}", text, x, y, width, height);
 
         // Ensure a global cosmic renderer exists; try to initialize it if absent (tests may run without explicit init).
         let renderer = if let Some(r) = crate::text::COSMIC_RENDERER.get() {
