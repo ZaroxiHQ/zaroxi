@@ -130,7 +130,7 @@ struct CompositionRuntime {
 
 static RUNTIME: OnceCell<Mutex<CompositionRuntime>> = OnceCell::new();
 
-fn ensure_runtime_initialized(width: u32, height: u32) -> std::sync::MutexGuard<'static, CompositionRuntime> {
+fn ensure_runtime_initialized(_width: u32, _height: u32) -> std::sync::MutexGuard<'static, CompositionRuntime> {
     RUNTIME.get_or_init(|| {
         // Create an initial fake view and composition.
         let view = Arc::new(FakeView::new("buf:one", "hello from composition"));
@@ -195,10 +195,15 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
 pub fn current_regions(width: u32, height: u32) -> ShellRegions {
     let mut runtime = ensure_runtime_initialized(width, height);
     // Refresh composition (async) to ensure latest metadata is present.
+    // Avoid borrowing `runtime` across the async block by taking owned/cloned locals.
     let view = runtime.view.clone();
+    let session = runtime.session.clone();
+    // Obtain a mutable reference to the composition to call refresh without also
+    // borrowing `runtime` immutably inside the async block.
+    let comp_ref = &mut runtime.comp;
     let rt = Runtime::new().expect("tokio runtime init");
     rt.block_on(async {
-        let _ = runtime.comp.refresh(view, runtime.session.clone(), None).await;
+        let _ = comp_ref.refresh(view, session, None).await;
     });
 
     let meta = runtime.comp.latest_metadata();
@@ -221,11 +226,13 @@ pub fn apply_action_and_get_regions(action: Action, width: u32, height: u32) -> 
         _ => {}
     }
 
-    // Run an explicit refresh to update metadata.
+    // Run an explicit refresh to update metadata, avoiding borrowing `runtime` across await.
     let view = runtime.view.clone();
+    let session = runtime.session.clone();
+    let comp_ref = &mut runtime.comp;
     let rt = Runtime::new().expect("tokio runtime init");
     rt.block_on(async {
-        let _ = runtime.comp.refresh(view, runtime.session.clone(), None).await;
+        let _ = comp_ref.refresh(view, session, None).await;
     });
 
     // Build ShellRegions from the updated metadata.
