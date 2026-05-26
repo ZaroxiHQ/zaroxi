@@ -74,28 +74,43 @@
  /// (for example, Cosmic Text's FontSystem) and handle shaping/rasterization
  /// there. Keeping raw bytes here avoids coupling renderers to file layout.
  pub fn load_project_font_bytes() -> Result<Vec<u8>, String> {
-     // Canonical asset path (workspace-root relative). This keeps discovery simple
-     // and consistent across binaries that run from the repository root.
-     // If your runtime requires a different discovery mechanism (embedded assets,
-     // packaging, etc.) adapt this loader in the future to return embedded bytes.
-     // Repository-root relative asset path. The repository uses `assets/fonts/...`.
-     let asset_path = Path::new("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
- 
-     // Try to read the asset file
-     match fs::read(&asset_path) {
-         Ok(bytes) => Ok(bytes),
-         Err(e) => {
-             // Produce a helpful error with suggestions.
-             let msg = match e.kind() {
-                 io::ErrorKind::NotFound => format!(
-                     "project font not found at {:?}. Ensure the repository root contains the file and you're running from workspace root.",
-                     asset_path
-                 ),
-                 _ => format!("failed to read project font at {:?}: {}", asset_path, e),
-             };
-             Err(msg)
+     // Try a small deterministic set of candidate locations so tests/CI running
+     // from various crate working directories can still find the repository asset.
+     // Search order (most-likely -> fallback):
+     //  1) assets/fonts/... (workspace root when running from repository root)
+     //  2) ../assets/fonts/... (crate/ subdir case)
+     //  3) ../../assets/fonts/... (nested crate case)
+     //  4) If CARGO_MANIFEST_DIR is set, try that dir and its parents.
+     let rel = "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf";
+     let mut tried: Vec<std::path::PathBuf> = Vec::new();
+
+     // Basic candidates relative to current cwd.
+     tried.push(Path::new(rel).to_path_buf());
+     tried.push(Path::new("../").join(rel));
+     tried.push(Path::new("../../").join(rel));
+
+     // If CARGO_MANIFEST_DIR is available (common in tests/builds), try it and its parents.
+     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+         let manifest = Path::new(&manifest_dir);
+         tried.push(manifest.join(rel));
+         tried.push(manifest.join("..").join(rel));
+         tried.push(manifest.join("..").join("..").join(rel));
+     }
+
+     // Try each candidate in order and return the first successful read.
+     for p in tried.iter() {
+         match fs::read(p) {
+             Ok(bytes) => return Ok(bytes),
+             Err(_) => continue,
          }
      }
+
+     // Nothing found — produce an informative error listing attempted locations.
+     let tried_list: Vec<String> = tried.iter().map(|p| format!("{:?}", p)).collect();
+     Err(format!(
+         "project font not found. Attempted paths: {}. Ensure the repository contains assets/fonts/JetBrainsMonoNerdFont-Regular.ttf and you are running from the workspace root or set CARGO_MANIFEST_DIR.",
+         tried_list.join(", ")
+     ))
  }
  
  /// New small, explicit public API alias for clarity: return the project font bytes.

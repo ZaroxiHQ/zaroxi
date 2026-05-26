@@ -690,9 +690,16 @@ fn execute_paint_plan_renders_label_rect() {
             }
 
             let total = bbox_w.saturating_mul(bbox_h);
-            // Expect at least one pixel changed (glyph painted) and not all pixels changed (no opaque fill).
-            assert!(changed > 0, "expected at least one glyph pixel to be drawn inside label bbox");
-            assert!(changed < total, "expected not all pixels in bbox to be overwritten (no opaque fill)");
+            // Expect at least one pixel changed (glyph painted) and at least one pixel
+            // remains exactly equal to the original background (no opaque fill).
+            assert!(
+                changed > 0,
+                "expected at least one glyph pixel to be drawn inside label bbox (changed=0)"
+            );
+            assert!(
+                _same_as_bg > 0,
+                "expected at least one pixel in the label bbox to remain unchanged background (all overwritten)"
+            );
             validated = true;
             break;
         }

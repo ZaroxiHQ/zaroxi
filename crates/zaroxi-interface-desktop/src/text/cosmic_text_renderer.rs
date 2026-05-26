@@ -213,11 +213,13 @@ impl CosmicTextRenderer {
                 }
             }
 
-            // Emit diagnostic per-rectangle to aid debugging of coverage vs writes.
-            eprintln!(
-                "COSMIC_DRAW_RECT: bx={} by={} w={} h={} coverage_alpha={} zeros={} nonzeros={}",
-                bx, by, w, h, coverage_a, rect_zero_coverage, rect_nonzero_coverage
-            );
+            // Emit diagnostic per-rectangle to aid debugging of coverage vs writes (quiet by default).
+            if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
+                eprintln!(
+                    "COSMIC_DRAW_RECT: bx={} by={} w={} h={} coverage_alpha={} zeros={} nonzeros={}",
+                    bx, by, w, h, coverage_a, rect_zero_coverage, rect_nonzero_coverage
+                );
+            }
         });
 
         Ok(())

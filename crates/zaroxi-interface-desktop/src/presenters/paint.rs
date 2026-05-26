@@ -331,11 +331,13 @@ impl GpuPaintPlan {
                     let text_x = label_box_x.saturating_add(pad_x);
                     let text_y = label_box_y.saturating_add(pad_y);
 
-                    // Instrumentation: log exact rects / origins and draw order.
-                    eprintln!(
-                        "TAB DEBUG: tab_body x={} y={} w={} h={} | label_box x={} y={} w={} h={} | text_origin x={} y={} | text=\"{}\" | draw_order=body,border,text",
-                        x, tab_bar_y, w, tab_bar_h, label_box_x, label_box_y, label_box_w, label_box_h, text_x, text_y, label_text
-                    );
+                    // Instrumentation: log exact rects / origins and draw order (quiet by default).
+                    if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
+                        eprintln!(
+                            "TAB DEBUG: tab_body x={} y={} w={} h={} | label_box x={} y={} w={} h={} | text_origin x={} y={} | text=\"{}\" | draw_order=body,border,text",
+                            x, tab_bar_y, w, tab_bar_h, label_box_x, label_box_y, label_box_w, label_box_h, text_x, text_y, label_text
+                        );
+                    }
 
                     // Push a semantic Text op using the canonical text origin and clip the shaping to the label box.
                     let clip_w = label_box_w.saturating_sub(pad_x.saturating_mul(2));
@@ -456,21 +458,23 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
 
         // Instrumentation: report before drawing. Important: we do NOT perform any
         // opaque background fill here. The cosmic renderer must only write glyph pixels.
-        eprintln!(
-            "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {}) glyph_bounds=({}-{}, {}-{}) background_fill_performed={} blend=\"src_over(out = src*alpha + dst*(1-alpha))\"",
-            text,
-            x,
-            y,
-            clip_w,
-            clip_h,
-            fb_w,
-            fb_h,
-            glyph_bounds_x0,
-            glyph_bounds_x1,
-            glyph_bounds_y0,
-            glyph_bounds_y1,
-            /* background_fill_performed */ false
-        );
+        if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
+            eprintln!(
+                "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {}) glyph_bounds=({}-{}, {}-{}) background_fill_performed={} blend=\"src_over(out = src*alpha + dst*(1-alpha))\"",
+                text,
+                x,
+                y,
+                clip_w,
+                clip_h,
+                fb_w,
+                fb_h,
+                glyph_bounds_x0,
+                glyph_bounds_x1,
+                glyph_bounds_y0,
+                glyph_bounds_y1,
+                /* background_fill_performed */ false
+            );
+        }
 
         // Snapshot the destination region so we can count how many destination pixels change.
         // If the computed draw area is empty, skip snapshot.
@@ -544,14 +548,16 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             }
         }
 
-        eprintln!(
-            "DRAW_TEXT_DEBUG_SUMMARY: text=\"{}\" glyph_bbox_w={} glyph_bbox_h={} touched_pixels={} total_bbox_pixels={}",
-            text,
-            bbox_w,
-            bbox_h,
-            touched_pixels,
-            bbox_w.saturating_mul(bbox_h)
-        );
+        if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
+            eprintln!(
+                "DRAW_TEXT_DEBUG_SUMMARY: text=\"{}\" glyph_bbox_w={} glyph_bbox_h={} touched_pixels={} total_bbox_pixels={}",
+                text,
+                bbox_w,
+                bbox_h,
+                touched_pixels,
+                bbox_w.saturating_mul(bbox_h)
+            );
+        }
     } // close draw_text_rect
 
     // Iterate paint ops and execute them into the framebuffer.
