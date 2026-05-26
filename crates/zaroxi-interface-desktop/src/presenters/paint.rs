@@ -430,8 +430,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             return;
         }
 
-        // Small deterministic background/fallback rectangle painted using the
-        // conservative monospace metrics from the workspace font helper.
+        // Compute conservative monospace metrics to reason about glyph bounds.
         let fm = zaroxi_core_engine_font::load_bundled_monospace();
         let glyph_w: u32 = fm.char_width;
         let glyph_h: u32 = fm.line_height;
@@ -439,25 +438,56 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         let text_w = glyph_count.saturating_mul(glyph_w);
         let text_h = glyph_h;
 
-        if text_w > 0 && text_h > 0 {
-            // Use explicit clip box to determine label extents (avoid full-frame sizes).
-            let label_w = text_w.min(clip_w);
-            let label_h = text_h.min(clip_h);
-            if label_w > 0 && label_h > 0 {
-                // Clamp drawing to framebuffer bounds safely.
-                let max_rows = fb_h.saturating_sub(y);
-                let max_cols = fb_w.saturating_sub(x);
-                let draw_h = label_h.min(max_rows);
-                let draw_w = label_w.min(max_cols);
+        // Use explicit clip box to determine label extents (avoid full-frame sizes).
+        let label_w = text_w.saturating_min(clip_w);
+        let label_h = text_h.saturating_min(clip_h);
 
-                for row in 0..draw_h {
-                    for col in 0..draw_w {
-                        let r = y.saturating_add(row);
-                        let c = x.saturating_add(col);
-                        let idx = ((r * fb_w + c) * 4) as usize;
-                        if idx + 4 <= buffer.len() {
-                            buffer[idx..idx + 4].copy_from_slice(&color);
-                        }
+        // Compute the safe drawing extents clamped to framebuffer bounds.
+        let max_rows = fb_h.saturating_sub(y);
+        let max_cols = fb_w.saturating_sub(x);
+        let draw_h = label_h.min(max_rows);
+        let draw_w = label_w.min(max_cols);
+
+        // Derive glyph-run bounds (in framebuffer coordinates).
+        let glyph_bounds_x0 = x;
+        let glyph_bounds_y0 = y;
+        let glyph_bounds_x1 = x.saturating_add(draw_w);
+        let glyph_bounds_y1 = y.saturating_add(draw_h);
+
+        // Instrumentation: report before drawing. Important: we do NOT perform any
+        // opaque background fill here. The cosmic renderer must only write glyph pixels.
+        eprintln!(
+            "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {}) glyph_bounds=({}-{}, {}-{}) background_fill_performed={} blend=\"src_over(out = src*alpha + dst*(1-alpha))\"",
+            text,
+            x,
+            y,
+            clip_w,
+            clip_h,
+            fb_w,
+            fb_h,
+            glyph_bounds_x0,
+            glyph_bounds_x1,
+            glyph_bounds_y0,
+            glyph_bounds_y1,
+            /* background_fill_performed */ false
+        );
+
+        // Snapshot the destination region so we can count how many destination pixels change.
+        // If the computed draw area is empty, skip snapshot.
+        let mut pre_snapshot: Vec<u8> = Vec::new();
+        let bbox_w = draw_w as usize;
+        let bbox_h = draw_h as usize;
+        if bbox_w > 0 && bbox_h > 0 {
+            pre_snapshot.reserve(bbox_w * bbox_h * 4);
+            for row in 0..(bbox_h as u32) {
+                let py = y.saturating_add(row) as usize;
+                for col in 0..(bbox_w as u32) {
+                    let px = x.saturating_add(col) as usize;
+                    let idx = ((py as u32 * fb_w + px as u32) * 4) as usize;
+                    if idx + 4 <= buffer.len() {
+                        pre_snapshot.extend_from_slice(&buffer[idx..idx + 4]);
+                    } else {
+                        pre_snapshot.extend_from_slice(&[0u8, 0u8, 0u8, 0u8]);
                     }
                 }
             }
@@ -475,14 +505,9 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 .clone()
         };
 
-        // Instrumentation: log the concrete draw call parameters for debugging.
-        eprintln!(
-            "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {})",
-            text, x, y, clip_w, clip_h, fb_w, fb_h
-        );
-
         // Delegate shaping/layout/rasterization to the canonical CosmicTextRenderer.
         // Pass the framebuffer dims for bounds checking and the clip width as the shaping constraint.
+        // Note: the Cosmic renderer is expected to only write pixels where glyph coverage > 0.
         cosmic_text_renderer::CosmicTextRenderer::draw_text(
             &renderer,
             buffer,
@@ -495,6 +520,38 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             Some(clip_w),
         )
         .unwrap_or_else(|e| panic!("CosmicTextRenderer::draw_text failed: {}", e));
+
+        // Count how many destination pixels in the bbox changed.
+        let mut touched_pixels: usize = 0;
+        if bbox_w > 0 && bbox_h > 0 {
+            let mut idx_snapshot = 0usize;
+            for row in 0..(bbox_h as u32) {
+                let py = y.saturating_add(row) as usize;
+                for col in 0..(bbox_w as u32) {
+                    let px = x.saturating_add(col) as usize;
+                    let idx = ((py as u32 * fb_w + px as u32) * 4) as usize;
+                    let before = &pre_snapshot[idx_snapshot..idx_snapshot + 4];
+                    idx_snapshot += 4;
+                    let after = if idx + 4 <= buffer.len() {
+                        &buffer[idx..idx + 4]
+                    } else {
+                        &[0u8, 0u8, 0u8, 0u8]
+                    };
+                    if before != after {
+                        touched_pixels += 1;
+                    }
+                }
+            }
+        }
+
+        eprintln!(
+            "DRAW_TEXT_DEBUG_SUMMARY: text=\"{}\" glyph_bbox_w={} glyph_bbox_h={} touched_pixels={} total_bbox_pixels={}",
+            text,
+            bbox_w,
+            bbox_h,
+            touched_pixels,
+            bbox_w.saturating_mul(bbox_h)
+        );
     } // close draw_text_rect
 
     // Iterate paint ops and execute them into the framebuffer.
