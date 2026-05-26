@@ -61,8 +61,9 @@ fn main() {
         }
     }
 
-    let width: u32 = 800;
-    let height: u32 = 600;
+    // Larger default window size to feel like a primary application window.
+    let width: u32 = 1280;
+    let height: u32 = 800;
 
     // RGBA8 backing buffer for the presenter (mutated in place).
     let mut rgba_buf = vec![0u8; (width as usize) * (height as usize) * 4];
@@ -182,6 +183,7 @@ fn main() {
         let _ = window.update_with_buffer(&pixel_buf, width as usize, height as usize);
 
         // Throttle to a modest refresh rate; real apps will hook into the composition tick.
-        sleep(Duration::from_millis(100));
+        // Use a slightly higher refresh rate for smoother rendering in the demo.
+        sleep(Duration::from_millis(16));
     }
 }

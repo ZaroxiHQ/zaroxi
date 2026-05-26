@@ -146,25 +146,23 @@ impl GpuPaintPlan {
             }));
         }
 
-        // chrome_label small centered rect
+        // chrome_label small centered rect + readable text
         if let Some(ref label) = v.chrome_label {
             let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
             let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
 
             let max_w = v.chrome.width.saturating_sub(16);
-            let box_w = max_w.min(80);
+            let box_w = max_w.min(240); // increase width budget for longer buffer names
             if box_w > 0 {
-                // Safely center the box horizontally. Compute available space first
-                // then divide by 2 (division by constant 2 cannot panic).
                 let avail = v.chrome.width.saturating_sub(box_w);
                 let box_x = v.chrome.x + (avail / 2);
 
-                // Vertical inset: clamp to small padding (no panics on tiny heights).
-                let padding = v.chrome.height.saturating_sub(2).min(2);
+                let padding = v.chrome.height.saturating_sub(2).min(4);
                 let box_y = v.chrome.y + padding;
 
-                let box_h = 6u32.min(v.chrome.height.saturating_sub(2));
+                let box_h = 12u32.min(v.chrome.height.saturating_sub(2));
                 if box_h > 0 && box_x.saturating_add(box_w) <= v.chrome.x.saturating_add(v.chrome.width) {
+                    // Decorative background for chrome label for better contrast
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                         x: box_x,
                         y: box_y,
@@ -172,6 +170,17 @@ impl GpuPaintPlan {
                         height: box_h,
                         color,
                     }));
+
+                    // Push readable text centered inside the box.
+                    // Compute a text origin with a left inset.
+                    let text_x = box_x + 6;
+                    let text_y = box_y + (box_h.saturating_sub(8) / 2); // vertical center accounting for glyph height
+                    ops.push(GpuPaintOp::Text {
+                        x: text_x,
+                        y: text_y,
+                        text: label.clone(),
+                        color: [10u8, 10u8, 10u8, 255u8],
+                    });
                 }
             }
         }
@@ -196,28 +205,20 @@ impl GpuPaintPlan {
             }
         }
 
-        // content_preview thin centered line
+        // content_preview: render the textual preview inside the content region.
         if let Some(ref preview) = v.content_preview {
             let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
             let color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
 
-            let line_w = v.content.width.saturating_sub(20);
-            if line_w > 0 {
-                let line_x = v.content.x + 10;
-                // Determine a safe line height and center it vertically inside the content region.
-                let line_h = 2u32.min(v.content.height);
-                if line_h > 0 {
-                    let avail_h = v.content.height.saturating_sub(line_h);
-                    let line_y = v.content.y + (avail_h / 2);
-                    ops.push(GpuPaintOp::FillRect(GpuPaintRect {
-                        x: line_x,
-                        y: line_y,
-                        width: line_w,
-                        height: line_h,
-                        color,
-                    }));
-                }
-            }
+            let text_x = v.content.x + 10;
+            // Place preview near the top of the content region with small inset.
+            let text_y = v.content.y + 8;
+            ops.push(GpuPaintOp::Text {
+                x: text_x,
+                y: text_y,
+                text: preview.clone(),
+                color: [10u8, 10u8, 10u8, 255u8],
+            });
         }
 
         // Tab strip rendering (additive, purely presentational)
@@ -371,21 +372,133 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
     }
 
     // Semantic "Text" op executor (renders a small deterministic label rect).
-    // We intentionally do NOT implement glyph rasterization here to keep the
-    // presenter free of font assets. Instead we render a small solid rect
-    // representing the label area so users can visually identify tab labels
-    // and tests can assert presence and position deterministically.
+    // For this phase we add a tiny, built-in bitmap glyph renderer so the GPU
+    // shell can display readable text without pulling in full font stacks.
+    // The renderer is intentionally minimal:
+    // - fixed monospace glyphs (6x8) with an integer scale
+    // - supports basic ASCII (lowercase, digits, common punctuation) used by the demo
+    // - clipped safely against the framebuffer
+    //
+    // This keeps the presenter self-contained and provides the readable UI
+    // required for Phase 14 (first real GUI editor shell).
     fn draw_text_rect(buffer: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: [u8; 4]) {
         if text.is_empty() {
             return;
         }
-        let w = (text.chars().count() as u32).saturating_mul(6);
-        let h = 6u32.min(height.saturating_sub(y));
-        if w == 0 || h == 0 {
-            return;
+
+        // Glyph metrics (monospace)
+        const GLYPH_W: u32 = 6;
+        const GLYPH_H: u32 = 8;
+        // Scale glyphs up slightly so text is legible in typical desktop windows.
+        // This can be tuned later.
+        const SCALE: u32 = 2;
+
+        // Helper: set a pixel in the RGBA buffer with bounds checking.
+        fn set_pixel(buf: &mut [u8], fb_width: u32, fb_height: u32, px: i32, py: i32, col: [u8; 4]) {
+            if px < 0 || py < 0 {
+                return;
+            }
+            let px = px as u32;
+            let py = py as u32;
+            if px >= fb_width || py >= fb_height {
+                return;
+            }
+            let idx = ((py * fb_width + px) * 4) as usize;
+            if idx + 4 <= buf.len() {
+                buf[idx..idx + 4].copy_from_slice(&col);
+            }
         }
-        let rect = GpuPaintRect { x, y, width: w, height: h, color };
-        fill_rect(buffer, width, &rect);
+
+        // Very small built-in 6x8 mono font. Each glyph is 8 rows of up to 6 bits.
+        // The font intentionally covers the common, demo-focused subset:
+        // - space, lowercase a-z, digits 0-9, colon, period, dash, underscore
+        // For characters not present we draw an empty box placeholder.
+        fn glyph_for(ch: char) -> [u8; GLYPH_H as usize] {
+            match ch {
+                ' ' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+                'a' => [0x00, 0x00, 0x1E, 0x01, 0x1F, 0x13, 0x1F, 0x00],
+                'b' => [0x10, 0x10, 0x1E, 0x13, 0x13, 0x13, 0x1E, 0x00],
+                'c' => [0x00, 0x00, 0x1E, 0x11, 0x10, 0x11, 0x1E, 0x00],
+                'd' => [0x01, 0x01, 0x0F, 0x13, 0x13, 0x13, 0x0F, 0x00],
+                'e' => [0x00, 0x00, 0x1E, 0x11, 0x1F, 0x10, 0x0F, 0x00],
+                'f' => [0x06, 0x09, 0x08, 0x1E, 0x08, 0x08, 0x08, 0x00],
+                'g' => [0x00, 0x00, 0x0F, 0x13, 0x13, 0x0F, 0x01, 0x1E],
+                'h' => [0x10, 0x10, 0x1E, 0x13, 0x13, 0x13, 0x13, 0x00],
+                'i' => [0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E, 0x00],
+                'j' => [0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x12, 0x0C],
+                'k' => [0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12, 0x00],
+                'l' => [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00],
+                'm' => [0x00, 0x00, 0x1B, 0x1F, 0x15, 0x15, 0x15, 0x00],
+                'n' => [0x00, 0x00, 0x1E, 0x13, 0x13, 0x13, 0x13, 0x00],
+                'o' => [0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E, 0x00],
+                'p' => [0x00, 0x00, 0x1E, 0x13, 0x13, 0x1E, 0x10, 0x10],
+                'q' => [0x00, 0x00, 0x0F, 0x13, 0x13, 0x0F, 0x01, 0x01],
+                'r' => [0x00, 0x00, 0x1A, 0x0C, 0x08, 0x08, 0x08, 0x00],
+                's' => [0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E, 0x00],
+                't' => [0x08, 0x08, 0x1E, 0x08, 0x08, 0x09, 0x06, 0x00],
+                'u' => [0x00, 0x00, 0x13, 0x13, 0x13, 0x13, 0x0F, 0x00],
+                'v' => [0x00, 0x00, 0x11, 0x11, 0x0A, 0x0A, 0x04, 0x00],
+                'w' => [0x00, 0x00, 0x11, 0x15, 0x15, 0x15, 0x0A, 0x00],
+                'x' => [0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00],
+                'y' => [0x00, 0x00, 0x11, 0x11, 0x0F, 0x01, 0x1E, 0x00],
+                'z' => [0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F, 0x00],
+                '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E, 0x00],
+                '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00],
+                '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F, 0x00],
+                '3' => [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E, 0x00],
+                '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02, 0x00],
+                '5' => [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E, 0x00],
+                '6' => [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E, 0x00],
+                '7' => [0x1F, 0x01, 0x02, 0x04, 0x04, 0x04, 0x04, 0x00],
+                '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E, 0x00],
+                '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x1C, 0x00],
+                ':' => [0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x00],
+                '.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x00],
+                '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00],
+                '_' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x00],
+                _ => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+            }
+        }
+
+        // Draw a single glyph at (ox, oy) scaled by SCALE. Clipped to framebuffer.
+        fn draw_glyph(
+            buf: &mut [u8],
+            fb_w: u32,
+            fb_h: u32,
+            ox: i32,
+            oy: i32,
+            glyph: [u8; GLYPH_H as usize],
+            color: [u8; 4],
+            scale: u32,
+        ) {
+            for (row_idx, row) in glyph.iter().enumerate() {
+                for bit in 0..GLYPH_W {
+                    // bits stored in low-to-high within the byte (we used values as small bitmaps)
+                    let mask = 1 << (GLYPH_W - 1 - bit);
+                    if (row & mask as u8) != 0 {
+                        // plot scaled pixel block
+                        let sx = ox + (bit as i32) * (scale as i32);
+                        let sy = oy + (row_idx as i32) * (scale as i32);
+                        for dy in 0..(scale as i32) {
+                            for dx in 0..(scale as i32) {
+                                set_pixel(buf, fb_w, fb_h, sx + dx, sy + dy, color);
+                            }
+                        }
+                    }
+                }
+            }
+            // Optional: draw 1px underline for lowercase 'i' or small glyph baseline if needed.
+        }
+
+        // Iterate chars and render glyphs left-to-right.
+        let mut cursor_x = x as i32;
+        let fb_w = width;
+        let fb_h = height;
+        for ch in text.chars() {
+            let glyph = glyph_for(ch);
+            draw_glyph(buffer, fb_w, fb_h, cursor_x, y as i32, glyph, color, SCALE);
+            cursor_x += (GLYPH_W * SCALE) as i32;
+        }
     }
 
     for op in plan.ops.iter() {
