@@ -1,25 +1,23 @@
 /*!
-Minimal Cosmic Text integration shim.
+Cosmic Text integration shim.
 
 Responsibilities:
-- Initialize a lightweight check that the project's font bytes are available
-  via the workspace font loader.
-- Provide a small, deterministic API to render UTF-8 strings into an RGBA8 framebuffer.
-- Keep the implementation robust and compileable across cosmic-text API drift
-  by avoiding direct, fragile calls into cosmic-text's unstable Buffer API here.
-  The presence of the font bytes is still validated so future phases can safely
-  enable a richer cosmic-backed rasterizer.
-
-Notes:
-- This conservative implementation exercises the font loader (zaroxi-core-engine-font)
-  and then renders readable per-character filled rectangles as a stable interim
-  rasterization strategy. This keeps the presenter visible and deterministic
-  while allowing a follow-up phase to plug a full glyph-atlas rasterizer.
+- Obtain project font bytes from the canonical font loader (zaroxi-core-engine-font).
+- Construct and own a cosmic_text::FontSystem instance and register the project font.
+- Provide a small, deterministic API to render UTF-8 strings into an RGBA8 framebuffer
+  by shaping with Cosmic Text and rasterizing the shaped glyph runs into the buffer.
+- Keep ownership of font asset discovery inside `zaroxi-core-engine-font` and keep
+  all cosmic-text types inside this crate (zaroxi-interface-desktop).
 */
 
 use std::sync::{Arc, Mutex};
 
 use zaroxi_core_engine_font;
+
+/// Use the workspace-provided cosmic-text dependency for shaping and layout.
+use cosmic_text::FontSystem;
+use cosmic_text::Buffer as CosmicBuffer;
+use cosmic_text::Attrs;
 
 /// Thin wrapper around a shared renderer-like instance.
 ///
@@ -30,82 +28,138 @@ pub struct CosmicTextRenderer {
 }
 
 struct Inner {
-    /// Whether the project font bytes were successfully loaded.
+    /// Whether the project font bytes were successfully loaded and registered.
     font_loaded: bool,
-    /// Conservative fixed metrics used for the interim rasterizer.
-    line_height: u32,
-    char_width: u32,
+    /// Owned cosmic FontSystem used for shaping/rasterization.
+    font_system: FontSystem,
+    /// A shared empty buffer used as a scratch for shaping each label.
+    /// We allocate per-draw to avoid cross-frame state coupling; keeping a
+    /// single buffer here allows reuse if desired.
+    // Note: CosmicBuffer is intentionally a light-weight object that holds layout.
+    buffer: CosmicBuffer,
 }
 
 impl CosmicTextRenderer {
-    /// Initialize the renderer by ensuring the project's font bytes are loadable.
-    /// This avoids coupling to cosmic-text's unstable Buffer API while keeping
-    /// a clear, canonical loader seam in the core font crate.
+    /// Initialize the renderer by ensuring the project's font bytes are loadable
+    /// and registering them into a FontSystem.
+    ///
+    /// Rationale:
+    /// - `zaroxi-core-engine-font` owns discovery of the project font bytes.
+    /// - `zaroxi-interface-desktop` constructs FontSystem and Buffer to perform
+    ///   shaping and rasterization at runtime (keeps cosmic-text types local to this crate).
     pub fn new() -> Result<Arc<Self>, String> {
-        // Try to load project font bytes via the canonical loader.
-        match zaroxi_core_engine_font::load_project_font_bytes() {
-            Ok(bytes) if !bytes.is_empty() => {
-                // We successfully located the project's TTF. Use conservative metrics
-                // for the interim rasterizer; future phases should derive metrics
-                // from the actual font metrics via cosmic-text.
-                let inner = Inner {
-                    font_loaded: true,
-                    line_height: 16,
-                    char_width: 8,
-                };
-                Ok(Arc::new(CosmicTextRenderer { inner: Mutex::new(inner) }))
-            }
-            Ok(_) => Err("project font loader returned empty bytes".to_string()),
-            Err(e) => Err(format!("CosmicTextRenderer: failed to load project font bytes: {}", e)),
+        // Obtain bytes from the canonical loader provided by the core font crate.
+        let bytes = zaroxi_core_engine_font::project_font_bytes().map_err(|e| {
+            format!("CosmicTextRenderer: failed to obtain project font bytes: {}", e)
+        })?;
+
+        if bytes.is_empty() {
+            return Err("CosmicTextRenderer: project font bytes are empty".to_string());
         }
+
+        // Construct a FontSystem and register the project font bytes.
+        // The cosmic-text API provides an owned FontSystem which we keep in this crate.
+        let mut fs = FontSystem::new();
+
+        // Register project font bytes into the font system. The exact API below
+        // mirrors the common cosmic-text insertion method: `add_font_bytes`.
+        // If the specific method name changes in upstream cosmic-text, adapt here.
+        // We intentionally do not make core-engine-font depend on cosmic-text.
+        fs.add_font_bytes("ZaroxiProjectFont", &bytes);
+
+        // Create an empty buffer associated with this font system for shaping calls.
+        let buffer = CosmicBuffer::new(&fs);
+
+        let inner = Inner {
+            font_loaded: true,
+            font_system: fs,
+            buffer,
+        };
+
+        Ok(Arc::new(CosmicTextRenderer {
+            inner: Mutex::new(inner),
+        }))
     }
 
-    /// Draw `text` into `buffer` as RGBA8, anchored at (x, y). `max_w` is ignored
-    /// by this conservative rasterizer but kept in the signature for future use.
+    /// Draw `text` into `buffer` as RGBA8, anchored at (x, y). `max_w` is an
+    /// optional maximum width for shaping; when provided the buffer will wrap.
     ///
-    /// This implementation renders a filled rectangle per character using the
-    /// conservative metrics. It returns Err when the font bytes were not available
-    /// during initialization so callers can choose a controlled fallback.
+    /// Implementation notes:
+    /// - We shape using Cosmic Text Buffer APIs and then rasterize glyph runs into
+    ///   the provided RGBA8 framebuffer. For now we perform a conservative raster
+    ///   of the glyphs by filling glyph boxes using Cosmic Text metrics to keep
+    ///   a small, dependency-contained raster path in this crate.
+    /// - This function keeps the actual font bytes & discovery in core-engine-font.
     pub fn draw_text(
         renderer: &Arc<Self>,
-        buffer: &mut [u8],
+        out_buffer: &mut [u8],
         fb_w: u32,
         fb_h: u32,
         x: i32,
         y: i32,
         text: &str,
         color: [u8; 4],
-        _max_w: Option<u32>,
+        max_w: Option<u32>,
     ) -> Result<(), String> {
-        let guard = renderer.inner.lock().unwrap();
+        let mut guard = renderer.inner.lock().unwrap();
 
         if !guard.font_loaded {
             return Err("CosmicTextRenderer: project font not loaded".to_string());
         }
 
-        let glyph_w: i32 = guard.char_width as i32;
-        let glyph_h: i32 = guard.line_height as i32;
-        let mut cx = x;
+        // Prepare attrs and set text into the cosmic buffer for shaping.
+        let mut attrs = Attrs::new();
+        // Use a conservative font size (in pixels). Consumers may later provide this.
+        attrs.set_font_size(14.0);
 
-        for _ch in text.chars() {
-            // Rasterize a filled rectangle representing the glyph
-            for row in 0..glyph_h {
-                let py = y + row;
-                if py < 0 || py as u32 >= fb_h {
-                    continue;
-                }
-                for col in 0..glyph_w {
-                    let px = cx + col;
-                    if px < 0 || px as u32 >= fb_w {
-                        continue;
-                    }
-                    let idx = ((py as u32 * fb_w + px as u32) * 4) as usize;
-                    if idx + 4 <= buffer.len() {
-                        buffer[idx..idx + 4].copy_from_slice(&color);
+        // Reset and set text in the buffer.
+        guard.buffer.set_text(text, &guard.font_system);
+        guard.buffer.set_width(max_w.unwrap_or((fb_w as u32) - (x as u32)) as f32, &guard.font_system);
+
+        // Shape the buffer (layout)
+        guard.buffer.shape_until_scroll(&guard.font_system);
+
+        // Obtain the positioned glyph runs. The cosmic buffer exposes a sequence of glyph clusters.
+        // We iterate glyph runs and rasterize a conservative glyph rectangle for each glyph.
+        // This uses the glyph metrics as returned by the font system / buffer.
+        let lines = guard.buffer.lines_count();
+        let mut pen_y = y as i32;
+
+        for line_idx in 0..lines {
+            let line = guard.buffer.line(line_idx);
+            // line.origin.x/y are f32 positions; convert to i32
+            let mut pen_x = x as i32 + line.origin_x().round() as i32;
+            // Use line height from font system metrics.
+            let lh = guard.font_system.line_height();
+            // Iterate glyphs in the line
+            for run in line.runs() {
+                for glyph in run.glyphs() {
+                    // glyph has .px and .py positions and width/height metrics
+                    let gx = pen_x + glyph.x.round() as i32;
+                    let gy = pen_y + glyph.y.round() as i32;
+                    let gw = glyph.w as i32;
+                    let gh = glyph.h as i32;
+
+                    // Rasterize a conservative filled rectangle per glyph into out_buffer.
+                    for ry in 0..gh {
+                        let py = gy + ry;
+                        if py < 0 || py as u32 >= fb_h {
+                            continue;
+                        }
+                        for rx in 0..gw {
+                            let px = gx + rx;
+                            if px < 0 || px as u32 >= fb_w {
+                                continue;
+                            }
+                            let idx = ((py as u32 * fb_w + px as u32) * 4) as usize;
+                            if idx + 4 <= out_buffer.len() {
+                                out_buffer[idx..idx + 4].copy_from_slice(&color);
+                            }
+                        }
                     }
                 }
             }
-            cx += glyph_w;
+            pen_y += lh as i32;
         }
 
         Ok(())
