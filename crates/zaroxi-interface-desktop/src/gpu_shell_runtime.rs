@@ -67,7 +67,7 @@ impl FakeView {
     /// a user-driven mutation -> composition -> repaint loop.
     fn toggle_text(&self) -> String {
         let mut guard = self.text.lock().unwrap();
-        if guard == "hello from composition" {
+        if guard.as_str() == "hello from composition" {
             *guard = "toggled content".to_string();
         } else {
             *guard = "hello from composition".to_string();
@@ -299,7 +299,7 @@ pub fn toggle_text_and_get_regions(width: u32, height: u32) -> ShellRegions {
     let mut runtime = ensure_runtime_initialized(width, height);
 
     // Toggle the in-memory fake document text (thread-safe via mutex).
-    let new_text = runtime.view.toggle_text();
+    let _new_text = runtime.view.toggle_text();
     // Now refresh composition to pick up the text change.
     let view = runtime.view.clone();
     let session = runtime.session.clone();
