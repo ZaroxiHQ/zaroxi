@@ -474,7 +474,11 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         match op {
             GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
             GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
-            GpuPaintOp::Text { x, y, text, color } => draw_text_rect(buffer, width, height, *x, *y, text, *color),
+            GpuPaintOp::Text { x, y, text, color, max_w, max_h } => {
+                // Use framebuffer dims for bounds but pass the explicit clip box
+                // (max_w/max_h) to avoid treating the full frame as the text region.
+                draw_text_rect(buffer, width, height, *x, *y, text, *color, *max_w, *max_h);
+            }
         }
     }
 }
