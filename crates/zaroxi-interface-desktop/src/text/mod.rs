@@ -14,10 +14,14 @@ pub static COSMIC_RENDERER: OnceCell<Arc<cosmic_text_renderer::CosmicTextRendere
 ///
 /// Returns Ok(()) on success or if already initialized. Returns Err with a descriptive
 /// message on failure to load fonts or initialize the renderer.
+///
+/// This implementation uses OnceCell::get_or_try_init to avoid a race where
+/// multiple test threads attempt initialization concurrently. Returning an
+/// error will surface the underlying initialization failure (for example,
+/// inability to construct the renderer).
 pub fn init_cosmic_renderer() -> Result<(), String> {
-    if COSMIC_RENDERER.get().is_some() {
-        return Ok(());
-    }
-    let renderer = cosmic_text_renderer::CosmicTextRenderer::new()?;
-    COSMIC_RENDERER.set(renderer).map_err(|_| "failed to set global COSMIC_RENDERER".to_string())
+    COSMIC_RENDERER
+        .get_or_try_init(|| cosmic_text_renderer::CosmicTextRenderer::new())
+        .map(|_| ())
+        .map_err(|e| format!("failed to initialize COSMIC_RENDERER: {}", e))
 }
