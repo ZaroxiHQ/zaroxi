@@ -91,19 +91,22 @@ fn paint_buffer_paints_regions() {
         [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
     };
 
-    // Chrome area sample (one row inside the chrome band)
-    let chrome_sample_y = regions.chrome.y.saturating_add(1);
-    let chrome_px = read_pixel(1, chrome_sample_y);
+    // Chrome area sample (center of chrome band)
+    let chrome_sample_x = regions.chrome.x + regions.chrome.width / 2;
+    let chrome_sample_y = regions.chrome.y + regions.chrome.height / 2;
+    let chrome_px = read_pixel(chrome_sample_x, chrome_sample_y);
     assert_eq!(chrome_px, [32u8, 32u8, 40u8, 255u8]);
 
-    // Content area sample (one row inside the content band)
-    let content_sample_y = regions.content.y.saturating_add(1);
-    let content_px = read_pixel(1, content_sample_y);
+    // Content area sample (center of content band)
+    let content_sample_x = regions.content.x + regions.content.width / 2;
+    let content_sample_y = regions.content.y + regions.content.height / 2;
+    let content_px = read_pixel(content_sample_x, content_sample_y);
     assert_eq!(content_px, [220u8, 220u8, 225u8, 255u8]);
 
-    // Status area sample (one row inside the status band, anchored to bottom)
-    let status_sample_y = regions.status.y.saturating_add(regions.status.height.saturating_sub(1));
-    let status_px = read_pixel(1, status_sample_y);
+    // Status area sample (center of status band)
+    let status_sample_x = regions.status.x + regions.status.width / 2;
+    let status_sample_y = regions.status.y + regions.status.height / 2;
+    let status_px = read_pixel(status_sample_x, status_sample_y);
     // status region color
     assert_eq!(status_px, [48u8, 48u8, 56u8, 255u8]);
 }
