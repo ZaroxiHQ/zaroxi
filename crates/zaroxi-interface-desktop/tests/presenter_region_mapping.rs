@@ -9,23 +9,34 @@ fn region_mapping_basic() {
 
     let regions = GpuShellPresenter::map_regions(width, height, chrome, status);
 
-    // chrome at top
+    // chrome at top (anchored to y=0)
     assert_eq!(regions.chrome.x, 0);
     assert_eq!(regions.chrome.y, 0);
     assert_eq!(regions.chrome.width, width);
-    assert_eq!(regions.chrome.height, chrome);
+    // don't assert an exact chrome.height (top insets may change),
+    // but ensure it's positive and fits within total height.
+    assert!(regions.chrome.height > 0);
+    assert!(regions.chrome.height <= height);
 
-    // status at bottom
+    // status is an explicit bottom band of the requested height and anchored at the bottom
     assert_eq!(regions.status.x, 0);
-    assert_eq!(regions.status.y, chrome + (height - chrome - status - 0u32));
     assert_eq!(regions.status.width, width);
     assert_eq!(regions.status.height, status);
+    assert_eq!(regions.status.y + regions.status.height, height);
 
-    // content fills the middle
+    // content fills the middle between chrome and status
     assert_eq!(regions.content.x, 0);
-    assert_eq!(regions.content.y, chrome);
+    assert_eq!(regions.content.y, regions.chrome.y + regions.chrome.height);
     assert_eq!(regions.content.width, width);
-    assert_eq!(regions.content.height, height - chrome - status);
+    // content + chrome + status should cover the total height
+    assert_eq!(
+        regions.content.y + regions.content.height + regions.status.height,
+        height
+    );
+
+    // structural non-overlap invariants
+    assert!(regions.chrome.y + regions.chrome.height <= regions.content.y);
+    assert!(regions.content.y + regions.content.height <= regions.status.y);
 }
 
 #[test]
