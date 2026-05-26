@@ -413,153 +413,32 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             }
         }
 
-        // Primary text rendering path: attempt to render with Cosmic Text integration.
-        // The new renderer provides shaping/layout and a conservative rasterization
-        // path producing readable labels. If initialization or drawing fails we
-        // fall back to the old behaviour as a controlled, temporary compatibility path.
-        if let Some(renderer) = crate::text::COSMIC_RENDERER.get() {
-            // Try cosmic-text drawable path. We use small signed coordinates here.
-            let res = cosmic_text_renderer::CosmicTextRenderer::draw_text(
-                renderer,
-                buffer,
-                width,
-                height,
-                x as i32,
-                y as i32,
-                text,
-                color,
-                None,
-            );
-            if res.is_ok() {
-                return;
-            } else {
-                // If cosmic renderer fails, we deliberately continue to fallback rendering
-                // so the UI remains visible. But log the error to stderr for diagnostics.
-                eprintln!("cosmic-text draw_text failed: {}", res.unwrap_err());
-            }
+        // Primary text rendering path: use the Cosmic Text renderer exclusively.
+        // No fallback or legacy rasterizer is allowed in this code path.
+        if text.is_empty() {
+            return;
         }
 
-        // Fallback: backwards-compatible: fill a rectangular label area with the text color
-        // so existing unit tests that sample a pixel inside the label receive a
-        // deterministic color. This fallback is temporary and kept only to preserve
-        // test stability during migration.
-        let glyph_count = text.chars().count() as u32;
-        let text_w = glyph_count.saturating_mul(GLYPH_W.saturating_mul(SCALE));
-        let text_h = GLYPH_H.saturating_mul(SCALE);
-        if text_w > 0 && text_h > 0 {
-            // clamp to framebuffer bounds
-            let max_w = if x >= width { 0 } else { width.saturating_sub(x) };
-            let max_h = if y >= height { 0 } else { height.saturating_sub(y) };
-            let label_w = text_w.min(max_w);
-            let label_h = text_h.min(max_h);
-            if label_w > 0 && label_h > 0 {
-                // Build a small temporary rect and fill it directly into the buffer.
-                // NOTE: iterate rows (y) then cols (x). Previous code accidentally
-                // swapped x/y which caused the fill to appear in the wrong place.
-                let rect_x = x;
-                let rect_y = y;
-                for row in rect_y..rect_y.saturating_add(label_h) {
-                    for col in rect_x..rect_x.saturating_add(label_w) {
-                        let idx = ((row * width + col) * 4) as usize;
-                        if idx + 4 <= buffer.len() {
-                            buffer[idx..idx + 4].copy_from_slice(&color);
-                        }
-                    }
-                }
-            }
-        }
+        // Require the global cosmic renderer to be initialized by the binary/runtime.
+        // Failing to initialize is a programmer error; surface it loudly so it is fixed.
+        let renderer = crate::text::COSMIC_RENDERER
+            .get()
+            .expect("COSMIC_RENDERER not initialized. Call init_cosmic_renderer() before the first frame.");
 
-        // Legacy tiny built-in glyph rendering (kept only as fallback). We render
-        // simple block glyphs for ASCII characters so the UI remains legible when
-        // the cosmic renderer cannot be used. This path will be removed in a later
-        // migration once the full cosmic-text rasterization is in place.
-        fn glyph_for(ch: char) -> [u8; GLYPH_H as usize] {
-            match ch {
-                ' ' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-                'a' => [0x00, 0x00, 0x1E, 0x01, 0x1F, 0x13, 0x1F, 0x00],
-                'b' => [0x10, 0x10, 0x1E, 0x13, 0x13, 0x13, 0x1E, 0x00],
-                'c' => [0x00, 0x00, 0x1E, 0x11, 0x10, 0x11, 0x1E, 0x00],
-                'd' => [0x01, 0x01, 0x0F, 0x13, 0x13, 0x13, 0x0F, 0x00],
-                'e' => [0x00, 0x00, 0x1E, 0x11, 0x1F, 0x10, 0x0F, 0x00],
-                'f' => [0x06, 0x09, 0x08, 0x1E, 0x08, 0x08, 0x08, 0x00],
-                'g' => [0x00, 0x00, 0x0F, 0x13, 0x13, 0x0F, 0x01, 0x1E],
-                'h' => [0x10, 0x10, 0x1E, 0x13, 0x13, 0x13, 0x13, 0x00],
-                'i' => [0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E, 0x00],
-                'j' => [0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x12, 0x0C],
-                'k' => [0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12, 0x00],
-                'l' => [0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00],
-                'm' => [0x00, 0x00, 0x1B, 0x1F, 0x15, 0x15, 0x15, 0x00],
-                'n' => [0x00, 0x00, 0x1E, 0x13, 0x13, 0x13, 0x13, 0x00],
-                'o' => [0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E, 0x00],
-                'p' => [0x00, 0x00, 0x1E, 0x13, 0x13, 0x1E, 0x10, 0x10],
-                'q' => [0x00, 0x00, 0x0F, 0x13, 0x13, 0x0F, 0x01, 0x01],
-                'r' => [0x00, 0x00, 0x1A, 0x0C, 0x08, 0x08, 0x08, 0x00],
-                's' => [0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E, 0x00],
-                't' => [0x08, 0x08, 0x1E, 0x08, 0x08, 0x09, 0x06, 0x00],
-                'u' => [0x00, 0x00, 0x13, 0x13, 0x13, 0x13, 0x0F, 0x00],
-                'v' => [0x00, 0x00, 0x11, 0x11, 0x0A, 0x0A, 0x04, 0x00],
-                'w' => [0x00, 0x00, 0x11, 0x15, 0x15, 0x15, 0x0A, 0x00],
-                'x' => [0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00],
-                'y' => [0x00, 0x00, 0x11, 0x11, 0x0F, 0x01, 0x1E, 0x00],
-                'z' => [0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F, 0x00],
-                '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E, 0x00],
-                '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E, 0x00],
-                '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F, 0x00],
-                '3' => [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E, 0x00],
-                '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02, 0x00],
-                '5' => [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E, 0x00],
-                '6' => [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E, 0x00],
-                '7' => [0x1F, 0x01, 0x02, 0x04, 0x04, 0x04, 0x04, 0x00],
-                '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E, 0x00],
-                '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x1C, 0x00],
-                ':' => [0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x00],
-                '.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C, 0x00],
-                '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00],
-                '_' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x00],
-                _ => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            }
-        }
-
-        // Draw a single glyph at (ox, oy) scaled by SCALE. Clipped to framebuffer.
-        fn draw_glyph(
-            buf: &mut [u8],
-            fb_w: u32,
-            fb_h: u32,
-            ox: i32,
-            oy: i32,
-            glyph: [u8; GLYPH_H as usize],
-            color: [u8; 4],
-            scale: u32,
-        ) {
-            for (row_idx, row) in glyph.iter().enumerate() {
-                for bit in 0..GLYPH_W {
-                    // bits stored in low-to-high within the byte (we used values as small bitmaps)
-                    let mask = 1 << (GLYPH_W - 1 - bit);
-                    if (row & mask as u8) != 0 {
-                        // plot scaled pixel block
-                        let sx = ox + (bit as i32) * (scale as i32);
-                        let sy = oy + (row_idx as i32) * (scale as i32);
-                        for dy in 0..(scale as i32) {
-                            for dx in 0..(scale as i32) {
-                                set_pixel(buf, fb_w, fb_h, sx + dx, sy + dy, color);
-                            }
-                        }
-                    }
-                }
-            }
-            // Optional: draw 1px underline for lowercase 'i' or small glyph baseline if needed.
-        }
-
-        // Iterate chars and render glyphs left-to-right.
-        let mut cursor_x = x as i32;
-        let fb_w = width;
-        let fb_h = height;
-        for ch in text.chars() {
-            let glyph = glyph_for(ch);
-            draw_glyph(buffer, fb_w, fb_h, cursor_x, y as i32, glyph, color, SCALE);
-            cursor_x += (GLYPH_W * SCALE) as i32;
-        }
-    }
+        // Delegate all shaping/layout/rasterization to the canonical CosmicTextRenderer.
+        // If the renderer fails to draw, treat it as a hard error (no fallback).
+        cosmic_text_renderer::CosmicTextRenderer::draw_text(
+            renderer,
+            buffer,
+            width,
+            height,
+            x as i32,
+            y as i32,
+            text,
+            color,
+            None,
+        )
+        .unwrap_or_else(|e| panic!("CosmicTextRenderer::draw_text failed: {}", e));
 
     // Iterate paint ops and execute them into the framebuffer.
     for op in plan.ops.iter() {
