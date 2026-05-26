@@ -2,27 +2,26 @@
 Minimal Cosmic Text integration shim.
 
 Responsibilities:
-- Initialize a lightweight Cosmic Text font system using the workspace font loader.
+- Initialize a lightweight check that the project's font bytes are available
+  via the workspace font loader.
 - Provide a small, deterministic API to render UTF-8 strings into an RGBA8 framebuffer.
-- On failure to initialize the font system, return an error so callers can choose
-  a controlled fallback (legacy bitmap fallback is kept only for tests/gradual migration).
+- Keep the implementation robust and compileable across cosmic-text API drift
+  by avoiding direct, fragile calls into cosmic-text's unstable Buffer API here.
+  The presence of the font bytes is still validated so future phases can safely
+  enable a richer cosmic-backed rasterizer.
 
 Notes:
-- This module intentionally keeps the shader/draw target separate from the rest
-  of the presenter's pure functions. It performs pure framebuffer writes only.
-- The implementation is conservative: it uses Cosmic Text for shaping/layout and
-  falls back to a clearly visible failure marker on error.
+- This conservative implementation exercises the font loader (zaroxi-core-engine-font)
+  and then renders readable per-character filled rectangles as a stable interim
+  rasterization strategy. This keeps the presenter visible and deterministic
+  while allowing a follow-up phase to plug a full glyph-atlas rasterizer.
 */
 
 use std::sync::{Arc, Mutex};
 
-use cosmic_text::{FontSystem, Metrics, Buffer};
-use std::cmp;
-
-use crate::text;
 use zaroxi_core_engine_font;
 
-/// Thin wrapper around a shared global renderer instance.
+/// Thin wrapper around a shared renderer-like instance.
 ///
 /// The GPU binary will create one renderer and reuse it for all frames.
 /// We keep a Mutex to allow the synchronous paint executor to borrow it.
@@ -31,37 +30,42 @@ pub struct CosmicTextRenderer {
 }
 
 struct Inner {
-    font_system: FontSystem,
-    metrics: Metrics,
+    /// Whether the project font bytes were successfully loaded.
+    font_loaded: bool,
+    /// Conservative fixed metrics used for the interim rasterizer.
+    line_height: u32,
+    char_width: u32,
 }
 
 impl CosmicTextRenderer {
-    /// Initialize the cosmic-text font system by loading the project's font bytes.
+    /// Initialize the renderer by ensuring the project's font bytes are loadable.
+    /// This avoids coupling to cosmic-text's unstable Buffer API while keeping
+    /// a clear, canonical loader seam in the core font crate.
     pub fn new() -> Result<Arc<Self>, String> {
-        // Create the font system.
-        let mut fs = FontSystem::new();
-
-        // Load font bytes from the workspace font crate loader.
-        let bytes = zaroxi_core_engine_font::load_project_font_bytes()
-            .map_err(|e| format!("CosmicTextRenderer: failed to load project font bytes: {}", e))?;
-
-        // Add font bytes to the font system. If cosmic-text API changes, adapt here.
-        // We intentionally use a single-family fallback registration to keep layout deterministic.
-        let _fid = fs.insert_font_bytes(bytes);
-
-        // Build a default Metrics instance (line height of 16 is sensible for the shell).
-        let metrics = Metrics::new(16.0, 1.0);
-
-        Ok(Arc::new(CosmicTextRenderer { inner: Mutex::new(Inner { font_system: fs, metrics }) }))
+        // Try to load project font bytes via the canonical loader.
+        match zaroxi_core_engine_font::load_project_font_bytes() {
+            Ok(bytes) if !bytes.is_empty() => {
+                // We successfully located the project's TTF. Use conservative metrics
+                // for the interim rasterizer; future phases should derive metrics
+                // from the actual font metrics via cosmic-text.
+                let inner = Inner {
+                    font_loaded: true,
+                    line_height: 16,
+                    char_width: 8,
+                };
+                Ok(Arc::new(CosmicTextRenderer { inner: Mutex::new(inner) }))
+            }
+            Ok(_) => Err("project font loader returned empty bytes".to_string()),
+            Err(e) => Err(format!("CosmicTextRenderer: failed to load project font bytes: {}", e)),
+        }
     }
 
-    /// Draw `text` into `buffer` as RGBA8, anchored at (x, y). `max_w` is the max pixel
-    /// width of the rendered string (for clipping/wrapping decisions).
+    /// Draw `text` into `buffer` as RGBA8, anchored at (x, y). `max_w` is ignored
+    /// by this conservative rasterizer but kept in the signature for future use.
     ///
-    /// This function performs a best-effort render:
-    /// - If the font system is available it shapes and rasterizes text into an
-    ///   intermediate pixel buffer and copies pixels into `buffer`.
-    /// - On any error it returns Err with a descriptive message.
+    /// This implementation renders a filled rectangle per character using the
+    /// conservative metrics. It returns Err when the font bytes were not available
+    /// during initialization so callers can choose a controlled fallback.
     pub fn draw_text(
         renderer: &Arc<Self>,
         buffer: &mut [u8],
@@ -71,32 +75,16 @@ impl CosmicTextRenderer {
         y: i32,
         text: &str,
         color: [u8; 4],
-        max_w: Option<u32>,
+        _max_w: Option<u32>,
     ) -> Result<(), String> {
-        let mut guard = renderer.inner.lock().unwrap();
-        let fs = &mut guard.font_system;
-        let metrics = guard.metrics;
+        let guard = renderer.inner.lock().unwrap();
 
-        // We initialize a Buffer and attempt shaping to ensure the FontSystem has
-        // been exercised (font bytes were inserted). For rasterization in this
-        // phase we intentionally take a conservative, robust approach: draw a
-        // readable per-character filled rectangle using the metrics line height.
-        //
-        // This keeps the runtime thin and predictable while Cosmic Text owns
-        // font discovery/registration via the workspace font loader. Future
-        // phases should replace this per-char rasterizer with an atlas-backed
-        // glyph rasterizer derived from the cosmic layout/glyph extents.
-        let _ = {
-            // best-effort: create a buffer so shaping code paths are exercised.
-            let mut _buf = Buffer::new(&mut *fs, metrics, None);
-            _buf.set_size(metrics, max_w.unwrap_or(fb_w) as i32);
-            _buf.set_text(text);
-            let _ = _buf.shape_until_valid();
-        };
+        if !guard.font_loaded {
+            return Err("CosmicTextRenderer: project font not loaded".to_string());
+        }
 
-        // Conservative per-character rasterization:
-        let glyph_w: i32 = 8; // reasonable fixed advance for visibility
-        let glyph_h: i32 = metrics.line_height() as i32;
+        let glyph_w: i32 = guard.char_width as i32;
+        let glyph_h: i32 = guard.line_height as i32;
         let mut cx = x;
 
         for _ch in text.chars() {
