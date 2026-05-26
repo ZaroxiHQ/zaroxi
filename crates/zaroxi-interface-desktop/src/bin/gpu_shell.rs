@@ -65,6 +65,12 @@ fn main() {
     let width: u32 = 1280;
     let height: u32 = 800;
 
+    // Initialize global cosmic renderer before any frames are drawn.
+    // The renderer must be initialized once by the binary/runtime; fail fast if it cannot be created.
+    if let Err(e) = zaroxi_interface_desktop::text::init_cosmic_renderer() {
+        panic!("failed to initialize cosmic renderer: {}", e);
+    }
+
     // RGBA8 backing buffer for the presenter (mutated in place).
     let mut rgba_buf = vec![0u8; (width as usize) * (height as usize) * 4];
     // minifb expects a u32 per pixel buffer (format: 0x00RRGGBB little-endian).

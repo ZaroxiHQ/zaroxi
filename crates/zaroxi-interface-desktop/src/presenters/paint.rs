@@ -390,28 +390,9 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             return;
         }
 
-        // Glyph metrics (monospace)
-        const GLYPH_W: u32 = 6;
-        const GLYPH_H: u32 = 8;
-        // Scale glyphs up slightly so text is legible in typical desktop windows.
-        // This can be tuned later.
-        const SCALE: u32 = 2;
-
-        // Helper: set a pixel in the RGBA buffer with bounds checking.
-        fn set_pixel(buf: &mut [u8], fb_width: u32, fb_height: u32, px: i32, py: i32, col: [u8; 4]) {
-            if px < 0 || py < 0 {
-                return;
-            }
-            let px = px as u32;
-            let py = py as u32;
-            if px >= fb_width || py >= fb_height {
-                return;
-            }
-            let idx = ((py * fb_width + px) * 4) as usize;
-            if idx + 4 <= buf.len() {
-                buf[idx..idx + 4].copy_from_slice(&col);
-            }
-        }
+        // Glyph bitmap renderer removed — this presenter now uses the global
+        // Cosmic Text renderer exclusively. Helper bitmap constants and the
+        // per-pixel setter were deleted to avoid unused-code warnings.
 
         // Primary text rendering path: use the Cosmic Text renderer exclusively.
         // No fallback or legacy rasterizer is allowed in this code path.
