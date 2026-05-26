@@ -161,10 +161,12 @@ impl GpuPaintPlan {
                 let avail = v.chrome.width.saturating_sub(box_w);
                 let box_x = v.chrome.x + (avail / 2);
 
-                let padding = v.chrome.height.saturating_sub(2).min(4);
-                let box_y = v.chrome.y + padding;
+                // Smarter chrome label sizing: ensure a minimum readable height and
+                // vertically center the label box inside the chrome. This tightens the
+                // chrome layout and provides balanced vertical placement for the label.
+                let box_h = std::cmp::max(8u32, std::cmp::min(v.chrome.height.saturating_sub(4), 18u32));
+                let box_y = v.chrome.y + (v.chrome.height.saturating_sub(box_h) / 2);
 
-                let box_h = 12u32.min(v.chrome.height.saturating_sub(2));
                 if box_h > 0 && box_x.saturating_add(box_w) <= v.chrome.x.saturating_add(v.chrome.width) {
                     // Decorative background for chrome label for better contrast
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
@@ -176,7 +178,7 @@ impl GpuPaintPlan {
                     }));
 
                     // Push readable text centered inside the box.
-                    // Compute a text origin with a left inset.
+                    // Compute a text origin with a left inset and vertically center it.
                     let text_x = box_x + 6;
                     let text_y = box_y + (box_h.saturating_sub(8) / 2); // vertical center accounting for glyph height
                     // Clip to the chrome label box to avoid using full-frame bounds.
@@ -243,9 +245,10 @@ impl GpuPaintPlan {
         // presenter's estimate and the executor's glyph metrics.
         if !v.tabs.tabs.is_empty() && v.chrome.height > 2 {
             let num = v.tabs.tabs.len() as u32;
-            // small tab bar inset/padding and height
-            let tab_bar_h = 12u32.min(v.chrome.height.saturating_sub(2));
-            let tab_bar_y = v.chrome.y + 1;
+            // Small tab bar: prefer a slightly larger tab bar when chrome allows it,
+            // and vertically center the bar inside the chrome to produce balanced spacing.
+            let tab_bar_h = std::cmp::min(14u32, v.chrome.height.saturating_sub(4));
+            let tab_bar_y = v.chrome.y + (v.chrome.height.saturating_sub(tab_bar_h) / 2);
             // allocate equal widths deterministically
             let base_w = if num > 0 { v.chrome.width / num } else { 0 };
             let mut x = v.chrome.x;

@@ -787,8 +787,8 @@ fn tab_label_rect_consistent_with_text_bounds() {
     let pad_y = (glyph_h / 6).max(1);
 
     let num = view.tabs.tabs.len() as u32;
-    let tab_bar_h = 12u32.min(view.chrome.height.saturating_sub(2));
-    let tab_bar_y = view.chrome.y + 1;
+    let tab_bar_h = std::cmp::min(14u32, view.chrome.height.saturating_sub(4));
+    let tab_bar_y = view.chrome.y + (view.chrome.height.saturating_sub(tab_bar_h)/2);
     let base_w = if num > 0 { view.chrome.width / num } else { 0 };
     let x0 = view.chrome.x;
     let w = base_w; // single tab so equal width (last-tab remainder logic not necessary here)
