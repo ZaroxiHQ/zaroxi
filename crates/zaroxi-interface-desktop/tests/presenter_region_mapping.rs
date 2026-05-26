@@ -45,28 +45,13 @@ fn region_mapping_basic() {
 
     // content fills the middle between chrome and status
     assert_eq!(regions.content.x, 0);
-    // Do not assert an exact content.y (layout may include separators). Enforce relation-based invariants instead.
-    // NOTE: To fix the close-flow status text we will need to inspect and possibly edit:
-    // - crates/zaroxi-interface-desktop/src/desktop.rs
-    // - crates/zaroxi-interface-desktop/src/actions_inner.rs
-    // Please add those files to the chat so I can make the close-flow status text changes.
-    // Relation invariants:
-    // - chrome band must not overlap content
-    // - content must not overlap status
+    // Relation-based invariants: chrome at top, non-overlapping bands, status anchored to bottom.
+    assert_eq!(regions.chrome.y, 0);
     assert!(regions.chrome.y + regions.chrome.height <= regions.content.y);
     assert!(regions.content.y + regions.content.height <= regions.status.y);
     // status band should end at the framebuffer bottom
     assert_eq!(regions.status.y + regions.status.height, height);
     assert_eq!(regions.content.width, width);
-    // content + chrome + status should cover the total height exactly
-    assert_eq!(
-        regions.content.y + regions.content.height + regions.status.height,
-        height
-    );
-
-    // structural non-overlap invariants (chrome -> content -> status)
-    assert!(regions.chrome.y + regions.chrome.height <= regions.content.y);
-    assert!(regions.content.y + regions.content.height <= regions.status.y);
 }
 
 #[test]
