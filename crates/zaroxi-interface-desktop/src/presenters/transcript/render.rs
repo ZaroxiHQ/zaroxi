@@ -80,7 +80,7 @@ impl ShellRenderTranscript {
                         rect.x, rect.y, rect.width, rect.height, rect.color, thickness
                     ));
                 }
-                crate::presenters::paint::GpuPaintOp::Text { x, y, text, color } => {
+                crate::presenters::paint::GpuPaintOp::Text { x, y, text, color, max_w: _, max_h: _ } => {
                     plan_lines.push(format!(
                         "Text x={} y={} text=\"{}\" color={:?}",
                         x, y, text, color

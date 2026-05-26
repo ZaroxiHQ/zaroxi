@@ -14,10 +14,13 @@ pub struct GpuPaintRect {
 pub enum GpuPaintOp {
     FillRect(GpuPaintRect),
     BorderRect { rect: GpuPaintRect, thickness: u32 },
-    /// Semantic text op: carries the textual label and a color.
-    /// The executor renders a small deterministic label rectangle for visibility
-    /// and transcript generation includes the actual text string.
-    Text { x: u32, y: u32, text: String, color: [u8; 4] },
+    /// Semantic text op: carries the textual label, a color, and an explicit
+    /// clipping box (max width/height in pixels) that the executor should honor.
+    ///
+    /// Rationale: ensure small label/text regions are rendered into a bounded
+    /// rect (avoid passing full-frame dims as the label bounds) and allow the
+    /// executor to clip and avoid wide full-frame debug fills.
+    Text { x: u32, y: u32, text: String, color: [u8; 4], max_w: u32, max_h: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,11 +179,16 @@ impl GpuPaintPlan {
                     // Compute a text origin with a left inset.
                     let text_x = box_x + 6;
                     let text_y = box_y + (box_h.saturating_sub(8) / 2); // vertical center accounting for glyph height
+                    // Clip to the chrome label box to avoid using full-frame bounds.
+                    let clip_w = box_w;
+                    let clip_h = box_h;
                     ops.push(GpuPaintOp::Text {
                         x: text_x,
                         y: text_y,
                         text: label.clone(),
                         color: [10u8, 10u8, 10u8, 255u8],
+                        max_w: clip_w,
+                        max_h: clip_h,
                     });
                 }
             }
@@ -214,11 +222,16 @@ impl GpuPaintPlan {
             let text_x = v.content.x + 10;
             // Place preview near the top of the content region with small inset.
             let text_y = v.content.y + 8;
+            // Clip the preview to the content region (inset of 10px).
+            let clip_w = v.content.width.saturating_sub(10);
+            let clip_h = 16u32; // conservative single-line height
             ops.push(GpuPaintOp::Text {
                 x: text_x,
                 y: text_y,
                 text: preview.clone(),
                 color: [10u8, 10u8, 10u8, 255u8],
+                max_w: clip_w,
+                max_h: clip_h,
             });
         }
 
@@ -303,11 +316,15 @@ impl GpuPaintPlan {
                     // Push a semantic Text op; the executor will render a small
                     // filled rect at this position (visual cue) and transcripts
                     // will include the text value itself for testability.
+                    let clip_w = label_w.min(w);
+                    let clip_h = 6u32.min(tab_bar_h);
                     ops.push(GpuPaintOp::Text {
                         x: label_x,
                         y: label_y,
                         text: label_text,
                         color: [10u8, 10u8, 10u8, 255u8],
+                        max_w: clip_w,
+                        max_h: clip_h,
                     });
                 }
 
@@ -373,29 +390,26 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
     }
 
     // Semantic "Text" op executor (renders a small deterministic label rect).
-    // For this phase we add a tiny, built-in bitmap glyph renderer so the GPU
-    // shell can display readable text without pulling in full font stacks.
-    // The renderer is intentionally minimal:
-    // - fixed monospace glyphs (6x8) with an integer scale
-    // - supports basic ASCII (lowercase, digits, common punctuation) used by the demo
-    // - clipped safely against the framebuffer
-    //
-    // This keeps the presenter self-contained and provides the readable UI
-    // required for Phase 14 (first real GUI editor shell). To preserve unit-test
-    // compatibility with the previous behavior (which asserted a filled label
-    // rectangle equals the text color), we draw a filled label rectangle with
-    // the supplied text color first and then render the bitmap glyphs on top.
-    fn draw_text_rect(buffer: &mut [u8], width: u32, height: u32, x: u32, y: u32, text: &str, color: [u8; 4]) {
+    // This version accepts explicit clip dims (max_w/max_h) so labels are
+    // rasterized and clipped to their intended boxes rather than relying on
+    // the full-frame dims as the label area.
+    fn draw_text_rect(
+        buffer: &mut [u8],
+        fb_w: u32,
+        fb_h: u32,
+        x: u32,
+        y: u32,
+        text: &str,
+        color: [u8; 4],
+        clip_w: u32,
+        clip_h: u32,
+    ) {
         if text.is_empty() {
             return;
         }
 
         // Small deterministic background/fallback rectangle painted using the
         // conservative monospace metrics from the workspace font helper.
-        // This preserves the presenter's previous visible-label contract used by
-        // unit tests: a labeled area should exist with the supplied text color.
-        // The real glyph rasterization still runs below (Cosmic Text) and will
-        // composite glyph masks over this base rectangle.
         let fm = zaroxi_core_engine_font::load_bundled_monospace();
         let glyph_w: u32 = fm.char_width;
         let glyph_h: u32 = fm.line_height;
@@ -404,15 +418,21 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         let text_h = glyph_h;
 
         if text_w > 0 && text_h > 0 {
-            // clamp to framebuffer bounds
-            let max_w = if x >= width { 0 } else { width.saturating_sub(x) };
-            let max_h = if y >= height { 0 } else { height.saturating_sub(y) };
-            let label_w = text_w.min(max_w);
-            let label_h = text_h.min(max_h);
+            // Use explicit clip box to determine label extents (avoid full-frame sizes).
+            let label_w = text_w.min(clip_w);
+            let label_h = text_h.min(clip_h);
             if label_w > 0 && label_h > 0 {
-                for row in y..y.saturating_add(label_h) {
-                    for col in x..x.saturating_add(label_w) {
-                        let idx = ((row * width + col) * 4) as usize;
+                // Clamp drawing to framebuffer bounds safely.
+                let max_rows = fb_h.saturating_sub(y);
+                let max_cols = fb_w.saturating_sub(x);
+                let draw_h = label_h.min(max_rows);
+                let draw_w = label_w.min(max_cols);
+
+                for row in 0..draw_h {
+                    for col in 0..draw_w {
+                        let r = y.saturating_add(row);
+                        let c = x.saturating_add(col);
+                        let idx = ((r * fb_w + c) * 4) as usize;
                         if idx + 4 <= buffer.len() {
                             buffer[idx..idx + 4].copy_from_slice(&color);
                         }
@@ -420,9 +440,6 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 }
             }
         }
-
-        // Emit a small debug message to help trace text draw requests in failing cases.
-        eprintln!("presenter: draw_text_rect request text=\"{}\" x={} y={} w={} h={}", text, x, y, width, height);
 
         // Ensure a global cosmic renderer exists; try to initialize it if absent (tests may run without explicit init).
         let renderer = if let Some(r) = crate::text::COSMIC_RENDERER.get() {
@@ -437,17 +454,17 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         };
 
         // Delegate shaping/layout/rasterization to the canonical CosmicTextRenderer.
-        // No fallback renderer will be used; failures should surface loudly.
+        // Pass the framebuffer dims for bounds checking and the clip width as the shaping constraint.
         cosmic_text_renderer::CosmicTextRenderer::draw_text(
             &renderer,
             buffer,
-            width,
-            height,
+            fb_w,
+            fb_h,
             x as i32,
             y as i32,
             text,
             color,
-            None,
+            Some(clip_w),
         )
         .unwrap_or_else(|e| panic!("CosmicTextRenderer::draw_text failed: {}", e));
     } // close draw_text_rect
