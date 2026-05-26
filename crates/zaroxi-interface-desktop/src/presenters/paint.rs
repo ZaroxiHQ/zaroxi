@@ -454,10 +454,12 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             let label_h = text_h.min(max_h);
             if label_w > 0 && label_h > 0 {
                 // Build a small temporary rect and fill it directly into the buffer.
+                // NOTE: iterate rows (y) then cols (x). Previous code accidentally
+                // swapped x/y which caused the fill to appear in the wrong place.
                 let rect_x = x;
                 let rect_y = y;
-                for row in rect_x..rect_x.saturating_add(label_h) {
-                    for col in rect_y..rect_y.saturating_add(label_w) {
+                for row in rect_y..rect_y.saturating_add(label_h) {
+                    for col in rect_x..rect_x.saturating_add(label_w) {
                         let idx = ((row * width + col) * 4) as usize;
                         if idx + 4 <= buffer.len() {
                             buffer[idx..idx + 4].copy_from_slice(&color);
