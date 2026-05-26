@@ -57,6 +57,7 @@ impl FakeView {
         self.active_buffer.lock().unwrap().clone()
     }
 
+    #[allow(dead_code)]
     fn set_text(&self, new_text: &str) {
         let mut guard = self.text.lock().unwrap();
         *guard = new_text.to_string();
