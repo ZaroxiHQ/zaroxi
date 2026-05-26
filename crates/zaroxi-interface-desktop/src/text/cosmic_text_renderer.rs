@@ -48,12 +48,18 @@ impl CosmicTextRenderer {
     /// the appropriate method (for example `add_font_bytes`) on your local
     /// cosmic-text `FontSystem`.
     pub fn new() -> Result<Arc<Self>, String> {
-        // Ensure project font bytes are present (keeps ownership in core-engine-font).
-        let _bytes = zaroxi_core_engine_font::project_font_bytes()
-            .map_err(|e| format!("CosmicTextRenderer: failed to obtain project font bytes: {}", e))?;
+        // Try to read project font bytes for diagnostics but do not fail when absent;
+        // prefer system fonts provided by FontSystem. This keeps initialization robust
+        // in test environments where repository assets may not be present.
+        if let Err(e) = zaroxi_core_engine_font::project_font_bytes() {
+            eprintln!(
+                "CosmicTextRenderer: project font bytes unavailable: {}; proceeding with system fonts",
+                e
+            );
+        }
 
         // Create a FontSystem (system fonts available as a fallback).
-        let fs = FontSystem::new();
+        let mut fs = FontSystem::new();
 
         // Default conservative metrics (font size, line height). Callers can tune later.
         let metrics = Metrics::new(16.0, 20.0);

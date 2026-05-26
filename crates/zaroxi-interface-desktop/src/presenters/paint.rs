@@ -400,11 +400,17 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             return;
         }
 
-        // Require the global cosmic renderer to be initialized by the binary/runtime.
-        // Failing to initialize is a programmer error; surface it loudly so it is fixed.
-        let renderer = crate::text::COSMIC_RENDERER
-            .get()
-            .expect("COSMIC_RENDERER not initialized. Call init_cosmic_renderer() before the first frame.");
+        // Ensure a global cosmic renderer exists; try to initialize it if absent (tests may run without explicit init).
+        let renderer = if let Some(r) = crate::text::COSMIC_RENDERER.get() {
+            r.clone()
+        } else {
+            // Attempt idempotent initialization; tests and binaries can rely on this convenience.
+            crate::text::init_cosmic_renderer().expect("failed to initialize COSMIC_RENDERER");
+            crate::text::COSMIC_RENDERER
+                .get()
+                .expect("COSMIC_RENDERER not set after init")
+                .clone()
+        };
 
         // Delegate all shaping/layout/rasterization to the canonical CosmicTextRenderer.
         // If the renderer fails to draw, treat it as a hard error (no fallback).
