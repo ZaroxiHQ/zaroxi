@@ -352,12 +352,55 @@ fn render_tab_strip_one_buffer_shows_active_tab() {
 
     GpuShellPresenter::paint_to_buffer_with_tabs(width, height, &mut buf, &regions, &ts);
 
-    // For single tab, it spans the chrome width; pick a center x inside chrome.
-    let x = regions.chrome.width / 2;
-    let y = regions.chrome.y + 3;
-    let px = sample_pixel(&buf, width, x, y);
-    // Active tab fill color per presenter: [255,200,0,255]
-    assert_eq!(px, [255u8, 200u8, 0u8, 255u8]);
+    // Derive tab-bar geometry using the same rules as the presenter to avoid
+    // depending on fixed pixel offsets that changed after the chrome tightening.
+    let num = ts.tabs.len() as u32;
+    let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
+    let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
+    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+    let mut x0 = regions.chrome.x;
+
+    // Active tab color per presenter: [255,200,0,255]
+    let active_color = [255u8, 200u8, 0u8, 255u8];
+
+    // For each tab compute its bounds and search a small interior box for the
+    // active color. For the single-tab case we expect the active color to
+    // appear somewhere inside the tab body.
+    let mut found_active = false;
+    for i in 0..num {
+        let mut w = base_w;
+        if (i + 1) == num {
+            // last tab takes remainder
+            let consumed = base_w.saturating_mul(num.saturating_sub(1));
+            w = regions.chrome.width.saturating_sub(consumed);
+        }
+        if w == 0 {
+            continue;
+        }
+
+        // define an interior sampling box (avoid borders)
+        let sx = x0.saturating_add(w / 8);
+        let ex = x0.saturating_add((w * 7) / 8);
+        let sy = tab_bar_y.saturating_add(tab_bar_h / 8);
+        let ey = tab_bar_y.saturating_add((tab_bar_h * 7) / 8);
+
+        for yy in sy..=ey {
+            for xx in sx..=ex {
+                let px = sample_pixel(&buf, width, xx, yy);
+                if px == active_color {
+                    found_active = true;
+                    break;
+                }
+            }
+            if found_active {
+                break;
+            }
+        }
+
+        x0 = x0.saturating_add(w);
+    }
+
+    assert!(found_active, "expected to find active-tab color somewhere inside the single tab region");
 }
 
 #[test]
@@ -379,22 +422,59 @@ fn render_tab_strip_multiple_buffers_order_and_active_marker() {
 
     GpuShellPresenter::paint_to_buffer_with_tabs(width, height, &mut buf, &regions, &ts);
 
-    // Each tab width should be roughly chrome.width / 3.
-    let tab_w = regions.chrome.width / 3;
-    // Sample center of first tab (inactive), second tab (active), third tab (inactive)
-    let x1 = regions.chrome.x + (tab_w / 2);
-    let x2 = regions.chrome.x + tab_w + (tab_w / 2);
-    let x3 = regions.chrome.x + tab_w * 2 + (tab_w / 2);
-    let y = regions.chrome.y + 3;
+    // Derive tab geometry the same way presenter does.
+    let num = ts.tabs.len() as u32;
+    let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
+    let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
+    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+    let mut x0 = regions.chrome.x;
 
-    let p1 = sample_pixel(&buf, width, x1, y);
-    let p2 = sample_pixel(&buf, width, x2, y);
-    let p3 = sample_pixel(&buf, width, x3, y);
+    let active_color = [255u8, 200u8, 0u8, 255u8];
+    let inactive_color = [180u8, 180u8, 180u8, 255u8];
 
-    // inactive color: [180,180,180,255], active color: [255,200,0,255]
-    assert_eq!(p1, [180u8, 180u8, 180u8, 255u8]);
-    assert_eq!(p2, [255u8, 200u8, 0u8, 255u8]);
-    assert_eq!(p3, [180u8, 180u8, 180u8, 255u8]);
+    // For each tab, sample an interior box and assert that the expected color
+    // appears somewhere inside that tab's region. This avoids brittle single-pixel
+    // assertions while still verifying both ordering and visual markers.
+    for (i, tab) in ts.tabs.iter().enumerate() {
+        let mut w = base_w;
+        if (i as u32) + 1 == num {
+            let consumed = base_w.saturating_mul(num.saturating_sub(1));
+            w = regions.chrome.width.saturating_sub(consumed);
+        }
+        if w == 0 {
+            x0 = x0.saturating_add(w);
+            continue;
+        }
+
+        let sx = x0.saturating_add(w / 8);
+        let ex = x0.saturating_add((w * 7) / 8);
+        let sy = tab_bar_y.saturating_add(tab_bar_h / 8);
+        let ey = tab_bar_y.saturating_add((tab_bar_h * 7) / 8);
+
+        let mut found = false;
+        for yy in sy..=ey {
+            for xx in sx..=ex {
+                let px = sample_pixel(&buf, width, xx, yy);
+                if tab.active {
+                    if px == active_color {
+                        found = true;
+                        break;
+                    }
+                } else {
+                    if px == inactive_color {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if found {
+                break;
+            }
+        }
+
+        assert!(found, "expected to find expected color inside tab index {} (display={})", i, tab.display);
+        x0 = x0.saturating_add(w);
+    }
 }
 
 #[test]
@@ -413,14 +493,51 @@ fn render_tab_strip_reflects_keyboard_navigation() {
     let status_h: u32 = 10;
     let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
 
+    // Derive tab geometry like the presenter does.
+    let num = ts.tabs.len() as u32;
+    let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
+    let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
+    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+
     // Render initial state (active = a)
     let mut buf1 = vec![0u8; (width as usize) * (height as usize) * 4];
     GpuShellPresenter::paint_to_buffer_with_tabs(width, height, &mut buf1, &regions, &ts);
-    let tab_w = regions.chrome.width / 3;
-    let x_a = regions.chrome.x + (tab_w / 2);
-    let y = regions.chrome.y + 3;
-    let p_a = sample_pixel(&buf1, width, x_a, y);
-    assert_eq!(p_a, [255u8, 200u8, 0u8, 255u8]);
+
+    // Helper to assert that a given tab index has the active color somewhere inside it.
+    let active_color = [255u8, 200u8, 0u8, 255u8];
+    let mut x0 = regions.chrome.x;
+    for i in 0..(num as usize) {
+        let mut w = base_w;
+        if (i as u32) + 1 == num {
+            let consumed = base_w.saturating_mul(num.saturating_sub(1));
+            w = regions.chrome.width.saturating_sub(consumed);
+        }
+        if w == 0 {
+            x0 = x0.saturating_add(w);
+            continue;
+        }
+
+        if i == 0 {
+            // verify tab 0 (initial active) contains active color
+            let sx = x0.saturating_add(w / 8);
+            let ex = x0.saturating_add((w * 7) / 8);
+            let sy = tab_bar_y.saturating_add(tab_bar_h / 8);
+            let ey = tab_bar_y.saturating_add((tab_bar_h * 7) / 8);
+            let mut found = false;
+            for yy in sy..=ey {
+                for xx in sx..=ex {
+                    if sample_pixel(&buf1, width, xx, yy) == active_color {
+                        found = true;
+                        break;
+                    }
+                }
+                if found { break; }
+            }
+            assert!(found, "expected initial active tab (index 0) to contain active color");
+            break;
+        }
+        x0 = x0.saturating_add(w);
+    }
 
     // Compute next active and update TabStrip (simulate Ctrl+Tab)
     let target = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
@@ -430,7 +547,40 @@ fn render_tab_strip_reflects_keyboard_navigation() {
     // Render new state (active = b)
     let mut buf2 = vec![0u8; (width as usize) * (height as usize) * 4];
     GpuShellPresenter::paint_to_buffer_with_tabs(width, height, &mut buf2, &regions, &ts);
-    let x_b = regions.chrome.x + tab_w + (tab_w / 2);
-    let p_b = sample_pixel(&buf2, width, x_b, y);
-    assert_eq!(p_b, [255u8, 200u8, 0u8, 255u8]);
+
+    // Verify tab 1 (index 1) now contains the active color.
+    let mut x0 = regions.chrome.x;
+    let mut found_active_on_index1 = false;
+    for i in 0..(num as usize) {
+        let mut w = base_w;
+        if (i as u32) + 1 == num {
+            let consumed = base_w.saturating_mul(num.saturating_sub(1));
+            w = regions.chrome.width.saturating_sub(consumed);
+        }
+        if w == 0 {
+            x0 = x0.saturating_add(w);
+            continue;
+        }
+
+        if i == 1 {
+            let sx = x0.saturating_add(w / 8);
+            let ex = x0.saturating_add((w * 7) / 8);
+            let sy = tab_bar_y.saturating_add(tab_bar_h / 8);
+            let ey = tab_bar_y.saturating_add((tab_bar_h * 7) / 8);
+            for yy in sy..=ey {
+                for xx in sx..=ex {
+                    if sample_pixel(&buf2, width, xx, yy) == active_color {
+                        found_active_on_index1 = true;
+                        break;
+                    }
+                }
+                if found_active_on_index1 { break; }
+            }
+            break;
+        }
+
+        x0 = x0.saturating_add(w);
+    }
+
+    assert!(found_active_on_index1, "expected tab index 1 to contain active color after navigation");
 }
