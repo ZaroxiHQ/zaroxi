@@ -584,3 +584,48 @@ fn render_tab_strip_reflects_keyboard_navigation() {
 
     assert!(found_active_on_index1, "expected tab index 1 to contain active color after navigation");
 }
+
+#[test]
+fn render_status_region_and_text() {
+    // Ensure status/footer region renders and that status text produces an observable change
+    // inside the status band (i.e. text glyphs or indicator alter pixels from the base fill).
+    let width: u32 = 240;
+    let height: u32 = 120;
+    let chrome_h: u32 = 20;
+    let status_h: u32 = 12;
+
+    let mut regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    // Provide a visible status string so the presenter emits the status Text op.
+    regions.status_text = Some("status: OK".to_string());
+
+    let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
+    GpuShellPresenter::paint_to_buffer(width, height, &mut buf, &regions);
+
+    // Sample interior of the status band (avoid the 1px border row at its top).
+    let sx = regions.status.x.saturating_add(4);
+    let sy = regions.status.y.saturating_add(2);
+    let ex = regions.status.x.saturating_add(regions.status.width.saturating_sub(4));
+    let ey = regions.status.y.saturating_add(regions.status.height.saturating_sub(2));
+
+    let mut found_changed = false;
+    // The default status fill color from the presenter is [48,48,56,255]
+    let base_color = [48u8, 48u8, 56u8, 255u8];
+
+    for y in sy..std::cmp::min(ey, height - 1) {
+        for x in sx..std::cmp::min(ex, width - 1) {
+            let idx = ((y * width + x) * 4) as usize;
+            if idx + 4 <= buf.len() {
+                let px = [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]];
+                if px != base_color {
+                    found_changed = true;
+                    break;
+                }
+            }
+        }
+        if found_changed {
+            break;
+        }
+    }
+
+    assert!(found_changed, "expected status text or indicator to modify at least one pixel inside the status band");
+}

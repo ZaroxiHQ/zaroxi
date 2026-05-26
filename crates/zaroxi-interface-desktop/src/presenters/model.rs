@@ -460,12 +460,29 @@ impl GpuShellPresenter {
     /// - chrome_height: default top chrome height in pixels (suggested: 60).
     /// - status_height: default bottom status bar height in pixels (suggested: 24).
     pub fn map_regions(width: u32, height: u32, chrome_height: u32, status_height: u32) -> ShellRegions {
+        // Compute raw band sizes first (reserve chrome/top and status/bottom as requested).
         let chrome_h = min(chrome_height, height);
         let status_h = min(status_height, height.saturating_sub(chrome_h));
         let content_h = height.saturating_sub(chrome_h).saturating_sub(status_h);
 
+        // Chrome stays at the top as before.
         let chrome = Region::with_kind(0, 0, width, chrome_h, RegionKind::Chrome);
-        let content = Region::with_kind(0, chrome_h, width, content_h, RegionKind::Content);
+
+        // Introduce conservative vertical insets for the content region so it reads
+        // as an intentionally inset area between chrome and status. Keep horizontal
+        // full-width for deterministic tooling/tests that rely on width equality.
+        //
+        // Insets are clamped to the available content height to avoid negative sizes.
+        let top_inset: u32 = std::cmp::min(6u32, content_h);
+        let bottom_inset: u32 = std::cmp::min(6u32, content_h.saturating_sub(top_inset));
+        let content_y = chrome_h.saturating_add(top_inset);
+        let content_h_inset = content_h.saturating_sub(top_inset.saturating_add(bottom_inset));
+
+        let content = Region::with_kind(0, content_y, width, content_h_inset, RegionKind::Content);
+
+        // Status remains pinned to the bottom of the frame (same origin as previous calculation).
+        // This preserves the overall banding (chrome / content-area / status) while making the
+        // content area feel inset between the two chrome bands.
         let status = Region::with_kind(0, chrome_h + content_h, width, status_h, RegionKind::Status);
 
         ShellRegions {

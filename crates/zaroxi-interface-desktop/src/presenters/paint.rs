@@ -191,11 +191,14 @@ impl GpuPaintPlan {
             }
         }
 
-        // status_text small right-aligned rect
+        // status_text: render a small right-aligned indicator plus the readable status text
+        // inside the bottom status/footer region. We keep a tiny colored bar for a compact
+        // indicator (backwards-compatible) and also emit a Text op for the status string.
         if let Some(ref status) = v.status_text {
             let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
             let color = [255u8.wrapping_sub(b0), b0, 120u8 as u8, 255u8];
 
+            // Small indicator bar on the right (visual token).
             let bar_w = 18u32.min(frame.status.width);
             let bar_x = frame.status.x + frame.status.width.saturating_sub(bar_w + 2);
             let bar_y = frame.status.y + 1u32.min(frame.status.height.saturating_sub(1));
@@ -208,6 +211,27 @@ impl GpuPaintPlan {
                     height: bar_h,
                     color,
                 }));
+            }
+
+            // And the readable status text placed with a modest left inset inside the status band.
+            // We compute a conservative vertical origin using the bundled monospace metrics so the
+            // text baseline aligns reasonably inside the thin footer.
+            let fm = zaroxi_core_engine_font::load_bundled_monospace();
+            let glyph_h: u32 = fm.line_height;
+            let text_x = frame.status.x.saturating_add(8);
+            let text_y = frame.status.y + (frame.status.height.saturating_sub(glyph_h) / 2);
+            let clip_w = frame.status.width.saturating_sub(16);
+            let clip_h = std::cmp::min(glyph_h, frame.status.height);
+
+            if clip_h > 0 && clip_w > 0 {
+                ops.push(GpuPaintOp::Text {
+                    x: text_x,
+                    y: text_y,
+                    text: status.clone(),
+                    color: [10u8, 10u8, 10u8, 255u8],
+                    max_w: clip_w,
+                    max_h: clip_h,
+                });
             }
         }
 
