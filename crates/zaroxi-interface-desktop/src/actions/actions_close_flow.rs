@@ -73,9 +73,10 @@ pub async fn confirm_save_all_and_close(
         let save_req = SaveCheckpointRequest { session_id: session_id.clone() };
         match s.save_checkpoint(save_req).await {
             Ok(_) => {
-                comp.clear_pending_close();
+                // perform_session_close clears composition metadata/presenter; set a coherent
+                // final status afterwards so harnesses and status helpers report the same text.
                 comp.perform_session_close();
-                comp.set_status_message("Saved and closed session".to_string());
+                comp.set_close_result_status("Saved and closed session".to_string());
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             Err(e) => {
@@ -84,9 +85,8 @@ pub async fn confirm_save_all_and_close(
             }
         }
     } else {
-        comp.clear_pending_close();
         comp.perform_session_close();
-        comp.set_status_message("Closed session (no service)".to_string());
+        comp.set_close_result_status("Closed session (no service)".to_string());
         return Ok(ActionResult { success: true, message: None, refreshed: true });
     }
 }
@@ -101,9 +101,8 @@ pub async fn confirm_discard_all_and_close(
         let req = crate::ports::SaveCheckpointRequest { session_id: session_id.clone() };
         match s.resolve_close_session_discard_all(req).await {
             Ok(_) => {
-                comp.clear_pending_close();
                 comp.perform_session_close();
-                comp.set_status_message("Discarded and closed session".to_string());
+                comp.set_close_result_status("Discarded and closed session".to_string());
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             Err(e) => {
@@ -133,18 +132,14 @@ pub async fn confirm_save_and_close(
                     .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
                     .unwrap_or_else(|| buffer_id.to_string());
 
-                // Remove from opened buffers (composition projection) and clear pending state.
+                // Remove from opened buffers and set a final close-result status (this clears pending state).
                 let _removed = comp.close_opened_buffer(&buffer_id);
-                comp.clear_pending_close();
-
-                // Explicit status message mentioning the closed buffer (include explicit id for tests/readability).
                 let id_str = format!("{}", buffer_id);
-                comp.set_status_message(format!("Saved and closed {} ({})", label, id_str));
+                comp.set_close_result_status(format!("Saved and closed {} ({})", label, id_str));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
-                comp.clear_pending_close();
-                comp.set_status_message("Saved and closed".to_string());
+                comp.set_close_result_status("Saved and closed".to_string());
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
         }
@@ -167,18 +162,14 @@ pub async fn confirm_discard_and_close(
                     .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
                     .unwrap_or_else(|| buffer_id.to_string());
 
-                // Remove from opened buffers and clear pending state.
+                // Remove from opened buffers and set a final close-result status (this clears pending state).
                 let _removed = comp.close_opened_buffer(&buffer_id);
-                comp.clear_pending_close();
-
-                // Explicit status message for discarded-and-closed outcome (include explicit id for tests/readability).
                 let id_str = format!("{}", buffer_id);
-                comp.set_status_message(format!("Discarded changes and closed {} ({})", label, id_str));
+                comp.set_close_result_status(format!("Discarded changes and closed {} ({})", label, id_str));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {
-                comp.clear_pending_close();
-                comp.set_status_message("Discarded and closed".to_string());
+                comp.set_close_result_status("Discarded and closed".to_string());
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
         }

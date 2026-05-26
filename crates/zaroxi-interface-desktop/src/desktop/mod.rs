@@ -438,6 +438,18 @@ impl DesktopComposition {
         }
     }
 
+    /// Set a final close-result status message and clear any pending-close state.
+    ///
+    /// This centralizes the visible outcome reported to the shell after a confirm action
+    /// (save-and-close or discard-and-close). It ensures the pending-close banner is removed
+    /// and the same message is available via the status-bar helpers and any harness readers.
+    pub fn set_close_result_status(&mut self, text: String) {
+        // Ensure pending-close is cleared before setting the final status.
+        self.clear_pending_close();
+        // Reuse set_status_message to populate metadata.last_command_line in a consistent way.
+        self.set_status_message(text);
+    }
+
     pub fn clear_status_message(&mut self) {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = None;
