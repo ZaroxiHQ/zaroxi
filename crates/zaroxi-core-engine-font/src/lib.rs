@@ -2,14 +2,21 @@
  // Auto-generated crate stub for the Zaroxi migration.
  // Responsibility: Font management and shaping for engine text.
  //
- // Minimal, non-brittle font/metrics API used by Phase 5 (editor text foundation).
- // This crate intentionally provides a tiny, deterministic monospace metric
- // abstraction used by the engine text layout layer. It does not embed or
- // vendor a full shaping/font stack; that will be layered later behind a
- // backend implementation.
+ // This crate now exposes a small, focused loader API used by higher-level
+ // rendering code. It owns the convention for locating the project font asset
+ // and returns raw font bytes so renderers (Cosmic Text path) can initialize
+ // font systems using a single canonical loader.
+ //
+ // NOTE: Keep this crate minimal — it does not attempt to perform shaping or
+ // rasterization, it only discovers/loads font bytes and provides lightweight
+ // font metric helpers retained from the previous stub.
 
  #![allow(dead_code)]
  #![allow(unused_imports)]
+
+ use std::path::Path;
+ use std::fs;
+ use std::io;
 
  /// Minimal font descriptor used by the engine text layout.
  #[derive(Clone, Debug)]
@@ -34,7 +41,8 @@
  /// monospace metrics. Consumers should treat this as a stable, portable
  /// metric provider rather than a full shaping/font loader.
  pub fn load_bundled_monospace() -> Font {
-     // Chosen conservative defaults: 8x16 (typical terminal monospace).
+     // Conservative defaults for legacy code paths. New Cosmic Text renderer
+     // should prefer loading the real project font via `load_project_font_bytes`.
      Font {
          family: "ZaroxiMono".to_string(),
          char_width: 8,
@@ -51,6 +59,42 @@
  /// Per-line height accessor.
  pub fn line_height(font: &Font) -> u32 {
      font.line_height
+ }
+
+ /// Primary loader API: load the project's canonical font asset bytes.
+ ///
+ /// The function attempts to read the TTF file from the workspace asset path:
+ /// `zaroxi/assets/fonts/JetBrainsMonoNerdFont-Regular.ttf`
+ ///
+ /// Returns:
+ /// - Ok(Vec<u8>) with file bytes on success
+ /// - Err(String) with a clear error message on failure
+ ///
+ /// Consumers (renderers) should pass these bytes into their font system
+ /// (for example, Cosmic Text's FontSystem) and handle shaping/rasterization
+ /// there. Keeping raw bytes here avoids coupling renderers to file layout.
+ pub fn load_project_font_bytes() -> Result<Vec<u8>, String> {
+     // Canonical asset path (workspace-root relative). This keeps discovery simple
+     // and consistent across binaries that run from the repository root.
+     // If your runtime requires a different discovery mechanism (embedded assets,
+     // packaging, etc.) adapt this loader in the future to return embedded bytes.
+     let asset_path = Path::new("zaroxi/assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+
+     // Try to read the asset file
+     match fs::read(&asset_path) {
+         Ok(bytes) => Ok(bytes),
+         Err(e) => {
+             // Produce a helpful error with suggestions.
+             let msg = match e.kind() {
+                 io::ErrorKind::NotFound => format!(
+                     "project font not found at {:?}. Ensure the repository root contains the file and you're running from workspace root.",
+                     asset_path
+                 ),
+                 _ => format!("failed to read project font at {:?}: {}", asset_path, e),
+             };
+             Err(msg)
+         }
+     }
  }
 
  /// Marker retained for packaging/compatibility.

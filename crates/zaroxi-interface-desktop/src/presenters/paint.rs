@@ -1,4 +1,5 @@
 use crate::presenters::model::{GpuShellView, RegionKind};
+use crate::text::cosmic_text_renderer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuPaintRect {
@@ -412,10 +413,36 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             }
         }
 
-        // Backwards-compatible: fill a rectangular label area with the text color
-        // so existing unit tests that sample a pixel inside the label receive the
-        // expected deterministic color. The glyph renderer then paints glyph
-        // pixels on top of this filled area.
+        // Primary text rendering path: attempt to render with Cosmic Text integration.
+        // The new renderer provides shaping/layout and a conservative rasterization
+        // path producing readable labels. If initialization or drawing fails we
+        // fall back to the old behaviour as a controlled, temporary compatibility path.
+        if let Some(renderer) = crate::presenters::super::super::super::text::COSMIC_RENDERER.get() {
+            // Try cosmic-text drawable path. We use small signed coordinates here.
+            let res = cosmic_text_renderer::CosmicTextRenderer::draw_text(
+                renderer,
+                buffer,
+                width,
+                height,
+                x as i32,
+                y as i32,
+                text,
+                color,
+                None,
+            );
+            if res.is_ok() {
+                return;
+            } else {
+                // If cosmic renderer fails, we deliberately continue to fallback rendering
+                // so the UI remains visible. But log the error to stderr for diagnostics.
+                eprintln!("cosmic-text draw_text failed: {}", res.unwrap_err());
+            }
+        }
+
+        // Fallback: backwards-compatible: fill a rectangular label area with the text color
+        // so existing unit tests that sample a pixel inside the label receive a
+        // deterministic color. This fallback is temporary and kept only to preserve
+        // test stability during migration.
         let glyph_count = text.chars().count() as u32;
         let text_w = glyph_count.saturating_mul(GLYPH_W.saturating_mul(SCALE));
         let text_h = GLYPH_H.saturating_mul(SCALE);
@@ -429,8 +456,8 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 // Build a small temporary rect and fill it directly into the buffer.
                 let rect_x = x;
                 let rect_y = y;
-                for row in rect_y..rect_y.saturating_add(label_h) {
-                    for col in rect_x..rect_x.saturating_add(label_w) {
+                for row in rect_x..rect_x.saturating_add(label_h) {
+                    for col in rect_y..rect_y.saturating_add(label_w) {
                         let idx = ((row * width + col) * 4) as usize;
                         if idx + 4 <= buffer.len() {
                             buffer[idx..idx + 4].copy_from_slice(&color);
@@ -440,10 +467,10 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             }
         }
 
-        // Very small built-in 6x8 mono font. Each glyph is 8 rows of up to 6 bits.
-        // The font intentionally covers the common, demo-focused subset:
-        // - space, lowercase a-z, digits 0-9, colon, period, dash, underscore
-        // For characters not present we draw an empty box placeholder.
+        // Legacy tiny built-in glyph rendering (kept only as fallback). We render
+        // simple block glyphs for ASCII characters so the UI remains legible when
+        // the cosmic renderer cannot be used. This path will be removed in a later
+        // migration once the full cosmic-text rasterization is in place.
         fn glyph_for(ch: char) -> [u8; GLYPH_H as usize] {
             match ch {
                 ' ' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
@@ -531,6 +558,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             cursor_x += (GLYPH_W * SCALE) as i32;
         }
     }
+}
 
     for op in plan.ops.iter() {
         match op {
