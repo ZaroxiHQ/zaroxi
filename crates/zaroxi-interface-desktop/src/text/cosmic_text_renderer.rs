@@ -109,7 +109,8 @@ impl CosmicTextRenderer {
         // The draw callback receives rectangles (x,y,w,h) and a Color.
         // We translate those into pixel writes into out_buffer, offset by (x,y).
         // Buffer::draw in cosmic-text v0.19 expects the FontSystem as the first argument.
-        buf.draw(&mut guard.font_system, &mut swash_cache, draw_color, |bx: i32, by: i32, w: i32, h: i32, c: Color| {
+        // Note: the closure signature requires (i32, i32, u32, u32, Color) for (x,y,w,h,color).
+        buf.draw(&mut guard.font_system, &mut swash_cache, draw_color, |bx: i32, by: i32, w: u32, h: u32, c: Color| {
             // Convert color to bytes
             let rgba = c.as_rgba();
             let cr = rgba[0];
@@ -123,20 +124,22 @@ impl CosmicTextRenderer {
 
             // Iterate rectangle and write pixels with bounds checks.
             for row in 0..h {
-                let py = oy + row;
-                if py < 0 {
+                // row is u32; convert to i32 when adding to oy (which is i32).
+                let py_i = oy + (row as i32);
+                if py_i < 0 {
                     continue;
                 }
-                let pyu = py as u32;
+                let pyu = py_i as u32;
                 if pyu >= fb_h {
                     continue;
                 }
                 for col in 0..w {
-                    let px = ox + col;
-                    if px < 0 {
+                    // col is u32; convert to i32 for signed arithmetic with ox.
+                    let px_i = ox + (col as i32);
+                    if px_i < 0 {
                         continue;
                     }
-                    let pxu = px as u32;
+                    let pxu = px_i as u32;
                     if pxu >= fb_w {
                         continue;
                     }
