@@ -108,7 +108,8 @@ impl CosmicTextRenderer {
 
         // The draw callback receives rectangles (x,y,w,h) and a Color.
         // We translate those into pixel writes into out_buffer, offset by (x,y).
-        buf.draw(&mut swash_cache, draw_color, |bx: i32, by: i32, w: i32, h: i32, c: Color| {
+        // Buffer::draw in cosmic-text v0.19 expects the FontSystem as the first argument.
+        buf.draw(&mut guard.font_system, &mut swash_cache, draw_color, |bx: i32, by: i32, w: i32, h: i32, c: Color| {
             // Convert color to bytes
             let rgba = c.as_rgba();
             let cr = rgba[0];
