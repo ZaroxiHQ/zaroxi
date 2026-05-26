@@ -98,6 +98,27 @@ fn main() {
                 EventBridge::handle_event(ev, &mut executor);
             }
         }
+
+        // Left/Right keys: drive a real SetActiveBuffer action through the existing
+        // in-process runtime helper. This toggles the active buffer label between
+        // "buf:one" and "buf:two" and uses the canonical action->refresh path so
+        // DesktopComposition is updated and the GUI repaints with real state.
+        if window.is_key_down(Key::Left) || window.is_key_down(Key::Right) {
+            // Determine current active buffer label from the adapted regions snapshot.
+            let current_label_opt = executor.current_regions().active_buffer_label.clone();
+            let current_label = current_label_opt.as_deref().unwrap_or("buf:one");
+            // Toggle between two lightweight buffer ids. These ids match the
+            // FakeView initial id ("buf:one") used by the in-process runtime.
+            let target = if current_label == "buf:one" {
+                "buf:two".to_string()
+            } else {
+                "buf:one".to_string()
+            };
+            // Execute the canonical Action so the existing apply_action_and_get_regions
+            // flow runs: updates FakeView -> refreshes DesktopComposition -> returns regions.
+            executor.execute(Action::SetActiveBuffer(target));
+        }
+
         if window.is_key_down(Key::Enter) {
             if let Some(ev) = map_native_to_ui_event(NativeKey::Enter) {
                 EventBridge::handle_event(ev, &mut executor);
