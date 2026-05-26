@@ -643,7 +643,7 @@ fn execute_paint_plan_renders_label_rect() {
     // Find the first Text op and sample its top-left pixel; it should match the color used.
     let mut found = false;
     for op in plan.ops.iter() {
-        if let GpuPaintOp::Text { x, y, text, color } = op {
+        if let GpuPaintOp::Text { x, y, text, color, .. } = op {
             if text.is_empty() {
                 continue;
             }
