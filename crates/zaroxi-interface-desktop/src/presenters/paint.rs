@@ -439,8 +439,8 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         let text_h = glyph_h;
 
         // Use explicit clip box to determine label extents (avoid full-frame sizes).
-        let label_w = text_w.saturating_min(clip_w);
-        let label_h = text_h.saturating_min(clip_h);
+        let label_w = std::cmp::min(text_w, clip_w);
+        let label_h = std::cmp::min(text_h, clip_h);
 
         // Compute the safe drawing extents clamped to framebuffer bounds.
         let max_rows = fb_h.saturating_sub(y);
