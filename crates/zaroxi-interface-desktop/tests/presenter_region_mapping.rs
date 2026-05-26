@@ -9,18 +9,37 @@ fn region_mapping_basic() {
 
     let regions = GpuShellPresenter::map_regions(width, height, chrome, status);
 
+    // Debug-print actual mapped regions to aid diagnosis when running with --nocapture
+    println!(
+        "mapped regions -> chrome: x={} y={} w={} h={}; content: x={} y={} w={} h={}; status: x={} y={} w={} h={}",
+        regions.chrome.x,
+        regions.chrome.y,
+        regions.chrome.width,
+        regions.chrome.height,
+        regions.content.x,
+        regions.content.y,
+        regions.content.width,
+        regions.content.height,
+        regions.status.x,
+        regions.status.y,
+        regions.status.width,
+        regions.status.height,
+    );
+
     // chrome at top (anchored to y=0)
     assert_eq!(regions.chrome.x, 0);
     assert_eq!(regions.chrome.y, 0);
     assert_eq!(regions.chrome.width, width);
-    // don't assert an exact chrome.height (top insets may change),
-    // but ensure it's positive and fits within total height.
+    // The presenter may apply additional top inset adjustments; ensure chrome is a positive band
+    // and it is at least the requested nominal chrome height.
     assert!(regions.chrome.height > 0);
     assert!(regions.chrome.height <= height);
+    assert!(regions.chrome.height >= chrome);
 
     // status is an explicit bottom band of the requested height and anchored at the bottom
     assert_eq!(regions.status.x, 0);
     assert_eq!(regions.status.width, width);
+    // status height is part of the public contract and should match the requested status band.
     assert_eq!(regions.status.height, status);
     assert_eq!(regions.status.y + regions.status.height, height);
 
@@ -28,13 +47,13 @@ fn region_mapping_basic() {
     assert_eq!(regions.content.x, 0);
     assert_eq!(regions.content.y, regions.chrome.y + regions.chrome.height);
     assert_eq!(regions.content.width, width);
-    // content + chrome + status should cover the total height
+    // content + chrome + status should cover the total height exactly
     assert_eq!(
         regions.content.y + regions.content.height + regions.status.height,
         height
     );
 
-    // structural non-overlap invariants
+    // structural non-overlap invariants (chrome -> content -> status)
     assert!(regions.chrome.y + regions.chrome.height <= regions.content.y);
     assert!(regions.content.y + regions.content.height <= regions.status.y);
 }
@@ -72,17 +91,19 @@ fn paint_buffer_paints_regions() {
         [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
     };
 
-    // Chrome area sample (near the top)
-    let chrome_px = read_pixel(1, 1);
+    // Chrome area sample (one row inside the chrome band)
+    let chrome_sample_y = regions.chrome.y.saturating_add(1);
+    let chrome_px = read_pixel(1, chrome_sample_y);
     assert_eq!(chrome_px, [32u8, 32u8, 40u8, 255u8]);
 
-    // Content area sample (just below chrome)
-    let content_px = read_pixel(1, chrome + 1);
+    // Content area sample (one row inside the content band)
+    let content_sample_y = regions.content.y.saturating_add(1);
+    let content_px = read_pixel(1, content_sample_y);
     assert_eq!(content_px, [220u8, 220u8, 225u8, 255u8]);
 
-    // Status area sample (near the bottom)
-    let status_y = height.saturating_sub(1).saturating_sub(1); // one row above bottom
-    let status_px = read_pixel(1, status_y);
+    // Status area sample (one row inside the status band, anchored to bottom)
+    let status_sample_y = regions.status.y.saturating_add(regions.status.height.saturating_sub(1));
+    let status_px = read_pixel(1, status_sample_y);
     // status region color
     assert_eq!(status_px, [48u8, 48u8, 56u8, 255u8]);
 }
