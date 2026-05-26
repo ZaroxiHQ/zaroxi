@@ -660,7 +660,7 @@ fn execute_paint_plan_renders_label_rect() {
     // Find the first Text op and inspect its bbox to verify partial writes only.
     let mut validated = false;
     for op in plan.ops.iter() {
-        if let GpuPaintOp::Text { x, y, text, color, max_w, max_h } = op {
+        if let GpuPaintOp::Text { x, y, text, color: _, max_w, max_h } = op {
             if text.is_empty() {
                 continue;
             }
@@ -672,7 +672,7 @@ fn execute_paint_plan_renders_label_rect() {
             }
 
             let mut changed = 0usize;
-            let mut same_as_bg = 0usize;
+            let mut _same_as_bg = 0usize;
             for row in 0..bbox_h {
                 for col in 0..bbox_w {
                     let px = x.saturating_add(col as u32);
@@ -683,7 +683,7 @@ fn execute_paint_plan_renders_label_rect() {
                         if pixel != bg_color {
                             changed += 1;
                         } else {
-                            same_as_bg += 1;
+                            _same_as_bg += 1;
                         }
                     }
                 }

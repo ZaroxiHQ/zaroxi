@@ -131,21 +131,38 @@ impl CosmicTextRenderer {
         // We translate those into pixel writes into out_buffer, offset by (x,y).
         // Buffer::draw in cosmic-text v0.19 expects the FontSystem as the first argument.
         // Note: the closure signature requires (i32, i32, u32, u32, Color) for (x,y,w,h,color).
-        // Use the Color provided by cosmic-text but composite glyph pixels into
-        // the destination framebuffer using standard alpha blending. The draw
-        // callback delivers opaque rectangles corresponding to glyph masks and
-        // the Color's alpha should be used as coverage when blending.
+        //
+        // Important correctness note:
+        // - Cosmic Text provides a Color that carries per-rectangle coverage in its alpha channel.
+        // - The RGB channels inside `c.as_rgba()` may be non-informative for coverage-only masks
+        //   (they are often zero when the renderer supplies a coverage alpha). We must therefore
+        //   blend using the original requested `color` (the `color` parameter passed into this
+        //   function) together with the coverage alpha delivered by the cosmic callback.
+        //
+        // Contract:
+        // - Do not write destination pixels when coverage (alpha) == 0.
+        // - When coverage > 0, blend the requested text color into the destination using:
+        //       out = src_req * alpha + dst * (1 - alpha)
+        //   (where src_req is the requested RGB color, alpha in [0..1]).
+        //
+        // We also emit targeted diagnostics per callback rectangle to help verify
+        // glyph mask coverage and that we are not performing any full-rect fills.
+        let req_r = color[0] as f32;
+        let req_g = color[1] as f32;
+        let req_b = color[2] as f32;
+
         buf.draw(&mut guard.font_system, &mut swash_cache, draw_color, |bx: i32, by: i32, w: u32, h: u32, c: Color| {
-            // Convert color to bytes (color channels are in 0..255)
+            // Per-rectangle coverage/color (alpha carries coverage).
             let rgba = c.as_rgba();
-            let sr = rgba[0] as f32;
-            let sg = rgba[1] as f32;
-            let sb = rgba[2] as f32;
-            let sa = (rgba[3] as f32) / 255.0;
+            let coverage_a = (rgba[3] as f32) / 255.0;
 
             // Destination rectangle origin including the requested anchor offset.
             let ox = bx + x;
             let oy = by + y;
+
+            // Counters for diagnostics (per-rectangle)
+            let mut rect_zero_coverage: usize = 0;
+            let mut rect_nonzero_coverage: usize = 0;
 
             // Iterate rectangle and blend pixels with bounds checks.
             for row in 0..h {
@@ -168,24 +185,39 @@ impl CosmicTextRenderer {
                     }
                     let idx = ((pyu * fb_w + pxu) * 4) as usize;
                     if idx + 4 <= out_buffer.len() {
+                        // If coverage is zero for this rect, skip writing entirely.
+                        if coverage_a <= 0.0 {
+                            rect_zero_coverage += 1;
+                            continue;
+                        }
+
                         // Read destination color
                         let dr = out_buffer[idx] as f32;
                         let dg = out_buffer[idx + 1] as f32;
                         let db = out_buffer[idx + 2] as f32;
 
-                        // Standard alpha compositing: out = src*sa + dst*(1-sa)
-                        let out_r = (sr * sa + dr * (1.0 - sa)).round().clamp(0.0, 255.0) as u8;
-                        let out_g = (sg * sa + dg * (1.0 - sa)).round().clamp(0.0, 255.0) as u8;
-                        let out_b = (sb * sa + db * (1.0 - sa)).round().clamp(0.0, 255.0) as u8;
+                        // Blend requested color using coverage alpha (non-premultiplied src).
+                        // out = src_req * alpha + dst * (1 - alpha)
+                        let out_r = (req_r * coverage_a + dr * (1.0 - coverage_a)).round().clamp(0.0, 255.0) as u8;
+                        let out_g = (req_g * coverage_a + dg * (1.0 - coverage_a)).round().clamp(0.0, 255.0) as u8;
+                        let out_b = (req_b * coverage_a + db * (1.0 - coverage_a)).round().clamp(0.0, 255.0) as u8;
 
                         out_buffer[idx] = out_r;
                         out_buffer[idx + 1] = out_g;
                         out_buffer[idx + 2] = out_b;
                         // Keep framebuffer fully opaque for downstream consumers (drop any source alpha)
                         out_buffer[idx + 3] = 255;
+
+                        rect_nonzero_coverage += 1;
                     }
                 }
             }
+
+            // Emit diagnostic per-rectangle to aid debugging of coverage vs writes.
+            eprintln!(
+                "COSMIC_DRAW_RECT: bx={} by={} w={} h={} coverage_alpha={} zeros={} nonzeros={}",
+                bx, by, w, h, coverage_a, rect_zero_coverage, rect_nonzero_coverage
+            );
         });
 
         Ok(())
