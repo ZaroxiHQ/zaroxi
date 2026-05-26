@@ -78,7 +78,8 @@
      // and consistent across binaries that run from the repository root.
      // If your runtime requires a different discovery mechanism (embedded assets,
      // packaging, etc.) adapt this loader in the future to return embedded bytes.
-     let asset_path = Path::new("zaroxi/assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+     // Repository-root relative asset path. The repository uses `assets/fonts/...`.
+     let asset_path = Path::new("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
 
      // Try to read the asset file
      match fs::read(&asset_path) {

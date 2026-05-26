@@ -567,4 +567,3 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             GpuPaintOp::Text { x, y, text, color } => draw_text_rect(buffer, width, height, *x, *y, text, *color),
         }
     }
-}
