@@ -164,10 +164,10 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
 
     if let Some(m) = meta {
         // Marker & chrome_label: prefer active_buffer display if present.
-        if let Some(ab) = m.active_buffer {
+        if let Some(ref ab) = m.active_buffer {
             regions.marker = Some(ab.to_string());
             regions.chrome_label = Some(ab.to_string());
-            regions.status_text = Some(m.last_command_line.unwrap_or_else(|| format!("active: {}", ab.to_string())));
+            regions.status_text = Some(m.last_command_line.clone().unwrap_or_else(|| format!("active: {}", ab.to_string())));
         } else if let Some(ref cmd) = m.last_command_line {
             regions.status_text = Some(cmd.clone());
         }
