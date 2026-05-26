@@ -439,6 +439,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
             None,
         )
         .unwrap_or_else(|e| panic!("CosmicTextRenderer::draw_text failed: {}", e));
+    } // close draw_text_rect
 
     // Iterate paint ops and execute them into the framebuffer.
     for op in plan.ops.iter() {
