@@ -673,3 +673,80 @@ fn no_tabs_emits_no_text_ops() {
 
     assert!(!plan.ops.iter().any(|op| matches!(op, GpuPaintOp::Text { .. })));
 }
+
+#[test]
+fn tab_label_rect_consistent_with_text_bounds() {
+    // Ensure the presenter's canonical label box is used for both text origin and clipping.
+    let width: u32 = 200;
+    let height: u32 = 80;
+    let chrome_h: u32 = 20;
+    let status_h: u32 = 6;
+
+    let regions = GpuShellPresenter::map_regions(width, height, chrome_h, status_h);
+    let mut view = GpuShellView::from_shell_regions(&regions);
+
+    // Single tab with a visible label
+    view.tabs = TabStrip {
+        tabs: vec![
+            TabEntry { id: "a".to_string(), display: "LongLabel".to_string(), active: true, focused: false, index: 0 },
+        ],
+    };
+
+    let plan = GpuPaintPlan::from_view(&view);
+
+    // Locate the first Text op emitted for the tab label.
+    let text_op = plan.ops.iter().find_map(|op| {
+        if let GpuPaintOp::Text { x, y, text, max_w, max_h, .. } = op {
+            Some((*x, *y, text.clone(), *max_w, *max_h))
+        } else {
+            None
+        }
+    }).expect("expected a Text op for the tab label");
+
+    let (tx, ty, txt, clip_w, clip_h) = text_op;
+
+    // Recompute expected geometry using the same font helper logic as the presenter.
+    let fm = zaroxi_core_engine_font::load_bundled_monospace();
+    let glyph_w = fm.char_width;
+    let glyph_h = fm.line_height;
+    let pad_x = (glyph_w / 4).max(2);
+    let pad_y = (glyph_h / 6).max(1);
+
+    let num = view.tabs.tabs.len() as u32;
+    let tab_bar_h = 12u32.min(view.chrome.height.saturating_sub(2));
+    let tab_bar_y = view.chrome.y + 1;
+    let base_w = if num > 0 { view.chrome.width / num } else { 0 };
+    let x0 = view.chrome.x;
+    let w = base_w; // single tab so equal width (last-tab remainder logic not necessary here)
+
+    // Reconstruct label truncation logic
+    let available_for_text = if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
+    let max_label_chars = if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
+
+    let expected_label_text = if max_label_chars == 0 {
+        String::new()
+    } else if txt.chars().count() > max_label_chars {
+        let mut s: String = txt.chars().take(max_label_chars).collect();
+        if s.len() > 0 {
+            s.replace_range((s.len() - 1).., ".");
+        }
+        s
+    } else {
+        txt.clone()
+    };
+
+    let text_pixel_w = (expected_label_text.chars().count() as u32).saturating_mul(glyph_w);
+    let label_box_w = text_pixel_w.saturating_add(pad_x.saturating_mul(2)).min(w);
+    let label_box_h = glyph_h.saturating_add(pad_y.saturating_mul(2)).min(tab_bar_h);
+    let label_box_x = x0 + ((w.saturating_sub(label_box_w)) / 2);
+    let label_box_y = tab_bar_y + ((tab_bar_h.saturating_sub(label_box_h)) / 2);
+    let expected_text_x = label_box_x.saturating_add(pad_x);
+    let expected_text_y = label_box_y.saturating_add(pad_y);
+    let expected_clip_w = label_box_w.saturating_sub(pad_x.saturating_mul(2));
+    let expected_clip_h = label_box_h.saturating_sub(pad_y.saturating_mul(2));
+
+    assert_eq!(tx, expected_text_x, "text x origin must match computed canonical text_x");
+    assert_eq!(ty, expected_text_y, "text y origin must match computed canonical text_y");
+    assert_eq!(clip_w, expected_clip_w, "text clip width must match label interior width");
+    assert_eq!(clip_h, expected_clip_h, "text clip height must match label interior height");
+}

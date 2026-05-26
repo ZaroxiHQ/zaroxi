@@ -238,10 +238,9 @@ impl GpuPaintPlan {
         // Tab strip rendering (additive, purely presentational)
         //
         // Enhancement: render deterministic small label indicators for each tab.
-        // We push a semantic `Text` op that carries the display string; the
-        // executor will render a small label rectangle (deterministic size)
-        // so the GPU-backed presenter visually shows where labels are and the
-        // transcript will include the actual text string for testability/logs.
+        // We compute a single canonical label box per tab and use it for layout,
+        // clipping, and instrumentation. This prevents mismatches between the
+        // presenter's estimate and the executor's glyph metrics.
         if !v.tabs.tabs.is_empty() && v.chrome.height > 2 {
             let num = v.tabs.tabs.len() as u32;
             // small tab bar inset/padding and height
@@ -250,6 +249,15 @@ impl GpuPaintPlan {
             // allocate equal widths deterministically
             let base_w = if num > 0 { v.chrome.width / num } else { 0 };
             let mut x = v.chrome.x;
+
+            // Load monospace metrics once so presenter and executor agree.
+            let fm = zaroxi_core_engine_font::load_bundled_monospace();
+            let glyph_w: u32 = fm.char_width;
+            let glyph_h: u32 = fm.line_height;
+            // Conservative padding in pixels around text within the label box.
+            let pad_x: u32 = (glyph_w / 4).max(2);
+            let pad_y: u32 = (glyph_h / 6).max(1);
+
             for (i, t) in v.tabs.tabs.iter().enumerate() {
                 let mut w = base_w;
                 // last tab takes remainder to avoid gaps
@@ -269,7 +277,8 @@ impl GpuPaintPlan {
                 } else {
                     [180u8, 180u8, 180u8, 255u8] // inactive tab color
                 };
-                // Draw tab body
+
+                // Draw tab body (background)
                 ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                     x,
                     y: tab_bar_y,
@@ -289,14 +298,16 @@ impl GpuPaintPlan {
                     thickness: 1u32,
                 });
 
-                // Textual label (semantic): compute a small deterministic label box
-                // width based on character budget (6px per char including spacing).
+                // Textual label (semantic): compute a canonical label box (text+padding)
                 let display = t.display.clone();
-                let max_label_chars = if w > 8 { ((w - 8) / 6) as usize } else { 0 };
+
+                // Compute max chars that fit considering glyph width and padding.
+                let available_for_text = if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
+                let max_label_chars = if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
+
                 let label_text = if max_label_chars == 0 {
                     String::new()
                 } else if display.chars().count() > max_label_chars {
-                    // truncate deterministically, replace last char with '.' when truncated
                     let mut s: String = display.chars().take(max_label_chars).collect();
                     if s.len() > 0 {
                         s.replace_range((s.len() - 1).., ".");
@@ -307,20 +318,31 @@ impl GpuPaintPlan {
                 };
 
                 if !label_text.is_empty() {
-                    let label_w = (label_text.chars().count() as u32).saturating_mul(6);
-                    // center label horizontally inside tab
-                    let label_x = x + ((w.saturating_sub(label_w)) / 2);
-                    // vertically center inside tab; label height fixed to 6px
-                    let label_y = tab_bar_y + (tab_bar_h.saturating_sub(6) / 2);
+                    // Compute text pixel bounds and label box including padding.
+                    let text_pixel_w = (label_text.chars().count() as u32).saturating_mul(glyph_w);
+                    let label_box_w = text_pixel_w.saturating_add(pad_x.saturating_mul(2)).min(w);
+                    let label_box_h = glyph_h.saturating_add(pad_y.saturating_mul(2)).min(tab_bar_h);
 
-                    // Push a semantic Text op; the executor will render a small
-                    // filled rect at this position (visual cue) and transcripts
-                    // will include the text value itself for testability.
-                    let clip_w = label_w.min(w);
-                    let clip_h = 6u32.min(tab_bar_h);
+                    // Center label box inside tab body.
+                    let label_box_x = x + ((w.saturating_sub(label_box_w)) / 2);
+                    let label_box_y = tab_bar_y + ((tab_bar_h.saturating_sub(label_box_h)) / 2);
+
+                    // Text origin (top-left) inside label box (respecting padding).
+                    let text_x = label_box_x.saturating_add(pad_x);
+                    let text_y = label_box_y.saturating_add(pad_y);
+
+                    // Instrumentation: log exact rects / origins and draw order.
+                    eprintln!(
+                        "TAB DEBUG: tab_body x={} y={} w={} h={} | label_box x={} y={} w={} h={} | text_origin x={} y={} | text=\"{}\" | draw_order=body,border,text",
+                        x, tab_bar_y, w, tab_bar_h, label_box_x, label_box_y, label_box_w, label_box_h, text_x, text_y, label_text
+                    );
+
+                    // Push a semantic Text op using the canonical text origin and clip the shaping to the label box.
+                    let clip_w = label_box_w.saturating_sub(pad_x.saturating_mul(2));
+                    let clip_h = label_box_h.saturating_sub(pad_y.saturating_mul(2));
                     ops.push(GpuPaintOp::Text {
-                        x: label_x,
-                        y: label_y,
+                        x: text_x,
+                        y: text_y,
                         text: label_text,
                         color: [10u8, 10u8, 10u8, 255u8],
                         max_w: clip_w,
@@ -452,6 +474,12 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 .expect("COSMIC_RENDERER not set after init")
                 .clone()
         };
+
+        // Instrumentation: log the concrete draw call parameters for debugging.
+        eprintln!(
+            "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {})",
+            text, x, y, clip_w, clip_h, fb_w, fb_h
+        );
 
         // Delegate shaping/layout/rasterization to the canonical CosmicTextRenderer.
         // Pass the framebuffer dims for bounds checking and the clip width as the shaping constraint.
