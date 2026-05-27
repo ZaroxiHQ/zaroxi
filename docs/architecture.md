@@ -20,6 +20,39 @@ Principles
 - Adapter pattern: platform-specific implementations live in infrastructure; core/domain define traits/contracts.
 - Pragmatic modularity: crates are split along responsibility lines and named consistently: `zaroxi-{layer}-{...}`.
 
+Layers and responsibilities (summary)
+- Kernel (`zaroxi-kernel-*`)
+  - Purpose: Extremely small, stable primitives and canonical types (IDs, small numeric helpers, protocol types, traits).
+  - Allowed deps: Rust standard library and a minimal set of vetted externals. Kernel crates should not depend on other `zaroxi-*` crates.
+
+- Core (`zaroxi-core-*`)
+  - Purpose: Engine and runtime primitives used across the stack (rendering, input, scheduling, editor primitives, workspace helpers).
+  - Allowed deps: Kernel crates and other core crates only.
+
+- Domain (`zaroxi-domain-*`)
+  - Purpose: Pure business logic and domain models (workspace model, buffer semantics, session lifecycle, settings schema, plugin contracts).
+  - Allowed deps: Kernel and core crates and other domain crates.
+
+- Application (`zaroxi-application-*`)
+  - Purpose: High-level feature composition and orchestration: editor composition, workspace flows, command routing, search, navigation.
+  - Allowed deps: Kernel, core, domain, and other application crates.
+
+- Interface (`zaroxi-interface-*`)
+  - Purpose: Concrete entry points and product shells (desktop harness, CLI, theming assets). Integrates application features into runnable artifacts.
+  - Allowed deps: Kernel, core, domain, application, and other interface crates.
+
+- Infrastructure (`zaroxi-infrastructure-*`)
+  - Purpose: Adapter implementations for networking, storage, RPC, tracing, settings, process management, and platform-specific integrations.
+  - Allowed deps: Kernel and core crates (implementations should depend on trait contracts from core/domain as appropriate).
+
+- Intelligence (`zaroxi-intelligence-*`)
+  - Purpose: Agent runtimes, context packing, planning, embeddings, evaluation tools and safe orchestration primitives for AI features.
+  - Allowed deps: Kernel, core, domain (avoid depending on application or interface layers).
+
+- Security (`zaroxi-security-*`)
+  - Purpose: Policy language and evaluation, authentication primitives, audit models, sandbox helpers, and validation primitives.
+  - Allowed deps: Kernel, core, domain (avoid depending on application/interface/infrastructure where possible).
+
 Primary runtime paths
 1. Desktop harness (interface-desktop / interface-app)
    - The desktop harness is the active developer-facing entry point. It composes `interface` → `application` → `domain` → `core` layers to exercise editor features and flows.
@@ -60,7 +93,7 @@ Near-term planned evolution (high level)
 - Phase 12+: Performance and rendering improvements, packaging, and alpha/beta releases.
 
 Historical notes
-- Older references to Tauri, React, or other prior UI experiments have been removed from the canonical architecture documentation. Any historical references that remain in commit history are strictly historical and should not be treated as the current product architecture.
+- Older references to prior UI experiments have been removed from the canonical architecture documentation. Any historical references that remain in commit history are strictly historical and should not be treated as the current product architecture.
 
 Where to look next
 - `docs/crates.md` — guided reading order for crates and advice for new contributors.
