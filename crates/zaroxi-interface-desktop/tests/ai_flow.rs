@@ -77,34 +77,34 @@ impl WorkspaceService for FakeService {
     fn list_open_buffers(&self, _req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_active_buffer(&self, _req: SetActiveBufferRequest) -> BoxFuture<'static, Result<crate::ports::SetActiveBufferResponse, UseCaseError>> {
+    fn set_active_buffer(&self, _req: SetActiveBufferRequest) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn get_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<crate::ports::GetActiveBufferResponse, UseCaseError>> {
+    fn get_active_buffer(&self, _req: ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<ports::GetActiveBufferResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_editor_cursor(&self, _req: SetEditorCursorRequest) -> BoxFuture<'static, Result<crate::ports::SetEditorCursorResponse, UseCaseError>> {
+    fn set_editor_cursor(&self, _req: SetEditorCursorRequest) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_editor_selection(&self, _req: SetSelectionRequest) -> BoxFuture<'static, Result<crate::ports::SetSelectionResponse, UseCaseError>> {
+    fn set_editor_selection(&self, _req: SetSelectionRequest) -> BoxFuture<'static, Result<ports::SetSelectionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn clear_editor_selection(&self, _req: ClearSelectionRequest) -> BoxFuture<'static, Result<crate::ports::ClearSelectionResponse, UseCaseError>> {
+    fn clear_editor_selection(&self, _req: ClearSelectionRequest) -> BoxFuture<'static, Result<ports::ClearSelectionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
     fn get_editor_state(&self, _req: GetEditorStateRequest) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_viewport_state(&self, _req: crate::ports::SetViewportRequest) -> BoxFuture<'static, Result<crate::ports::SetViewportResponse, UseCaseError>> {
+    fn set_viewport_state(&self, _req: ports::SetViewportRequest) -> BoxFuture<'static, Result<ports::SetViewportResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn scroll_viewport(&self, _req: crate::ports::ScrollViewportRequest) -> BoxFuture<'static, Result<crate::ports::ScrollViewportResponse, UseCaseError>> {
+    fn scroll_viewport(&self, _req: ports::ScrollViewportRequest) -> BoxFuture<'static, Result<ports::ScrollViewportResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn explain_active_buffer(&self, _req: crate::ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, UseCaseError>> {
+    fn explain_active_buffer(&self, _req: ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn dispatch_command(&self, _req: crate::ports::DispatchCommandRequest) -> BoxFuture<'static, Result<crate::ports::DispatchCommandResponse, UseCaseError>> {
+    fn dispatch_command(&self, _req: ports::DispatchCommandRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
     fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>> {
@@ -115,35 +115,35 @@ impl WorkspaceService for FakeService {
     fn apply_text_transaction(&self, _req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn get_recent_commands(&self, _req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<crate::ports::GetRecentCommandsResponse, UseCaseError>> {
-        Box::pin(async move { Ok(crate::ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+    fn get_recent_commands(&self, _req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<ports::GetRecentCommandsResponse, UseCaseError>> {
+        Box::pin(async move { Ok(ports::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
-    fn get_recent_events(&self, _req: GetRecentEventsRequest) -> BoxFuture<'static, Result<crate::ports::GetRecentEventsResponse, UseCaseError>> {
-        Box::pin(async move { Ok(crate::ports::GetRecentEventsResponse { events: Vec::new() }) })
+    fn get_recent_events(&self, _req: GetRecentEventsRequest) -> BoxFuture<'static, Result<ports::GetRecentEventsResponse, UseCaseError>> {
+        Box::pin(async move { Ok(ports::GetRecentEventsResponse { events: Vec::new() }) })
     }
-    fn get_session_snapshot(&self, _req: crate::ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, UseCaseError>> {
+    fn get_session_snapshot(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn create_checkpoint(&self, _req: crate::ports::CreateCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::CreateCheckpointResponse, UseCaseError>> {
+    fn create_checkpoint(&self, _req: ports::CreateCheckpointRequest) -> BoxFuture<'static, Result<ports::CreateCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn save_checkpoint(&self, _req: crate::ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, UseCaseError>> {
+    fn save_checkpoint(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn load_checkpoint(&self, _req: crate::ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::LoadCheckpointResponse, UseCaseError>> {
+    fn load_checkpoint(&self, _req: ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<ports::LoadCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn restore_checkpoint(&self, _req: crate::ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::RestoreCheckpointResponse, UseCaseError>> {
+    fn restore_checkpoint(&self, _req: ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn attempt_close_session(&self, _req: crate::ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<crate::ports::GetSessionSnapshotResponse, UseCaseError>> {
+    fn attempt_close_session(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn resolve_close_session_save_all(&self, _req: crate::ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, UseCaseError>> {
+    fn resolve_close_session_save_all(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn resolve_close_session_discard_all(&self, _req: crate::ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<crate::ports::SaveCheckpointResponse, UseCaseError>> {
-        Box::pin(async move { Ok(crate::ports::SaveCheckpointResponse { location: String::new() }) })
+    fn resolve_close_session_discard_all(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
+        Box::pin(async move { Ok(ports::SaveCheckpointResponse { location: String::new() }) })
     }
 }
 
