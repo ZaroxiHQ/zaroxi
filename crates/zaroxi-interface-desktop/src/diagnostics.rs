@@ -95,6 +95,29 @@ pub fn collect_for_uri(uri: &str) -> DiagnosticsSummary {
     }
 }
 
+/// Provider state for diagnostics at the composition / snapshot level.
+///
+/// This is intentionally small: Disabled => feature flag off; Unavailable =>
+/// no active buffer or other transient absence; Ready => provider present
+/// (may still have zero counts).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProviderState {
+    Disabled,
+    Unavailable,
+    Ready,
+}
+
+/// Compact diagnostics snapshot surfaced on DesktopComposition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiagnosticsSnapshot {
+    pub provider: ProviderState,
+    pub active_buffer: String,
+    pub errors: u32,
+    pub warnings: u32,
+    pub infos: u32,
+    pub hints: u32,
+}
+
 /// Compose a compact, stable human-readable summary for the given DesktopComposition.
 ///
 /// This prints a one-line summary intended for harness output like:
@@ -130,5 +153,90 @@ pub fn summarize_for_composition(composition: &DesktopComposition) -> String {
                 uri, errors, warnings, infos, hints
             )
         }
+    }
+}
+
+/// Compose a DiagnosticsSnapshot for a given resource URI.
+///
+/// Returns None when the provided URI is empty (caller should handle active-buffer absent).
+pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
+    let u = uri.trim();
+    if u.is_empty() {
+        return None;
+    }
+
+    // Feature disabled path: report Disabled provider explicitly.
+    #[cfg(not(feature = "use_core_lsp"))]
+    {
+        return Some(DiagnosticsSnapshot {
+            provider: ProviderState::Disabled,
+            active_buffer: u.to_string(),
+            errors: 0,
+            warnings: 0,
+            infos: 0,
+            hints: 0,
+        });
+    }
+
+    // Feature enabled: map collect_for_uri results into a snapshot.
+    #[cfg(feature = "use_core_lsp")]
+    {
+        match collect_for_uri(u) {
+            DiagnosticsSummary::Disabled => Some(DiagnosticsSnapshot {
+                provider: ProviderState::Disabled,
+                active_buffer: u.to_string(),
+                errors: 0,
+                warnings: 0,
+                infos: 0,
+                hints: 0,
+            }),
+            DiagnosticsSummary::None => Some(DiagnosticsSnapshot {
+                provider: ProviderState::Ready,
+                active_buffer: u.to_string(),
+                errors: 0,
+                warnings: 0,
+                infos: 0,
+                hints: 0,
+            }),
+            DiagnosticsSummary::Some(v) => {
+                let mut errors = 0u32;
+                let mut warnings = 0u32;
+                let mut infos = 0u32;
+                let mut hints = 0u32;
+                for d in v.iter() {
+                    match d.severity {
+                        DiagnosticSeverity::Error => errors += 1,
+                        DiagnosticSeverity::Warning => warnings += 1,
+                        DiagnosticSeverity::Information => infos += 1,
+                        DiagnosticSeverity::Hint => hints += 1,
+                    }
+                }
+                Some(DiagnosticsSnapshot {
+                    provider: ProviderState::Ready,
+                    active_buffer: u.to_string(),
+                    errors,
+                    warnings,
+                    infos,
+                    hints,
+                })
+            }
+        }
+    }
+}
+
+/// Expose a DesktopComposition-level accessor so consumers (harness/presenter/tests)
+/// can read a compact DiagnosticsSnapshot directly from the composition.
+///
+/// Returns None when there is no active buffer to summarize.
+impl DesktopComposition {
+    pub fn latest_diagnostics_snapshot(&self) -> Option<DiagnosticsSnapshot> {
+        let maybe_active = self.latest_active_buffer_details();
+        let uri = if let Some(ref abd) = maybe_active {
+            abd.display.clone().unwrap_or_else(|| abd.buffer_id.to_string())
+        } else {
+            return None;
+        };
+
+        diagnostics_snapshot_for_uri(&uri)
     }
 }
