@@ -1,6 +1,10 @@
-# Zaroxi Studio — AI-first editor (Rust native)
+# Zaroxi Studio: AI-First IDE
 
-One-line value proposition: A Rust-native, crate-based AI-first editor/IDE focused on safe, testable editor primitives and an extensible intelligence layer.
+⚠️ Heavily Under Development: Zaroxi Studio is currently in active development. APIs, features, and architecture are subject to change. We welcome early adopters and contributors to help shape the project!
+
+Repository: https://github.com/ZaroxiHQ/zaroxi
+
+CI Security Audit License: MIT Rust
 
 ---
 
@@ -171,4 +175,4 @@ Keep documentation file-scoped and single-purpose. When you add or rename a crat
 
 ---
 
-License: MIT
+CI Security Audit License: MIT Rust
