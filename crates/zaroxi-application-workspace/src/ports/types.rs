@@ -731,24 +731,38 @@ pub trait WorkspaceService: Send + Sync {
 
     /// Request an AI-generated edit proposal for the active buffer/context.
     /// The supplied request carries a snapshot of the current buffer content where available.
+    /// Default implementation returns an AiFailure error so existing test doubles that
+    /// don't implement AI methods will continue to compile. Production orchestrators
+    /// should override this with a real implementation.
     fn request_ai_edit(
         &self,
         req: RequestAiEditRequest,
-    ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>>;
+    ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>> {
+        Box::pin(async move { Err(UseCaseError::AiFailure("request_ai_edit not implemented".to_string())) })
+    }
 
     /// Apply a previously-returned AI proposal. Implementations are expected to
     /// validate session/buffer identity and persist the edit via the authoritative
     /// buffer/update path. The response indicates success of the overall operation.
+    /// Default implementation returns an AiFailure error so existing test doubles that
+    /// don't implement AI methods will continue to compile. Production orchestrators
+    /// should override this with a real implementation.
     fn apply_ai_edit(
         &self,
         req: ApplyAiEditRequest,
-    ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>>;
+    ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>> {
+        Box::pin(async move { Err(UseCaseError::AiFailure("apply_ai_edit not implemented".to_string())) })
+    }
 
     /// Cancel a pending AI proposal for the given session/buffer.
+    /// Default implementation is a no-op success to allow UI to clear presentation-only state
+    /// when application orchestrator does not persist proposals (Phase 10 lightweight behavior).
     fn cancel_ai_edit(
         &self,
-        req: CancelAiEditRequest,
-    ) -> BoxFuture<'static, Result<CancelAiEditResponse, UseCaseError>>;
+        _req: CancelAiEditRequest,
+    ) -> BoxFuture<'static, Result<CancelAiEditResponse, UseCaseError>> {
+        Box::pin(async move { Ok(CancelAiEditResponse { ok: true }) })
+    }
 
     /// Apply a typed text transaction/edit to an open buffer within a session.
     /// This use-case composes the current editor transient state (cursor/selection)

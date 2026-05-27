@@ -99,6 +99,7 @@ mod tests {
         buffer_id: BufferId,
         set_called: StdArc<AtomicBool>,
         apply_called: StdArc<AtomicBool>,
+        last_update: StdArc<std::sync::Mutex<Option<String>>>,
     }
 
     impl FakeService {
@@ -107,6 +108,7 @@ mod tests {
                 buffer_id,
                 set_called: StdArc::new(AtomicBool::new(false)),
                 apply_called: StdArc::new(AtomicBool::new(false)),
+                last_update: StdArc::new(std::sync::Mutex::new(None)),
             }
         }
     }
