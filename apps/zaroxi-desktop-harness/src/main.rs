@@ -450,7 +450,7 @@ async fn main() -> Result<(), String> {
                         let session_identity = SessionIdentityLine::new(
                             Some(boot_res.session.session_id.to_string()),
                             Some(boot_res.session.workspace_id.to_string()),
-                            None,
+                            Some(boot_req.path.to_string_lossy().to_string()),
                         );
                         println!("Harness: session identity: {}", session_identity.render());
 
@@ -644,7 +644,7 @@ async fn main() -> Result<(), String> {
                             Some(SessionIdentityLine::new(
                                 Some(boot_res.session.session_id.to_string()),
                                 Some(boot_res.session.workspace_id.to_string()),
-                                None,
+                                Some(boot_req.path.to_string_lossy().to_string()),
                             ).render()),
                             // active buffer and location derived from shell snapshot
                             ActiveBufferLine::from_shell_snapshot(&ss).map(|l| l.render()),
