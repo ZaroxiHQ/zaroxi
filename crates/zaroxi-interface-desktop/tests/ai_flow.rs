@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use std::sync::Arc;
-use crate::BoxFuture;
+use crate::ports::BoxFuture;
 
 use zaroxi_interface_desktop::desktop::DesktopComposition;
 use zaroxi_interface_desktop::desktop::request_ai_edit_active;
@@ -153,7 +153,7 @@ async fn ai_request_and_apply_flow() {
     let mut comp = DesktopComposition::new();
     // Create fake buffer id by using a simple BufferId::new() if available; otherwise use Default/constructors.
     // We'll construct a BufferId via a simple path helper (BufferId often wraps a path in tests).
-    let buf_id = ports::BufferId::from_path(std::path::PathBuf::from("file1.txt"));
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("file1.txt"));
 
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("original content".to_string())));
     let service = Arc::new(FakeService::new());
@@ -189,7 +189,7 @@ async fn ai_request_and_apply_flow() {
 #[tokio::test]
 async fn ai_cancel_clears_proposal() {
     let mut comp = DesktopComposition::new();
-    let buf_id = ports::BufferId::from_path(std::path::PathBuf::from("file2.txt"));
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("file2.txt"));
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("something".to_string())));
     let session_id = SessionId(Id::new());
 
