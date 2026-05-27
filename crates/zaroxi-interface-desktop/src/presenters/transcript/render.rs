@@ -3,7 +3,65 @@ use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
+/* LSP adapter shim:
+   - When the workspace-provided `zaroxi_core_platform_lsp` crate is available
+     and consumers opt-in via the `use_core_lsp` feature, use the real crate.
+   - Otherwise provide a small builtin mock shim so this crate builds and the
+     presenter remains observable during Phase 10.
+*/
+#[cfg(feature = "use_core_lsp")]
 use zaroxi_core_platform_lsp::session::{request_diagnostics, Diagnostic};
+
+#[cfg(not(feature = "use_core_lsp"))]
+mod lsp_shim {
+    /// Minimal severity set matching the core-platform-lsp shape used by the presenter.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum DiagnosticSeverity {
+        Error,
+        Warning,
+        Information,
+        Hint,
+    }
+
+    impl DiagnosticSeverity {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                DiagnosticSeverity::Error => "error",
+                DiagnosticSeverity::Warning => "warning",
+                DiagnosticSeverity::Information => "info",
+                DiagnosticSeverity::Hint => "hint",
+            }
+        }
+    }
+
+    /// Minimal diagnostic model used for presenter visibility and tests.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Diagnostic {
+        pub message: String,
+        pub severity: DiagnosticSeverity,
+        pub uri: Option<String>,
+    }
+
+    /// Phase-10 mock diagnostics: return a deterministic warning for ".rs" URIs.
+    pub fn request_diagnostics(uri: &str) -> Vec<Diagnostic> {
+        let u = uri.trim();
+        if u.is_empty() {
+            return Vec::new();
+        }
+        if u.ends_with(".rs") {
+            vec![Diagnostic {
+                message: format!("mock: example diagnostic for {}", u),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some(u.to_string()),
+            }]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+#[cfg(not(feature = "use_core_lsp"))]
+use lsp_shim::{request_diagnostics, Diagnostic};
 
 use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, EditorLayoutSpec};
 use super::scene_snapshot;
