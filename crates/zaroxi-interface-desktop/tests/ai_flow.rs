@@ -13,7 +13,6 @@ use zaroxi_application_workspace::ports::{
     GetRecentCommandsRequest, GetRecentEventsRequest, ListBuffersRequest, ListBuffersResponse,
     OpenBufferRequest, OpenBufferResponse, WorkspaceBootRequest, WorkspaceBootResponse, SetActiveBufferRequest,
     SetEditorCursorRequest, SetSelectionRequest, ClearSelectionRequest, GetEditorStateRequest, GetEditorStateResponse,
-    GetActiveEditorDocumentResponse as _G,
     EditorDocument, BufferId, SessionId, UseCaseError, ApplyTextTransactionRequest, ApplyTextTransactionResponse,
 };
 use zaroxi_kernel_types::Id;

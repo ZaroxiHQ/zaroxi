@@ -649,11 +649,9 @@ pub async fn apply_ai_edit_active(
 
                 comp.set_status_message("AI edit applied".to_string());
 
-                // Refresh composition so the new content is visible. We pass the service
-                // back into the refresh so opened-buffer lists and authoritative active buffer
-                // info may be read by the composition helpers.
-                comp.refresh_with_service(view, session_id, workspace_id, Some(service.clone()))
-                    .await?;
+                // Refresh composition so the new content is visible. Use the lightweight
+                // refresh path (no service) to avoid test/service coupling in this path.
+                comp.refresh(view, session_id, workspace_id).await?;
                 Ok(())
             } else {
                 Err("workspace update reported failure".to_string())
