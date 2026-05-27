@@ -2,10 +2,7 @@ use zaroxi_interface_desktop::presenters::gpu_shell::{KeyEvent, handle_key_event
 
 #[test]
 fn keymaps_ctrl_tab_to_next_and_updates_active() {
-    let opened = vec![
-        ("a".to_string(), "A".to_string()),
-        ("b".to_string(), "B".to_string()),
-    ];
+    let opened = vec![("a".to_string(), "A".to_string()), ("b".to_string(), "B".to_string())];
 
     let mut active: Option<String> = Some("a".to_string());
     let current_active = active.clone();

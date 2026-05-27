@@ -1,12 +1,15 @@
-use std::sync::Arc;
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use zaroxi_interface_desktop::{DesktopComposition, actions};
-use zaroxi_interface_desktop::ports as ports;
-use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
+use zaroxi_application_workspace::ports::{
+    EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
+    GetVisibleLinesRequest, GetVisibleLinesResponse, SessionId, WorkspaceView,
+};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_interface_desktop::ports;
+use zaroxi_interface_desktop::{DesktopComposition, actions};
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -44,20 +47,32 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: ports::BufferId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: ports::BufferId,
+    ) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: ports::SessionId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: ports::SessionId,
+    ) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, ports::UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, ports::UseCaseError>> {
         let d = self.doc.clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, ports::UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> BoxFuture<'static, Result<GetVisibleLinesResponse, ports::UseCaseError>> {
         let w = self.window.clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }
@@ -70,7 +85,9 @@ async fn refresh_and_return_shell_context() {
     let sid = SessionId(zaroxi_kernel_types::Id::new());
     let mut comp = DesktopComposition::new();
 
-    let res = actions::refresh_and_get_shell_context(&mut comp, arc, sid, None, None).await.expect("refresh ok");
+    let res = actions::refresh_and_get_shell_context(&mut comp, arc, sid, None, None)
+        .await
+        .expect("refresh ok");
     // The action should have reported success and the composition should expose a shell context.
     assert!(res.action.success);
     let ctx = res.context.expect("context present");

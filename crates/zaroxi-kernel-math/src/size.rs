@@ -14,9 +14,6 @@ impl Size {
 
     /// Zero size.
     pub const fn zero() -> Self {
-        Self {
-            width: 0.0,
-            height: 0.0,
-        }
+        Self { width: 0.0, height: 0.0 }
     }
 }

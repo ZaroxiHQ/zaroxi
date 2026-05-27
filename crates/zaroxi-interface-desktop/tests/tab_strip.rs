@@ -1,4 +1,6 @@
-use zaroxi_interface_desktop::presenters::gpu_shell::{TabStrip, TabAction, compute_tab_action_target, apply_tab_action, GpuShellPresenter};
+use zaroxi_interface_desktop::presenters::gpu_shell::{
+    GpuShellPresenter, TabAction, TabStrip, apply_tab_action, compute_tab_action_target,
+};
 
 #[test]
 fn no_buffers_empty_tab_strip() {
@@ -38,10 +40,7 @@ fn multiple_buffers_order_preserved_and_single_active() {
 
 #[test]
 fn active_none_when_no_match() {
-    let opened = vec![
-        ("x".to_string(), "X".to_string()),
-        ("y".to_string(), "Y".to_string()),
-    ];
+    let opened = vec![("x".to_string(), "X".to_string()), ("y".to_string(), "Y".to_string())];
     let ts = TabStrip::from_opened_and_active(&opened, Some("missing"));
     assert!(ts.tabs.iter().all(|t| !t.active));
 }
@@ -134,7 +133,8 @@ fn action_activate_next_updates_active_id() {
         ("c".to_string(), "C".to_string()),
     ];
     // active = a -> next should be b
-    let target = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
+    let target =
+        compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
     assert_eq!(target.as_deref(), Some("b"));
 }
 
@@ -146,7 +146,8 @@ fn action_activate_previous_updates_active_id() {
         ("c".to_string(), "C".to_string()),
     ];
     // active = b -> prev should be a
-    let target = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, Some("b"));
+    let target =
+        compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, Some("b"));
     assert_eq!(target.as_deref(), Some("a"));
 }
 
@@ -154,7 +155,8 @@ fn action_activate_previous_updates_active_id() {
 fn action_no_buffers_is_noop() {
     let opened: Vec<(String, String)> = vec![];
     let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, None);
-    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
+    let t_prev =
+        compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
     assert_eq!(t_next, None);
     assert_eq!(t_prev, None);
 }
@@ -163,8 +165,13 @@ fn action_no_buffers_is_noop() {
 fn action_one_buffer_stays_same() {
     let opened = vec![("solo".to_string(), "solo.rs".to_string())];
     // With wrap true or false, still the same single buffer for both directions.
-    let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("solo"));
-    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: false }, &opened, Some("solo"));
+    let t_next =
+        compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("solo"));
+    let t_prev = compute_tab_action_target(
+        TabAction::ActivatePrevious { wrap: false },
+        &opened,
+        Some("solo"),
+    );
     assert_eq!(t_next.as_deref(), Some("solo"));
     assert_eq!(t_prev.as_deref(), Some("solo"));
 }
@@ -178,7 +185,8 @@ fn action_deterministic_fallback_when_active_missing() {
     ];
     // active = none -> next picks first, prev picks last
     let t_next = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, None);
-    let t_prev = compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
+    let t_prev =
+        compute_tab_action_target(TabAction::ActivatePrevious { wrap: true }, &opened, None);
     assert_eq!(t_next.as_deref(), Some("one"));
     assert_eq!(t_prev.as_deref(), Some("three"));
 }
@@ -242,14 +250,9 @@ fn action_path_activate_previous_updates_active_buffer() {
 fn action_path_empty_buffers_is_noop() {
     let opened: Vec<(String, String)> = vec![];
     let mut applied = false;
-    let res = apply_tab_action(
-        TabAction::ActivateNext { wrap: true },
-        &opened,
-        None,
-        |_id| {
-            applied = true;
-        },
-    );
+    let res = apply_tab_action(TabAction::ActivateNext { wrap: true }, &opened, None, |_id| {
+        applied = true;
+    });
     assert_eq!(res, None);
     assert!(!applied);
 }
@@ -312,9 +315,9 @@ fn action_path_fallback_when_active_missing_selects_deterministically() {
 
 // ----------------- New renderer-visible tab strip tests -----------------
 
-fn sample_pixel(buf: &Vec<u8>, width: u32, x: u32, y: u32) -> [u8;4] {
+fn sample_pixel(buf: &Vec<u8>, width: u32, x: u32, y: u32) -> [u8; 4] {
     let idx = ((y * width + x) * 4) as usize;
-    [buf[idx], buf[idx+1], buf[idx+2], buf[idx+3]]
+    [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
 }
 
 #[test]
@@ -400,7 +403,10 @@ fn render_tab_strip_one_buffer_shows_active_tab() {
         x0 = x0.saturating_add(w);
     }
 
-    assert!(found_active, "expected to find active-tab color somewhere inside the single tab region");
+    assert!(
+        found_active,
+        "expected to find active-tab color somewhere inside the single tab region"
+    );
 }
 
 #[test]
@@ -472,7 +478,11 @@ fn render_tab_strip_multiple_buffers_order_and_active_marker() {
             }
         }
 
-        assert!(found, "expected to find expected color inside tab index {} (display={})", i, tab.display);
+        assert!(
+            found,
+            "expected to find expected color inside tab index {} (display={})",
+            i, tab.display
+        );
         x0 = x0.saturating_add(w);
     }
 }
@@ -531,7 +541,9 @@ fn render_tab_strip_reflects_keyboard_navigation() {
                         break;
                     }
                 }
-                if found { break; }
+                if found {
+                    break;
+                }
             }
             assert!(found, "expected initial active tab (index 0) to contain active color");
             break;
@@ -540,7 +552,8 @@ fn render_tab_strip_reflects_keyboard_navigation() {
     }
 
     // Compute next active and update TabStrip (simulate Ctrl+Tab)
-    let target = compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
+    let target =
+        compute_tab_action_target(TabAction::ActivateNext { wrap: true }, &opened, Some("a"));
     assert_eq!(target.as_deref(), Some("b"));
     ts = ts.with_active_id(target.as_deref().unwrap());
 
@@ -574,7 +587,9 @@ fn render_tab_strip_reflects_keyboard_navigation() {
                         break;
                     }
                 }
-                if found_active_on_index1 { break; }
+                if found_active_on_index1 {
+                    break;
+                }
             }
             break;
         }
@@ -582,7 +597,10 @@ fn render_tab_strip_reflects_keyboard_navigation() {
         x0 = x0.saturating_add(w);
     }
 
-    assert!(found_active_on_index1, "expected tab index 1 to contain active color after navigation");
+    assert!(
+        found_active_on_index1,
+        "expected tab index 1 to contain active color after navigation"
+    );
 }
 
 #[test]
@@ -627,5 +645,8 @@ fn render_status_region_and_text() {
         }
     }
 
-    assert!(found_changed, "expected status text or indicator to modify at least one pixel inside the status band");
+    assert!(
+        found_changed,
+        "expected status text or indicator to modify at least one pixel inside the status band"
+    );
 }

@@ -18,7 +18,7 @@ Constraints:
 use std::sync::Arc;
 
 use crate::view_adapter::{InterfaceRenderableWindow, fetch_renderable_window};
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 
 /// Very small presenter that stores the last fetched renderable window.
 ///
@@ -50,7 +50,11 @@ impl Presenter {
     ///
     /// This function performs no local projection or mutation logic — it merely
     /// delegates to fetch_renderable_window and stores the returned snapshot.
-    pub async fn refresh(&mut self, view: Arc<dyn WorkspaceView>, session_id: SessionId) -> Result<(), String> {
+    pub async fn refresh(
+        &mut self,
+        view: Arc<dyn WorkspaceView>,
+        session_id: SessionId,
+    ) -> Result<(), String> {
         let win = fetch_renderable_window(view, session_id).await?;
         self.window = Some(win);
         Ok(())

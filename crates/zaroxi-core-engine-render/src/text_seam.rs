@@ -11,7 +11,7 @@ Design:
 - Keeps Glyphon and any concrete backend types private to `zaroxi-core-engine-text`.
 */
 
-use zaroxi_core_engine_text::{new_backend, TextLabel};
+use zaroxi_core_engine_text::{TextLabel, new_backend};
 
 /// Minimal render-facing layout struct.
 ///
@@ -50,9 +50,5 @@ pub fn layout_label_for_render(label: &str, max_width: Option<u32>) -> TextLayou
     let width = (max_chars as u32).saturating_mul(8);
     let height = (backend_layout.lines.len() as u32).saturating_mul(16);
 
-    TextLayout {
-        lines: backend_layout.lines,
-        width,
-        height,
-    }
+    TextLayout { lines: backend_layout.lines, width, height }
 }

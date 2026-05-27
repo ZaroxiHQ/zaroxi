@@ -1,4 +1,4 @@
-use crate::events::types::{FrameModel, Region, RenderViewModel, UiEvent, Key, Resize, Mouse};
+use crate::events::types::{FrameModel, Key, Mouse, Region, RenderViewModel, Resize, UiEvent};
 
 /// Minimal event router that converts incoming UiEvent values into calls on
 /// the UI-facing models (`FrameModel` and `RenderViewModel`).
@@ -14,9 +14,7 @@ pub struct EventRouter {
 impl EventRouter {
     /// Create a new router with Content as the default active region.
     pub fn new() -> Self {
-        Self {
-            active_region: Region::Content,
-        }
+        Self { active_region: Region::Content }
     }
 
     /// Set the active region (e.g. when layout changes focus).
@@ -78,7 +76,12 @@ impl EventRouter {
         }
     }
 
-    fn handle_mouse(&mut self, mouse: Mouse, _frame: &mut dyn FrameModel, view: &mut dyn RenderViewModel) {
+    fn handle_mouse(
+        &mut self,
+        mouse: Mouse,
+        _frame: &mut dyn FrameModel,
+        view: &mut dyn RenderViewModel,
+    ) {
         if mouse.clicked {
             // Map mouse clicks to the current region becoming active.
             view.set_active_section(self.active_region.clone());

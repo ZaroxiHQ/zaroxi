@@ -16,10 +16,6 @@ pub struct UiStyle {
 
 impl Default for UiStyle {
     fn default() -> Self {
-        UiStyle {
-            direction: Direction::Column,
-            padding: 0.0,
-            gap: 0.0,
-        }
+        UiStyle { direction: Direction::Column, padding: 0.0, gap: 0.0 }
     }
 }

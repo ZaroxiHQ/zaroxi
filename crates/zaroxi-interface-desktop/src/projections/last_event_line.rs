@@ -1,4 +1,4 @@
-use crate::ports::{WorkspaceEvent, WorkspaceEventKind, BufferId};
+use crate::ports::{BufferId, WorkspaceEvent, WorkspaceEventKind};
 
 /// Tiny shell-facing one-line projection that answers "what was the last event?"
 /// The projection is intentionally minimal and adapter-local; it only exposes a
@@ -47,11 +47,8 @@ pub fn summarize_event_kind(kind: &WorkspaceEventKind) -> String {
         }
         WorkspaceEventKind::ExplainExecuted { buffer_id, result } => {
             // Keep result short if it's multi-line or long; show a small suffix.
-            let short = if result.len() > 80 {
-                format!("{}...", &result[..80])
-            } else {
-                result.clone()
-            };
+            let short =
+                if result.len() > 80 { format!("{}...", &result[..80]) } else { result.clone() };
             format!("ExplainExecuted: {:?}: {}", buffer_id, short)
         }
     }

@@ -19,5 +19,11 @@ pub fn latest_shell_snapshot(comp: &super::DesktopComposition) -> Option<super::
     let ai_summary = comp.latest_ai_projection_summary();
     let opened_buffers = comp.latest_opened_buffers_summary();
 
-    Some(super::ShellSnapshot { context: ctx, active_document, viewport, ai_summary, opened_buffers })
+    Some(super::ShellSnapshot {
+        context: ctx,
+        active_document,
+        viewport,
+        ai_summary,
+        opened_buffers,
+    })
 }

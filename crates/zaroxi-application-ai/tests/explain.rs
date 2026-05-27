@@ -1,4 +1,4 @@
-use zaroxi_application_ai::ports as ports;
+use zaroxi_application_ai::ports;
 use zaroxi_application_ai::ports::AiClient;
 use zaroxi_kernel_types::Id;
 
@@ -9,10 +9,13 @@ use zaroxi_kernel_types::Id;
 
 struct FakeAi;
 impl ports::AiClient for FakeAi {
-    fn request(&self, req: ports::AiRequest) -> ports::BoxFuture<'static, Result<ports::AiResponseDTO, ports::AiError>> {
-        Box::pin(async move {
-            Ok(ports::AiResponseDTO { text: format!("explain: {}", req.buffer_id) })
-        })
+    fn request(
+        &self,
+        req: ports::AiRequest,
+    ) -> ports::BoxFuture<'static, Result<ports::AiResponseDTO, ports::AiError>> {
+        Box::pin(
+            async move { Ok(ports::AiResponseDTO { text: format!("explain: {}", req.buffer_id) }) },
+        )
     }
 }
 
@@ -25,7 +28,7 @@ async fn ai_request_roundtrip() {
         buffer_id: ports::BufferId::from("buf:1"),
         content_snapshot: "fn main() {}".to_string(),
     };
- 
+
     let res = ai.request(req).await.expect("ai responded");
     assert!(res.text.contains("explain: buf:1"));
 }

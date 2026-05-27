@@ -14,7 +14,9 @@ Responsibility:
 /// This function mirrors exactly the logic previously embedded in
 /// `DesktopComposition::latest_ai_projection_summary` and must remain behaviourally
 /// identical. It is pure/derivational and reads the composition only.
-pub fn latest_ai_projection_summary(comp: &super::DesktopComposition) -> Option<super::AiProjectionSummary> {
+pub fn latest_ai_projection_summary(
+    comp: &super::DesktopComposition,
+) -> Option<super::AiProjectionSummary> {
     let ap = comp.latest_ai_projection()?;
     // Map kind string to small enum
     let kind_opt = ap.kind.as_ref().map(|k| {

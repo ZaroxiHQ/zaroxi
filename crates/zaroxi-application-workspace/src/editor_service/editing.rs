@@ -117,11 +117,7 @@ impl EditorService {
             let mut b = buf_arc.lock().unwrap();
             let res = b.undo();
             // After undo, if buffer has saved_text, recompute dirty accordingly
-            b.dirty = b
-                .saved_text
-                .as_ref()
-                .map(|s| s != &b.to_text())
-                .unwrap_or(true);
+            b.dirty = b.saved_text.as_ref().map(|s| s != &b.to_text()).unwrap_or(true);
             res
         } else {
             false
@@ -133,11 +129,7 @@ impl EditorService {
         if let Some(buf_arc) = self.get_active_buffer_arc() {
             let mut b = buf_arc.lock().unwrap();
             let res = b.redo();
-            b.dirty = b
-                .saved_text
-                .as_ref()
-                .map(|s| s != &b.to_text())
-                .unwrap_or(true);
+            b.dirty = b.saved_text.as_ref().map(|s| s != &b.to_text()).unwrap_or(true);
             res
         } else {
             false

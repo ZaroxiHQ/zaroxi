@@ -21,7 +21,12 @@ impl LocationLine {
     /// Returns None when the lifecycle rule indicates absence:
     /// - absent before the first refresh (latest_revision == 0)
     /// - absent when cursor/document info is missing
-    pub fn from_parts(latest_revision: u64, cursor_line: Option<u32>, cursor_column: Option<u32>, display: Option<String>) -> Option<Self> {
+    pub fn from_parts(
+        latest_revision: u64,
+        cursor_line: Option<u32>,
+        cursor_column: Option<u32>,
+        display: Option<String>,
+    ) -> Option<Self> {
         // Lifecycle: absent before first refresh.
         if latest_revision == 0 {
             return None;
@@ -30,11 +35,7 @@ impl LocationLine {
         // Require both cursor line and column to consider the projection present.
         let line = cursor_line?;
         let column = cursor_column?;
-        Some(Self {
-            line,
-            column,
-            display,
-        })
+        Some(Self { line, column, display })
     }
 
     /// Compose the projection from the authoritative ShellSnapshot.
@@ -45,14 +46,9 @@ impl LocationLine {
         let rev = snapshot.context.latest_revision;
         // Some upstream types encode cursor positions as usize; convert to u32 to
         // match this projection's compact representation. Use map to preserve Option.
-        let line = snapshot
-            .active_document
-            .as_ref()
-            .and_then(|d| d.cursor_line.map(|l| l as u32));
-        let column = snapshot
-            .active_document
-            .as_ref()
-            .and_then(|d| d.cursor_column.map(|c| c as u32));
+        let line = snapshot.active_document.as_ref().and_then(|d| d.cursor_line.map(|l| l as u32));
+        let column =
+            snapshot.active_document.as_ref().and_then(|d| d.cursor_column.map(|c| c as u32));
         let display = snapshot.context.active_display.clone();
         Self::from_parts(rev, line, column, display)
     }

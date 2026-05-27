@@ -34,7 +34,8 @@ fn populated_after_refresh() {
 #[test]
 fn coherent_after_later_actions() {
     // Projection remains coherent as underlying metadata evolves.
-    let line = SessionIdentityLine::new(Some("sess-abc".to_string()), Some("ws-42".to_string()), None);
+    let line =
+        SessionIdentityLine::new(Some("sess-abc".to_string()), Some("ws-42".to_string()), None);
     assert!(!line.is_empty());
     assert_eq!(line.session_id.as_deref(), Some("sess-abc"));
     assert_eq!(line.workspace_id.as_deref(), Some("ws-42"));

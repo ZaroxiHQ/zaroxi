@@ -1,4 +1,7 @@
-use zaroxi_interface_desktop::{TextView, InterfaceRenderableWindow, InterfaceRenderableLine, InterfaceRenderSpan, InterfaceSpanKind};
+use zaroxi_interface_desktop::{
+    InterfaceRenderSpan, InterfaceRenderableLine, InterfaceRenderableWindow, InterfaceSpanKind,
+    TextView,
+};
 
 #[test]
 fn text_view_from_window_reports_lines_and_cursor() {
@@ -28,11 +31,7 @@ fn text_view_from_window_reports_lines_and_cursor() {
         total_columns: 4,
     };
 
-    let win = InterfaceRenderableWindow {
-        top_line: 1,
-        total_lines: 1,
-        lines: vec![line],
-    };
+    let win = InterfaceRenderableWindow { top_line: 1, total_lines: 1, lines: vec![line] };
 
     let tv = TextView::from_window(&win).expect("tv present");
     assert_eq!(tv.lines.len(), 1);

@@ -18,13 +18,16 @@ behind RENDER_DEBUG.
 use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
 use glyphon::{
-    Cache, TextAtlas, TextRenderer as GlyphonRenderer, Viewport, SwashCache,
-    Buffer, Metrics, Attrs, Shaping, Color, FontSystem, TextArea, TextBounds,
+    Attrs, Buffer, Cache, Color, FontSystem, Metrics, Shaping, SwashCache, TextArea, TextAtlas,
+    TextBounds, TextRenderer as GlyphonRenderer, Viewport,
 };
-use log::{info, debug};
+use log::{debug, info};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use wgpu::{BindGroupLayout, Device, Queue, BindGroup, RenderPass, RenderPipeline, MultisampleState, DepthStencilState, TextureFormat};
+use wgpu::{
+    BindGroup, BindGroupLayout, DepthStencilState, Device, MultisampleState, Queue, RenderPass,
+    RenderPipeline, TextureFormat,
+};
 
 use crate::renderer::debug::RENDER_DEBUG;
 
@@ -49,7 +52,12 @@ impl GlyphonTextRenderer {
     ///
     /// Note: requires the color format so the TextAtlas can be created with the
     /// same format used by the text pipeline.
-    pub fn new(device: &Device, queue: &Queue, color_format: TextureFormat, _font_size: f32) -> Result<Self, RenderError> {
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        color_format: TextureFormat,
+        _font_size: f32,
+    ) -> Result<Self, RenderError> {
         // Create glyphon cache and atlas first (exact glyphon 0.11.0 flow).
         let cache = Cache::new(device);
         let mut atlas = TextAtlas::new(device, queue, &cache, color_format);
@@ -60,7 +68,8 @@ impl GlyphonTextRenderer {
 
         // Try to register bundled JetBrains Mono Nerd Font (best-effort).
         let manifest = env!("CARGO_MANIFEST_DIR");
-        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let font_path =
+            PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
         if font_path.exists() {
             match std::fs::read(&font_path) {
                 Ok(_data) => {
@@ -69,7 +78,10 @@ impl GlyphonTextRenderer {
                     info!("Bundled JetBrains Mono Nerd Font found at '{}'", font_path.display());
                 }
                 Err(e) => {
-                    info!("Bundled JetBrains Mono Nerd Font found but failed to read: {:?}; falling back to system fonts", e);
+                    info!(
+                        "Bundled JetBrains Mono Nerd Font found but failed to read: {:?}; falling back to system fonts",
+                        e
+                    );
                 }
             }
         } else {
@@ -189,7 +201,15 @@ impl TextRenderer for GlyphonTextRenderer {
 
         info!("Glyphon prepare called with {} text areas", queued_count);
         // Call the glyphon prepare API with the exact signature required by 0.11.0.
-        match gr.prepare(device, queue, &mut *fs, &mut *atlas, &*viewport, areas.into_iter(), &mut *swash) {
+        match gr.prepare(
+            device,
+            queue,
+            &mut *fs,
+            &mut *atlas,
+            &*viewport,
+            areas.into_iter(),
+            &mut *swash,
+        ) {
             Ok(()) => {
                 info!("Glyphon prepare succeeded");
             }

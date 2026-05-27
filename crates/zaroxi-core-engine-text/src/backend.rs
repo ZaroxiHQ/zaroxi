@@ -54,11 +54,7 @@ impl TextBackend for DummyBackend {
         // width = char_count * 8, height = 16, single line only.
         let width = (label.text.chars().count() as u32).saturating_mul(8);
         let height = 16;
-        TextLayout {
-            width,
-            height,
-            lines: vec![label.text.clone()],
-        }
+        TextLayout { width, height, lines: vec![label.text.clone()] }
     }
 }
 
@@ -102,11 +98,7 @@ mod glyphon_impl {
             // accurate lines/metrics. Keep this simple to prove the adapter seam.
             let width = (label.text.chars().count() as u32).saturating_mul(9);
             let height = 18;
-            TextLayout {
-                width,
-                height,
-                lines: vec![label.text.clone()],
-            }
+            TextLayout { width, height, lines: vec![label.text.clone()] }
         }
     }
 }

@@ -28,29 +28,29 @@ The shell commands are included here for convenience; run them after applying th
 */
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc as StdArc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use zaroxi_interface_desktop::{
-    refresh_desktop, move_cursor_to_start_and_refresh, actions, DesktopComposition,
-};
-use zaroxi_interface_desktop::desktop::RefreshReason;
 use zaroxi_application_workspace::ports::{
-    WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId,
-    GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor,
-    WorkspaceService, GetActiveBufferRequest, GetActiveBufferResponse, SetEditorCursorRequest,
-    ApplyTextTransactionRequest, ApplyTextTransactionResponse, UseCaseError,
+    ApplyTextTransactionRequest, ApplyTextTransactionResponse, EditorCursor, EditorDocument,
+    GetActiveBufferRequest, GetActiveBufferResponse, GetActiveEditorDocumentRequest,
+    GetActiveEditorDocumentResponse, GetVisibleLinesRequest, GetVisibleLinesResponse, SessionId,
+    SetEditorCursorRequest, UseCaseError, WorkspaceService, WorkspaceView,
 };
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_interface_desktop::desktop::RefreshReason;
+use zaroxi_interface_desktop::{
+    DesktopComposition, actions, move_cursor_to_start_and_refresh, refresh_desktop,
+};
 use zaroxi_kernel_types::Id;
 
 // Bring the ports module into a local alias for unambiguous references in function signatures.
-use zaroxi_application_workspace::ports as ports;
+use zaroxi_application_workspace::ports;
 
-use std::pin::Pin;
-use std::future::Future;
 use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Helper boxed future alias matching the application port signature used in tests.
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -91,20 +91,32 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: ports::BufferId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: ports::BufferId,
+    ) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: ports::SessionId) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: ports::SessionId,
+    ) -> BoxFuture<'static, Result<Option<String>, ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
         let d = self.doc.clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>> {
         let w = self.window.clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }
@@ -141,15 +153,24 @@ impl FakeService {
 }
 
 impl ports::WorkspaceService for FakeService {
-    fn boot_workspace(&self, _req: ports::WorkspaceBootRequest) -> BoxFuture<'static, Result<ports::WorkspaceBootResponse, ports::UseCaseError>> {
+    fn boot_workspace(
+        &self,
+        _req: ports::WorkspaceBootRequest,
+    ) -> BoxFuture<'static, Result<ports::WorkspaceBootResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownWorkspace) })
     }
 
-    fn open_buffer(&self, _req: ports::OpenBufferRequest) -> BoxFuture<'static, Result<ports::OpenBufferResponse, ports::UseCaseError>> {
+    fn open_buffer(
+        &self,
+        _req: ports::OpenBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::OpenBufferResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn list_open_buffers(&self, _req: ports::ListBuffersRequest) -> BoxFuture<'static, Result<ports::ListBuffersResponse, ports::UseCaseError>> {
+    fn list_open_buffers(
+        &self,
+        _req: ports::ListBuffersRequest,
+    ) -> BoxFuture<'static, Result<ports::ListBuffersResponse, ports::UseCaseError>> {
         let opened = self.opened.clone();
         let active = self.active.clone();
         Box::pin(async move {
@@ -159,11 +180,17 @@ impl ports::WorkspaceService for FakeService {
         })
     }
 
-    fn set_active_buffer(&self, _req: ports::SetActiveBufferRequest) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>> {
+    fn set_active_buffer(
+        &self,
+        _req: ports::SetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn get_active_buffer(&self, _req: GetActiveBufferRequest) -> BoxFuture<'static, Result<GetActiveBufferResponse, ports::UseCaseError>> {
+    fn get_active_buffer(
+        &self,
+        _req: GetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<GetActiveBufferResponse, ports::UseCaseError>> {
         let active = self.active.clone();
         Box::pin(async move {
             match active.lock().unwrap().clone() {
@@ -173,7 +200,10 @@ impl ports::WorkspaceService for FakeService {
         })
     }
 
-    fn set_editor_cursor(&self, req: SetEditorCursorRequest) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>> {
+    fn set_editor_cursor(
+        &self,
+        req: SetEditorCursorRequest,
+    ) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>> {
         let expected = self.buffer_id.clone();
         let set_called = self.set_called.clone();
         Box::pin(async move {
@@ -186,71 +216,123 @@ impl ports::WorkspaceService for FakeService {
         })
     }
 
-    fn set_editor_selection(&self, _req: ports::SetSelectionRequest) -> BoxFuture<'static, Result<ports::SetSelectionResponse, ports::UseCaseError>> {
+    fn set_editor_selection(
+        &self,
+        _req: ports::SetSelectionRequest,
+    ) -> BoxFuture<'static, Result<ports::SetSelectionResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn clear_editor_selection(&self, _req: ports::ClearSelectionRequest) -> BoxFuture<'static, Result<ports::ClearSelectionResponse, ports::UseCaseError>> {
+    fn clear_editor_selection(
+        &self,
+        _req: ports::ClearSelectionRequest,
+    ) -> BoxFuture<'static, Result<ports::ClearSelectionResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn get_editor_state(&self, _req: ports::GetEditorStateRequest) -> BoxFuture<'static, Result<ports::GetEditorStateResponse, ports::UseCaseError>> {
+    fn get_editor_state(
+        &self,
+        _req: ports::GetEditorStateRequest,
+    ) -> BoxFuture<'static, Result<ports::GetEditorStateResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn set_viewport_state(&self, _req: ports::SetViewportRequest) -> BoxFuture<'static, Result<ports::SetViewportResponse, ports::UseCaseError>> {
+    fn set_viewport_state(
+        &self,
+        _req: ports::SetViewportRequest,
+    ) -> BoxFuture<'static, Result<ports::SetViewportResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn scroll_viewport(&self, _req: ports::ScrollViewportRequest) -> BoxFuture<'static, Result<ports::ScrollViewportResponse, ports::UseCaseError>> {
+    fn scroll_viewport(
+        &self,
+        _req: ports::ScrollViewportRequest,
+    ) -> BoxFuture<'static, Result<ports::ScrollViewportResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn explain_active_buffer(&self, _req: ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
+    fn explain_active_buffer(
+        &self,
+        _req: ports::GetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::NoActiveBuffer) })
     }
 
-    fn dispatch_command(&self, _req: ports::DispatchCommandRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
+    fn dispatch_command(
+        &self,
+        _req: ports::DispatchCommandRequest,
+    ) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn update_buffer(&self, _req: ports::UpdateBufferRequest) -> BoxFuture<'static, Result<ports::UpdateBufferResponse, ports::UseCaseError>> {
+    fn update_buffer(
+        &self,
+        _req: ports::UpdateBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::UpdateBufferResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn apply_text_transaction(&self, _req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, ports::UseCaseError>> {
+    fn apply_text_transaction(
+        &self,
+        _req: ApplyTextTransactionRequest,
+    ) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, ports::UseCaseError>> {
         let apply_called = self.apply_called.clone();
         Box::pin(async move {
             apply_called.store(true, Ordering::SeqCst);
-            Ok(ApplyTextTransactionResponse { ok: true, state: ports::EditorState { cursor: EditorCursor::zero(), selection: None }, content: None })
+            Ok(ApplyTextTransactionResponse {
+                ok: true,
+                state: ports::EditorState { cursor: EditorCursor::zero(), selection: None },
+                content: None,
+            })
         })
     }
 
-    fn get_recent_commands(&self, _req: ports::GetRecentCommandsRequest) -> BoxFuture<'static, Result<ports::GetRecentCommandsResponse, ports::UseCaseError>> {
+    fn get_recent_commands(
+        &self,
+        _req: ports::GetRecentCommandsRequest,
+    ) -> BoxFuture<'static, Result<ports::GetRecentCommandsResponse, ports::UseCaseError>> {
         Box::pin(async { Ok(ports::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
 
-    fn get_recent_events(&self, _req: ports::GetRecentEventsRequest) -> BoxFuture<'static, Result<ports::GetRecentEventsResponse, ports::UseCaseError>> {
+    fn get_recent_events(
+        &self,
+        _req: ports::GetRecentEventsRequest,
+    ) -> BoxFuture<'static, Result<ports::GetRecentEventsResponse, ports::UseCaseError>> {
         Box::pin(async { Ok(ports::GetRecentEventsResponse { events: Vec::new() }) })
     }
 
-    fn get_session_snapshot(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, ports::UseCaseError>> {
+    fn get_session_snapshot(
+        &self,
+        _req: ports::GetSessionSnapshotRequest,
+    ) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn create_checkpoint(&self, _req: ports::CreateCheckpointRequest) -> BoxFuture<'static, Result<ports::CreateCheckpointResponse, ports::UseCaseError>> {
+    fn create_checkpoint(
+        &self,
+        _req: ports::CreateCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::CreateCheckpointResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn save_checkpoint(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, ports::UseCaseError>> {
+    fn save_checkpoint(
+        &self,
+        _req: ports::SaveCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn load_checkpoint(&self, _req: ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<ports::LoadCheckpointResponse, ports::UseCaseError>> {
+    fn load_checkpoint(
+        &self,
+        _req: ports::LoadCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::LoadCheckpointResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 
-    fn restore_checkpoint(&self, _req: ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, ports::UseCaseError>> {
+    fn restore_checkpoint(
+        &self,
+        _req: ports::RestoreCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, ports::UseCaseError>> {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 }
@@ -287,14 +369,26 @@ async fn move_cursor_action_calls_service_and_refreshes() {
 
     let mut comp = DesktopComposition::new();
     // pre-refresh to populate presenter (not required but realistic)
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None)
+        .await
+        .expect("initial refresh ok");
 
-    let res = move_cursor_to_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
+    let res = move_cursor_to_start_and_refresh(
+        &mut comp,
+        service_arc.clone(),
+        arc.clone(),
+        sid.clone(),
+        None,
+    )
+    .await;
     assert!(res.is_ok());
     let ar = res.unwrap();
     assert!(ar.success);
     assert!(ar.refreshed);
-    assert!(set_called.load(Ordering::SeqCst), "set_editor_cursor should have been called on the service");
+    assert!(
+        set_called.load(Ordering::SeqCst),
+        "set_editor_cursor should have been called on the service"
+    );
 
     // Cursor-move recorded
     let rr = comp.latest_refresh_reason().expect("reason present");
@@ -317,14 +411,26 @@ async fn insert_line_action_applies_transaction_and_refreshes() {
 
     let mut comp = DesktopComposition::new();
     // pre-refresh
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None)
+        .await
+        .expect("initial refresh ok");
 
-    let res = actions::insert_line_at_start_and_refresh(&mut comp, service_arc.clone(), arc.clone(), sid.clone(), None).await;
+    let res = actions::insert_line_at_start_and_refresh(
+        &mut comp,
+        service_arc.clone(),
+        arc.clone(),
+        sid.clone(),
+        None,
+    )
+    .await;
     assert!(res.is_ok());
     let ar = res.unwrap();
     assert!(ar.success);
     assert!(ar.refreshed);
-    assert!(apply_called.load(Ordering::SeqCst), "apply_text_transaction should have been called on the service");
+    assert!(
+        apply_called.load(Ordering::SeqCst),
+        "apply_text_transaction should have been called on the service"
+    );
 
     // Buffer update recorded
     let rr = comp.latest_refresh_reason().expect("reason present");
@@ -352,12 +458,17 @@ async fn opened_buffers_projection_refreshes() {
     let mut comp = DesktopComposition::new();
 
     // First refresh with service: should reflect single opened buffer
-    let ar = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone())).await.expect("refresh ok");
+    let ar =
+        refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone()))
+            .await
+            .expect("refresh ok");
     assert!(ar.success);
     let meta1 = comp.latest_metadata().expect("meta present");
     assert_eq!(meta1.opened_buffer_count, 1);
     assert_eq!(meta1.opened_buffers.len(), 1);
-    assert!(meta1.opened_buffers.iter().any(|i| i.active && i.buffer_id == BufferId::from("buf:one")));
+    assert!(
+        meta1.opened_buffers.iter().any(|i| i.active && i.buffer_id == BufferId::from("buf:one"))
+    );
 
     // Mutate the fake service: add second buffer and mark it active
     {
@@ -370,7 +481,10 @@ async fn opened_buffers_projection_refreshes() {
     }
 
     // Second refresh should pick up updated opened buffer list and active marker
-    let ar2 = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone())).await.expect("refresh ok");
+    let ar2 =
+        refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, Some(service_trait.clone()))
+            .await
+            .expect("refresh ok");
     assert!(ar2.success);
     let meta2 = comp.latest_metadata().expect("meta present");
     assert_eq!(meta2.opened_buffer_count, 2);

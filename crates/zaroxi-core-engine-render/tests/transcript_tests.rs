@@ -1,4 +1,7 @@
-use zaroxi_core_engine_render::{plan::{ShellDrawPlan, DrawSection}, ShellRenderTranscript};
+use zaroxi_core_engine_render::{
+    ShellRenderTranscript,
+    plan::{DrawSection, ShellDrawPlan},
+};
 
 #[test]
 fn transcript_from_shell_draw_plan_is_deterministic() {
@@ -19,7 +22,7 @@ fn transcript_from_shell_draw_plan_is_deterministic() {
     let plan = ShellDrawPlan {
         sections: vec![
             DrawSection::Content { line_count: 0, width: 0, height: 0 },
-            DrawSection::Status
+            DrawSection::Status,
         ],
         selection_present: false,
         status_present: true,

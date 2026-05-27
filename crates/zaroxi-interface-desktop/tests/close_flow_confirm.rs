@@ -1,12 +1,13 @@
 mod close_flow_common;
-use std::sync::Arc;
 use close_flow_common::CloseFlowViewStub;
+use std::sync::Arc;
 use zaroxi_application_workspace::ports::SessionId;
 use zaroxi_interface_desktop::{DesktopComposition, actions, refresh_desktop};
 
 #[tokio::test]
 async fn confirm_save_and_close_clears_pending_and_sets_status() {
-    let view = Arc::new(CloseFlowViewStub::new()) as Arc<dyn zaroxi_application_workspace::ports::WorkspaceView>;
+    let view = Arc::new(CloseFlowViewStub::new())
+        as Arc<dyn zaroxi_application_workspace::ports::WorkspaceView>;
     let sid = SessionId(zaroxi_kernel_types::Id::new());
     let mut comp = DesktopComposition::new();
 
@@ -34,7 +35,8 @@ async fn confirm_save_and_close_clears_pending_and_sets_status() {
 
 #[tokio::test]
 async fn confirm_discard_and_close_removes_buffer_and_sets_status() {
-    let view = Arc::new(CloseFlowViewStub::new()) as Arc<dyn zaroxi_application_workspace::ports::WorkspaceView>;
+    let view = Arc::new(CloseFlowViewStub::new())
+        as Arc<dyn zaroxi_application_workspace::ports::WorkspaceView>;
     let sid = SessionId(zaroxi_kernel_types::Id::new());
     let mut comp = DesktopComposition::new();
 
@@ -50,8 +52,14 @@ async fn confirm_discard_and_close_removes_buffer_and_sets_status() {
     assert!(!comp.has_pending_close(), "pending close should be cleared after discard-and-close");
 
     let obs = comp.latest_opened_buffers_summary();
-    assert_eq!(obs.count, 0, "opened buffers should be empty after discarding and closing the last buffer");
-    assert!(obs.active.is_none(), "active buffer should be None after discarding and closing the last buffer");
+    assert_eq!(
+        obs.count, 0,
+        "opened buffers should be empty after discarding and closing the last buffer"
+    );
+    assert!(
+        obs.active.is_none(),
+        "active buffer should be None after discarding and closing the last buffer"
+    );
 
     let bar = comp.latest_status_bar_line().expect("status bar present after discard");
     assert!(bar.text.contains("Discarded"), "status should reflect discard-and-close outcome");

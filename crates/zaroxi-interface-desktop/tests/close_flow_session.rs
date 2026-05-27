@@ -1,6 +1,6 @@
 mod close_flow_common;
-use std::sync::Arc;
 use close_flow_common::CloseFlowViewStub;
+use std::sync::Arc;
 
 use zaroxi_application_workspace::ports;
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
@@ -38,19 +38,22 @@ impl ports::WorkspaceService for DirtyService {
     fn set_active_buffer(
         &self,
         _req: ports::SetActiveBufferRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
     fn get_active_buffer(
         &self,
         _req: ports::GetActiveBufferRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::GetActiveBufferResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::GetActiveBufferResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
     fn set_editor_cursor(
         &self,
         _req: ports::SetEditorCursorRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
     fn set_editor_selection(
@@ -86,13 +89,15 @@ impl ports::WorkspaceService for DirtyService {
     fn explain_active_buffer(
         &self,
         _req: ports::GetActiveBufferRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::NoActiveBuffer) })
     }
     fn dispatch_command(
         &self,
         _req: ports::DispatchCommandRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
     fn update_buffer(
@@ -104,14 +109,12 @@ impl ports::WorkspaceService for DirtyService {
     fn apply_text_transaction(
         &self,
         _req: ports::ApplyTextTransactionRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::ApplyTextTransactionResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::ApplyTextTransactionResponse, ports::UseCaseError>>
+    {
         Box::pin(async {
             Ok(ports::ApplyTextTransactionResponse {
                 ok: true,
-                state: ports::EditorState {
-                    cursor: ports::EditorCursor::zero(),
-                    selection: None,
-                },
+                state: ports::EditorState { cursor: ports::EditorCursor::zero(), selection: None },
                 content: None,
             })
         })
@@ -119,19 +122,22 @@ impl ports::WorkspaceService for DirtyService {
     fn get_recent_commands(
         &self,
         _req: ports::GetRecentCommandsRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::GetRecentCommandsResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::GetRecentCommandsResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Ok(ports::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
     fn get_recent_events(
         &self,
         _req: ports::GetRecentEventsRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::GetRecentEventsResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::GetRecentEventsResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Ok(ports::GetRecentEventsResponse { events: Vec::new() }) })
     }
     fn get_session_snapshot(
         &self,
         _req: ports::GetSessionSnapshotRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, ports::UseCaseError>>
+    {
         let snap = ports::SessionSnapshot {
             session_id: SessionId(zaroxi_kernel_types::Id::new()),
             workspace_id: zaroxi_kernel_types::Id::new(),
@@ -146,7 +152,8 @@ impl ports::WorkspaceService for DirtyService {
     fn create_checkpoint(
         &self,
         _req: ports::CreateCheckpointRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::CreateCheckpointResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::CreateCheckpointResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
     fn save_checkpoint(
@@ -164,7 +171,8 @@ impl ports::WorkspaceService for DirtyService {
     fn restore_checkpoint(
         &self,
         _req: ports::RestoreCheckpointRequest,
-    ) -> ports::BoxFuture<'static, Result<ports::RestoreCheckpointResponse, ports::UseCaseError>> {
+    ) -> ports::BoxFuture<'static, Result<ports::RestoreCheckpointResponse, ports::UseCaseError>>
+    {
         Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
     }
 }

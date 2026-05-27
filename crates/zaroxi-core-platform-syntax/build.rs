@@ -12,7 +12,10 @@ fn main() {
     // Check if runtime directory already exists
     let runtime_dir = get_runtime_dir();
     if runtime_dir.exists() {
-        println!("cargo:warning=Runtime directory already exists at {:?}, skipping grammar installation", runtime_dir);
+        println!(
+            "cargo:warning=Runtime directory already exists at {:?}, skipping grammar installation",
+            runtime_dir
+        );
         return;
     }
 

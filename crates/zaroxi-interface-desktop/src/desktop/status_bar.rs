@@ -22,11 +22,10 @@ pub fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super:
     };
 
     // Helper to build sticky display (prefer active_buffer_details.display).
-    let sticky = meta
-        .active_buffer_details
-        .as_ref()
-        .and_then(|d| d.display.clone())
-        .or_else(|| meta.opened_buffers.iter().find(|it| it.active).and_then(|it| it.display.clone()));
+    let sticky =
+        meta.active_buffer_details.as_ref().and_then(|d| d.display.clone()).or_else(|| {
+            meta.opened_buffers.iter().find(|it| it.active).and_then(|it| it.display.clone())
+        });
 
     // Prefer AI projection result when present.
     if let Some(ai) = meta.ai_projection.as_ref() {

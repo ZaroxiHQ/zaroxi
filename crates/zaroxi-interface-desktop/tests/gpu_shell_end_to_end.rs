@@ -1,13 +1,19 @@
-use zaroxi_interface_desktop::gpu_shell_runtime::apply_action_and_get_regions;
 use zaroxi_interface_desktop::events::Action;
+use zaroxi_interface_desktop::gpu_shell_runtime::apply_action_and_get_regions;
 
 #[test]
 fn apply_set_active_buffer_returns_ordered_regions() {
     let width: u32 = 200;
     let height: u32 = 100;
 
-    let before = zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch(width, height, None);
-    let after = apply_action_and_get_regions(Action::SetActiveBuffer("test_buffer".to_string()), width, height);
+    let before = zaroxi_interface_desktop::gpu_shell_adapter::view_model_to_regions_from_scratch(
+        width, height, None,
+    );
+    let after = apply_action_and_get_regions(
+        Action::SetActiveBuffer("test_buffer".to_string()),
+        width,
+        height,
+    );
 
     // Basic structural assertions: origins and widths preserved, and vertical ordering.
     assert_eq!(after.chrome.x, 0);

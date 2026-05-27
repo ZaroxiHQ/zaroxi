@@ -2,7 +2,9 @@
 // This function centralizes the tiny shell-facing status line logic that the
 // main DesktopComposition.latest_status_bar_line previously contained.
 
-pub(crate) fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super::StatusBarLine> {
+pub(crate) fn latest_status_bar_line(
+    comp: &super::DesktopComposition,
+) -> Option<super::StatusBarLine> {
     // Pending-close banner takes precedence.
     if let Some(pc) = comp.pending_close.as_ref() {
         // Local copy of the earlier logic.
@@ -20,7 +22,10 @@ pub(crate) fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option
     // Transient last-command-line status takes next precedence.
     if let Some(m) = comp.metadata.as_ref() {
         if let Some(ref last) = m.last_command_line {
-            return Some(super::StatusBarLine { text: last.clone(), sticky: Some("status-message".to_string()) });
+            return Some(super::StatusBarLine {
+                text: last.clone(),
+                sticky: Some("status-message".to_string()),
+            });
         }
     }
 

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-use crate::vec2::Vec2;
 use crate::size::Size;
+use crate::vec2::Vec2;
 
 /// Axis-aligned rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -19,12 +19,7 @@ impl Rect {
 
     /// Create a rect from minimum corner and size.
     pub const fn from_min_size(origin: Vec2, size: Size) -> Self {
-        Self {
-            x: origin.x,
-            y: origin.y,
-            width: size.width,
-            height: size.height,
-        }
+        Self { x: origin.x, y: origin.y, width: size.width, height: size.height }
     }
 
     /// Minimum corner (x,y).
@@ -68,12 +63,7 @@ impl Rect {
 
     /// Translate by vector.
     pub fn translate(self, v: Vec2) -> Self {
-        Self {
-            x: self.x + v.x,
-            y: self.y + v.y,
-            width: self.width,
-            height: self.height,
-        }
+        Self { x: self.x + v.x, y: self.y + v.y, width: self.width, height: self.height }
     }
 
     /// Inflate rect by amount on all sides.

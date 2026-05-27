@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, WorkspaceService};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_kernel_types::Id;
 
 use crate::desktop::{DesktopComposition, RefreshReason};

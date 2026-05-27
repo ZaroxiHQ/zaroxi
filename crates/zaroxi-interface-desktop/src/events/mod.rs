@@ -1,7 +1,7 @@
-pub mod types;
-pub mod router;
 pub mod event_bridge;
+pub mod router;
+pub mod types;
 
-pub use types::*;
+pub use event_bridge::{Action, ActionExecutor, EventBridge};
 pub use router::EventRouter;
-pub use event_bridge::{EventBridge, Action, ActionExecutor};
+pub use types::*;

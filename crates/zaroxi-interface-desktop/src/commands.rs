@@ -5,9 +5,5 @@ use zaroxi_kernel_types::Id;
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
     /// Insert text at a character offset in the specified document.
-    InsertText {
-        doc_id: Id,
-        offset: usize,
-        text: String,
-    },
+    InsertText { doc_id: Id, offset: usize, text: String },
 }

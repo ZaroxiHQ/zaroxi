@@ -1,6 +1,6 @@
 use super::*;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Verify that region mapping produces three ordered regions (chrome above
 /// content above status). This keeps the test crate-local and avoids
@@ -86,7 +86,9 @@ fn produce_gpu_shell_view_contract() {
     assert_eq!(view.chrome.x, regions.chrome.x);
     assert_eq!(view.content.y, regions.content.y);
     assert_eq!(view.marker, regions.marker);
-    assert!(view.chrome_label.is_none() && view.status_text.is_none() && view.content_preview.is_none());
+    assert!(
+        view.chrome_label.is_none() && view.status_text.is_none() && view.content_preview.is_none()
+    );
 
     // Ensure payloads propagate through the conversion.
     let mut r2 = regions.clone();
@@ -118,7 +120,11 @@ fn paint_plan_from_view_sequence() {
     // First op should be the full-viewport background FillRect.
     match &plan.ops[0] {
         GpuPaintOp::FillRect(r) => {
-            let total_h = regions.chrome.height.saturating_add(regions.content.height).saturating_add(regions.status.height);
+            let total_h = regions
+                .chrome
+                .height
+                .saturating_add(regions.content.height)
+                .saturating_add(regions.status.height);
             assert_eq!(r.x, 0);
             assert_eq!(r.y, 0);
             assert_eq!(r.width, regions.chrome.width);
@@ -195,16 +201,8 @@ fn execute_paint_plan_writes_pixels() {
     let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
 
     // Single small rect: at (1,1) size 2x2 with a distinctive color.
-    let rect = GpuPaintRect {
-        x: 1,
-        y: 1,
-        width: 2,
-        height: 2,
-        color: [11u8, 22u8, 33u8, 44u8],
-    };
-    let plan = GpuPaintPlan {
-        ops: vec![GpuPaintOp::FillRect(rect.clone())],
-    };
+    let rect = GpuPaintRect { x: 1, y: 1, width: 2, height: 2, color: [11u8, 22u8, 33u8, 44u8] };
+    let plan = GpuPaintPlan { ops: vec![GpuPaintOp::FillRect(rect.clone())] };
 
     // Execute the plan directly (executor should be dumb and follow ops).
     execute_paint_plan(&plan, &mut buf, width, height);
@@ -233,16 +231,8 @@ fn execute_paint_plan_size_mismatch_is_noop() {
     // Wrong sized buffer intentionally.
     let mut buf = vec![7u8; (width as usize) * (height as usize) * 4 - 4];
 
-    let rect = GpuPaintRect {
-        x: 0,
-        y: 0,
-        width: 1,
-        height: 1,
-        color: [9u8, 9u8, 9u8, 9u8],
-    };
-    let plan = GpuPaintPlan {
-        ops: vec![GpuPaintOp::FillRect(rect)],
-    };
+    let rect = GpuPaintRect { x: 0, y: 0, width: 1, height: 1, color: [9u8, 9u8, 9u8, 9u8] };
+    let plan = GpuPaintPlan { ops: vec![GpuPaintOp::FillRect(rect)] };
 
     // Should silently return without modifying `buf`.
     execute_paint_plan(&plan, &mut buf, width, height);
@@ -287,11 +277,17 @@ fn shell_render_transcript_reflects_plan_order_and_viewport() {
             // no-op: placeholder to keep logic explicit and readable.
         }
         // Identify chrome fill by matching the chrome region coordinates.
-        if line.contains(&format!("x={} y={} w={} h={}", regions.chrome.x, regions.chrome.y, regions.chrome.width, regions.chrome.height)) {
+        if line.contains(&format!(
+            "x={} y={} w={} h={}",
+            regions.chrome.x, regions.chrome.y, regions.chrome.width, regions.chrome.height
+        )) {
             found_content = true;
             // ensure subsequent lines still contain status later
-            for later in transcript.plan_lines.iter().skip(i+1) {
-                if later.contains(&format!("x={} y={} w={} h={}", regions.status.x, regions.status.y, regions.status.width, regions.status.height)) {
+            for later in transcript.plan_lines.iter().skip(i + 1) {
+                if later.contains(&format!(
+                    "x={} y={} w={} h={}",
+                    regions.status.x, regions.status.y, regions.status.width, regions.status.height
+                )) {
                     found_status_after = true;
                     break;
                 }
@@ -350,7 +346,8 @@ fn direct_activation_by_id_selects_tab() {
     };
 
     // Activate id2 when no active currently
-    let res = apply_tab_action(TabAction::ActivateById { id: "id2".to_string() }, &opened, None, apply);
+    let res =
+        apply_tab_action(TabAction::ActivateById { id: "id2".to_string() }, &opened, None, apply);
 
     assert_eq!(res, Some("id2".to_string()));
     assert_eq!(applied, Some("id2".to_string()));
@@ -364,7 +361,9 @@ fn direct_activation_out_of_range_is_noop() {
         TabAction::ActivateById { id: "missing".to_string() },
         &opened,
         None,
-        |_id| { applied = true; },
+        |_id| {
+            applied = true;
+        },
     );
     assert_eq!(res, None);
     assert!(!applied);
@@ -372,16 +371,16 @@ fn direct_activation_out_of_range_is_noop() {
 
 #[test]
 fn activating_already_active_tab_is_noop() {
-    let opened = vec![
-        ("id1".to_string(), "one".to_string()),
-        ("id2".to_string(), "two".to_string()),
-    ];
+    let opened =
+        vec![("id1".to_string(), "one".to_string()), ("id2".to_string(), "two".to_string())];
     let mut applied = false;
     let res = apply_tab_action(
         TabAction::ActivateById { id: "id1".to_string() },
         &opened,
         Some("id1"),
-        |_id| { applied = true; },
+        |_id| {
+            applied = true;
+        },
     );
     assert_eq!(res, None);
     assert!(!applied);
@@ -409,11 +408,16 @@ fn focus_navigation_deterministic_and_apply() {
     assert_eq!(applied, Some("id1".to_string()));
 
     // With focus on last, FocusNext with wrap -> cycles to first
-    let res3 = compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened, Some("id3"));
+    let res3 =
+        compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened, Some("id3"));
     assert_eq!(res3, Some("id1".to_string()));
 
     // FocusPrevious with wrap on first -> goes to last
-    let res4 = compute_focus_action_target(FocusAction::FocusPrevious { wrap: true }, &opened, Some("id1"));
+    let res4 = compute_focus_action_target(
+        FocusAction::FocusPrevious { wrap: true },
+        &opened,
+        Some("id1"),
+    );
     assert_eq!(res4, Some("id3".to_string()));
 }
 
@@ -451,7 +455,8 @@ fn keyboard_focus_and_activation_event_path() {
 
     // Plain Tab (no ctrl) should move focus to first when no focus exists.
     let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
-    let res = handle_focus_key_event(&ev_tab, &opened, None, None, &mut apply_focus, &mut apply_activate);
+    let res =
+        handle_focus_key_event(&ev_tab, &opened, None, None, &mut apply_focus, &mut apply_activate);
     assert_eq!(res, Some("id1".to_string()));
     assert_eq!(applied_focus.borrow().clone(), Some("id1".to_string()));
     assert!(applied_activate.borrow().is_none());
@@ -459,7 +464,14 @@ fn keyboard_focus_and_activation_event_path() {
     // Enter should activate the currently-focused id (simulate focused=id2)
     *applied_activate.borrow_mut() = None;
     let ev_enter = KeyEvent { ctrl: false, shift: false, key: "Enter".to_string() };
-    let res2 = handle_focus_key_event(&ev_enter, &opened, Some("id1"), Some("id2"), &mut apply_focus, &mut apply_activate);
+    let res2 = handle_focus_key_event(
+        &ev_enter,
+        &opened,
+        Some("id1"),
+        Some("id2"),
+        &mut apply_focus,
+        &mut apply_activate,
+    );
     assert_eq!(res2, Some("id2".to_string()));
     assert_eq!(applied_activate.borrow().clone(), Some("id2".to_string()));
 }
@@ -474,7 +486,9 @@ fn ctrl_tab_still_activates_next() {
 
     let mut applied: Option<String> = None;
     let ev = KeyEvent { ctrl: true, shift: false, key: "Tab".to_string() };
-    let res = handle_key_event(&ev, &opened, Some("id1"), |id| { applied = Some(id.to_string()); });
+    let res = handle_key_event(&ev, &opened, Some("id1"), |id| {
+        applied = Some(id.to_string());
+    });
     assert_eq!(res, Some("id2".to_string()));
     assert_eq!(applied, Some("id2".to_string()));
 }
@@ -487,15 +501,26 @@ fn focus_events_no_tabs_and_one_tab_safe() {
     let applied_activate = Rc::new(RefCell::new(None::<String>));
     let mut apply_focus = {
         let af = applied_focus.clone();
-        move |id: &str| { *af.borrow_mut() = Some(id.to_string()); }
+        move |id: &str| {
+            *af.borrow_mut() = Some(id.to_string());
+        }
     };
     let mut apply_activate = {
         let aa = applied_activate.clone();
-        move |id: &str| { *aa.borrow_mut() = Some(id.to_string()); }
+        move |id: &str| {
+            *aa.borrow_mut() = Some(id.to_string());
+        }
     };
 
     let ev_tab = KeyEvent { ctrl: false, shift: false, key: "Tab".to_string() };
-    let res = handle_focus_key_event(&ev_tab, &opened_empty, None, None, &mut apply_focus, &mut apply_activate);
+    let res = handle_focus_key_event(
+        &ev_tab,
+        &opened_empty,
+        None,
+        None,
+        &mut apply_focus,
+        &mut apply_activate,
+    );
     assert_eq!(res, None);
     assert!(applied_focus.borrow().is_none());
     assert!(applied_activate.borrow().is_none());
@@ -505,19 +530,20 @@ fn focus_events_no_tabs_and_one_tab_safe() {
     let applied_focus2 = Rc::new(RefCell::new(None::<String>));
     let mut apply_focus2 = {
         let af2 = applied_focus2.clone();
-        move |id: &str| { *af2.borrow_mut() = Some(id.to_string()); }
+        move |id: &str| {
+            *af2.borrow_mut() = Some(id.to_string());
+        }
     };
     let mut nop = |_id: &str| {};
-    let res2 = handle_focus_key_event(&ev_tab, &opened_one, None, None, &mut apply_focus2, &mut nop);
+    let res2 =
+        handle_focus_key_event(&ev_tab, &opened_one, None, None, &mut apply_focus2, &mut nop);
     assert_eq!(res2, Some("only".to_string()));
 }
 
 #[test]
 fn activate_focused_dispatches_activatebyid() {
-    let opened = vec![
-        ("id1".to_string(), "one".to_string()),
-        ("id2".to_string(), "two".to_string()),
-    ];
+    let opened =
+        vec![("id1".to_string(), "one".to_string()), ("id2".to_string(), "two".to_string())];
 
     // Current active is id1; focused is id2 -> should activate id2 via ActivateById path
     let mut applied: Option<String> = None;
@@ -533,22 +559,28 @@ fn activate_focused_dispatches_activatebyid() {
 fn no_tabs_and_one_tab_focus_activation_behaviour() {
     // No tabs -> focus actions are no-op
     let opened_empty: Vec<(String, String)> = Vec::new();
-    let res = compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened_empty, None);
+    let res =
+        compute_focus_action_target(FocusAction::FocusNext { wrap: true }, &opened_empty, None);
     assert_eq!(res, None);
 
     // One tab -> focus/select returns that id
     let opened_one = vec![("only".to_string(), "one".to_string())];
-    let res2 = compute_focus_action_target(FocusAction::FocusNext { wrap: false }, &opened_one, None);
+    let res2 =
+        compute_focus_action_target(FocusAction::FocusNext { wrap: false }, &opened_one, None);
     assert_eq!(res2, Some("only".to_string()));
 
     // Activating focused that equals active -> no-op
     let mut applied = false;
-    let res3 = activate_focused(&opened_one, Some("only"), Some("only"), |_id| { applied = true; });
+    let res3 = activate_focused(&opened_one, Some("only"), Some("only"), |_id| {
+        applied = true;
+    });
     assert_eq!(res3, None);
     assert!(!applied);
 
     // Focused tab no longer present -> activation is no-op
-    let res4 = activate_focused(&opened_one, Some("only"), Some("missing"), |_id| { applied = true; });
+    let res4 = activate_focused(&opened_one, Some("only"), Some("missing"), |_id| {
+        applied = true;
+    });
     assert_eq!(res4, None);
 }
 
@@ -565,9 +597,27 @@ fn render_plan_includes_focused_and_active_colors() {
     // Construct a TabStrip with one active and a different focused tab
     let tabs = TabStrip {
         tabs: vec![
-            TabEntry { id: "a".to_string(), display: "A".to_string(), active: false, focused: true, index: 0 },
-            TabEntry { id: "b".to_string(), display: "B".to_string(), active: true, focused: false, index: 1 },
-            TabEntry { id: "c".to_string(), display: "C".to_string(), active: false, focused: false, index: 2 },
+            TabEntry {
+                id: "a".to_string(),
+                display: "A".to_string(),
+                active: false,
+                focused: true,
+                index: 0,
+            },
+            TabEntry {
+                id: "b".to_string(),
+                display: "B".to_string(),
+                active: true,
+                focused: false,
+                index: 1,
+            },
+            TabEntry {
+                id: "c".to_string(),
+                display: "C".to_string(),
+                active: false,
+                focused: false,
+                index: 2,
+            },
         ],
     };
     view.tabs = tabs.clone();
@@ -605,8 +655,20 @@ fn paint_plan_includes_text_for_tabs() {
     // Provide visible tabs
     view.tabs = TabStrip {
         tabs: vec![
-            TabEntry { id: "a".to_string(), display: "one".to_string(), active: true, focused: false, index: 0 },
-            TabEntry { id: "b".to_string(), display: "two".to_string(), active: false, focused: true, index: 1 },
+            TabEntry {
+                id: "a".to_string(),
+                display: "one".to_string(),
+                active: true,
+                focused: false,
+                index: 0,
+            },
+            TabEntry {
+                id: "b".to_string(),
+                display: "two".to_string(),
+                active: false,
+                focused: true,
+                index: 1,
+            },
         ],
     };
 
@@ -637,9 +699,13 @@ fn execute_paint_plan_renders_label_rect() {
     let mut view = GpuShellView::from_shell_regions(&regions);
 
     view.tabs = TabStrip {
-        tabs: vec![
-            TabEntry { id: "x".to_string(), display: "only".to_string(), active: false, focused: true, index: 0 },
-        ],
+        tabs: vec![TabEntry {
+            id: "x".to_string(),
+            display: "only".to_string(),
+            active: false,
+            focused: true,
+            index: 0,
+        }],
     };
 
     let plan = GpuPaintPlan::from_view(&view);
@@ -761,21 +827,29 @@ fn tab_label_rect_consistent_with_text_bounds() {
 
     // Single tab with a visible label
     view.tabs = TabStrip {
-        tabs: vec![
-            TabEntry { id: "a".to_string(), display: "LongLabel".to_string(), active: true, focused: false, index: 0 },
-        ],
+        tabs: vec![TabEntry {
+            id: "a".to_string(),
+            display: "LongLabel".to_string(),
+            active: true,
+            focused: false,
+            index: 0,
+        }],
     };
 
     let plan = GpuPaintPlan::from_view(&view);
 
     // Locate the first Text op emitted for the tab label.
-    let text_op = plan.ops.iter().find_map(|op| {
-        if let GpuPaintOp::Text { x, y, text, max_w, max_h, .. } = op {
-            Some((*x, *y, text.clone(), *max_w, *max_h))
-        } else {
-            None
-        }
-    }).expect("expected a Text op for the tab label");
+    let text_op = plan
+        .ops
+        .iter()
+        .find_map(|op| {
+            if let GpuPaintOp::Text { x, y, text, max_w, max_h, .. } = op {
+                Some((*x, *y, text.clone(), *max_w, *max_h))
+            } else {
+                None
+            }
+        })
+        .expect("expected a Text op for the tab label");
 
     let (tx, ty, txt, clip_w, clip_h) = text_op;
 
@@ -788,13 +862,14 @@ fn tab_label_rect_consistent_with_text_bounds() {
 
     let num = view.tabs.tabs.len() as u32;
     let tab_bar_h = std::cmp::min(14u32, view.chrome.height.saturating_sub(4));
-    let tab_bar_y = view.chrome.y + (view.chrome.height.saturating_sub(tab_bar_h)/2);
+    let tab_bar_y = view.chrome.y + (view.chrome.height.saturating_sub(tab_bar_h) / 2);
     let base_w = if num > 0 { view.chrome.width / num } else { 0 };
     let x0 = view.chrome.x;
     let w = base_w; // single tab so equal width (last-tab remainder logic not necessary here)
 
     // Reconstruct label truncation logic
-    let available_for_text = if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
+    let available_for_text =
+        if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
     let max_label_chars = if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
 
     let expected_label_text = if max_label_chars == 0 {

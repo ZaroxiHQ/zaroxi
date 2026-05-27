@@ -11,10 +11,10 @@ This adapter intentionally keeps mapping decisions minimal and wireframe-like:
   adapter separate preserves separation of concerns (no presenter duplication).
 */
 
-use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
 use crate::presenters::model::{GpuShellPresenter, ShellRegions};
+use zaroxi_interface_app::shell_render_view::ShellRenderViewModel;
 
-use crate::events::{UiEvent, Key as UiKey};
+use crate::events::{Key as UiKey, UiEvent};
 
 /// Minimal native-key abstraction kept crate-local so translation logic is
 /// testable without pulling in optional native deps (minifb).
@@ -44,7 +44,12 @@ pub fn map_native_to_ui_event(k: NativeKey) -> Option<UiEvent> {
 /// Note: the function intentionally accepts the real view model (to prove
 /// wiring) but currently uses conservative defaults for chrome/status heights.
 #[allow(dead_code)]
-pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: u32, active_buffer: Option<&str>) -> ShellRegions {
+pub fn view_model_to_regions(
+    _model: &ShellRenderViewModel,
+    width: u32,
+    height: u32,
+    active_buffer: Option<&str>,
+) -> ShellRegions {
     // Default wireframe metrics (kept small and stable).
     let chrome_h: u32 = 60;
     let status_h: u32 = 24;
@@ -64,7 +69,11 @@ pub fn view_model_to_regions(_model: &ShellRenderViewModel, width: u32, height: 
 /// This is useful for the binary runtime path where constructing the full model
 /// may be handled by the composition pipeline in a later phase. For now this
 /// preserves the wiring surface and keeps the runtime loop tiny.
-pub fn view_model_to_regions_from_scratch(width: u32, height: u32, active_buffer: Option<&str>) -> ShellRegions {
+pub fn view_model_to_regions_from_scratch(
+    width: u32,
+    height: u32,
+    active_buffer: Option<&str>,
+) -> ShellRegions {
     // Default wireframe metrics (kept small and stable).
     let chrome_h: u32 = 60;
     let status_h: u32 = 24;

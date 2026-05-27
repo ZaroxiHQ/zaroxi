@@ -17,7 +17,7 @@ use crate::window_state::WindowState;
 use zaroxi_engine_input::event::Event as InputEvent;
 
 #[cfg(feature = "render_integration")]
-use zaroxi_engine_render::{Renderer, RenderLayout, Rect, UiBlock};
+use zaroxi_engine_render::{Rect, RenderLayout, Renderer, UiBlock};
 
 #[cfg(feature = "render_integration")]
 use zaroxi_app::AppState;
@@ -45,7 +45,13 @@ pub struct App {
 
 impl App {
     #[cfg(feature = "render_integration")]
-    pub fn new(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Self {
+    pub fn new(
+        title: String,
+        width: u32,
+        height: u32,
+        clear_color: [f64; 4],
+        app_state: Arc<Mutex<AppState>>,
+    ) -> Self {
         Self {
             title,
             width,
@@ -119,7 +125,12 @@ impl ApplicationHandler for App {
     }
 
     /// Handle window-level events.
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
         // Only handle events for our window.
         let is_our = match (&self.window, &window_id) {
             (Some(w), id) => *id == w.id(),
@@ -135,7 +146,9 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(new_size) => {
-                if let (Some(renderer), Some(ws)) = (self.renderer.as_mut(), self.window_state.as_mut()) {
+                if let (Some(renderer), Some(ws)) =
+                    (self.renderer.as_mut(), self.window_state.as_mut())
+                {
                     if new_size.width > 0 && new_size.height > 0 {
                         ws.size = new_size;
                         if let Err(e) = renderer.resize(new_size) {
@@ -146,7 +159,9 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(renderer), Some(app_state)) = (self.renderer.as_mut(), self.app_state.as_ref()) {
+                if let (Some(renderer), Some(app_state)) =
+                    (self.renderer.as_mut(), self.app_state.as_ref())
+                {
                     // Lock app state for reading.
                     let state = app_state.lock().unwrap();
                     info!("received RedrawRequested");
@@ -162,7 +177,8 @@ impl ApplicationHandler for App {
 
                     // Log app state summary before layout resolution for traceability.
                     // Panels visibility is derived from the app-owned panel entries.
-                    let panels_visible = state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible);
+                    let panels_visible =
+                        state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible);
                     info!(
                         "[runtime] app_state summary: title='{}', assistant_visible={}, panels_visible={}, open_docs={}",
                         state.config.title,
@@ -178,14 +194,39 @@ impl ApplicationHandler for App {
                     // right panel width depends on assistant visibility
                     let right_w = if state.assistant.visible { 320.0f32 } else { 0.0f32 };
                     // bottom panel height derived from the app-owned panel entries
-                    let bottom_h = if state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible) { 200.0f32 } else { 0.0f32 };
+                    let bottom_h =
+                        if state.app_panels.iter().any(|p| p.id == "bottom_panel" && p.visible) {
+                            200.0f32
+                        } else {
+                            0.0f32
+                        };
 
                     // Compute rects while honoring visibility (zero-size when hidden)
                     let title_bar = Rect { x: 0.0, y: 0.0, w: width, h: title_h };
-                    let sidebar = Rect { x: 0.0, y: title_h, w: sidebar_w, h: height - title_h - status_h.max(0.0) };
-                    let right_panel = Rect { x: width - right_w, y: title_h, w: right_w, h: height - title_h - status_h.max(0.0) };
-                    let bottom_panel = Rect { x: sidebar_w, y: height - status_h - bottom_h, w: width - sidebar_w - right_w, h: bottom_h };
-                    let editor = Rect { x: sidebar_w, y: title_h, w: (width - sidebar_w - right_w).max(0.0), h: (height - title_h - status_h - bottom_h).max(0.0) };
+                    let sidebar = Rect {
+                        x: 0.0,
+                        y: title_h,
+                        w: sidebar_w,
+                        h: height - title_h - status_h.max(0.0),
+                    };
+                    let right_panel = Rect {
+                        x: width - right_w,
+                        y: title_h,
+                        w: right_w,
+                        h: height - title_h - status_h.max(0.0),
+                    };
+                    let bottom_panel = Rect {
+                        x: sidebar_w,
+                        y: height - status_h - bottom_h,
+                        w: width - sidebar_w - right_w,
+                        h: bottom_h,
+                    };
+                    let editor = Rect {
+                        x: sidebar_w,
+                        y: title_h,
+                        w: (width - sidebar_w - right_w).max(0.0),
+                        h: (height - title_h - status_h - bottom_h).max(0.0),
+                    };
                     let status_bar = Rect { x: 0.0, y: height - status_h, w: width, h: status_h };
 
                     // Resolve semantic colors from app state (system dark assumed false for now).
@@ -281,7 +322,13 @@ impl ApplicationHandler for App {
 
 #[cfg(feature = "render_integration")]
 /// Run the application using winit 0.30 Application API.
-pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_state: Arc<Mutex<AppState>>) -> Result<()> {
+pub fn run(
+    title: String,
+    width: u32,
+    height: u32,
+    clear_color: [f64; 4],
+    app_state: Arc<Mutex<AppState>>,
+) -> Result<()> {
     // Initialize logging
     let _ = env_logger::try_init();
     info!("Starting runtime (application API) with title '{}'", title);
@@ -294,9 +341,7 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_st
     // Create the app and run it using the event loop's run_app method.
     let mut app = App::new(title, width, height, clear_color, app_state);
 
-    event_loop
-        .run_app(&mut app)
-        .map_err(|e| anyhow::anyhow!("run_app failed: {:?}", e))?;
+    event_loop.run_app(&mut app).map_err(|e| anyhow::anyhow!("run_app failed: {:?}", e))?;
 
     // Return fatal error if recorded.
     if let Some(err) = app.fatal_error {
@@ -312,6 +357,14 @@ pub fn run(title: String, width: u32, height: u32, clear_color: [f64; 4], app_st
 /// This returns an error signaling that the runtime's rendering integration
 /// is intentionally disabled in the current build. Enable the
 /// `render_integration` feature to enable full runtime behavior.
-pub fn run(_title: String, _width: u32, _height: u32, _clear_color: [f64; 4], _app_state: Arc<Mutex<()>>) -> Result<()> {
-    Err(anyhow::anyhow!("runtime render integration disabled; build with feature=\"render_integration\" to enable"))
+pub fn run(
+    _title: String,
+    _width: u32,
+    _height: u32,
+    _clear_color: [f64; 4],
+    _app_state: Arc<Mutex<()>>,
+) -> Result<()> {
+    Err(anyhow::anyhow!(
+        "runtime render integration disabled; build with feature=\"render_integration\" to enable"
+    ))
 }

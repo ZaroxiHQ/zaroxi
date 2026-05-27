@@ -1,16 +1,14 @@
+use std::env::temp_dir;
 use std::fs;
 use std::path::PathBuf;
-use std::env::temp_dir;
 use zaroxi_application_workspace::editor_service::{
-    EditorService, AttemptCloseSessionResult, ResolveCloseSessionResult,
+    AttemptCloseSessionResult, EditorService, ResolveCloseSessionResult,
 };
 
 fn unique_path(name: &str) -> PathBuf {
     let mut p = temp_dir();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
+    let ts =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
     p.push(format!("zaroxi_test_{}_{}.txt", name, ts));
     p
 }

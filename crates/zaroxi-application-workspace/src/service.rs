@@ -57,10 +57,7 @@ impl WorkspaceService {
     /// representing the opened workspace. The authoritative workspace model and creation
     /// policies are owned by the domain and the WorkspaceRepository port; callers should
     /// prefer using the WorkspaceOrchestrator which delegates to the domain repository.
-    pub async fn open_workspace(
-        &self,
-        path: std::path::PathBuf,
-    ) -> Result<Id> {
+    pub async fn open_workspace(&self, path: std::path::PathBuf) -> Result<Id> {
         // Validate path exists
         if !path.exists() {
             return Err(anyhow::anyhow!("Path does not exist: {:?}", path));

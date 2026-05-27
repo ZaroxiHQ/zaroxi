@@ -1,5 +1,5 @@
-use zaroxi_core_engine_scene::scene::{ShellChrome, Tab as SceneTab};
 use zaroxi_core_engine_render::intent::ChromePrimitive;
+use zaroxi_core_engine_scene::scene::{ShellChrome, Tab as SceneTab};
 
 #[test]
 fn handoff_no_tabs_produces_empty_chrome_primitive() {
@@ -21,12 +21,8 @@ fn handoff_no_tabs_produces_empty_chrome_primitive() {
 
 #[test]
 fn handoff_one_tab_preserves_label_and_active() {
-    let scene_tab = SceneTab {
-        index: 1,
-        id: "tab1".to_string(),
-        label: "main".to_string(),
-        active: true,
-    };
+    let scene_tab =
+        SceneTab { index: 1, id: "tab1".to_string(), label: "main".to_string(), active: true };
 
     let chrome = ShellChrome {
         chrome_label: Some("Project".to_string()),

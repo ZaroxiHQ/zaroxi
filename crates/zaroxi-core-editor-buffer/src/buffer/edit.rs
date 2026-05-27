@@ -1,5 +1,5 @@
-use std::cmp::min;
 use super::types::{Buffer, Selection};
+use std::cmp::min;
 
 impl Buffer {
     /// Set the cursor explicitly and clear selection unless `keep_selection` is true.
@@ -105,7 +105,10 @@ impl Buffer {
         // If a selection exists we treat the overall operation as non-typing (it should
         // create an undo boundary) even if the inserted text is a single char.
         let had_selection = self.selection.is_some();
-        let is_typing = text_char_count == 1 && !text.contains('\n') && !had_selection && self.selection.is_none();
+        let is_typing = text_char_count == 1
+            && !text.contains('\n')
+            && !had_selection
+            && self.selection.is_none();
 
         // Record undo boundary before the mutation (may merge for typing).
         self.record_undo_before(is_typing);
@@ -199,7 +202,8 @@ impl Buffer {
                         self.cursor_col = 0;
                     } else {
                         // Place cursor at start of the next logical line (which shifts into `sl`).
-                        self.cursor_line = if sl >= self.lines.len() { self.lines.len() - 1 } else { sl };
+                        self.cursor_line =
+                            if sl >= self.lines.len() { self.lines.len() - 1 } else { sl };
                         self.cursor_col = 0;
                     }
                 } else {
@@ -352,7 +356,8 @@ impl Buffer {
 
     /// Move cursor end: to end of current line.
     pub fn end(&mut self, keep_selection: bool) {
-        let line_len = if self.lines.is_empty() { 0 } else { self.lines[self.cursor_line].chars().count() };
+        let line_len =
+            if self.lines.is_empty() { 0 } else { self.lines[self.cursor_line].chars().count() };
         if keep_selection && self.selection.is_none() {
             self.anchor_selection_here();
         }

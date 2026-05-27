@@ -14,7 +14,7 @@ Usage:
   and log or assert on the returned String from the harness or tests.
 */
 
-use zaroxi_core_engine_render::{ShellTextRenderer, ShellDrawPlan};
+use zaroxi_core_engine_render::{ShellDrawPlan, ShellTextRenderer};
 
 /// Render a ShellDrawPlan into a deterministic String suitable for logging.
 ///

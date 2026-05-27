@@ -40,7 +40,9 @@ pub(crate) fn is_command_bar_open(comp: &super::DesktopComposition) -> bool {
     comp.command_bar.as_ref().map(|c| c.open).unwrap_or(false)
 }
 
-pub(crate) fn latest_command_bar(comp: &super::DesktopComposition) -> Option<super::CommandBarState> {
+pub(crate) fn latest_command_bar(
+    comp: &super::DesktopComposition,
+) -> Option<super::CommandBarState> {
     comp.command_bar.clone()
 }
 
@@ -64,7 +66,10 @@ pub(crate) fn select_prev_command(comp: &mut super::DesktopComposition) {
     }
 }
 
-pub(crate) fn set_command_bar_staged_arg(comp: &mut super::DesktopComposition, arg: Option<String>) {
+pub(crate) fn set_command_bar_staged_arg(
+    comp: &mut super::DesktopComposition,
+    arg: Option<String>,
+) {
     if let Some(cb) = comp.command_bar.as_mut() {
         cb.staged_arg = arg;
     }

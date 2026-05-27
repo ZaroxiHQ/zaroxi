@@ -20,7 +20,7 @@ This implementation intentionally:
 
 use std::sync::{Arc, Mutex};
 
-use cosmic_text::{FontSystem, Buffer as CosmicBuffer, Attrs, Shaping, Metrics, Color, SwashCache};
+use cosmic_text::{Attrs, Buffer as CosmicBuffer, Color, FontSystem, Metrics, Shaping, SwashCache};
 use zaroxi_core_engine_font;
 
 /// Thin wrapper around a shared cosmic-text renderer instance.
@@ -71,14 +71,9 @@ impl CosmicTextRenderer {
         // Default conservative metrics (font size, line height). Callers can tune later.
         let metrics = Metrics::new(16.0, 20.0);
 
-        let inner = Inner {
-            font_system: fs,
-            metrics,
-        };
+        let inner = Inner { font_system: fs, metrics };
 
-        Ok(Arc::new(CosmicTextRenderer {
-            inner: Mutex::new(inner),
-        }))
+        Ok(Arc::new(CosmicTextRenderer { inner: Mutex::new(inner) }))
     }
 
     /// Draw `text` into `out_buffer` as RGBA8 anchored at (x, y).

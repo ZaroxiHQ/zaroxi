@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use once_cell::sync::OnceCell;
+use std::sync::Arc;
 
 pub mod cosmic_text_renderer;
 
@@ -8,7 +8,8 @@ pub mod cosmic_text_renderer;
 /// The native binary or an initialization path should call `init_cosmic_renderer()` once
 /// before the first frame to ensure the renderer is loaded with the project font.
 /// Consumers may read `COSMIC_RENDERER.get()` to obtain an Arc reference.
-pub static COSMIC_RENDERER: OnceCell<Arc<cosmic_text_renderer::CosmicTextRenderer>> = OnceCell::new();
+pub static COSMIC_RENDERER: OnceCell<Arc<cosmic_text_renderer::CosmicTextRenderer>> =
+    OnceCell::new();
 
 /// Initialize the global cosmic renderer (idempotent).
 ///

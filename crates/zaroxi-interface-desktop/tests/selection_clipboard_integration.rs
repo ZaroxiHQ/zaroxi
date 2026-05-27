@@ -14,7 +14,12 @@ fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {
         let mut b = svc.buffer.lock().unwrap();
         b.cursor_line = 1;
         b.cursor_col = 0;
-        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection { anchor_line: 1, anchor_col: 0, active_line: 1, active_col: 6 });
+        b.selection = Some(zaroxi_core_editor_buffer::buffer::Selection {
+            anchor_line: 1,
+            anchor_col: 0,
+            active_line: 1,
+            active_col: 6,
+        });
     }
 
     // copy
@@ -58,7 +63,11 @@ fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {
                 continue;
             }
             let sel_start_col = if row == sline0 { scol as u32 } else { 0 };
-            let sel_end_col = if row == eline0 { ecol as u32 } else { snapshot.lines[row].chars().count() as u32 };
+            let sel_end_col = if row == eline0 {
+                ecol as u32
+            } else {
+                snapshot.lines[row].chars().count() as u32
+            };
             if sel_end_col <= sel_start_col {
                 continue;
             }

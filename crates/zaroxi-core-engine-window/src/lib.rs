@@ -9,12 +9,12 @@ drive presentation without depending on winit from many places.
 
 #![deny(missing_docs)]
 
- // Use a module alias for the winit window module to avoid
- // ambiguous import resolution across different winit/raw-window-handle
- // versions and to match the actual public API surface in 0.30.13.
- use winit::dpi::PhysicalSize;
- use winit::event_loop::EventLoop;
- use winit::window::Window;
+// Use a module alias for the winit window module to avoid
+// ambiguous import resolution across different winit/raw-window-handle
+// versions and to match the actual public API surface in 0.30.13.
+use winit::dpi::PhysicalSize;
+use winit::event_loop::EventLoop;
+use winit::window::Window;
 
 /// A thin handle to the native window used by the engine.
 /// Thin handle storing the concrete winit Window type from the aliased module.
@@ -42,19 +42,13 @@ impl ZaroxiWindow {
             .with_resizable(true)
             .with_transparent(false);
 
-        let window = event_loop
-            .create_window(attrs)
-            .expect("failed to create window");
+        let window = event_loop.create_window(attrs).expect("failed to create window");
 
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        Self {
-            window,
-            width,
-            height,
-        }
+        Self { window, width, height }
     }
 
     /// Return the cached size (width, height) in physical pixels.
@@ -67,7 +61,6 @@ impl ZaroxiWindow {
     pub fn window(&self) -> &Window {
         &self.window
     }
-
 
     /// Update the cached window size (driver code should call this on resize).
     /// Zero sizes are clamped to 1 to avoid wgpu / render panics on minimized windows.

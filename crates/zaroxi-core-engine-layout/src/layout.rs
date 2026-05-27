@@ -179,7 +179,10 @@ mod tests {
         assert!(l.editor.width > 200.0, "editor width too small: {}", l.editor.width);
         assert!(l.editor.height > 200.0, "editor height too small: {}", l.editor.height);
         // Subregions sum to the editor height (within floating point tolerance).
-        let total = l.editor_tab_bar.height + l.editor_breadcrumb_bar.height + l.editor_content.height + l.editor_bottom_panel.height;
+        let total = l.editor_tab_bar.height
+            + l.editor_breadcrumb_bar.height
+            + l.editor_content.height
+            + l.editor_bottom_panel.height;
         let diff = (total - l.editor.height).abs();
         assert!(diff < 0.001, "editor subregion heights must sum to editor height; diff={}", diff);
     }
@@ -191,8 +194,15 @@ mod tests {
         assert!(l.window_size.width >= 0.0);
         assert!(l.window_size.height >= 0.0);
         for r in &[
-            l.titlebar, l.sidebar, l.editor, l.ai_panel, l.status_bar,
-            l.editor_tab_bar, l.editor_breadcrumb_bar, l.editor_content, l.editor_bottom_panel,
+            l.titlebar,
+            l.sidebar,
+            l.editor,
+            l.ai_panel,
+            l.status_bar,
+            l.editor_tab_bar,
+            l.editor_breadcrumb_bar,
+            l.editor_content,
+            l.editor_bottom_panel,
         ] {
             assert!(r.width >= 0.0 && r.height >= 0.0, "negative dimension found");
             assert!(r.x + r.width <= l.window_size.width + 0.01, "rect overflows window width");

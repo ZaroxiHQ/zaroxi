@@ -76,7 +76,8 @@ pub fn latest_viewport_summary(comp: &super::DesktopComposition) -> Option<super
     for line in win.lines.iter() {
         for sp in line.spans.iter() {
             match sp.kind {
-                crate::view_adapter::InterfaceSpanKind::Cursor | crate::view_adapter::InterfaceSpanKind::SelectionCursor => {
+                crate::view_adapter::InterfaceSpanKind::Cursor
+                | crate::view_adapter::InterfaceSpanKind::SelectionCursor => {
                     cursor_visible = true;
                     cursor_line_opt = Some(line.line_number);
                     break;

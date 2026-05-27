@@ -1,7 +1,7 @@
 use zaroxi_interface_app::ShellFrameViewModel;
 use zaroxi_interface_app::shell_frame::{
-    ShellFrameModel as AppShellFrameModel, TextView as AppTextView, SelectionView as AppSelectionView,
-    Position as AppPosition,
+    Position as AppPosition, SelectionView as AppSelectionView,
+    ShellFrameModel as AppShellFrameModel, TextView as AppTextView,
 };
 use zaroxi_interface_desktop::TextView as DesktopTextView;
 use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel as DesktopShellFrameModel;

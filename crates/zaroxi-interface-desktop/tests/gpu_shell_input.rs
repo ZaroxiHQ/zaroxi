@@ -1,5 +1,5 @@
+use zaroxi_interface_desktop::events::{Key as UiKey, UiEvent};
 use zaroxi_interface_desktop::gpu_shell_adapter::{NativeKey, map_native_to_ui_event};
-use zaroxi_interface_desktop::events::{UiEvent, Key as UiKey};
 
 #[test]
 fn native_key_maps_to_ui_event() {

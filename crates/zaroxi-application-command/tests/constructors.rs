@@ -1,4 +1,4 @@
-use zaroxi_application_command::ports::{CommandRecord, CommandKind, AppCommand};
+use zaroxi_application_command::ports::{AppCommand, CommandKind, CommandRecord};
 use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_kernel_types::Id;
 
@@ -9,7 +9,9 @@ fn command_record_constructors() {
     let bid = BufferId::from("buf:1");
 
     let rec = CommandRecord::new_success(
-        CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: bid.clone() } },
+        CommandKind::DispatchAppCommand {
+            command: AppCommand::AiExplain { buffer_id: bid.clone() },
+        },
         Some(sid),
         Some(wid),
         Some(bid.clone()),
@@ -20,7 +22,9 @@ fn command_record_constructors() {
     assert!(rec.error.is_none());
 
     let rec2 = CommandRecord::new_failure(
-        CommandKind::DispatchAppCommand { command: AppCommand::AiExplain { buffer_id: bid.clone() } },
+        CommandKind::DispatchAppCommand {
+            command: AppCommand::AiExplain { buffer_id: bid.clone() },
+        },
         Some(sid),
         None,
         Some(bid.clone()),

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 use zaroxi_kernel_types::Id;
 
 /// Composition helper functions extracted from the parent `desktop` module.
@@ -26,7 +26,12 @@ pub async fn refresh_with_service(
     let new_presenter_snapshot = comp.presenter.latest();
 
     // 2) Attempt to read the active editor document via the WorkspaceView seam.
-    let active_buf_opt = match view.get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest { session_id: session_id.clone() }).await {
+    let active_buf_opt = match view
+        .get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest {
+            session_id: session_id.clone(),
+        })
+        .await
+    {
         Ok(resp) => Some(resp.document.buffer_id.clone()),
         Err(_) => None,
     };
@@ -36,40 +41,47 @@ pub async fn refresh_with_service(
     // strengthens the editor viewport semantics for shells (preferred over transcripts).
     // Note: GetVisibleLinesRequest requires a buffer_id; only call the port when we
     // have an active buffer id available from the earlier active_buf_opt read.
-    let visible_window_opt: Option<super::VisibleWindowBasic> = if let Some(bid) = active_buf_opt.clone() {
-        match view.get_visible_lines(crate::ports::GetVisibleLinesRequest { session_id: session_id.clone(), buffer_id: bid.clone() }).await {
-            Ok(resp) => {
-                // Build a tiny basic projection decoupled from presenter view types.
-                let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
-                let mut cursor_line: Option<usize> = None;
-                let mut cursor_column: Option<usize> = None;
-                let mut selection_present: bool = false;
-                for vl in resp.window.lines.iter() {
-                    lines_vec.push(vl.text.clone());
-                    if vl.is_cursor_line {
-                        cursor_line = Some(vl.line_number as usize);
-                        if let Some(col) = vl.cursor_column {
-                            cursor_column = Some(col as usize);
+    let visible_window_opt: Option<super::VisibleWindowBasic> =
+        if let Some(bid) = active_buf_opt.clone() {
+            match view
+                .get_visible_lines(crate::ports::GetVisibleLinesRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: bid.clone(),
+                })
+                .await
+            {
+                Ok(resp) => {
+                    // Build a tiny basic projection decoupled from presenter view types.
+                    let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
+                    let mut cursor_line: Option<usize> = None;
+                    let mut cursor_column: Option<usize> = None;
+                    let mut selection_present: bool = false;
+                    for vl in resp.window.lines.iter() {
+                        lines_vec.push(vl.text.clone());
+                        if vl.is_cursor_line {
+                            cursor_line = Some(vl.line_number as usize);
+                            if let Some(col) = vl.cursor_column {
+                                cursor_column = Some(col as usize);
+                            }
+                        }
+                        if vl.selection_intersects {
+                            selection_present = true;
                         }
                     }
-                    if vl.selection_intersects {
-                        selection_present = true;
-                    }
+                    Some(super::VisibleWindowBasic {
+                        top_line: resp.window.top_line as usize,
+                        total_lines: resp.window.total_lines as usize,
+                        lines: lines_vec,
+                        cursor_line,
+                        cursor_column,
+                        selection_present,
+                    })
                 }
-                Some(super::VisibleWindowBasic {
-                    top_line: resp.window.top_line as usize,
-                    total_lines: resp.window.total_lines as usize,
-                    lines: lines_vec,
-                    cursor_line,
-                    cursor_column,
-                    selection_present,
-                })
+                Err(_) => None,
             }
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     // Prepare default conservative projection values.
     let mut opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
@@ -78,14 +90,22 @@ pub async fn refresh_with_service(
     // 3) If a WorkspaceService is provided, attempt to obtain the authoritative opened buffer list.
     if let Some(svc) = &service {
         // Request list of opened buffers for the session (application-owned use-case).
-        match svc.list_open_buffers(crate::ports::ListBuffersRequest { session_id: session_id.clone() }).await {
+        match svc
+            .list_open_buffers(crate::ports::ListBuffersRequest { session_id: session_id.clone() })
+            .await
+        {
             Ok(list_res) => {
                 opened_count = list_res.buffer_ids.len();
                 // Build small projection items. Use path/display when available.
                 for bid in list_res.buffer_ids.iter() {
                     let display = bid.path().map(|p| p.to_string_lossy().to_string());
-                    let is_active = list_res.active_buffer.as_ref().map(|ab| ab == bid).unwrap_or(false);
-                    opened_list.push(super::OpenedBufferItem { buffer_id: bid.clone(), display, active: is_active });
+                    let is_active =
+                        list_res.active_buffer.as_ref().map(|ab| ab == bid).unwrap_or(false);
+                    opened_list.push(super::OpenedBufferItem {
+                        buffer_id: bid.clone(),
+                        display,
+                        active: is_active,
+                    });
                 }
 
                 // If the service reports an active_buffer that is not present in the
@@ -95,7 +115,11 @@ pub async fn refresh_with_service(
                 if let Some(active_bid) = list_res.active_buffer.clone() {
                     if !list_res.buffer_ids.iter().any(|b| b == &active_bid) {
                         let display = active_bid.path().map(|p| p.to_string_lossy().to_string());
-                        opened_list.push(super::OpenedBufferItem { buffer_id: active_bid.clone(), display, active: true });
+                        opened_list.push(super::OpenedBufferItem {
+                            buffer_id: active_bid.clone(),
+                            display,
+                            active: true,
+                        });
                         opened_count = opened_count.saturating_add(1);
                     }
                 }
@@ -104,7 +128,11 @@ pub async fn refresh_with_service(
                 // On error, fall back to conservative single-item projection when active exists.
                 if let Some(bid) = active_buf_opt.clone() {
                     let display = bid.path().map(|p| p.to_string_lossy().to_string());
-                    opened_list.push(super::OpenedBufferItem { buffer_id: bid.clone(), display, active: true });
+                    opened_list.push(super::OpenedBufferItem {
+                        buffer_id: bid.clone(),
+                        display,
+                        active: true,
+                    });
                 }
             }
         }
@@ -112,7 +140,11 @@ pub async fn refresh_with_service(
         // No service provided: keep conservative projection (only active buffer when present).
         if let Some(bid) = active_buf_opt.clone() {
             let display = bid.path().map(|p| p.to_string_lossy().to_string());
-            opened_list.push(super::OpenedBufferItem { buffer_id: bid.clone(), display, active: true });
+            opened_list.push(super::OpenedBufferItem {
+                buffer_id: bid.clone(),
+                display,
+                active: true,
+            });
         }
     }
 
@@ -125,27 +157,31 @@ pub async fn refresh_with_service(
     let authoritative_active = current_opened_active.clone().or(active_buf_opt.clone());
 
     // Compute a tiny active-buffer details projection using the authoritative active buffer.
-    let active_buffer_details: Option<super::ActiveBufferDetails> = if let Some(bid) = authoritative_active.clone() {
-        // Prefer the display label from the opened_buffers projection if available.
-        let display_label = opened_list.iter().find(|i| i.buffer_id == bid).and_then(|i| i.display.clone())
-            .or_else(|| bid.path().map(|p| p.to_string_lossy().to_string()));
+    let active_buffer_details: Option<super::ActiveBufferDetails> =
+        if let Some(bid) = authoritative_active.clone() {
+            // Prefer the display label from the opened_buffers projection if available.
+            let display_label = opened_list
+                .iter()
+                .find(|i| i.buffer_id == bid)
+                .and_then(|i| i.display.clone())
+                .or_else(|| bid.path().map(|p| p.to_string_lossy().to_string()));
 
-        // Use visible-window projection when present to obtain a reliable line_count metric,
-        // otherwise fall back to the presenter's latest snapshot.
-        let line_count = if let Some(vw) = &visible_window_opt {
-            vw.total_lines
+            // Use visible-window projection when present to obtain a reliable line_count metric,
+            // otherwise fall back to the presenter's latest snapshot.
+            let line_count = if let Some(vw) = &visible_window_opt {
+                vw.total_lines
+            } else {
+                comp.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize)
+            };
+
+            Some(super::ActiveBufferDetails {
+                buffer_id: bid.clone(),
+                display: display_label,
+                line_count,
+            })
         } else {
-            comp.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize)
+            None
         };
-
-        Some(super::ActiveBufferDetails {
-            buffer_id: bid.clone(),
-            display: display_label,
-            line_count,
-        })
-    } else {
-        None
-    };
 
     // Attempt to read recent events to build a tiny AI projection when a WorkspaceService is available.
     // We intentionally use the existing `get_recent_events` port (read-only) and only surface
@@ -156,10 +192,18 @@ pub async fn refresh_with_service(
     let mut last_command_line: Option<String> = None;
 
     if let Some(svc) = &service {
-        if let Ok(ev_res) = svc.get_recent_events(crate::ports::GetRecentEventsRequest { session_id: session_id.clone(), limit: 20 }).await {
+        if let Ok(ev_res) = svc
+            .get_recent_events(crate::ports::GetRecentEventsRequest {
+                session_id: session_id.clone(),
+                limit: 20,
+            })
+            .await
+        {
             // Iterate from newest to oldest and pick the first ExplainExecuted we find.
             for ev in ev_res.events.iter().rev() {
-                if let crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id, result } = &ev.kind {
+                if let crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id, result } =
+                    &ev.kind
+                {
                     ai_proj = Some(super::AiProjection {
                         kind: Some("ExplainExecuted".to_string()),
                         result: Some(result.clone()),
@@ -171,7 +215,13 @@ pub async fn refresh_with_service(
         }
 
         // Attempt to obtain the most recent command (limit=1) and render a tiny one-line string.
-        if let Ok(cmd_res) = svc.get_recent_commands(crate::ports::GetRecentCommandsRequest { session_id: session_id.clone(), limit: 1 }).await {
+        if let Ok(cmd_res) = svc
+            .get_recent_commands(crate::ports::GetRecentCommandsRequest {
+                session_id: session_id.clone(),
+                limit: 1,
+            })
+            .await
+        {
             if let Some(rec) = cmd_res.commands.last() {
                 let kind_name = super::command_kind_short_name(&rec.kind);
                 let suffix = if rec.success { " ✓" } else { " ✗" };
@@ -197,8 +247,14 @@ pub async fn refresh_with_service(
     // Note: comparisons are tiny and presentation-only (strings / buffer ids); we avoid
     // introducing an event stream or mirroring application internals.
     let prev_active = comp.metadata.as_ref().and_then(|m| m.active_buffer.clone());
-    let prev_opened_active = comp.metadata.as_ref().and_then(|m| m.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone()));
-    let prev_ai_result = comp.metadata.as_ref().and_then(|m| m.ai_projection.as_ref().and_then(|a| a.result.clone()));
+    let prev_opened_active = comp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone()));
+    let prev_ai_result = comp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.ai_projection.as_ref().and_then(|a| a.result.clone()));
 
     // signature helper for presenter snapshots (concatenate span texts)
     let make_presenter_sig = |opt: Option<super::InterfaceRenderableWindow>| -> String {
@@ -294,7 +350,9 @@ pub async fn refresh_with_service(
     Ok(())
 }
 
-pub fn latest_active_document_summary(comp: &super::DesktopComposition) -> Option<super::ActiveDocumentSummary> {
+pub fn latest_active_document_summary(
+    comp: &super::DesktopComposition,
+) -> Option<super::ActiveDocumentSummary> {
     let meta = comp.metadata.as_ref()?;
     let abd = meta.active_buffer_details.clone()?;
 
@@ -330,7 +388,8 @@ pub fn latest_active_document_summary(comp: &super::DesktopComposition) -> Optio
             for line in win.lines.iter() {
                 for sp in line.spans.iter() {
                     match sp.kind {
-                        crate::view_adapter::InterfaceSpanKind::SelectionCursor | crate::view_adapter::InterfaceSpanKind::Cursor => {
+                        crate::view_adapter::InterfaceSpanKind::SelectionCursor
+                        | crate::view_adapter::InterfaceSpanKind::Cursor => {
                             cursor_line = Some(line.line_number);
                             cursor_column = Some(sp.start_col);
                         }
@@ -401,10 +460,13 @@ pub fn latest_active_document_summary(comp: &super::DesktopComposition) -> Optio
     })
 }
 
-pub fn latest_opened_buffers_summary(comp: &super::DesktopComposition) -> super::OpenedBuffersSummary {
+pub fn latest_opened_buffers_summary(
+    comp: &super::DesktopComposition,
+) -> super::OpenedBuffersSummary {
     if let Some(meta) = &comp.metadata {
         // Build per-item summaries. Prefer line_count from active_buffer_details when it matches.
-        let mut items: Vec<super::OpenedBufferItemSummary> = Vec::with_capacity(meta.opened_buffers.len());
+        let mut items: Vec<super::OpenedBufferItemSummary> =
+            Vec::with_capacity(meta.opened_buffers.len());
         for it in meta.opened_buffers.iter() {
             // Try to obtain line_count from active_buffer_details when it matches the buffer id.
             let mut line_count: usize = 0;
@@ -426,11 +488,7 @@ pub fn latest_opened_buffers_summary(comp: &super::DesktopComposition) -> super:
             active: meta.active_buffer.clone(),
         }
     } else {
-        super::OpenedBuffersSummary {
-            count: 0,
-            items: Vec::new(),
-            active: None,
-        }
+        super::OpenedBuffersSummary { count: 0, items: Vec::new(), active: None }
     }
 }
 
@@ -441,20 +499,12 @@ pub fn latest_shell_context(comp: &super::DesktopComposition) -> Option<super::S
     }
 
     // Determine active_display: prefer active_buffer_details.display, fall back to opened_buffers item display.
-    let active_display = comp
-        .metadata
-        .as_ref()
-        .and_then(|m| {
-            m.active_buffer_details
-                .as_ref()
-                .and_then(|d| d.display.clone())
-                .or_else(|| {
-                    m.opened_buffers
-                        .iter()
-                        .find(|i| i.active)
-                        .and_then(|i| i.display.clone())
-                })
-        });
+    let active_display = comp.metadata.as_ref().and_then(|m| {
+        m.active_buffer_details
+            .as_ref()
+            .and_then(|d| d.display.clone())
+            .or_else(|| m.opened_buffers.iter().find(|i| i.active).and_then(|i| i.display.clone()))
+    });
 
     let has_ai = comp.metadata.as_ref().and_then(|m| m.ai_projection.as_ref()).is_some();
 

@@ -1,13 +1,13 @@
+use crate::renderer::core::Rect;
+use crate::renderer::debug::{
+    DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
+    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, VALIDATION_SCENE, render_debug_enabled,
+};
+use crate::renderer::geometry::{Vertex, color_to_rgba, push_colored_quad};
+use log::{debug, info};
 use std::sync::atomic::Ordering;
 use wgpu;
-use log::{debug, info};
-use crate::renderer::geometry::{push_colored_quad, Vertex, color_to_rgba};
-use crate::renderer::debug::{
-    render_debug_enabled, RENDER_DEBUG, FIRST_GLYPH_LOGGED, LOGGED_TITLEBAR, LOGGED_SIDEBAR,
-    LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED, FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
-};
 use zaroxi_theme::SemanticColors;
-use crate::renderer::core::Rect;
 
 /// Shape helpers: build panel/background quads and submit the shape pass.
 ///
@@ -40,8 +40,10 @@ pub(crate) fn queue_panel_quads(
     let hh = header_h.min(target.h.max(0.0));
 
     // Header color is supplied by the UiBlock visual hint; fallback to semantic token.
-    let header_color: [f32; 4] =
-        block.header_color.map(|c| color_to_rgba(&c)).unwrap_or(color_to_rgba(&sem.panel_header_background));
+    let header_color: [f32; 4] = block
+        .header_color
+        .map(|c| color_to_rgba(&c))
+        .unwrap_or(color_to_rgba(&sem.panel_header_background));
 
     if render_debug_enabled() {
         debug!("block '{}' header_color = {:?}", block.id, header_color);
@@ -56,8 +58,10 @@ pub(crate) fn queue_panel_quads(
     let ch = (target.h - hh - content_padding * 2.0).max(0.0);
 
     // Content color is supplied by the UiBlock visual hint; fallback to semantic token.
-    let content_color: [f32; 4] =
-        block.content_color.map(|c| color_to_rgba(&c)).unwrap_or(color_to_rgba(&sem.panel_background));
+    let content_color: [f32; 4] = block
+        .content_color
+        .map(|c| color_to_rgba(&c))
+        .unwrap_or(color_to_rgba(&sem.panel_background));
 
     if render_debug_enabled() {
         debug!("block '{}' content_color = {:?}", block.id, content_color);

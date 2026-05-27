@@ -1,8 +1,8 @@
 #![doc = "zaroxi-security-audit: structured, append-only audit event types and helpers.\n\nThis crate provides canonical event types used across the system for auditing sensitive operations. It should not perform IO itself."]
 #![deny(missing_docs)]
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use chrono::{Utc, DateTime};
 
 /// Canonical audit event.
 #[derive(Debug, Serialize, Deserialize)]

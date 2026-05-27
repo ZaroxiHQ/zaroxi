@@ -1,8 +1,8 @@
 use crate::error::RenderError;
-use winit::dpi::PhysicalSize;
 use wgpu::{
-    Adapter, Device, Surface, SurfaceConfiguration, TextureFormat, TextureUsages, PresentMode,
+    Adapter, Device, PresentMode, Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
 };
+use winit::dpi::PhysicalSize;
 
 /// Surface and frame lifecycle helpers moved out of core.rs.
 /// Move-only refactor: these functions encapsulate surface configuration,
@@ -85,7 +85,11 @@ pub(crate) fn acquire_current_surface_texture(surface: &Surface) -> wgpu::Curren
 /// This mirrors the previous pattern in core.rs where the queue was submitted
 /// and the surface frame was presented. Kept as a small helper to isolate
 /// lifecycle interactions.
-pub(crate) fn submit_and_present(queue: &wgpu::Queue, encoder: wgpu::CommandEncoder, frame: wgpu::SurfaceTexture) {
+pub(crate) fn submit_and_present(
+    queue: &wgpu::Queue,
+    encoder: wgpu::CommandEncoder,
+    frame: wgpu::SurfaceTexture,
+) {
     queue.submit(Some(encoder.finish()));
     frame.present();
 }

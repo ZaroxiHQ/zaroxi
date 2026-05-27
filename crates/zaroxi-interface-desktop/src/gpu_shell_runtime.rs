@@ -19,17 +19,20 @@ stub to provide visible-lines/doc responses. The goal is to ensure the GPU
 binary renders the real composition snapshot rather than a hard-coded demo.
 */
 
-use std::sync::{Arc, Mutex};
 use once_cell::sync::OnceCell;
+use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use zaroxi_application_workspace::view;
 
-use crate::events::Action;
-use crate::presenters::model::{ShellRegions, GpuShellPresenter};
 use crate::desktop::{DesktopComposition, DesktopMetadata};
-use crate::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, EditorDocument, EditorCursor};
-use zaroxi_core_editor_buffer::ports::BufferId;
+use crate::events::Action;
 use crate::ports::SessionId;
+use crate::ports::{
+    EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetVisibleLinesRequest,
+    WorkspaceView,
+};
+use crate::presenters::model::{GpuShellPresenter, ShellRegions};
+use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_kernel_types::Id;
 
 /// Minimal in-memory WorkspaceView used by the native binary to drive the
@@ -87,8 +90,7 @@ impl WorkspaceView for FakeView {
     fn get_buffer_content(
         &self,
         _buffer_id: crate::ports::BufferId,
-    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
-    {
+    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
         let txt = self.current_text();
         Box::pin(async move { Ok(Some(txt)) })
     }
@@ -96,8 +98,7 @@ impl WorkspaceView for FakeView {
     fn get_active_buffer_content(
         &self,
         _session_id: crate::ports::SessionId,
-    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
-    {
+    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
         let txt = self.current_text();
         Box::pin(async move { Ok(Some(txt)) })
     }
@@ -154,27 +155,33 @@ struct CompositionRuntime {
 
 static RUNTIME: OnceCell<Mutex<CompositionRuntime>> = OnceCell::new();
 
-fn ensure_runtime_initialized(_width: u32, _height: u32) -> std::sync::MutexGuard<'static, CompositionRuntime> {
-    RUNTIME.get_or_init(|| {
-        // Create an initial fake view and composition.
-        let view = Arc::new(FakeView::new("buf:one", "hello from composition"));
-        let comp = DesktopComposition::new();
-        // Create a session id for the in-process binary.
-        let session = SessionId(Id::new());
+fn ensure_runtime_initialized(
+    _width: u32,
+    _height: u32,
+) -> std::sync::MutexGuard<'static, CompositionRuntime> {
+    RUNTIME
+        .get_or_init(|| {
+            // Create an initial fake view and composition.
+            let view = Arc::new(FakeView::new("buf:one", "hello from composition"));
+            let comp = DesktopComposition::new();
+            // Create a session id for the in-process binary.
+            let session = SessionId(Id::new());
 
-        let mut holder = CompositionRuntime { comp, view, session };
-        {
-            // Perform an initial refresh synchronously using a temporary runtime.
-            let guard_view = holder.view.clone();
-            let rt = Runtime::new().expect("tokio runtime init");
-            rt.block_on(async {
-                // Use the composition's async refresh to populate metadata.
-                let _ = holder.comp.refresh(guard_view, holder.session.clone(), None).await;
-            });
-        }
+            let mut holder = CompositionRuntime { comp, view, session };
+            {
+                // Perform an initial refresh synchronously using a temporary runtime.
+                let guard_view = holder.view.clone();
+                let rt = Runtime::new().expect("tokio runtime init");
+                rt.block_on(async {
+                    // Use the composition's async refresh to populate metadata.
+                    let _ = holder.comp.refresh(guard_view, holder.session.clone(), None).await;
+                });
+            }
 
-        Mutex::new(holder)
-    }).lock().unwrap()
+            Mutex::new(holder)
+        })
+        .lock()
+        .unwrap()
 }
 
 /// Map DesktopMetadata -> ShellRegions using the presenter's map_regions helper.
@@ -191,7 +198,11 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
         if let Some(ref ab) = m.active_buffer {
             regions.marker = Some(ab.to_string());
             regions.chrome_label = Some(ab.to_string());
-            regions.status_text = Some(m.last_command_line.clone().unwrap_or_else(|| format!("status: {}", ab.to_string())));
+            regions.status_text = Some(
+                m.last_command_line
+                    .clone()
+                    .unwrap_or_else(|| format!("status: {}", ab.to_string())),
+            );
         } else if let Some(ref cmd) = m.last_command_line {
             regions.status_text = Some(cmd.clone());
         }

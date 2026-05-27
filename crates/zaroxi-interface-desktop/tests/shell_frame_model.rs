@@ -1,11 +1,14 @@
-use zaroxi_interface_desktop::{DesktopComposition, TextView};
 use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel;
+use zaroxi_interface_desktop::{DesktopComposition, TextView};
 
 #[test]
 fn lifecycle_absent_before_present_after() {
     // Before any refresh/population the composition should not produce a frame.
     let comp = DesktopComposition::new();
-    assert!(ShellFrameModel::from_composition(&comp).is_none(), "frame must be absent before composition refresh/population");
+    assert!(
+        ShellFrameModel::from_composition(&comp).is_none(),
+        "frame must be absent before composition refresh/population"
+    );
 
     // Simulate the 'after' state by providing the mandatory visible text model directly.
     let tv = TextView {

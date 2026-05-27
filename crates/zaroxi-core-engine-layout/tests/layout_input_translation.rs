@@ -1,4 +1,6 @@
-use zaroxi_core_engine_layout::{LayoutBlock, SelectionBlock, ShellLayoutInput, StatusBlock, TextBlock};
+use zaroxi_core_engine_layout::{
+    LayoutBlock, SelectionBlock, ShellLayoutInput, StatusBlock, TextBlock,
+};
 use zaroxi_core_engine_scene::ShellSceneModel;
 
 #[test]

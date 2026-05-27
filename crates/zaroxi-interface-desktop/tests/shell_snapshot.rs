@@ -1,11 +1,14 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
-use zaroxi_kernel_types::Id;
-use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
+use zaroxi_application_workspace::ports::{
+    EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
+    GetVisibleLinesRequest, GetVisibleLinesResponse, SessionId, WorkspaceView,
+};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
-use std::pin::Pin;
-use std::future::Future;
+use zaroxi_interface_desktop::DesktopComposition;
+use zaroxi_kernel_types::Id;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -43,20 +46,40 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: zaroxi_application_workspace::ports::BufferId) -> BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: zaroxi_application_workspace::ports::BufferId,
+    ) -> BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>>
+    {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: zaroxi_application_workspace::ports::SessionId) -> BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: zaroxi_application_workspace::ports::SessionId,
+    ) -> BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>>
+    {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> BoxFuture<
+        'static,
+        Result<GetActiveEditorDocumentResponse, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let d = self.doc.clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> BoxFuture<
+        'static,
+        Result<GetVisibleLinesResponse, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let w = self.window.clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }

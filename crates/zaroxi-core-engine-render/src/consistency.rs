@@ -19,7 +19,7 @@ Comparison rule:
 No new rendering logic is added. This is a verification seam only.
 */
 
-use crate::{plan::ShellDrawPlan, transcript::ShellRenderTranscript, ShellTextRenderer};
+use crate::{ShellTextRenderer, plan::ShellDrawPlan, transcript::ShellRenderTranscript};
 
 /// Tiny deterministic consistency report.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +70,14 @@ pub fn analyze(plan: &ShellDrawPlan) -> RenderConsistencyReport {
         // Extract short context (up to 40 bytes) around first difference.
         let context_len = 40usize;
         let t_snip = if idx >= context_len {
-            &transcript_str[idx - context_len..std::cmp::min(idx + context_len, transcript_str.len())]
+            &transcript_str
+                [idx - context_len..std::cmp::min(idx + context_len, transcript_str.len())]
         } else {
             &transcript_str[0..std::cmp::min(context_len * 2, transcript_str.len())]
         };
         let r_snip = if idx >= context_len {
-            &renderer_plan_part[idx - context_len..std::cmp::min(idx + context_len, renderer_plan_part.len())]
+            &renderer_plan_part
+                [idx - context_len..std::cmp::min(idx + context_len, renderer_plan_part.len())]
         } else {
             &renderer_plan_part[0..std::cmp::min(context_len * 2, renderer_plan_part.len())]
         };
@@ -85,8 +87,5 @@ pub fn analyze(plan: &ShellDrawPlan) -> RenderConsistencyReport {
         mismatches.push(format!("renderer_preview=\"{}\"", r_snip.replace("\n", "\\n")));
     }
 
-    RenderConsistencyReport {
-        aligned: mismatches.is_empty(),
-        mismatches,
-    }
+    RenderConsistencyReport { aligned: mismatches.is_empty(), mismatches }
 }

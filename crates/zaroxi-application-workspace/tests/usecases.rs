@@ -1,16 +1,16 @@
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, DispatchCommandRequest, AppCommand,
-};
-use zaroxi_application_workspace::ports as ports;
-use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
-use zaroxi_domain_workspace::ports as domain_ports;
-use zaroxi_core_editor_buffer::ports as buffer_ports;
 use zaroxi_application_ai::ports as ai_ports;
+use zaroxi_application_workspace::ports;
+use zaroxi_application_workspace::ports::{
+    AppCommand, DispatchCommandRequest, OpenBufferRequest, WorkspaceBootRequest,
+};
+use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
+use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
+use zaroxi_core_editor_buffer::ports as buffer_ports;
+use zaroxi_domain_workspace::ports as domain_ports;
 use zaroxi_kernel_types::Id;
 
 /// Simple integration-style unit test using in-crate test doubles.
@@ -19,9 +19,17 @@ async fn orchestrator_flow_happy_path() {
     // Fake repo
     struct FakeRepo;
     impl domain_ports::WorkspaceRepository for FakeRepo {
-        fn open_workspace(&self, cmd: domain_ports::WorkspaceOpenCommand) -> ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
+        fn open_workspace(
+            &self,
+            cmd: domain_ports::WorkspaceOpenCommand,
+        ) -> ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>>
+        {
             Box::pin(async move {
-                Ok(domain_ports::WorkspaceDTO { id: Id::new(), root_path: cmd.path.clone(), name: "Test".to_string() })
+                Ok(domain_ports::WorkspaceDTO {
+                    id: Id::new(),
+                    root_path: cmd.path.clone(),
+                    name: "Test".to_string(),
+                })
             })
         }
     }
@@ -38,7 +46,11 @@ async fn orchestrator_flow_happy_path() {
     }
 
     impl buffer_ports::BufferStore for FakeStore {
-        fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+        fn open_buffer(
+            &self,
+            path: PathBuf,
+        ) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>>
+        {
             let id = buffer_ports::BufferId::from_path(&path);
             let key = id.0.clone();
             let id_clone = id.clone();
@@ -55,7 +67,11 @@ async fn orchestrator_flow_happy_path() {
             m.get(&id.0).cloned()
         }
 
-        fn set_text(&self, id: &buffer_ports::BufferId, content: String) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+        fn set_text(
+            &self,
+            id: &buffer_ports::BufferId,
+            content: String,
+        ) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
             let key = id.0.clone();
             let inner = self.inner.clone();
             Box::pin(async move {
@@ -69,12 +85,18 @@ async fn orchestrator_flow_happy_path() {
             })
         }
 
-        fn apply_transaction(&self, id: &buffer_ports::BufferId, txn: buffer_ports::TextEdit) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+        fn apply_transaction(
+            &self,
+            id: &buffer_ports::BufferId,
+            txn: buffer_ports::TextEdit,
+        ) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
             let key = id.0.clone();
             let inner = self.inner.clone();
             Box::pin(async move {
                 let mut m = inner.lock().unwrap();
-                let s = m.get_mut(&key).ok_or(buffer_ports::BufferError("buffer not found".to_string()))?;
+                let s = m
+                    .get_mut(&key)
+                    .ok_or(buffer_ports::BufferError("buffer not found".to_string()))?;
                 let char_to_byte = |st: &str, idx: usize| -> usize {
                     st.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(st.len())
                 };
@@ -112,7 +134,11 @@ async fn orchestrator_flow_happy_path() {
     // Fake AI
     struct FakeAi;
     impl ai_ports::AiClient for FakeAi {
-        fn request(&self, req: ai_ports::AiRequest) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
+        fn request(
+            &self,
+            req: ai_ports::AiRequest,
+        ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>>
+        {
             Box::pin(async move {
                 Ok(ai_ports::AiResponseDTO { text: format!("fake: {}", req.buffer_id) })
             })
@@ -130,17 +156,24 @@ async fn orchestrator_flow_happy_path() {
     // session id is now typed; ensure it's present.
     assert!(boot_res.session.session_id.0.to_string().len() > 0);
 
-    let open = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
+    let open = OpenBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        path: PathBuf::from("main.rs"),
+    };
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
     // Prefer typed assertion: the BufferId is expected to map to a filesystem path.
     assert!(open_res.buffer_id.path().is_some());
 
     // Phase 2: verify view seam can read buffer content
-    let content = orchestrator.get_buffer_content(open_res.buffer_id.clone()).await.expect("read ok");
+    let content =
+        orchestrator.get_buffer_content(open_res.buffer_id.clone()).await.expect("read ok");
     assert!(content.is_some());
     assert!(content.unwrap().contains("fn main"));
 
-    let dispatch = DispatchCommandRequest { session_id: boot_res.session.session_id.clone(), command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() } };
+    let dispatch = DispatchCommandRequest {
+        session_id: boot_res.session.session_id.clone(),
+        command: AppCommand::AiExplain { buffer_id: open_res.buffer_id.clone() },
+    };
     let dispatch_res = orchestrator.dispatch_command(dispatch).await.expect("dispatch ok");
     assert!(dispatch_res.result.message.contains("fake:"));
 }

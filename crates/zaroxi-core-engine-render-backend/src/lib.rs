@@ -11,10 +11,10 @@ Responsibilities:
 - Provide resize handling and a render_frame(scene) entry that presents a frame
 */
 
-use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
-use zaroxi_core_engine_window::ZaroxiWindow;
 use bytemuck;
+use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_engine_window::ZaroxiWindow;
 
 /// Simple render backend that drives a wgpu surface and presents frames.
 ///
@@ -54,9 +54,8 @@ impl<'a> RenderBackend<'a> {
         let instance = wgpu::Instance::default();
 
         // create_surface returns a Result in this wgpu version; unwrap to get the Surface.
-        let surface = instance
-            .create_surface(window.window())
-            .expect("failed to create wgpu surface");
+        let surface =
+            instance.create_surface(window.window()).expect("failed to create wgpu surface");
 
         // Choose a high-performance adapter when available and prefer a surface-compatible adapter.
         let adapter = instance
@@ -216,8 +215,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         self.surface_config.width = w;
         self.surface_config.height = h;
-        self.surface
-            .configure(&self.device, &self.surface_config);
+        self.surface.configure(&self.device, &self.surface_config);
     }
 
     /// Render a single frame. The provided vello::Scene is currently unused
@@ -225,23 +223,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// background color and presents the frame.
     pub fn render_frame(&mut self, _scene: &vello::Scene) {
         // Background color: rgba(13,14,17,255)
-        let bg_color = wgpu::Color {
-            r: 13.0 / 255.0,
-            g: 14.0 / 255.0,
-            b: 17.0 / 255.0,
-            a: 1.0,
-        };
+        let bg_color = wgpu::Color { r: 13.0 / 255.0, g: 14.0 / 255.0, b: 17.0 / 255.0, a: 1.0 };
 
         // Acquire next surface texture. The local wgpu API returns a `CurrentSurfaceTexture`
         // enum. Handle Success and Suboptimal as valid textures; treat other variants as errors.
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(tex) => tex,
             wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
-                eprintln!("wgpu surface acquired suboptimal texture; proceeding but consider reconfigure");
+                eprintln!(
+                    "wgpu surface acquired suboptimal texture; proceeding but consider reconfigure"
+                );
                 tex
             }
             other => {
-                eprintln!("wgpu surface acquisition returned {:?}; reconfiguring/skip frame", other);
+                eprintln!(
+                    "wgpu surface acquisition returned {:?}; reconfiguring/skip frame",
+                    other
+                );
                 // Reconfigure the surface for the next frame. Do not use catch_unwind here;
                 // wgpu internals are not guaranteed UnwindSafe and calling catch_unwind
                 // causes hard-to-resolve trait errors. If configure panics it will propagate.
@@ -250,9 +248,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         };
 
-        let view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Build UI via the engine UI composer and convert to vertices.
         let width = self.surface_config.width;
@@ -303,11 +299,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             None
         };
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("zaroxi-draw-encoder"),
-            });
+        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("zaroxi-draw-encoder"),
+        });
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -418,8 +412,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let caret_col = 4u32;
             let content_text_x = editor_x.saturating_add(6);
             let caret_x = content_text_x.saturating_add(caret_col.saturating_mul(char_w));
-            let caret_y = editor_y.saturating_add((caret_line.saturating_sub(1)).saturating_mul(line_h));
-            set.carets.push(zaroxi_core_engine_scene::CaretItem { x: caret_x, y: caret_y, height: line_h });
+            let caret_y =
+                editor_y.saturating_add((caret_line.saturating_sub(1)).saturating_mul(line_h));
+            set.carets.push(zaroxi_core_engine_scene::CaretItem {
+                x: caret_x,
+                y: caret_y,
+                height: line_h,
+            });
 
             // Render the editor primitives as an overlay.
             self.render_editor_primitives(&set);
@@ -431,12 +430,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// This method provides a minimal, deterministic editor overlay rendering
     /// using the existing rectangle pipeline. It intentionally renders glyph
     /// runs as monospace boxes (no shaping) using the bundled monospace metrics.
-    pub fn render_editor_primitives(&mut self, primitives: &zaroxi_core_engine_scene::EditorPrimitiveSet) {
+    pub fn render_editor_primitives(
+        &mut self,
+        primitives: &zaroxi_core_engine_scene::EditorPrimitiveSet,
+    ) {
         // Acquire next surface texture.
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(tex) => tex,
             wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
-                eprintln!("wgpu surface acquired suboptimal texture; proceeding but consider reconfigure");
+                eprintln!(
+                    "wgpu surface acquired suboptimal texture; proceeding but consider reconfigure"
+                );
                 tex
             }
             other => {
@@ -447,9 +451,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         };
 
-        let view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let width = self.surface_config.width as f32;
         let height = self.surface_config.height as f32;
@@ -520,11 +522,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("zaroxi-editor-encoder"),
-            });
+        let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("zaroxi-editor-encoder"),
+        });
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -570,14 +570,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let line_h: u32 = font.line_height;
 
             // Compute editor content origin from the deterministic ShellLayout.
-            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(width as u32, height as u32);
+            let layout = zaroxi_core_engine_layout::ShellLayout::from_window_size(
+                width as u32,
+                height as u32,
+            );
             let editor_x = layout.editor_content.x.max(0.0) as u32;
             let editor_y = layout.editor_content.y.max(0.0) as u32;
 
             // Determine visible slice based on scene.viewport_top_line and the
             // available editor content height.
             let avail_h = layout.editor_content.height.max(0.0) as u32;
-            let visible_rows = if line_h > 0 { (avail_h / line_h) as usize } else { scene_model.text_lines.len() };
+            let visible_rows =
+                if line_h > 0 { (avail_h / line_h) as usize } else { scene_model.text_lines.len() };
 
             let top_line = scene_model.viewport_top_line.max(1) as usize;
             let start_idx = top_line.saturating_sub(1);
@@ -629,11 +633,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if let Some(cl) = scene_model.cursor_line {
                 let col = scene_model.cursor_column.unwrap_or(0);
                 // Check if caret is inside the visible slice
-                if cl >= scene_model.viewport_top_line && (cl as usize) < (start_idx + visible_rows + 1) {
+                if cl >= scene_model.viewport_top_line
+                    && (cl as usize) < (start_idx + visible_rows + 1)
+                {
                     let offset_rows = (cl as usize).saturating_sub(top_line);
                     let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
-                    let caret_y = editor_y.saturating_add((offset_rows as u32).saturating_mul(line_h));
-                    set.carets.push(zaroxi_core_engine_scene::CaretItem { x: caret_x, y: caret_y, height: line_h });
+                    let caret_y =
+                        editor_y.saturating_add((offset_rows as u32).saturating_mul(line_h));
+                    set.carets.push(zaroxi_core_engine_scene::CaretItem {
+                        x: caret_x,
+                        y: caret_y,
+                        height: line_h,
+                    });
                 }
             }
 

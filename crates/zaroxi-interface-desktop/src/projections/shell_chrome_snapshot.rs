@@ -47,9 +47,15 @@ impl ShellChromeSnapshot {
     /// Render a compact one-line representation suitable for tiny shell output.
     pub fn render(&self) -> String {
         if let Some(ref lc) = self.last_command {
-            format!("{} │ {} │ {} │ {} │ last: {}", self.session, self.active_buffer, self.location, self.status, lc)
+            format!(
+                "{} │ {} │ {} │ {} │ last: {}",
+                self.session, self.active_buffer, self.location, self.status, lc
+            )
         } else {
-            format!("{} │ {} │ {} │ {}", self.session, self.active_buffer, self.location, self.status)
+            format!(
+                "{} │ {} │ {} │ {}",
+                self.session, self.active_buffer, self.location, self.status
+            )
         }
     }
 }

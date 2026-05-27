@@ -29,10 +29,8 @@ impl SelectionLine {
         end_column: usize,
         visible_in_window: bool,
     ) -> Self {
-        let mut text = format!(
-            "Selection: {}:{} -> {}:{}",
-            start_line, start_column, end_line, end_column
-        );
+        let mut text =
+            format!("Selection: {}:{} -> {}:{}", start_line, start_column, end_line, end_column);
         if visible_in_window {
             text.push_str(" (visible)");
         }

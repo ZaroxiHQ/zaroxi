@@ -18,17 +18,18 @@ impl ActiveBufferLine {
     /// Create a new ActiveBufferLine from raw parts.
     /// This helper is intentionally public to enable tests to exercise the lifecycle rule
     /// without constructing a full ShellSnapshot.
-    pub fn from_parts(latest_revision: u64, active_buffer: Option<String>, active_display: Option<String>) -> Option<Self> {
+    pub fn from_parts(
+        latest_revision: u64,
+        active_buffer: Option<String>,
+        active_display: Option<String>,
+    ) -> Option<Self> {
         // Lifecycle rule: absent before the first refresh (revision == 0).
         if latest_revision == 0 {
             return None;
         }
 
         let buf = active_buffer?;
-        Some(Self {
-            buffer_id: buf,
-            display: active_display,
-        })
+        Some(Self { buffer_id: buf, display: active_display })
     }
 
     /// Compose from the authoritative shell-facing snapshot.
@@ -41,11 +42,7 @@ impl ActiveBufferLine {
         // Convert the active buffer identifier into an owned String.
         // Many buffer id types in the codebase are tuple structs like `BufferId(pub String)`,
         // so extract the inner string when available. Clone to avoid borrowing the snapshot.
-        let active = snapshot
-            .context
-            .active_buffer
-            .as_ref()
-            .map(|b| b.0.clone());
+        let active = snapshot.context.active_buffer.as_ref().map(|b| b.0.clone());
         let display = snapshot.context.active_display.clone();
         Self::from_parts(rev, active, display)
     }

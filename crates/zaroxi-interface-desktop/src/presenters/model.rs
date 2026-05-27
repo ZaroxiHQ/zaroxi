@@ -1,5 +1,5 @@
-use std::cmp::min;
 use crate::presenters::paint::{GpuPaintPlan, execute_paint_plan};
+use std::cmp::min;
 
 /// Kinds of logical regions present in the shell. Kept intentionally small
 /// and explicit so the presenter can deterministically map kinds -> visuals.
@@ -383,7 +383,6 @@ impl GpuShellView {
             tabs: TabStrip::default(),
         }
     }
-
 }
 
 /// Explicit ShellFrame layout model.
@@ -418,13 +417,7 @@ impl ShellFrame {
         let tab_bar_h = std::cmp::min(14u32, chrome.height.saturating_sub(4));
         let tab_bar_y = chrome.y + (chrome.height.saturating_sub(tab_bar_h) / 2);
 
-        ShellFrame {
-            chrome,
-            content,
-            status,
-            tab_bar_h,
-            tab_bar_y,
-        }
+        ShellFrame { chrome, content, status, tab_bar_h, tab_bar_y }
     }
 
     /// Total viewport width (derived from region widths). This mirrors the
@@ -441,11 +434,7 @@ impl ShellFrame {
 
     /// Deterministic base per-tab width for `num` tabs (last tab may take remainder).
     pub fn base_tab_width(&self, num: u32) -> u32 {
-        if num > 0 {
-            self.chrome.width / num
-        } else {
-            0
-        }
+        if num > 0 { self.chrome.width / num } else { 0 }
     }
 }
 
@@ -459,7 +448,12 @@ impl GpuShellPresenter {
     /// Compute the chrome/content/status regions for a window of size (width x height).
     /// - chrome_height: default top chrome height in pixels (suggested: 60).
     /// - status_height: default bottom status bar height in pixels (suggested: 24).
-    pub fn map_regions(width: u32, height: u32, chrome_height: u32, status_height: u32) -> ShellRegions {
+    pub fn map_regions(
+        width: u32,
+        height: u32,
+        chrome_height: u32,
+        status_height: u32,
+    ) -> ShellRegions {
         // Compute raw band sizes first (reserve chrome/top and status/bottom as requested).
         let chrome_h = min(chrome_height, height);
         let status_h = min(status_height, height.saturating_sub(chrome_h));
@@ -483,7 +477,8 @@ impl GpuShellPresenter {
         // Status remains pinned to the bottom of the frame (same origin as previous calculation).
         // This preserves the overall banding (chrome / content-area / status) while making the
         // content area feel inset between the two chrome bands.
-        let status = Region::with_kind(0, chrome_h + content_h, width, status_h, RegionKind::Status);
+        let status =
+            Region::with_kind(0, chrome_h + content_h, width, status_h, RegionKind::Status);
 
         ShellRegions {
             chrome,
@@ -511,7 +506,13 @@ impl GpuShellPresenter {
     /// - status: medium gray [48, 48, 56, 255]
     pub fn paint_to_buffer(width: u32, height: u32, buffer: &mut [u8], regions: &ShellRegions) {
         // Backwards-compatible wrapper that renders without tabs (empty TabStrip).
-        GpuShellPresenter::paint_to_buffer_with_tabs(width, height, buffer, regions, &TabStrip::default());
+        GpuShellPresenter::paint_to_buffer_with_tabs(
+            width,
+            height,
+            buffer,
+            regions,
+            &TabStrip::default(),
+        );
     }
 
     /// Paint the three regions into the provided RGBA8 buffer with an explicit TabStrip.
@@ -561,237 +562,242 @@ impl GpuShellPresenter {
     }
 }
 
- // ---------------------------------------------------------------------
- // Small, explicit tab navigation action seam
- //
- // Architectural notes (concise):
- // - This tiny, presenter-local API exposes deterministic tab navigation
- //   intents as a minimal action shape that callers (desktop input bridge /
- //   harness / application) can use to compute which buffer id should be
- //   activated. The function below re-uses the existing TabStrip navigation
- //   rules (next_active_id / prev_active_id) and returns the id to be fed
- //   into the existing active-buffer flow. No state is mutated here and
- //   no new crates are introduced.
- //
- // Usage:
- // - Call compute_tab_action_target(...) with the desired action, the
- //   current opened buffers list and the current active id (if any).
- // - If Some(id) is returned, pass that id into the application's existing
- //   active-buffer setter (unchanged wiring).
- //
- // This keeps the source-of-truth (opened buffers + active id) in the same
- // place and makes the navigation reachable as an explicit action/intent.
- #[derive(Debug, Clone, PartialEq, Eq)]
- pub enum TabAction {
-     /// Activate the next tab. `wrap` controls whether we wrap at the end.
-     ActivateNext { wrap: bool },
-     /// Activate the previous tab. `wrap` controls whether we wrap at the start.
-     ActivatePrevious { wrap: bool },
-     /// Activate a specific tab by its string id.
-     ///
-     /// Semantics:
-     /// - If `id` is not present in `opened` -> no-op (returns None).
-     /// - If `id` equals the current active id -> no-op (returns None).
-     /// - Otherwise returns Some(id) so the outer layer can perform activation.
-     ActivateById { id: String },
- }
- 
- /// Compute the id that should become active when applying `action`.
- ///
- /// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
- /// - `current_active`: optional currently-active id.
- ///
- /// Returns: Option<String> — the id that should be passed to the
- /// existing active-buffer flow. The caller is responsible for performing
- /// the actual activation (this keeps wiring/side-effects outside the
- /// presenter and preserves dependency inversion).
- pub fn compute_tab_action_target(
-     action: TabAction,
-     opened: &[(String, String)],
-     current_active: Option<&str>,
- ) -> Option<String> {
-     match action {
-         TabAction::ActivateNext { wrap } => {
-             let ts = TabStrip::from_opened_and_active(opened, current_active);
-             ts.next_active_id(wrap)
-         }
-         TabAction::ActivatePrevious { wrap } => {
-             let ts = TabStrip::from_opened_and_active(opened, current_active);
-             ts.prev_active_id(wrap)
-         }
-         TabAction::ActivateById { id } => {
-             // If the requested id is not among opened buffers -> no-op.
-             if !opened.iter().any(|(oid, _)| oid == &id) {
-                 return None;
-             }
-             // If it's already active -> no-op.
-             if current_active.map(|a| a == id.as_str()).unwrap_or(false) {
-                 return None;
-             }
-             // Otherwise return the requested id for outer-layer activation.
-             Some(id)
-         }
-     }
- }
- 
- /// Apply a `TabAction` through the deterministic resolution path and invoke
- /// the provided side-effecting setter when a target id is computed.
- ///
- /// This function centralizes the presenter-facing action -> target resolution
- /// by reusing `compute_tab_action_target` and ensures desktop callers can
- /// perform the mutation (activate the buffer) in their usual outer-layer flow.
- ///
- /// - `apply` is invoked only when a target id is produced and receives the
- ///    chosen id (string slice) to pass into the application's activation flow.
- /// - Returns the chosen id (Some) or None when no target exists (no buffers).
- pub fn apply_tab_action<F>(
-     action: TabAction,
-     opened: &[(String, String)],
-     current_active: Option<&str>,
-     mut _apply: F,
- ) -> Option<String>
- where
-     F: FnMut(&str),
- {
-     if let Some(id) = compute_tab_action_target(action, opened, current_active) {
-         _apply(&id);
-         Some(id)
-     } else {
-         None
-     }
- }
+// ---------------------------------------------------------------------
+// Small, explicit tab navigation action seam
+//
+// Architectural notes (concise):
+// - This tiny, presenter-local API exposes deterministic tab navigation
+//   intents as a minimal action shape that callers (desktop input bridge /
+//   harness / application) can use to compute which buffer id should be
+//   activated. The function below re-uses the existing TabStrip navigation
+//   rules (next_active_id / prev_active_id) and returns the id to be fed
+//   into the existing active-buffer flow. No state is mutated here and
+//   no new crates are introduced.
+//
+// Usage:
+// - Call compute_tab_action_target(...) with the desired action, the
+//   current opened buffers list and the current active id (if any).
+// - If Some(id) is returned, pass that id into the application's existing
+//   active-buffer setter (unchanged wiring).
+//
+// This keeps the source-of-truth (opened buffers + active id) in the same
+// place and makes the navigation reachable as an explicit action/intent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabAction {
+    /// Activate the next tab. `wrap` controls whether we wrap at the end.
+    ActivateNext { wrap: bool },
+    /// Activate the previous tab. `wrap` controls whether we wrap at the start.
+    ActivatePrevious { wrap: bool },
+    /// Activate a specific tab by its string id.
+    ///
+    /// Semantics:
+    /// - If `id` is not present in `opened` -> no-op (returns None).
+    /// - If `id` equals the current active id -> no-op (returns None).
+    /// - Otherwise returns Some(id) so the outer layer can perform activation.
+    ActivateById { id: String },
+}
 
- /// New minimal focus action seam for tab-strip selection/focus semantics.
- ///
- /// Focus is independent of activation. The outer-layer may hold focused state
- /// in presenter-facing TabStrip, or callers may compute and apply focus via
- /// these helpers. Focus changes do not mutate opened/active state; they are
- /// pure and return the chosen id for the caller to apply.
- #[derive(Debug, Clone, PartialEq, Eq)]
- pub enum FocusAction {
-     FocusNext { wrap: bool },
-     FocusPrevious { wrap: bool },
-     FocusById { id: String },
- }
+/// Compute the id that should become active when applying `action`.
+///
+/// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
+/// - `current_active`: optional currently-active id.
+///
+/// Returns: Option<String> — the id that should be passed to the
+/// existing active-buffer flow. The caller is responsible for performing
+/// the actual activation (this keeps wiring/side-effects outside the
+/// presenter and preserves dependency inversion).
+pub fn compute_tab_action_target(
+    action: TabAction,
+    opened: &[(String, String)],
+    current_active: Option<&str>,
+) -> Option<String> {
+    match action {
+        TabAction::ActivateNext { wrap } => {
+            let ts = TabStrip::from_opened_and_active(opened, current_active);
+            ts.next_active_id(wrap)
+        }
+        TabAction::ActivatePrevious { wrap } => {
+            let ts = TabStrip::from_opened_and_active(opened, current_active);
+            ts.prev_active_id(wrap)
+        }
+        TabAction::ActivateById { id } => {
+            // If the requested id is not among opened buffers -> no-op.
+            if !opened.iter().any(|(oid, _)| oid == &id) {
+                return None;
+            }
+            // If it's already active -> no-op.
+            if current_active.map(|a| a == id.as_str()).unwrap_or(false) {
+                return None;
+            }
+            // Otherwise return the requested id for outer-layer activation.
+            Some(id)
+        }
+    }
+}
 
- /// Compute the id that should become focused when applying `action`.
- ///
- /// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
- /// - `current_focused`: optional currently-focused id.
- ///
- /// Returns: Option<String> — the id that should become focused.
- pub fn compute_focus_action_target(
-     action: FocusAction,
-     opened: &[(String, String)],
-     current_focused: Option<&str>,
- ) -> Option<String> {
-     match action {
-         FocusAction::FocusNext { wrap } => {
-             let ts = TabStrip::from_opened_and_active(opened, None);
-             // derive focused id deterministically from TabStrip semantics
-             let focused_idx = ts.focused_index();
-             let len = ts.tabs.len();
-             if len == 0 {
-                 None
-             } else if len == 1 {
-                 Some(ts.tabs[0].id.clone())
-             } else if let Some(idx) = focused_idx {
-                 if idx + 1 < len {
-                     Some(ts.tabs[idx + 1].id.clone())
-                 } else if wrap {
-                     Some(ts.tabs[0].id.clone())
-                 } else {
-                     Some(ts.tabs[idx].id.clone())
-                 }
-             } else {
-                 // no focused -> choose first
-                 Some(ts.tabs[0].id.clone())
-             }
-         }
-         FocusAction::FocusPrevious { wrap } => {
-             let ts = TabStrip::from_opened_and_active(opened, None);
-             let focused_idx = ts.focused_index();
-             let len = ts.tabs.len();
-             if len == 0 {
-                 None
-             } else if len == 1 {
-                 Some(ts.tabs[0].id.clone())
-             } else if let Some(idx) = focused_idx {
-                 if idx > 0 {
-                     Some(ts.tabs[idx - 1].id.clone())
-                 } else if wrap {
-                     Some(ts.tabs[len - 1].id.clone())
-                 } else {
-                     Some(ts.tabs[idx].id.clone())
-                 }
-             } else {
-                 // no focused -> choose last deterministically
-                 Some(ts.tabs[len - 1].id.clone())
-             }
-         }
-         FocusAction::FocusById { id } => {
-             if !opened.iter().any(|(oid, _)| oid == &id) {
-                 None
-             } else if current_focused.map(|a| a == id.as_str()).unwrap_or(false) {
-                 None
-             } else {
-                 Some(id)
-             }
-         }
-     }
- }
+/// Apply a `TabAction` through the deterministic resolution path and invoke
+/// the provided side-effecting setter when a target id is computed.
+///
+/// This function centralizes the presenter-facing action -> target resolution
+/// by reusing `compute_tab_action_target` and ensures desktop callers can
+/// perform the mutation (activate the buffer) in their usual outer-layer flow.
+///
+/// - `apply` is invoked only when a target id is produced and receives the
+///    chosen id (string slice) to pass into the application's activation flow.
+/// - Returns the chosen id (Some) or None when no target exists (no buffers).
+pub fn apply_tab_action<F>(
+    action: TabAction,
+    opened: &[(String, String)],
+    current_active: Option<&str>,
+    mut _apply: F,
+) -> Option<String>
+where
+    F: FnMut(&str),
+{
+    if let Some(id) = compute_tab_action_target(action, opened, current_active) {
+        _apply(&id);
+        Some(id)
+    } else {
+        None
+    }
+}
 
- /// Apply a focus action through the deterministic resolution path and invoke
- /// the provided setter when a focus target id is computed.
- ///
- /// - `apply` is invoked only when a target id is produced and receives the
- ///    chosen id (string slice) so outer layer can set presenter-facing focus.
- pub fn apply_focus_action<F>(
-     action: FocusAction,
-     opened: &[(String, String)],
-     current_focused: Option<&str>,
-     mut _apply: F,
- ) -> Option<String>
- where
-     F: FnMut(&str),
- {
-     if let Some(id) = compute_focus_action_target(action, opened, current_focused) {
-         _apply(&id);
-         Some(id)
-     } else {
-         None
-     }
- }
+/// New minimal focus action seam for tab-strip selection/focus semantics.
+///
+/// Focus is independent of activation. The outer-layer may hold focused state
+/// in presenter-facing TabStrip, or callers may compute and apply focus via
+/// these helpers. Focus changes do not mutate opened/active state; they are
+/// pure and return the chosen id for the caller to apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusAction {
+    FocusNext { wrap: bool },
+    FocusPrevious { wrap: bool },
+    FocusById { id: String },
+}
 
- /// Activate the currently-focused tab by delegating to the existing ActivateById
- /// semantics. This reuses `apply_tab_action` to ensure activation behavior is
- /// identical to direct ActivateById usage (no-op when focused id equals active,
- /// or when focused id missing).
- pub fn activate_focused<F>(
-     opened: &[(String, String)],
-     current_active: Option<&str>,
-     current_focused: Option<&str>,
-     mut _apply: F,
- ) -> Option<String>
- where
-     F: FnMut(&str),
- {
-     if let Some(fid) = current_focused {
-         // If the focused id is not present -> no-op
-         if !opened.iter().any(|(oid, _)| oid == fid) {
-             return None;
-         }
-         // If already active -> no-op
-         if current_active.map(|a| a == fid).unwrap_or(false) {
-             return None;
-         }
-         // Delegate to apply_tab_action to reuse ActivateById semantics.
-         apply_tab_action(TabAction::ActivateById { id: fid.to_string() }, opened, current_active, _apply)
-     } else {
-         None
-     }
- }
- 
+/// Compute the id that should become focused when applying `action`.
+///
+/// - `opened`: ordered slice of (id, display) pairs (source-of-truth).
+/// - `current_focused`: optional currently-focused id.
+///
+/// Returns: Option<String> — the id that should become focused.
+pub fn compute_focus_action_target(
+    action: FocusAction,
+    opened: &[(String, String)],
+    current_focused: Option<&str>,
+) -> Option<String> {
+    match action {
+        FocusAction::FocusNext { wrap } => {
+            let ts = TabStrip::from_opened_and_active(opened, None);
+            // derive focused id deterministically from TabStrip semantics
+            let focused_idx = ts.focused_index();
+            let len = ts.tabs.len();
+            if len == 0 {
+                None
+            } else if len == 1 {
+                Some(ts.tabs[0].id.clone())
+            } else if let Some(idx) = focused_idx {
+                if idx + 1 < len {
+                    Some(ts.tabs[idx + 1].id.clone())
+                } else if wrap {
+                    Some(ts.tabs[0].id.clone())
+                } else {
+                    Some(ts.tabs[idx].id.clone())
+                }
+            } else {
+                // no focused -> choose first
+                Some(ts.tabs[0].id.clone())
+            }
+        }
+        FocusAction::FocusPrevious { wrap } => {
+            let ts = TabStrip::from_opened_and_active(opened, None);
+            let focused_idx = ts.focused_index();
+            let len = ts.tabs.len();
+            if len == 0 {
+                None
+            } else if len == 1 {
+                Some(ts.tabs[0].id.clone())
+            } else if let Some(idx) = focused_idx {
+                if idx > 0 {
+                    Some(ts.tabs[idx - 1].id.clone())
+                } else if wrap {
+                    Some(ts.tabs[len - 1].id.clone())
+                } else {
+                    Some(ts.tabs[idx].id.clone())
+                }
+            } else {
+                // no focused -> choose last deterministically
+                Some(ts.tabs[len - 1].id.clone())
+            }
+        }
+        FocusAction::FocusById { id } => {
+            if !opened.iter().any(|(oid, _)| oid == &id) {
+                None
+            } else if current_focused.map(|a| a == id.as_str()).unwrap_or(false) {
+                None
+            } else {
+                Some(id)
+            }
+        }
+    }
+}
+
+/// Apply a focus action through the deterministic resolution path and invoke
+/// the provided setter when a focus target id is computed.
+///
+/// - `apply` is invoked only when a target id is produced and receives the
+///    chosen id (string slice) so outer layer can set presenter-facing focus.
+pub fn apply_focus_action<F>(
+    action: FocusAction,
+    opened: &[(String, String)],
+    current_focused: Option<&str>,
+    mut _apply: F,
+) -> Option<String>
+where
+    F: FnMut(&str),
+{
+    if let Some(id) = compute_focus_action_target(action, opened, current_focused) {
+        _apply(&id);
+        Some(id)
+    } else {
+        None
+    }
+}
+
+/// Activate the currently-focused tab by delegating to the existing ActivateById
+/// semantics. This reuses `apply_tab_action` to ensure activation behavior is
+/// identical to direct ActivateById usage (no-op when focused id equals active,
+/// or when focused id missing).
+pub fn activate_focused<F>(
+    opened: &[(String, String)],
+    current_active: Option<&str>,
+    current_focused: Option<&str>,
+    mut _apply: F,
+) -> Option<String>
+where
+    F: FnMut(&str),
+{
+    if let Some(fid) = current_focused {
+        // If the focused id is not present -> no-op
+        if !opened.iter().any(|(oid, _)| oid == fid) {
+            return None;
+        }
+        // If already active -> no-op
+        if current_active.map(|a| a == fid).unwrap_or(false) {
+            return None;
+        }
+        // Delegate to apply_tab_action to reuse ActivateById semantics.
+        apply_tab_action(
+            TabAction::ActivateById { id: fid.to_string() },
+            opened,
+            current_active,
+            _apply,
+        )
+    } else {
+        None
+    }
+}
+
 /// Execute a paint plan into an RGBA8 buffer.
 ///
 /// This executor is intentionally dumb: it follows the GpuPaintPlan operations
@@ -877,9 +883,19 @@ where
     // Tab navigation (focus only) — ignore Ctrl+Tab (reserved for activation cycling).
     if ev.is_plain_tab() {
         if ev.shift {
-            apply_focus_action(FocusAction::FocusPrevious { wrap: true }, opened, current_focused, apply_focus)
+            apply_focus_action(
+                FocusAction::FocusPrevious { wrap: true },
+                opened,
+                current_focused,
+                apply_focus,
+            )
         } else {
-            apply_focus_action(FocusAction::FocusNext { wrap: true }, opened, current_focused, apply_focus)
+            apply_focus_action(
+                FocusAction::FocusNext { wrap: true },
+                opened,
+                current_focused,
+                apply_focus,
+            )
         }
     } else if ev.is_enter() {
         // Confirm/activate the currently focused tab (delegates to existing activation path).
@@ -1045,11 +1061,7 @@ impl TabStrip {
                 t.focused = false;
             }
         }
-        if found {
-            new
-        } else {
-            self.clone()
-        }
+        if found { new } else { self.clone() }
     }
 
     /// Move focus to the next tab deterministically and return a new TabStrip.

@@ -1,6 +1,6 @@
-use zaroxi_interface_desktop::desktop::DesktopComposition;
-use zaroxi_interface_desktop::close::PendingClose;
 use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_interface_desktop::close::PendingClose;
+use zaroxi_interface_desktop::desktop::DesktopComposition;
 
 #[test]
 fn confirm_save_and_close_status_survives_refresh() {
@@ -58,7 +58,9 @@ fn pending_session_overrides_close_result() {
     assert!(comp.has_pending_close(), "pending close should be set after entering session-close");
     let bar = comp.latest_status_bar_line().expect("status bar present");
     assert!(
-        bar.text.contains("Close session") || bar.text.contains("buffers") || bar.text.contains("Close"),
+        bar.text.contains("Close session")
+            || bar.text.contains("buffers")
+            || bar.text.contains("Close"),
         "status should reflect session close pending and not be the stale close-result"
     );
 }

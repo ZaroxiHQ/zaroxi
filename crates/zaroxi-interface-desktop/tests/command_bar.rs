@@ -1,9 +1,11 @@
 use std::sync::Arc;
-use zaroxi_interface_desktop::{DesktopComposition, actions};
-use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId};
+use zaroxi_application_workspace::ports;
+use zaroxi_application_workspace::ports::{
+    GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, WorkspaceView,
+};
 use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_core_editor_buffer::ports::BufferId;
-use zaroxi_application_workspace::ports as ports;
+use zaroxi_interface_desktop::{DesktopComposition, actions};
 
 /// Minimal fake view used for command-bar tests.
 struct FakeView {
@@ -17,15 +19,27 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: crate::ports::BufferId,
+    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: crate::ports::SessionId,
+    ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> crate::ports::BoxFuture<
+        'static,
+        Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>,
+    > {
         let doc = crate::ports::EditorDocument {
             buffer_id: self.buffer_id.clone(),
             content: Some("line1".to_string()),
@@ -37,7 +51,13 @@ impl WorkspaceView for FakeView {
         Box::pin(async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: doc }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> crate::ports::BoxFuture<
+        'static,
+        Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>,
+    > {
         let vl = VisibleLine {
             line_number: 1,
             text: "line1".to_string(),
@@ -89,23 +109,35 @@ async fn keyboard_confirm_executes_selected_command_request_close() {
     let mut comp = DesktopComposition::new();
 
     // populate composition so latest_active_buffer_details is present
-    let _ = actions::refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("refresh ok");
+    let _ = actions::refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None)
+        .await
+        .expect("refresh ok");
 
     // open command bar via keyboard action
     let _ = actions::open_command_bar(&mut comp).await.expect("open ok");
     // navigate to "Request close active"
-    let target = comp.latest_command_bar().and_then(|cb| cb.commands.iter().position(|c| c == "Request close active")).unwrap();
+    let target = comp
+        .latest_command_bar()
+        .and_then(|cb| cb.commands.iter().position(|c| c == "Request close active"))
+        .unwrap();
     // compute steps forward from current selected
-    let mut steps = (target + comp.latest_command_bar().unwrap().commands.len() - comp.latest_command_bar().unwrap().selected) % comp.latest_command_bar().unwrap().commands.len();
+    let mut steps = (target + comp.latest_command_bar().unwrap().commands.len()
+        - comp.latest_command_bar().unwrap().selected)
+        % comp.latest_command_bar().unwrap().commands.len();
     while steps > 0 {
         let _ = actions::navigate_command_bar_next(&mut comp).await.expect("nav next ok");
         steps -= 1;
     }
 
     // confirm via keyboard action (no service required for request_close_active)
-    let res = actions::confirm_selected_command(&mut comp, arc.clone(), None, sid.clone(), None).await.expect("confirm ok");
+    let res = actions::confirm_selected_command(&mut comp, arc.clone(), None, sid.clone(), None)
+        .await
+        .expect("confirm ok");
     assert!(res.success);
-    assert!(comp.has_pending_close(), "pending close should be set after confirming request close via keyboard");
+    assert!(
+        comp.has_pending_close(),
+        "pending close should be set after confirming request close via keyboard"
+    );
     // command bar should be closed after a successful confirm
     assert!(!comp.is_command_bar_open());
 }

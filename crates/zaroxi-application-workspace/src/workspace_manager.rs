@@ -1,4 +1,5 @@
- //! Workspace manager.
+
+//! Workspace manager.
 
 use serde::{Deserialize, Serialize};
 use zaroxi_kernel_types::Id;

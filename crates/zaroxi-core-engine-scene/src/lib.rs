@@ -10,14 +10,22 @@ pub const CRATE_NAME: &str = "zaroxi-core-engine-scene";
 
 pub mod scene;
 pub use scene::{
-    ShellSceneModel, CaretItem, SelectionRect,
+    CaretItem,
+    SelectionRect,
+    ShellSceneModel,
+    backspace,
     // Phase 4 runtime seam: expose simple getters/setters and input helpers so
     // renderers/harnesses can publish & mutate the current ShellSceneModel.
-    get_current_scene, set_current_scene, insert_char, backspace, move_cursor, scroll_by_lines,
+    get_current_scene,
+    insert_char,
+    map_click_to_cursor,
+    move_cursor,
     // Click-to-cursor helpers published at crate root so interface presenters
     // and render backends can easily invoke them without importing internal
     // `scene` module paths.
-    place_cursor_from_click, map_click_to_cursor,
+    place_cursor_from_click,
+    scroll_by_lines,
+    set_current_scene,
 };
 // NOTE:
 // EditorPrimitiveSet is defined in this crate root (below) and is NOT provided
@@ -42,7 +50,10 @@ pub struct TextPrimitive {
 
 impl TextPrimitive {
     pub fn to_debug_line(&self) -> String {
-        format!("text@({},{}): \"{}\" font={} max_w={:?}", self.x, self.y, self.text, self.font_name, self.max_width)
+        format!(
+            "text@({},{}): \"{}\" font={} max_w={:?}",
+            self.x, self.y, self.text, self.font_name, self.max_width
+        )
     }
 }
 

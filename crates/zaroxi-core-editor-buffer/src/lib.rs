@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 // Auto-generated stub for `zaroxi-core-text-buffer`.
 
-pub mod ports;
 pub mod buffer;
+pub mod ports;
 pub use buffer::{Buffer, Selection};
 
 pub const CRATE_NAME: &str = "zaroxi-core-text-buffer";

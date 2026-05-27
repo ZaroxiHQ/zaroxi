@@ -5,8 +5,8 @@
 //! data containers only (no IO, no runtime, no platform).
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::fmt;
+use uuid::Uuid;
 
 /// Strongly-typed identifier backed by a UUID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

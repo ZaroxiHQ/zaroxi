@@ -1,26 +1,34 @@
-use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, SetEditorCursorRequest, SetSelectionRequest, GetVisibleLinesRequest,
-    EditorCursor, Selection,
-};
-use zaroxi_application_workspace::ports as ports;
+use zaroxi_application_ai::ports as ai_ports;
+use zaroxi_application_workspace::ports;
 use zaroxi_application_workspace::ports::WorkspaceService;
 use zaroxi_application_workspace::ports::WorkspaceView;
-use zaroxi_domain_workspace::ports as domain_ports;
+use zaroxi_application_workspace::ports::{
+    EditorCursor, GetVisibleLinesRequest, OpenBufferRequest, Selection, SetEditorCursorRequest,
+    SetSelectionRequest, WorkspaceBootRequest,
+};
+use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 use zaroxi_core_editor_buffer::ports as buffer_ports;
-use zaroxi_application_ai::ports as ai_ports;
+use zaroxi_domain_workspace::ports as domain_ports;
 use zaroxi_kernel_types::Id;
 
 /// Fake domain repo
 struct FakeRepo;
 impl domain_ports::WorkspaceRepository for FakeRepo {
-    fn open_workspace(&self, cmd: domain_ports::WorkspaceOpenCommand) -> ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
+    fn open_workspace(
+        &self,
+        cmd: domain_ports::WorkspaceOpenCommand,
+    ) -> ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>>
+    {
         Box::pin(async move {
-            Ok(domain_ports::WorkspaceDTO { id: Id::new(), root_path: cmd.path.clone(), name: "Test".to_string() })
+            Ok(domain_ports::WorkspaceDTO {
+                id: Id::new(),
+                root_path: cmd.path.clone(),
+                name: "Test".to_string(),
+            })
         })
     }
 }
@@ -37,7 +45,10 @@ impl FakeStore {
 }
 
 impl buffer_ports::BufferStore for FakeStore {
-    fn open_buffer(&self, path: PathBuf) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+    fn open_buffer(
+        &self,
+        path: PathBuf,
+    ) -> ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
         let id = buffer_ports::BufferId::from_path(&path);
         let key = id.0.clone();
         let id_clone = id.clone();
@@ -54,7 +65,11 @@ impl buffer_ports::BufferStore for FakeStore {
         m.get(&id.0).cloned()
     }
 
-    fn set_text(&self, id: &buffer_ports::BufferId, content: String) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+    fn set_text(
+        &self,
+        id: &buffer_ports::BufferId,
+        content: String,
+    ) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
         let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
@@ -68,12 +83,17 @@ impl buffer_ports::BufferStore for FakeStore {
         })
     }
 
-    fn apply_transaction(&self, id: &buffer_ports::BufferId, txn: buffer_ports::TextEdit) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+    fn apply_transaction(
+        &self,
+        id: &buffer_ports::BufferId,
+        txn: buffer_ports::TextEdit,
+    ) -> ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
         let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            let s = m.get_mut(&key).ok_or(buffer_ports::BufferError("buffer not found".to_string()))?;
+            let s =
+                m.get_mut(&key).ok_or(buffer_ports::BufferError("buffer not found".to_string()))?;
             let char_to_byte = |st: &str, idx: usize| -> usize {
                 st.char_indices().nth(idx).map(|(b, _)| b).unwrap_or(st.len())
             };
@@ -111,10 +131,11 @@ impl buffer_ports::BufferStore for FakeStore {
 /// Fake AI (not used)
 struct FakeAi;
 impl ai_ports::AiClient for FakeAi {
-    fn request(&self, _req: ai_ports::AiRequest) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
-        Box::pin(async move {
-            Ok(ai_ports::AiResponseDTO { text: "ok".to_string() })
-        })
+    fn request(
+        &self,
+        _req: ai_ports::AiRequest,
+    ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
+        Box::pin(async move { Ok(ai_ports::AiResponseDTO { text: "ok".to_string() }) })
     }
 }
 
@@ -130,7 +151,10 @@ async fn render_spans_cursor_and_selection() {
     let boot = WorkspaceBootRequest { path: PathBuf::from("./sample") };
     let boot_res = orchestrator.boot_workspace(boot).await.expect("boot ok");
 
-    let open = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
+    let open = OpenBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        path: PathBuf::from("main.rs"),
+    };
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Ensure predictable content for projection: "abcdefghij"
@@ -138,13 +162,36 @@ async fn render_spans_cursor_and_selection() {
 
     // Set cursor at column 3 and a selection covering columns 2..6
     let cursor = EditorCursor { line: 0, column: 3 };
-    let _ = orchestrator.set_editor_cursor(SetEditorCursorRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open_res.buffer_id.clone(), cursor: cursor.clone() }).await.expect("set cursor ok");
+    let _ = orchestrator
+        .set_editor_cursor(SetEditorCursorRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open_res.buffer_id.clone(),
+            cursor: cursor.clone(),
+        })
+        .await
+        .expect("set cursor ok");
 
-    let selection = Selection { anchor: EditorCursor { line: 0, column: 2 }, active: EditorCursor { line: 0, column: 6 } };
-    let _ = orchestrator.set_editor_selection(SetSelectionRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open_res.buffer_id.clone(), selection: selection.clone() }).await.expect("set selection ok");
+    let selection = Selection {
+        anchor: EditorCursor { line: 0, column: 2 },
+        active: EditorCursor { line: 0, column: 6 },
+    };
+    let _ = orchestrator
+        .set_editor_selection(SetSelectionRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open_res.buffer_id.clone(),
+            selection: selection.clone(),
+        })
+        .await
+        .expect("set selection ok");
 
     // Request visible window (use default viewport)
-    let win = orchestrator.get_visible_lines(GetVisibleLinesRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open_res.buffer_id.clone() }).await.expect("visible ok");
+    let win = orchestrator
+        .get_visible_lines(GetVisibleLinesRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open_res.buffer_id.clone(),
+        })
+        .await
+        .expect("visible ok");
     let visible = win.window;
 
     // Project to renderable lines
@@ -154,8 +201,20 @@ async fn render_spans_cursor_and_selection() {
     let rl = rendered.iter().find(|r| r.line_number == 1).expect("rendered line present");
 
     // Expect at least one selection span and one cursor or selection-cursor span.
-    let has_selection = rl.spans.iter().any(|s| matches!(s.kind, zaroxi_application_workspace::view::SpanKind::Selection | zaroxi_application_workspace::view::SpanKind::SelectionCursor));
-    let has_cursor = rl.spans.iter().any(|s| matches!(s.kind, zaroxi_application_workspace::view::SpanKind::Cursor | zaroxi_application_workspace::view::SpanKind::SelectionCursor));
+    let has_selection = rl.spans.iter().any(|s| {
+        matches!(
+            s.kind,
+            zaroxi_application_workspace::view::SpanKind::Selection
+                | zaroxi_application_workspace::view::SpanKind::SelectionCursor
+        )
+    });
+    let has_cursor = rl.spans.iter().any(|s| {
+        matches!(
+            s.kind,
+            zaroxi_application_workspace::view::SpanKind::Cursor
+                | zaroxi_application_workspace::view::SpanKind::SelectionCursor
+        )
+    });
     assert!(has_selection, "selection span should be present");
     assert!(has_cursor, "cursor span should be present");
 }

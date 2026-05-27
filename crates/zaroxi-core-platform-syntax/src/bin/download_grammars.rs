@@ -56,7 +56,13 @@ fn main() {
                 } else {
                     "[missing]"
                 };
-                eprintln!("  {} {} - {} ({})", installed, lang_id, info.name, info.extensions.join(", "));
+                eprintln!(
+                    "  {} {} - {} ({})",
+                    installed,
+                    lang_id,
+                    info.name,
+                    info.extensions.join(", ")
+                );
             }
         }
         _ => {

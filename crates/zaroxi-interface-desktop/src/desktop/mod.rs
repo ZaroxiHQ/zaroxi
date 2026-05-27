@@ -20,19 +20,19 @@ use zaroxi_kernel_types::Id;
 mod composition;
 mod consistency;
 mod projections;
-mod status_bar;
-mod state;
-mod summary;
 mod snapshot;
+mod state;
+mod status_bar;
+mod summary;
 
 // New focused submodules for maintainability.
 mod command_bar;
 mod pending_close;
 mod status;
 
+pub use crate::close::PendingClose;
 pub use consistency::DesktopConsistencyReport;
 pub use projections::VisibleWindowBasic;
-pub use crate::close::PendingClose;
 pub(crate) use state::command_kind_short_name;
 
 use crate::view_adapter::InterfaceRenderableWindow;
@@ -294,7 +294,9 @@ impl DesktopComposition {
                 }
 
                 if cleaned != combined {
-                    if let Some(first_normal_idx) = line.spans.iter().position(|s| matches!(s.kind, crate::view_adapter::InterfaceSpanKind::Normal)) {
+                    if let Some(first_normal_idx) = line.spans.iter().position(|s| {
+                        matches!(s.kind, crate::view_adapter::InterfaceSpanKind::Normal)
+                    }) {
                         line.spans[first_normal_idx].text = cleaned.clone();
                         for sp in line.spans.iter_mut().skip(first_normal_idx + 1) {
                             if matches!(sp.kind, crate::view_adapter::InterfaceSpanKind::Normal) {
@@ -404,7 +406,11 @@ impl DesktopComposition {
                         let new_idx = if pos > 0 { pos - 1 } else { 0 };
                         let new_buf = m.opened_buffers[new_idx].buffer_id.clone();
                         m.active_buffer = Some(new_buf.clone());
-                        let display = m.opened_buffers.iter().find(|it| it.buffer_id == new_buf).and_then(|it| it.display.clone());
+                        let display = m
+                            .opened_buffers
+                            .iter()
+                            .find(|it| it.buffer_id == new_buf)
+                            .and_then(|it| it.display.clone());
                         m.active_buffer_details = Some(ActiveBufferDetails {
                             buffer_id: new_buf,
                             display,

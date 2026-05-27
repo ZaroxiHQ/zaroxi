@@ -1,4 +1,4 @@
-use crate::events::{UiEvent, Key};
+use crate::events::{Key, UiEvent};
 
 /// Small enum describing high-level editor actions that originate from UI events.
 ///

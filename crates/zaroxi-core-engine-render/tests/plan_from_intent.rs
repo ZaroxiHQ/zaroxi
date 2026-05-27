@@ -1,18 +1,14 @@
 use zaroxi_core_engine_layout::{
-    ShellLayoutInput, LayoutBlock, TextBlock, SelectionBlock, StatusBlock, ViewportFacts,
+    LayoutBlock, SelectionBlock, ShellLayoutInput, StatusBlock, TextBlock, ViewportFacts,
 };
-use zaroxi_core_engine_render::{ShellRenderIntent, plan::DrawSection, ShellDrawPlan};
+use zaroxi_core_engine_render::{ShellDrawPlan, ShellRenderIntent, plan::DrawSection};
 
 #[test]
 fn plan_from_intent_preserves_order_and_presence() {
     // Prepare a populated ShellLayoutInput with Text, Selection, Status in that order.
-    let text_block = TextBlock {
-        lines: vec!["line1".to_string(), "line2".to_string()],
-    };
+    let text_block = TextBlock { lines: vec!["line1".to_string(), "line2".to_string()] };
     let selection_block = SelectionBlock { line: 3, column: 5 };
-    let status_block = StatusBlock {
-        summary: "OK".to_string(),
-    };
+    let status_block = StatusBlock { summary: "OK".to_string() };
 
     let layout = ShellLayoutInput {
         blocks: vec![

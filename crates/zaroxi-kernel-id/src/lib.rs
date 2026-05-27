@@ -1,14 +1,14 @@
 #![doc = "Kernel-level typed Id primitives for Zaroxi. Minimal, std-only implementation."]
 #![allow(dead_code)]
 
-use core::fmt;
-use core::marker::PhantomData;
-use core::hash::Hash;
 use core::cmp::{Eq, PartialEq};
+use core::fmt;
 use core::fmt::Debug;
-use std::sync::atomic::{AtomicU64, Ordering};
+use core::hash::Hash;
+use core::marker::PhantomData;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use uuid::Uuid;
 
 /// Compatibility UUID-backed identifier used across older crates.
@@ -81,10 +81,7 @@ pub struct Id<T> {
 impl<T> Id<T> {
     /// Create a new Id with the provided value.
     pub const fn new(value: u64) -> Self {
-        Self {
-            value,
-            marker: PhantomData,
-        }
+        Self { value, marker: PhantomData }
     }
 
     /// Consume and return the underlying numeric value.
@@ -102,10 +99,7 @@ pub struct IdGen<T> {
 impl<T> IdGen<T> {
     /// Create a new generator starting at `start`.
     pub const fn new(start: u64) -> Self {
-        Self {
-            next: AtomicU64::new(start),
-            marker: PhantomData,
-        }
+        Self { next: AtomicU64::new(start), marker: PhantomData }
     }
 
     /// Allocate the next id. Uses relaxed ordering for performance; this is

@@ -17,19 +17,21 @@ Design constraints:
 fn main() {
     eprintln!("gpu_shell: native GPU shell is not started in this build.");
     eprintln!("If you intended to run the native windowed demo, enable the feature:");
-    eprintln!("  cargo run -p zaroxi-interface-desktop --bin gpu_shell --features=\"gpu_shell_bin\"");
+    eprintln!(
+        "  cargo run -p zaroxi-interface-desktop --bin gpu_shell --features=\"gpu_shell_bin\""
+    );
 }
 
 #[cfg(feature = "gpu_shell_bin")]
 fn main() {
     // Minimal, robust native path using minifb.
-    use std::{thread::sleep, time::Duration};
     use minifb::{Key, Window, WindowOptions};
+    use std::{thread::sleep, time::Duration};
 
     use zaroxi_interface_desktop::GpuShellPresenter;
-    use zaroxi_interface_desktop::presenters::model::ShellRegions;
+    use zaroxi_interface_desktop::events::{Action, ActionExecutor, EventBridge};
     use zaroxi_interface_desktop::gpu_shell_adapter::{NativeKey, map_native_to_ui_event};
-    use zaroxi_interface_desktop::events::{EventBridge, ActionExecutor, Action};
+    use zaroxi_interface_desktop::presenters::model::ShellRegions;
 
     // Local, tiny ActionExecutor that forwards actions into a local UI-only handler.
     // This executor intentionally delegates to the crate-local runtime helper which
@@ -43,7 +45,8 @@ fn main() {
     impl LocalExecutor {
         fn new(width: u32, height: u32) -> Self {
             // Initialize using the real DesktopComposition-backed runtime snapshot.
-            let regions = zaroxi_interface_desktop::gpu_shell_runtime::current_regions(width, height);
+            let regions =
+                zaroxi_interface_desktop::gpu_shell_runtime::current_regions(width, height);
             Self { width, height, regions }
         }
 
@@ -56,7 +59,11 @@ fn main() {
         fn execute(&mut self, action: Action) {
             // Delegate to the crate-local runtime helper which performs:
             // event -> action -> existing action layer invocation -> refresh -> adapt -> ShellRegions
-            let updated = zaroxi_interface_desktop::gpu_shell_runtime::apply_action_and_get_regions(action, self.width, self.height);
+            let updated = zaroxi_interface_desktop::gpu_shell_runtime::apply_action_and_get_regions(
+                action,
+                self.width,
+                self.height,
+            );
             self.regions = updated;
         }
     }
@@ -112,24 +119,32 @@ fn main() {
         if window.is_key_down(Key::Tab) {
             let shift = window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift);
             // Query the in-process runtime for the opened buffer list + active id.
-            let (opened, current_opt) = zaroxi_interface_desktop::gpu_shell_runtime::get_opened_and_active(width, height);
+            let (opened, current_opt) =
+                zaroxi_interface_desktop::gpu_shell_runtime::get_opened_and_active(width, height);
             let current_active = current_opt.as_deref();
 
             // Choose direction based on Shift (previous) or plain Tab (next).
             if !opened.is_empty() {
                 let action = if shift {
-                    zaroxi_interface_desktop::presenters::model::TabAction::ActivatePrevious { wrap: true }
+                    zaroxi_interface_desktop::presenters::model::TabAction::ActivatePrevious {
+                        wrap: true,
+                    }
                 } else {
-                    zaroxi_interface_desktop::presenters::model::TabAction::ActivateNext { wrap: true }
+                    zaroxi_interface_desktop::presenters::model::TabAction::ActivateNext {
+                        wrap: true,
+                    }
                 };
 
-                if let Some(target) = zaroxi_interface_desktop::presenters::model::compute_tab_action_target(
-                    action,
-                    &opened,
-                    current_active,
-                ) {
+                if let Some(target) =
+                    zaroxi_interface_desktop::presenters::model::compute_tab_action_target(
+                        action,
+                        &opened,
+                        current_active,
+                    )
+                {
                     // Execute through the canonical action path so composition is updated.
-                    executor.execute(zaroxi_interface_desktop::events::Action::SetActiveBuffer(target));
+                    executor
+                        .execute(zaroxi_interface_desktop::events::Action::SetActiveBuffer(target));
                 }
             }
         }
@@ -137,7 +152,9 @@ fn main() {
         // Space: toggle the small fake document text and refresh composition.
         // This proves another distinct input -> composition -> repaint path.
         if window.is_key_down(Key::Space) {
-            let updated = zaroxi_interface_desktop::gpu_shell_runtime::toggle_text_and_get_regions(width, height);
+            let updated = zaroxi_interface_desktop::gpu_shell_runtime::toggle_text_and_get_regions(
+                width, height,
+            );
             executor.regions = updated;
         }
 
@@ -174,7 +191,12 @@ fn main() {
 
         // Paint into the RGBA buffer using the presenter's pure function and the
         // most-recent adapted regions held by the executor.
-        GpuShellPresenter::paint_to_buffer(width, height, &mut rgba_buf, executor.current_regions());
+        GpuShellPresenter::paint_to_buffer(
+            width,
+            height,
+            &mut rgba_buf,
+            executor.current_regions(),
+        );
 
         // Convert RGBA8 -> 0x00RRGGBB u32 pixels (drop alpha).
         for i in 0..(width as usize * height as usize) {

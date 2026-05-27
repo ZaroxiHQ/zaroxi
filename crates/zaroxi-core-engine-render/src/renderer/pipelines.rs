@@ -10,7 +10,10 @@ use wgpu::{BindGroupLayout, Device, SurfaceConfiguration};
 pub(crate) fn create_pipelines(
     device: &Device,
     config: &SurfaceConfiguration,
-) -> Result<(BindGroupLayout, wgpu::RenderPipeline, wgpu::RenderPipeline, wgpu::RenderPipeline), RenderError> {
+) -> Result<
+    (BindGroupLayout, wgpu::RenderPipeline, wgpu::RenderPipeline, wgpu::RenderPipeline),
+    RenderError,
+> {
     // Create bind group layout for font atlas (texture + sampler)
     let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
@@ -70,10 +73,7 @@ pub(crate) fn create_pipelines(
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         }),
-        primitive: wgpu::PrimitiveState {
-            cull_mode: None,
-            ..Default::default()
-        },
+        primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
         // wgpu 29 uses multiview_mask & cache fields

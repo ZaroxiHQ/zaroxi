@@ -88,22 +88,16 @@ impl ShellFrameModel {
 
         let status_text = comp.latest_status_bar_line().map(|s| s.text.clone());
 
-        let last_command = comp
-            .latest_shell_context()
-            .and_then(|ctx| ctx.last_command_line.clone());
+        let last_command =
+            comp.latest_shell_context().and_then(|ctx| ctx.last_command_line.clone());
 
         // last_event: produce a tiny rendered summary from the most recent event when available.
-        let last_event = comp
-            .latest_shell_snapshot()
-            .and_then(|ss| {
-                // Use the most recent event timestamp and kind when present via the snapshot's recent events view.
-                // Fallback conservatively to None if not present/exposed.
-                // We attempt a defensive access that tolerates multiple internal shapes.
-                ss.context
-                    .latest_refresh_reason
-                    .as_ref()
-                    .map(|r| format!("refresh_reason={:?}", r))
-            });
+        let last_event = comp.latest_shell_snapshot().and_then(|ss| {
+            // Use the most recent event timestamp and kind when present via the snapshot's recent events view.
+            // Fallback conservatively to None if not present/exposed.
+            // We attempt a defensive access that tolerates multiple internal shapes.
+            ss.context.latest_refresh_reason.as_ref().map(|r| format!("refresh_reason={:?}", r))
+        });
 
         // Attempt to compose a rendered shell chrome when a shell snapshot exists.
         let shell_chrome = comp.latest_shell_snapshot().and_then(|ss| {
@@ -114,7 +108,8 @@ impl ShellFrameModel {
                 // active buffer and location derived from shell snapshot
                 crate::projections::active_buffer_line::ActiveBufferLine::from_shell_snapshot(&ss)
                     .map(|l| l.render()),
-                crate::projections::location_line::LocationLine::from_shell_snapshot(&ss).map(|l| l.render()),
+                crate::projections::location_line::LocationLine::from_shell_snapshot(&ss)
+                    .map(|l| l.render()),
                 // status text from latest status bar line when present
                 comp.latest_status_bar_line().map(|s| s.text.clone()),
                 // last command optional (none)
@@ -127,7 +122,16 @@ impl ShellFrameModel {
         // Composition may expose session identity elsewhere; keep this optional and conservative.
         let session_identity = None;
 
-        Self::from_parts(tv, sel, viewport_summary, status_text, last_command, last_event, shell_chrome, session_identity)
+        Self::from_parts(
+            tv,
+            sel,
+            viewport_summary,
+            status_text,
+            last_command,
+            last_event,
+            shell_chrome,
+            session_identity,
+        )
     }
 
     /// Return a compact one-line summary useful for harness printing.
@@ -142,9 +146,24 @@ impl ShellFrameModel {
             .as_ref()
             .map(|s| format!("sel={}..{}", s.start.line, s.end.line))
             .unwrap_or_else(|| "<no-selection>".to_string());
-        let vp = self.viewport_summary.as_ref().map(|s| s.clone()).unwrap_or_else(|| "<no-viewport>".to_string());
-        let status = self.status_text.as_ref().map(|s| s.clone()).unwrap_or_else(|| "<no-status>".to_string());
-        let chrome = self.shell_chrome.as_ref().map(|s| s.clone()).unwrap_or_else(|| "<no-chrome>".to_string());
-        format!("ShellFrameModel{{ {}, {}, vp={}, status={}, chrome={} }}", active, sel, vp, status, chrome)
+        let vp = self
+            .viewport_summary
+            .as_ref()
+            .map(|s| s.clone())
+            .unwrap_or_else(|| "<no-viewport>".to_string());
+        let status = self
+            .status_text
+            .as_ref()
+            .map(|s| s.clone())
+            .unwrap_or_else(|| "<no-status>".to_string());
+        let chrome = self
+            .shell_chrome
+            .as_ref()
+            .map(|s| s.clone())
+            .unwrap_or_else(|| "<no-chrome>".to_string());
+        format!(
+            "ShellFrameModel{{ {}, {}, vp={}, status={}, chrome={} }}",
+            active, sel, vp, status, chrome
+        )
     }
 }

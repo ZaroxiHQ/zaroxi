@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId, SaveCheckpointRequest};
+use zaroxi_application_workspace::ports::{SaveCheckpointRequest, SessionId, WorkspaceView};
 
 use super::actions_refresh::ActionResult;
 
@@ -20,7 +20,11 @@ pub async fn request_close_active(
         comp.set_pending_close(pending);
         Ok(ActionResult { success: true, message: None, refreshed: false })
     } else {
-        Ok(ActionResult { success: false, message: Some("no active buffer".to_string()), refreshed: false })
+        Ok(ActionResult {
+            success: false,
+            message: Some("no active buffer".to_string()),
+            refreshed: false,
+        })
     }
 }
 
@@ -32,7 +36,10 @@ pub async fn request_close_session(
     service: Option<Arc<dyn crate::ports::WorkspaceService>>,
 ) -> Result<ActionResult, String> {
     if let Some(s) = service {
-        let req = crate::ports::GetSessionSnapshotRequest { session_id: session_id.clone(), recent_limit: 0 };
+        let req = crate::ports::GetSessionSnapshotRequest {
+            session_id: session_id.clone(),
+            recent_limit: 0,
+        };
         match s.attempt_close_session(req).await {
             Ok(snapshot) => {
                 if snapshot.snapshot.opened_buffers.is_empty() {
@@ -41,7 +48,10 @@ pub async fn request_close_session(
                 } else {
                     let dirty_ids = snapshot.snapshot.opened_buffers.clone();
                     let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
-                    let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
+                    let pending = crate::desktop::PendingClose::SessionClose {
+                        dirty_buffers: dirty_ids,
+                        summary,
+                    };
                     comp.set_pending_close(pending);
                     return Ok(ActionResult { success: true, message: None, refreshed: false });
                 }
@@ -55,7 +65,8 @@ pub async fn request_close_session(
         comp.perform_session_close();
         Ok(ActionResult { success: true, message: None, refreshed: true })
     } else {
-        let ids: Vec<crate::ports::BufferId> = obs.items.iter().map(|i| i.buffer_id.clone()).collect();
+        let ids: Vec<crate::ports::BufferId> =
+            obs.items.iter().map(|i| i.buffer_id.clone()).collect();
         let summary = format!("{} open buffers", ids.len());
         let pending = crate::desktop::PendingClose::SessionClose { dirty_buffers: ids, summary };
         comp.set_pending_close(pending);
@@ -80,8 +91,14 @@ pub async fn confirm_save_all_and_close(
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             Err(e) => {
-                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Save failed: {}", e) });
-                return Ok(ActionResult { success: false, message: Some("save failed".to_string()), refreshed: false });
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure {
+                    message: format!("Save failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("save failed".to_string()),
+                    refreshed: false,
+                });
             }
         }
     } else {
@@ -106,8 +123,14 @@ pub async fn confirm_discard_all_and_close(
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             Err(e) => {
-                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure { message: format!("Discard failed: {}", e) });
-                return Ok(ActionResult { success: false, message: Some("discard failed".to_string()), refreshed: false });
+                comp.set_pending_close(crate::desktop::PendingClose::ResolutionFailure {
+                    message: format!("Discard failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("discard failed".to_string()),
+                    refreshed: false,
+                });
             }
         }
     } else {
@@ -165,7 +188,10 @@ pub async fn confirm_discard_and_close(
                 // Remove from opened buffers and set a final close-result status (this clears pending state).
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 let id_str = format!("{}", buffer_id);
-                comp.set_close_result_status(format!("Discarded changes and closed {} ({})", label, id_str));
+                comp.set_close_result_status(format!(
+                    "Discarded changes and closed {} ({})",
+                    label, id_str
+                ));
                 return Ok(ActionResult { success: true, message: None, refreshed: true });
             }
             _ => {

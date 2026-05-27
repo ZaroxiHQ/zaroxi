@@ -1,4 +1,4 @@
-use zaroxi_core_engine_render::{ShellRenderIntent, RenderSection, ShellDrawPlan, DrawSection};
+use zaroxi_core_engine_render::{DrawSection, RenderSection, ShellDrawPlan, ShellRenderIntent};
 
 #[test]
 fn intent_to_draw_plan_consumes_text_seam() {
@@ -16,10 +16,6 @@ fn intent_to_draw_plan_consumes_text_seam() {
     assert!(plan.content_present);
     assert_eq!(
         plan.sections,
-        vec![DrawSection::Content {
-            line_count: 1,
-            width: 5u32.saturating_mul(8),
-            height: 16
-        }]
+        vec![DrawSection::Content { line_count: 1, width: 5u32.saturating_mul(8), height: 16 }]
     );
 }

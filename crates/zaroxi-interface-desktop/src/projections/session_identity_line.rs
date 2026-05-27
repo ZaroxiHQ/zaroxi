@@ -16,7 +16,11 @@ pub struct SessionIdentityLine {
 impl SessionIdentityLine {
     /// Create a new identity line from optional string parts.
     /// Accepts owned Strings so callers (e.g. harness) can pass readily available values.
-    pub fn new(session_id: Option<String>, workspace_id: Option<String>, workspace_path: Option<String>) -> Self {
+    pub fn new(
+        session_id: Option<String>,
+        workspace_id: Option<String>,
+        workspace_path: Option<String>,
+    ) -> Self {
         Self { session_id, workspace_id, workspace_path }
     }
 

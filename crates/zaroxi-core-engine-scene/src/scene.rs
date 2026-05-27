@@ -168,10 +168,7 @@ fn char_to_byte_index(s: &str, char_idx: usize) -> usize {
     if char_idx == 0 {
         return 0;
     }
-    s.char_indices()
-        .nth(char_idx)
-        .map(|(byte_idx, _)| byte_idx)
-        .unwrap_or_else(|| s.len())
+    s.char_indices().nth(char_idx).map(|(byte_idx, _)| byte_idx).unwrap_or_else(|| s.len())
 }
 
 /// Ensure cursor_line/column invariants (1-based lines, 0-based column)

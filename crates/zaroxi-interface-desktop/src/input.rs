@@ -1,5 +1,5 @@
-use zaroxi_application_workspace::editor_service::EditorService;
 use crate::clipboard::InMemoryClipboard;
+use zaroxi_application_workspace::editor_service::EditorService;
 
 /// A tiny input bridge used in tests and harnesses to map high-level actions
 /// into editor service calls. This intentionally does not pull platform event

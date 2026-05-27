@@ -2,11 +2,11 @@
 //
 // The core provides the trait; application uses it. Implementations can be in core or infra.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
-use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Boxed future alias for this skeleton (import from kernel in future).
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -117,12 +117,20 @@ pub trait BufferStore: Send + Sync {
 
     /// Set or replace the full text for a buffer.
     /// Returns Ok(()) on success or BufferError on failure (e.g. buffer not found).
-    fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>>;
+    fn set_text(
+        &self,
+        id: &BufferId,
+        content: String,
+    ) -> BoxFuture<'static, Result<(), BufferError>>;
 
     /// Apply a typed text transaction/edit to the buffer content.
     /// The transaction uses character indices (0-based). Implementations must
     /// atomically apply the edit and persist the updated content.
-    fn apply_transaction(&self, id: &BufferId, txn: TextEdit) -> BoxFuture<'static, Result<(), BufferError>>;
+    fn apply_transaction(
+        &self,
+        id: &BufferId,
+        txn: TextEdit,
+    ) -> BoxFuture<'static, Result<(), BufferError>>;
 }
 
 pub type DynBufferStore = Arc<dyn BufferStore>;

@@ -1,9 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use zaroxi_interface_desktop::projections::last_event_line::{summarize_event_kind, summarize_last_event};
+    use std::path::PathBuf;
     use zaroxi_interface_desktop::ports::BufferId;
     use zaroxi_interface_desktop::ports::WorkspaceEventKind;
-    use std::path::PathBuf;
+    use zaroxi_interface_desktop::projections::last_event_line::{
+        summarize_event_kind, summarize_last_event,
+    };
 
     #[test]
     fn no_events_returns_no_events() {

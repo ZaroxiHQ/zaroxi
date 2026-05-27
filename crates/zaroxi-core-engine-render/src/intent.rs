@@ -8,7 +8,7 @@ Purpose:
   or any drawing-facing concepts are contained here.
 */
 
-use zaroxi_core_engine_layout::{ShellLayoutInput, LayoutBlock};
+use zaroxi_core_engine_layout::{LayoutBlock, ShellLayoutInput};
 use zaroxi_core_engine_scene::scene::ShellChrome;
 
 /// Top-level semantic render intent for a shell view.
@@ -83,12 +83,7 @@ impl From<ShellChrome> for ChromePrimitive {
         let tabs = src
             .tabs
             .into_iter()
-            .map(|t| ChromeTab {
-                index: t.index,
-                id: t.id,
-                label: t.label,
-                active: t.active,
-            })
+            .map(|t| ChromeTab { index: t.index, id: t.id, label: t.label, active: t.active })
             .collect();
 
         ChromePrimitive {
@@ -105,9 +100,7 @@ impl From<ShellChrome> for ChromePrimitive {
 
 impl From<ShellChrome> for RenderSection {
     fn from(chrome: ShellChrome) -> Self {
-        RenderSection::Chrome {
-            chrome: ChromePrimitive::from(chrome),
-        }
+        RenderSection::Chrome { chrome: ChromePrimitive::from(chrome) }
     }
 }
 
@@ -122,15 +115,10 @@ impl From<ShellLayoutInput> for ShellRenderIntent {
                     sections.push(RenderSection::Text { lines: tb.lines });
                 }
                 LayoutBlock::Selection(sb) => {
-                    sections.push(RenderSection::Selection {
-                        line: sb.line,
-                        column: sb.column,
-                    });
+                    sections.push(RenderSection::Selection { line: sb.line, column: sb.column });
                 }
                 LayoutBlock::Status(st) => {
-                    sections.push(RenderSection::Status {
-                        summary: st.summary,
-                    });
+                    sections.push(RenderSection::Status { summary: st.summary });
                 }
                 LayoutBlock::Chrome => {
                     // Layout-level chrome blocks do not carry presenter chrome data.
@@ -142,13 +130,10 @@ impl From<ShellLayoutInput> for ShellRenderIntent {
             }
         }
 
-        let selection_present = sections.iter().any(|s| matches!(s, RenderSection::Selection { .. }));
+        let selection_present =
+            sections.iter().any(|s| matches!(s, RenderSection::Selection { .. }));
         let status_present = sections.iter().any(|s| matches!(s, RenderSection::Status { .. }));
 
-        ShellRenderIntent {
-            sections,
-            selection_present,
-            status_present,
-        }
+        ShellRenderIntent { sections, selection_present, status_present }
     }
 }

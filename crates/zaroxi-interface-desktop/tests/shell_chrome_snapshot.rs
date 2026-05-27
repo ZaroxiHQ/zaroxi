@@ -3,13 +3,49 @@ use zaroxi_interface_desktop::projections::shell_chrome_snapshot::ShellChromeSna
 #[test]
 fn absent_when_any_mandatory_missing() {
     // missing session
-    assert!(ShellChromeSnapshot::compose(None, Some("buf".to_string()), Some("1:1".to_string()), Some("OK".to_string()), None).is_none());
+    assert!(
+        ShellChromeSnapshot::compose(
+            None,
+            Some("buf".to_string()),
+            Some("1:1".to_string()),
+            Some("OK".to_string()),
+            None
+        )
+        .is_none()
+    );
     // missing active buffer
-    assert!(ShellChromeSnapshot::compose(Some("sid".to_string()), None, Some("1:1".to_string()), Some("OK".to_string()), None).is_none());
+    assert!(
+        ShellChromeSnapshot::compose(
+            Some("sid".to_string()),
+            None,
+            Some("1:1".to_string()),
+            Some("OK".to_string()),
+            None
+        )
+        .is_none()
+    );
     // missing location
-    assert!(ShellChromeSnapshot::compose(Some("sid".to_string()), Some("buf".to_string()), None, Some("OK".to_string()), None).is_none());
+    assert!(
+        ShellChromeSnapshot::compose(
+            Some("sid".to_string()),
+            Some("buf".to_string()),
+            None,
+            Some("OK".to_string()),
+            None
+        )
+        .is_none()
+    );
     // missing status
-    assert!(ShellChromeSnapshot::compose(Some("sid".to_string()), Some("buf".to_string()), Some("1:1".to_string()), None, None).is_none());
+    assert!(
+        ShellChromeSnapshot::compose(
+            Some("sid".to_string()),
+            Some("buf".to_string()),
+            Some("1:1".to_string()),
+            None,
+            None
+        )
+        .is_none()
+    );
 }
 
 #[test]

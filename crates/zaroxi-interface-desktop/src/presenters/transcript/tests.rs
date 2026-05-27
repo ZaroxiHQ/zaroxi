@@ -1,13 +1,9 @@
-use super::*;
 use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT};
+use super::*;
 
 #[test]
 fn initial_refresh_small_file() {
-    let lines = vec![
-        "one".to_string(),
-        "two".to_string(),
-        "three".to_string(),
-    ];
+    let lines = vec!["one".to_string(), "two".to_string(), "three".to_string()];
     // content_x/base_y chosen to exercise gutter_x > 0 branch
     let set = build_editor_primitives_from_lines(100, 50, &lines, None);
     assert_eq!(set.gutter_labels.len(), 3, "expected 3 gutter labels");
@@ -20,11 +16,7 @@ fn initial_refresh_small_file() {
 
 #[test]
 fn caret_projection_inside_visible_range() {
-    let lines = vec![
-        "line1".to_string(),
-        "line2".to_string(),
-        "line3".to_string(),
-    ];
+    let lines = vec!["line1".to_string(), "line2".to_string(), "line3".to_string()];
     let layout = EditorLayoutSpec {
         top_line: Some(1),
         cursor_line: Some(2),
@@ -58,11 +50,7 @@ fn top_line_offset_changes_gutter_numbers() {
 
 #[test]
 fn selection_projection_multi_line() {
-    let lines = vec![
-        "first line".to_string(),
-        "second line".to_string(),
-        "third line".to_string(),
-    ];
+    let lines = vec!["first line".to_string(), "second line".to_string(), "third line".to_string()];
     // selection from line 1 col 1 to line 2 col 3 (1-based lines)
     let layout = EditorLayoutSpec {
         top_line: Some(1),
@@ -75,7 +63,10 @@ fn selection_projection_multi_line() {
     assert!(set.selections.len() >= 1, "expected selection rect(s) for intersecting visible rows");
     // verify selection rects are inside content x area (inset by +6)
     for s in &set.selections {
-        assert!(s.x >= 86 || s.x == 0, "selection x should be at/after content inset (x >= content_x+6)");
+        assert!(
+            s.x >= 86 || s.x == 0,
+            "selection x should be at/after content inset (x >= content_x+6)"
+        );
         assert_eq!(s.height, DEFAULT_LINE_HEIGHT, "selection height must equal line height");
     }
 }
@@ -115,7 +106,15 @@ fn end_to_end_click_and_type_updates_scene_and_transcript() {
     // simulate a click to place cursor at line 1, column 1:
     // content_x = 100, base_y = 50, content_inset = 6, char_w = 8, line_h = 16
     // content_text_x = 106; to place at column 1 click_x = 106 + 1*8 = 114
-    handle_mouse_click_and_place_cursor(114, 50, 100, 50, DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, 6);
+    handle_mouse_click_and_place_cursor(
+        114,
+        50,
+        100,
+        50,
+        DEFAULT_CHAR_WIDTH,
+        DEFAULT_LINE_HEIGHT,
+        6,
+    );
 
     // type 'X' at the caret
     handle_key_char('X');

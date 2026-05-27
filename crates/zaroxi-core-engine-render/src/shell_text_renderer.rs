@@ -57,7 +57,11 @@ impl ShellTextRenderer {
 
     /// Compare the rendered output against an existing transcript.
     /// Returns true when the textual lines match exactly.
-    pub fn matches_transcript(&self, plan: &ShellDrawPlan, expected: &ShellRenderTranscript) -> bool {
+    pub fn matches_transcript(
+        &self,
+        plan: &ShellDrawPlan,
+        expected: &ShellRenderTranscript,
+    ) -> bool {
         let actual = self.render(plan);
         actual.lines == expected.lines
     }

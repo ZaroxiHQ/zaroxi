@@ -1,7 +1,7 @@
-mod types;
-mod selection;
-mod history;
-mod edit;
 mod dirty;
+mod edit;
+mod history;
+mod selection;
+mod types;
 
-pub use types::{Selection, Snapshot, Buffer};
+pub use types::{Buffer, Selection, Snapshot};

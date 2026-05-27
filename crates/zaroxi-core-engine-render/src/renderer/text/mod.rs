@@ -49,26 +49,46 @@ pub struct TextCommand {
 }
 
 impl TextCommand {
-    pub fn new(text: impl Into<String>, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32, is_title: bool) -> Self {
-        Self {
-            text: text.into(),
-            x,
-            y,
-            color,
-            size,
-            clip_x,
-            clip_y,
-            clip_w,
-            clip_h,
-            is_title,
-        }
+    pub fn new(
+        text: impl Into<String>,
+        x: f32,
+        y: f32,
+        color: [f32; 4],
+        size: f32,
+        clip_x: f32,
+        clip_y: f32,
+        clip_w: f32,
+        clip_h: f32,
+        is_title: bool,
+    ) -> Self {
+        Self { text: text.into(), x, y, color, size, clip_x, clip_y, clip_w, clip_h, is_title }
     }
 
-    pub fn new_title(text: &str, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32) -> Self {
+    pub fn new_title(
+        text: &str,
+        x: f32,
+        y: f32,
+        color: [f32; 4],
+        size: f32,
+        clip_x: f32,
+        clip_y: f32,
+        clip_w: f32,
+        clip_h: f32,
+    ) -> Self {
         Self::new(text, x, y, color, size, clip_x, clip_y, clip_w, clip_h, true)
     }
 
-    pub fn new_body(text: &str, x: f32, y: f32, color: [f32;4], size: f32, clip_x: f32, clip_y: f32, clip_w: f32, clip_h: f32) -> Self {
+    pub fn new_body(
+        text: &str,
+        x: f32,
+        y: f32,
+        color: [f32; 4],
+        size: f32,
+        clip_x: f32,
+        clip_y: f32,
+        clip_w: f32,
+        clip_h: f32,
+    ) -> Self {
         Self::new(text, x, y, color, size, clip_x, clip_y, clip_w, clip_h, false)
     }
 }
@@ -107,7 +127,9 @@ pub trait TextRenderer: Send + Sync {
 
     /// Return an optional atlas bind group to be used by the renderer if it
     /// needs access to it for compatibility with existing submit paths.
-    fn atlas_bind_group(&self) -> Option<&BindGroup> { None }
+    fn atlas_bind_group(&self) -> Option<&BindGroup> {
+        None
+    }
 
     /// Update viewport/resolution information.
     fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {

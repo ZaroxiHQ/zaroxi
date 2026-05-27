@@ -3,17 +3,17 @@ use std::path::PathBuf;
 use tokio;
 
 use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, ListBuffersRequest, SetActiveBufferRequest, GetActiveBufferRequest, GetSessionSnapshotRequest,
-    SaveCheckpointRequest, LoadCheckpointRequest,
+    GetActiveBufferRequest, GetSessionSnapshotRequest, ListBuffersRequest, LoadCheckpointRequest,
+    OpenBufferRequest, SaveCheckpointRequest, SetActiveBufferRequest, WorkspaceBootRequest,
 };
 use zaroxi_application_workspace::ports::{WorkspaceService, WorkspaceView};
-use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
 use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
 use zaroxi_interface_desktop::projections::location_line::LocationLine;
 use zaroxi_interface_desktop::projections::selection_line::SelectionLine;
+use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
 
- // Infra adapters
- use zaroxi_infrastructure_ai_mock;
+// Infra adapters
+use zaroxi_infrastructure_ai_mock;
 
 // Application orchestrator (concrete implementation lives in application crate)
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
@@ -25,7 +25,8 @@ async fn main() -> Result<(), String> {
     let repo_dyn = zaroxi_application_workspace::in_memory_adapters::into_workspace_repo(repo);
 
     let buffer_store = zaroxi_application_workspace::in_memory_adapters::InMemoryBufferStore::new();
-    let buffer_dyn = zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store);
+    let buffer_dyn =
+        zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store);
 
     // History store remains an infra adapter.
     let history = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
@@ -38,16 +39,24 @@ async fn main() -> Result<(), String> {
     // Compose the checkpoint durability adapter and the application orchestrator.
     let checkpoint_store = zaroxi_infrastructure_memory::InMemoryCheckpointStore::new();
     let checkpoint_dyn = zaroxi_infrastructure_memory::into_checkpoint_store(checkpoint_store);
- 
+
     // Compose the application orchestrator (implementation owned by application layer).
-    let orchestrator = WorkspaceOrchestrator::new_with_history_and_durability(repo_dyn, buffer_dyn, ai_dyn, history_dyn.clone(), checkpoint_dyn.clone());
+    let orchestrator = WorkspaceOrchestrator::new_with_history_and_durability(
+        repo_dyn,
+        buffer_dyn,
+        ai_dyn,
+        history_dyn.clone(),
+        checkpoint_dyn.clone(),
+    );
     let orchestrator = std::sync::Arc::new(orchestrator);
     // Prepare shared composition, view and service handles for reuse across scopes.
     // These are created once here so they are available both inside the `get_active_editor_document`
     // match arm and later in the function (e.g. after explain/other use-cases).
     let mut composition = zaroxi_interface_desktop::DesktopComposition::new();
-    let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> = orchestrator.clone();
-    let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> = orchestrator.clone();
+    let view_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceView> =
+        orchestrator.clone();
+    let service_dyn: std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService> =
+        orchestrator.clone();
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
@@ -59,21 +68,30 @@ async fn main() -> Result<(), String> {
     // do not present session identity here (pre-refresh).
 
     // Open two buffers
-    let open1 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("main.rs") };
+    let open1 = OpenBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        path: PathBuf::from("main.rs"),
+    };
     let open1_res = orchestrator.open_buffer(open1).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open1_res.buffer_id);
 
     // Phase 3: set a cursor for this buffer (editor-state seam) and read it back.
-    use zaroxi_application_workspace::ports::{SetEditorCursorRequest, EditorCursor, GetEditorStateRequest, GetActiveEditorDocumentRequest};
-    let _ = orchestrator.set_editor_cursor(SetEditorCursorRequest {
-        session_id: boot_res.session.session_id.clone(),
-        buffer_id: open1_res.buffer_id.clone(),
-        cursor: EditorCursor { line: 0, column: 0 },
-    }).await.map_err(|e| e.to_string())?;
+    use zaroxi_application_workspace::ports::{
+        EditorCursor, GetActiveEditorDocumentRequest, GetEditorStateRequest, SetEditorCursorRequest,
+    };
+    let _ = orchestrator
+        .set_editor_cursor(SetEditorCursorRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open1_res.buffer_id.clone(),
+            cursor: EditorCursor { line: 0, column: 0 },
+        })
+        .await
+        .map_err(|e| e.to_string())?;
 
     match orchestrator.get_buffer_content(open1_res.buffer_id.clone()).await {
         Ok(Some(text)) => {
-            let snippet = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
+            let snippet =
+                if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
             println!("Harness: buffer content (snippet): {}", snippet);
         }
         Ok(None) => println!("Harness: buffer content: <empty>"),
@@ -81,10 +99,19 @@ async fn main() -> Result<(), String> {
     }
 
     // Read and print the editor-state for the buffer.
-    match orchestrator.get_editor_state(GetEditorStateRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open1_res.buffer_id.clone() }).await {
+    match orchestrator
+        .get_editor_state(GetEditorStateRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open1_res.buffer_id.clone(),
+        })
+        .await
+    {
         Ok(s) => {
             if let Some(state) = s.state {
-                println!("Harness: editor state cursor = {}:{}", state.cursor.line, state.cursor.column);
+                println!(
+                    "Harness: editor state cursor = {}:{}",
+                    state.cursor.line, state.cursor.column
+                );
             } else {
                 println!("Harness: editor state: <none>");
             }
@@ -93,27 +120,43 @@ async fn main() -> Result<(), String> {
     }
 
     // Phase 6: fetch the structured editor document/view model for the active buffer.
-    match orchestrator.get_active_editor_document(GetActiveEditorDocumentRequest { session_id: boot_res.session.session_id.clone() }).await {
+    match orchestrator
+        .get_active_editor_document(GetActiveEditorDocumentRequest {
+            session_id: boot_res.session.session_id.clone(),
+        })
+        .await
+    {
         Ok(resp) => {
             let doc = resp.document;
-            println!("Harness: editor document summary for session {}:", boot_res.session.session_id);
+            println!(
+                "Harness: editor document summary for session {}:",
+                boot_res.session.session_id
+            );
             println!(" - buffer: {}", doc.buffer_id);
             println!(" - cursor: {}:{}", doc.cursor.line, doc.cursor.column);
             println!(" - selection: {:?}", doc.selection);
             println!(" - line_count: {}", doc.line_count);
             if let Some(ref line) = doc.current_line {
-                let snippet = if line.len() > 200 { format!("{}...", &line[..200]) } else { line.to_owned() };
+                let snippet =
+                    if line.len() > 200 { format!("{}...", &line[..200]) } else { line.to_owned() };
                 println!(" - current line snippet: {}", snippet);
             }
 
             // Phase 7 (new): set a small default viewport so the application view seam
             // computes a predictable visible window before the interface adapter fetches it.
-            let vp = zaroxi_application_workspace::ports::ViewportState { top_line: 1, window_height: 10, center_cursor: true };
-            let _ = orchestrator.set_viewport_state(zaroxi_application_workspace::ports::SetViewportRequest {
-                session_id: boot_res.session.session_id.clone(),
-                buffer_id: doc.buffer_id.clone(),
-                viewport: vp.clone(),
-            }).await.map_err(|e| e.to_string())?;
+            let vp = zaroxi_application_workspace::ports::ViewportState {
+                top_line: 1,
+                window_height: 10,
+                center_cursor: true,
+            };
+            let _ = orchestrator
+                .set_viewport_state(zaroxi_application_workspace::ports::SetViewportRequest {
+                    session_id: boot_res.session.session_id.clone(),
+                    buffer_id: doc.buffer_id.clone(),
+                    viewport: vp.clone(),
+                })
+                .await
+                .map_err(|e| e.to_string())?;
 
             // Use a tiny desktop composition to fetch and hold the renderable window.
             // The composition reuses the existing Presenter and adapter seam and
@@ -126,15 +169,22 @@ async fn main() -> Result<(), String> {
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
                 Some(service_dyn.clone()),
-            ).await {
+            )
+            .await
+            {
                 Ok(action_result) => {
-                    println!("Harness: refresh action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    println!(
+                        "Harness: refresh action result: success={} refreshed={} message={:?}",
+                        action_result.success, action_result.refreshed, action_result.message
+                    );
 
                     // Reusable helper: print an editor-focused verification slice using the real presenter helper.
                     // Relies on the presenter->transcript local helper `build_editor_primitives_from_lines`
                     // and on TextView/SelectionView adapters that reflect the real composition pipeline.
                     #[allow(dead_code)]
-                    fn print_editor_slice(composition: &zaroxi_interface_desktop::DesktopComposition) {
+                    fn print_editor_slice(
+                        composition: &zaroxi_interface_desktop::DesktopComposition,
+                    ) {
                         use zaroxi_interface_desktop::presenters::transcript::EditorLayoutSpec;
                         // Local minimal primitive types for harness verification (avoid adding a crate dep).
                         #[derive(Clone, Debug)]
@@ -193,13 +243,15 @@ async fn main() -> Result<(), String> {
                             let char_w: u32 = 8;
                             let content_inset: u32 = 6;
 
-                            let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+                            let gutter_x =
+                                if content_x > gutter_width { content_x - gutter_width } else { 0 };
 
                             let top_line_val = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
 
                             for (i, text) in editor_lines.iter().enumerate() {
                                 let doc_row = top_line_val.saturating_add(i as u32);
-                                let y = base_y.saturating_add((i as u32).saturating_mul(line_height));
+                                let y =
+                                    base_y.saturating_add((i as u32).saturating_mul(line_height));
 
                                 // Gutter label
                                 let label = format!("{:>4}", doc_row);
@@ -229,9 +281,15 @@ async fn main() -> Result<(), String> {
                                     let col = layout.cursor_column.unwrap_or(0);
                                     let top_line_val = layout.top_line.unwrap_or(1);
                                     let offset_rows = cl.saturating_sub(top_line_val);
-                                    let caret_x = content_text_x.saturating_add(col.saturating_mul(char_w));
-                                    let caret_y = base_y.saturating_add(offset_rows.saturating_mul(line_height));
-                                    set.carets.push(CaretItem { x: caret_x, y: caret_y, height: line_height });
+                                    let caret_x =
+                                        content_text_x.saturating_add(col.saturating_mul(char_w));
+                                    let caret_y = base_y
+                                        .saturating_add(offset_rows.saturating_mul(line_height));
+                                    set.carets.push(CaretItem {
+                                        x: caret_x,
+                                        y: caret_y,
+                                        height: line_height,
+                                    });
                                 }
 
                                 // Selection (one rect per intersecting visible line)
@@ -246,15 +304,27 @@ async fn main() -> Result<(), String> {
                                         let sel_end_col = if row == eline {
                                             ecol
                                         } else {
-                                            editor_lines.get(i).map(|s| s.chars().count() as u32).unwrap_or(0)
+                                            editor_lines
+                                                .get(i)
+                                                .map(|s| s.chars().count() as u32)
+                                                .unwrap_or(0)
                                         };
                                         if sel_end_col <= sel_start_col {
                                             continue;
                                         }
-                                        let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
-                                        let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
-                                        let sy = base_y.saturating_add((i as u32).saturating_mul(line_height));
-                                        set.selections.push(SelectionRect { x: sx, y: sy, width: w, height: line_height });
+                                        let sx = content_text_x
+                                            .saturating_add(sel_start_col.saturating_mul(char_w));
+                                        let w = sel_end_col
+                                            .saturating_sub(sel_start_col)
+                                            .saturating_mul(char_w);
+                                        let sy = base_y
+                                            .saturating_add((i as u32).saturating_mul(line_height));
+                                        set.selections.push(SelectionRect {
+                                            x: sx,
+                                            y: sy,
+                                            width: w,
+                                            height: line_height,
+                                        });
                                     }
                                 }
                             }
@@ -263,7 +333,9 @@ async fn main() -> Result<(), String> {
                         }
 
                         // Obtain a simple visible-text view (presenter-facing read-only model).
-                        if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(composition) {
+                        if let Some(tv) =
+                            zaroxi_interface_desktop::TextView::from_composition(composition)
+                        {
                             // Extract visible lines and top_line/total_lines (convert usize -> u32).
                             let top_line_usize = tv.top_line;
                             let top_line: u32 = top_line_usize.try_into().unwrap_or(0);
@@ -275,15 +347,21 @@ async fn main() -> Result<(), String> {
                             let ss = composition.latest_shell_snapshot();
                             let cursor_line = ss
                                 .as_ref()
-                                .and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_line))
+                                .and_then(|s| {
+                                    s.active_document.as_ref().and_then(|d| d.cursor_line)
+                                })
                                 .map(|v| v as u32);
                             let cursor_col = ss
                                 .as_ref()
-                                .and_then(|s| s.active_document.as_ref().and_then(|d| d.cursor_column))
+                                .and_then(|s| {
+                                    s.active_document.as_ref().and_then(|d| d.cursor_column)
+                                })
                                 .map(|v| v as u32);
 
                             // SelectionView provides adapter-level selection bounds when present.
-                            let sel_opt = zaroxi_interface_desktop::SelectionView::from_composition(composition);
+                            let sel_opt = zaroxi_interface_desktop::SelectionView::from_composition(
+                                composition,
+                            );
 
                             let selection_tuple = sel_opt.as_ref().map(|sv| {
                                 (
@@ -308,7 +386,12 @@ async fn main() -> Result<(), String> {
                             let base_y = 50u32;
 
                             // Use the local deterministic builder for harness verification.
-                            let primitives = build_editor_primitives_from_lines_local(content_x, base_y, &tv.lines, Some(&layout));
+                            let primitives = build_editor_primitives_from_lines_local(
+                                content_x,
+                                base_y,
+                                &tv.lines,
+                                Some(&layout),
+                            );
 
                             // Print per-visible-row gutter + text content derived from primitives (stable order).
                             println!("Harness: visible rows (gutter | text):");
@@ -316,14 +399,24 @@ async fn main() -> Result<(), String> {
                             for i in 0..rows {
                                 let g = &primitives.gutter_labels[i];
                                 let t = &primitives.texts[i];
-                                println!("  row {} -> gutter=\"{}\" text=\"{}\" (g.x={} t.x={} y={})",
-                                    i+1, g.text, t.text, g.x, t.x, g.y);
+                                println!(
+                                    "  row {} -> gutter=\"{}\" text=\"{}\" (g.x={} t.x={} y={})",
+                                    i + 1,
+                                    g.text,
+                                    t.text,
+                                    g.x,
+                                    t.x,
+                                    g.y
+                                );
                             }
 
                             // Caret primitives (presence and location)
                             if !primitives.carets.is_empty() {
                                 for (i, c) in primitives.carets.iter().enumerate() {
-                                    println!("Harness: caret[{}] present x={} y={} h={}", i, c.x, c.y, c.height);
+                                    println!(
+                                        "Harness: caret[{}] present x={} y={} h={}",
+                                        i, c.x, c.y, c.height
+                                    );
                                 }
                             } else {
                                 println!("Harness: caret: <absent>");
@@ -332,7 +425,10 @@ async fn main() -> Result<(), String> {
                             // Selection primitives (presence and rectangles)
                             if !primitives.selections.is_empty() {
                                 for (i, s) in primitives.selections.iter().enumerate() {
-                                    println!("Harness: selection[{}] rect x={} y={} w={} h={}", i, s.x, s.y, s.width, s.height);
+                                    println!(
+                                        "Harness: selection[{}] rect x={} y={} w={} h={}",
+                                        i, s.x, s.y, s.width, s.height
+                                    );
                                 }
                             } else {
                                 println!("Harness: selection: <absent>");
@@ -361,7 +457,10 @@ async fn main() -> Result<(), String> {
                         // ActiveBufferLine: present only after first refresh per lifecycle rule.
                         if let Some(ss) = composition.latest_shell_snapshot() {
                             if let Some(active_line) = ActiveBufferLine::from_shell_snapshot(&ss) {
-                                println!("Harness: active buffer line: {}", active_line.render().trim_end());
+                                println!(
+                                    "Harness: active buffer line: {}",
+                                    active_line.render().trim_end()
+                                );
                             } else {
                                 println!("Harness: active buffer line: <absent>");
                             }
@@ -378,7 +477,11 @@ async fn main() -> Result<(), String> {
                             // We map the existing adapter-local SelectionView into primitive bounds
                             // and then render a tiny shell-facing line. Keep this adapter-local and
                             // read-only; do not introduce any new framework.
-                            if let Some(sv) = zaroxi_interface_desktop::SelectionView::from_composition(&composition) {
+                            if let Some(sv) =
+                                zaroxi_interface_desktop::SelectionView::from_composition(
+                                    &composition,
+                                )
+                            {
                                 let sel_line = SelectionLine::from_bounds(
                                     sv.start.line,
                                     sv.start.column,
@@ -386,7 +489,10 @@ async fn main() -> Result<(), String> {
                                     sv.end.column,
                                     sv.visible_in_window,
                                 );
-                                println!("Harness: selection line: {}", sel_line.render().trim_end());
+                                println!(
+                                    "Harness: selection line: {}",
+                                    sel_line.render().trim_end()
+                                );
                             } else {
                                 println!("Harness: selection line: <absent>");
                             }
@@ -451,8 +557,13 @@ async fn main() -> Result<(), String> {
 
                     // Print a compact composition summary via the new summary accessor.
                     if let Some(summary) = composition.latest_summary() {
-                        let active_buf = summary.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
-                        let rr = summary.refresh_reason.as_ref().map(|r| format!("{:?}", r)).unwrap_or_else(|| "None".to_string());
+                        let active_buf =
+                            summary.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
+                        let rr = summary
+                            .refresh_reason
+                            .as_ref()
+                            .map(|r| format!("{:?}", r))
+                            .unwrap_or_else(|| "None".to_string());
                         println!("Harness: composition summary: revision={} refresh_reason={} active_buffer={} status_present={}",
                             summary.revision, rr, active_buf, summary.status.is_some());
                         if let Some(status) = summary.status {
@@ -464,7 +575,8 @@ async fn main() -> Result<(), String> {
 
                         // Print the tiny current shell context (Phase 29): compact summary useful to shells.
                         if let Some(ctx) = composition.latest_shell_context() {
-                            let active = ctx.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
+                            let active =
+                                ctx.active_buffer.as_ref().map(|b| b.as_str()).unwrap_or("<none>");
                             println!("Harness: shell context: rev={} active_buffer={} active_display={:?} refresh_reason={:?} ai_present={}",
                                 ctx.latest_revision, active, ctx.active_display, ctx.latest_refresh_reason, ctx.has_ai_projection);
                         } else {
@@ -473,7 +585,10 @@ async fn main() -> Result<(), String> {
 
                         if let Some(abd) = composition.latest_active_buffer_details() {
                             let disp = abd.display.as_deref().unwrap_or("<no-display>");
-                            println!("Harness: active buffer details: id={} display={} line_count={}", abd.buffer_id, disp, abd.line_count);
+                            println!(
+                                "Harness: active buffer details: id={} display={} line_count={}",
+                                abd.buffer_id, disp, abd.line_count
+                            );
                         } else {
                             println!("Harness: active buffer details: <none>");
                         }
@@ -485,7 +600,10 @@ async fn main() -> Result<(), String> {
                             for item in obs.items.iter() {
                                 let display = item.display.as_deref().unwrap_or("<no-display>");
                                 let active_mark = if item.active { "*" } else { " " };
-                                println!("  {} {} ({}) lines={}", active_mark, item.buffer_id, display, item.line_count);
+                                println!(
+                                    "  {} {} ({}) lines={}",
+                                    active_mark, item.buffer_id, display, item.line_count
+                                );
                             }
                         } else {
                             println!("Harness: opened buffers summary: <empty>");
@@ -566,16 +684,26 @@ async fn main() -> Result<(), String> {
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
-            ).await {
+            )
+            .await
+            {
                 Ok(action_result) => {
-                    println!("Harness: move-cursor action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
+                    println!(
+                        "Harness: move-cursor action result: success={} refreshed={} message={:?}",
+                        action_result.success, action_result.refreshed, action_result.message
+                    );
                     if let Some(rr) = composition.latest_refresh_reason() {
                         println!("Harness: composition refresh reason after move-cursor: {:?}", rr);
                     }
 
                     // Small read-only visible-text model print for harness visibility.
-                    if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(&composition) {
-                        println!("Harness: visible text (top_line={} total_lines={}):", tv.top_line, tv.total_lines);
+                    if let Some(tv) =
+                        zaroxi_interface_desktop::TextView::from_composition(&composition)
+                    {
+                        println!(
+                            "Harness: visible text (top_line={} total_lines={}):",
+                            tv.top_line, tv.total_lines
+                        );
                         for line in tv.lines_with_cursor_marker("|^|").iter() {
                             println!("    {}", line);
                         }
@@ -584,7 +712,9 @@ async fn main() -> Result<(), String> {
                     }
 
                     // Tiny read-only selection view: surface selection information for harnesses.
-                    if let Some(sv) = zaroxi_interface_desktop::SelectionView::from_composition(&composition) {
+                    if let Some(sv) =
+                        zaroxi_interface_desktop::SelectionView::from_composition(&composition)
+                    {
                         println!(
                             "Harness: selection present: start={}:{} end={}:{} visible_in_window={}",
                             sv.start.line, sv.start.column, sv.end.line, sv.end.column, sv.visible_in_window
@@ -596,7 +726,11 @@ async fn main() -> Result<(), String> {
                     // ActiveDocumentSummary: a tiny, read-only shell-facing projection with
                     // active buffer name/display, line count, cursor, selection presence, and a small snippet.
                     if let Some(ads) = composition.latest_active_document_summary() {
-                        let buf_display = ads.buffer_id.as_ref().map(|b| b.as_str().to_string()).unwrap_or_else(|| "<none>".to_string());
+                        let buf_display = ads
+                            .buffer_id
+                            .as_ref()
+                            .map(|b| b.as_str().to_string())
+                            .unwrap_or_else(|| "<none>".to_string());
                         println!("Harness: active document summary: buffer={} display={:?} lines={} cursor={:?}:{:?} selection_present={} snippet={:?}",
                             buf_display,
                             ads.display,
@@ -622,7 +756,9 @@ async fn main() -> Result<(), String> {
                 view_dyn.clone(),
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
-            ).await {
+            )
+            .await
+            {
                 Ok(action_result) => {
                     println!("Harness: insert-line-at-start action result: success={} refreshed={} message={:?}", action_result.success, action_result.refreshed, action_result.message);
                     if let Some(rr) = composition.latest_refresh_reason() {
@@ -630,8 +766,13 @@ async fn main() -> Result<(), String> {
                     }
 
                     // Show the visible-text view model after the insert action.
-                    if let Some(tv) = zaroxi_interface_desktop::TextView::from_composition(&composition) {
-                        println!("Harness: visible text after insert (top_line={} total_lines={}):", tv.top_line, tv.total_lines);
+                    if let Some(tv) =
+                        zaroxi_interface_desktop::TextView::from_composition(&composition)
+                    {
+                        println!(
+                            "Harness: visible text after insert (top_line={} total_lines={}):",
+                            tv.top_line, tv.total_lines
+                        );
                         for line in tv.lines_with_cursor_marker("|^|").iter() {
                             println!("    {}", line);
                         }
@@ -651,7 +792,9 @@ async fn main() -> Result<(), String> {
                 boot_res.session.session_id.clone(),
                 Some(boot_res.session.workspace_id),
                 Some(service_dyn.clone()),
-            ).await {
+            )
+            .await
+            {
                 Ok(res) => {
                     println!("Harness: refresh_and_get_shell_context: action.success={} refreshed={} message={:?}", res.action.success, res.action.refreshed, res.action.message);
                     if let Some(ctx) = res.context {
@@ -667,7 +810,10 @@ async fn main() -> Result<(), String> {
         Err(e) => println!("Harness: failed to get editor document: {}", e),
     }
 
-    let open2 = OpenBufferRequest { session_id: boot_res.session.session_id.clone(), path: PathBuf::from("lib.rs") };
+    let open2 = OpenBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        path: PathBuf::from("lib.rs"),
+    };
     let open2_res = orchestrator.open_buffer(open2).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open2_res.buffer_id);
 
@@ -678,7 +824,10 @@ async fn main() -> Result<(), String> {
     println!("Harness: active buffer: {:?}", list_res.active_buffer);
 
     // Switch active buffer explicitly to the second
-    let set_active = SetActiveBufferRequest { session_id: boot_res.session.session_id.clone(), buffer_id: open2_res.buffer_id.clone() };
+    let set_active = SetActiveBufferRequest {
+        session_id: boot_res.session.session_id.clone(),
+        buffer_id: open2_res.buffer_id.clone(),
+    };
     let set_res = orchestrator.set_active_buffer(set_active).await.map_err(|e| e.to_string())?;
     println!("Harness: set active ok: {}", set_res.ok);
 
@@ -690,7 +839,9 @@ async fn main() -> Result<(), String> {
         boot_res.session.session_id.clone(),
         Some(boot_res.session.workspace_id),
         open2_res.buffer_id.clone(),
-    ).await {
+    )
+    .await
+    {
         Ok(res) => {
             println!("Harness: set_active_and_get_shell_context: action.success={} refreshed={} message={:?}", res.action.success, res.action.refreshed, res.action.message);
             if let Some(ctx) = res.context {
@@ -707,7 +858,8 @@ async fn main() -> Result<(), String> {
 
     // Explain the active buffer (shorthand use-case)
     let explain_req = GetActiveBufferRequest { session_id: boot_res.session.session_id.clone() };
-    let explain_res = orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
+    let explain_res =
+        orchestrator.explain_active_buffer(explain_req).await.map_err(|e| e.to_string())?;
     println!("Harness: explain result: {}", explain_res.result.message);
 
     // Refresh composition so the thin interface projection can pick up the latest AI projection
@@ -719,7 +871,9 @@ async fn main() -> Result<(), String> {
         boot_res.session.session_id.clone(),
         Some(boot_res.session.workspace_id),
         Some(service_dyn.clone()),
-    ).await {
+    )
+    .await
+    {
         Ok(_action_result) => {
             // Prefer the tiny AiProjectionSummary for concise harness diagnostics.
             if let Some(ai_sum) = composition.latest_ai_projection_summary() {
@@ -739,27 +893,49 @@ async fn main() -> Result<(), String> {
         }
     }
     // Query and print a compact session snapshot (Phase 7)
-    let snap_req = GetSessionSnapshotRequest { session_id: boot_res.session.session_id.clone(), recent_limit: 10 };
+    let snap_req = GetSessionSnapshotRequest {
+        session_id: boot_res.session.session_id.clone(),
+        recent_limit: 10,
+    };
     let snap_res = orchestrator.get_session_snapshot(snap_req).await.map_err(|e| e.to_string())?;
     let snap = snap_res.snapshot;
-    println!("Harness: session snapshot for {} (workspace {}):", snap.session_id, snap.workspace_id);
+    println!(
+        "Harness: session snapshot for {} (workspace {}):",
+        snap.session_id, snap.workspace_id
+    );
     println!(" - opened buffers: {:?}", snap.opened_buffers);
     println!(" - active buffer: {:?}", snap.active_buffer);
     for b in snap.buffers.iter() {
-        println!("   - {} -> {} bytes", b.buffer_id, b.content.as_ref().map(|s| s.len()).unwrap_or(0));
+        println!(
+            "   - {} -> {} bytes",
+            b.buffer_id,
+            b.content.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
     }
     println!(" - recent commands: {}", snap.recent_commands.len());
     println!(" - recent events: {}", snap.recent_events.len());
 
     // Print recent commands and events for this session
     use zaroxi_application_workspace::ports::{GetRecentCommandsRequest, GetRecentEventsRequest};
-    let recent_cmds = orchestrator.get_recent_commands(GetRecentCommandsRequest { session_id: boot_res.session.session_id.clone(), limit: 20 }).await.map_err(|e| e.to_string())?;
+    let recent_cmds = orchestrator
+        .get_recent_commands(GetRecentCommandsRequest {
+            session_id: boot_res.session.session_id.clone(),
+            limit: 20,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     println!("Harness: recent commands (count={}):", recent_cmds.commands.len());
     for c in recent_cmds.commands.iter() {
         println!("- {:?} success={} result={:?} error={:?}", c.kind, c.success, c.result, c.error);
     }
 
-    let recent_events = orchestrator.get_recent_events(GetRecentEventsRequest { session_id: boot_res.session.session_id.clone(), limit: 20 }).await.map_err(|e| e.to_string())?;
+    let recent_events = orchestrator
+        .get_recent_events(GetRecentEventsRequest {
+            session_id: boot_res.session.session_id.clone(),
+            limit: 20,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     println!("Harness: recent events (count={}):", recent_events.events.len());
     for e in recent_events.events.iter() {
         println!("- {:?} at {}", e.kind, e.timestamp);
@@ -768,7 +944,8 @@ async fn main() -> Result<(), String> {
     // Tiny shell-facing LastEventLine: build from the most recent event (if any)
     {
         let last = recent_events.events.last();
-        let last_line = zaroxi_interface_desktop::projections::last_event_line::summarize_last_event(last);
+        let last_line =
+            zaroxi_interface_desktop::projections::last_event_line::summarize_last_event(last);
         println!("Harness: last event: {}", last_line.text);
     }
 
@@ -781,39 +958,64 @@ async fn main() -> Result<(), String> {
 
     // Phase 8: create a checkpoint for the current session, then restore it into a fresh orchestrator.
     println!("Harness: creating and saving checkpoint for session {}", boot_res.session.session_id);
-    let save_res = orchestrator.save_checkpoint(SaveCheckpointRequest { session_id: boot_res.session.session_id.clone() }).await.map_err(|e| e.to_string())?;
+    let save_res = orchestrator
+        .save_checkpoint(SaveCheckpointRequest { session_id: boot_res.session.session_id.clone() })
+        .await
+        .map_err(|e| e.to_string())?;
     let location = save_res.location;
     println!("Harness: checkpoint persisted at location: {}", location);
- 
+
     // Build fresh adapters for restore target (repo/buffer moved into application crate)
     let repo2 = zaroxi_application_workspace::in_memory_adapters::InMemoryWorkspaceRepo::new();
     let repo2_dyn = zaroxi_application_workspace::in_memory_adapters::into_workspace_repo(repo2);
- 
-    let buffer_store2 = zaroxi_application_workspace::in_memory_adapters::InMemoryBufferStore::new();
-    let buffer2_dyn = zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store2);
- 
+
+    let buffer_store2 =
+        zaroxi_application_workspace::in_memory_adapters::InMemoryBufferStore::new();
+    let buffer2_dyn =
+        zaroxi_application_workspace::in_memory_adapters::into_buffer_store(buffer_store2);
+
     let history2 = zaroxi_infrastructure_memory::InMemoryHistoryStore::new();
     let history2_dyn = zaroxi_infrastructure_memory::into_history_store(history2);
- 
+
     let ai2 = zaroxi_infrastructure_ai_mock::MockAiClient::new();
     let ai2_dyn = zaroxi_infrastructure_ai_mock::into_dyn(ai2);
- 
+
     // Compose restore target with the same checkpoint durability adapter.
-    let orchestrator2 = WorkspaceOrchestrator::new_with_history_and_durability(repo2_dyn, buffer2_dyn, ai2_dyn, history2_dyn, checkpoint_dyn.clone());
- 
+    let orchestrator2 = WorkspaceOrchestrator::new_with_history_and_durability(
+        repo2_dyn,
+        buffer2_dyn,
+        ai2_dyn,
+        history2_dyn,
+        checkpoint_dyn.clone(),
+    );
+
     println!("Harness: loading checkpoint into fresh orchestrator...");
-    let load_res = orchestrator2.load_checkpoint(LoadCheckpointRequest { location: location.clone() }).await.map_err(|e| e.to_string())?;
+    let load_res = orchestrator2
+        .load_checkpoint(LoadCheckpointRequest { location: location.clone() })
+        .await
+        .map_err(|e| e.to_string())?;
     println!("Harness: loaded/restored session: {}", load_res.session.session_id);
- 
+
     // Print restored snapshot for verification
-    let snap_req2 = GetSessionSnapshotRequest { session_id: load_res.session.session_id.clone(), recent_limit: 10 };
-    let snap_res2 = orchestrator2.get_session_snapshot(snap_req2).await.map_err(|e| e.to_string())?;
+    let snap_req2 = GetSessionSnapshotRequest {
+        session_id: load_res.session.session_id.clone(),
+        recent_limit: 10,
+    };
+    let snap_res2 =
+        orchestrator2.get_session_snapshot(snap_req2).await.map_err(|e| e.to_string())?;
     let snap2 = snap_res2.snapshot;
-    println!("Harness: restored session snapshot for {} (workspace {}):", snap2.session_id, snap2.workspace_id);
+    println!(
+        "Harness: restored session snapshot for {} (workspace {}):",
+        snap2.session_id, snap2.workspace_id
+    );
     println!(" - opened buffers: {:?}", snap2.opened_buffers);
     println!(" - active buffer: {:?}", snap2.active_buffer);
     for b in snap2.buffers.iter() {
-        println!("   - {} -> {} bytes", b.buffer_id, b.content.as_ref().map(|s| s.len()).unwrap_or(0));
+        println!(
+            "   - {} -> {} bytes",
+            b.buffer_id,
+            b.content.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
     }
 
     // Present a tiny deterministic render output using the existing presenter.
@@ -837,11 +1039,16 @@ async fn main() -> Result<(), String> {
     // If the orchestrator supports apply_text_transaction this will mark the buffer dirty.
     // We ignore errors here as the purpose is to exercise the interface pending-close UI.
     use zaroxi_application_workspace::ports::ApplyTextTransactionRequest;
-    let _ = orchestrator.apply_text_transaction(ApplyTextTransactionRequest {
-        session_id: boot_res.session.session_id.clone(),
-        buffer_id: open1_res.buffer_id.clone(),
-        transaction: zaroxi_application_workspace::ports::TextEdit::Insert { index: 0, text: " //edited".to_string() },
-    }).await;
+    let _ = orchestrator
+        .apply_text_transaction(ApplyTextTransactionRequest {
+            session_id: boot_res.session.session_id.clone(),
+            buffer_id: open1_res.buffer_id.clone(),
+            transaction: zaroxi_application_workspace::ports::TextEdit::Insert {
+                index: 0,
+                text: " //edited".to_string(),
+            },
+        })
+        .await;
 
     // Refresh composition so the interface sees the updated presenter/window.
     let _ = zaroxi_interface_desktop::refresh_desktop(
@@ -850,14 +1057,17 @@ async fn main() -> Result<(), String> {
         boot_res.session.session_id.clone(),
         Some(boot_res.session.workspace_id),
         Some(service_dyn.clone()),
-    ).await;
+    )
+    .await;
 
     // Request to close the active tab via the desktop action (this should set the pending-close).
     let _ = zaroxi_interface_desktop::actions::request_close_active(
         &mut composition,
         view_dyn.clone(),
         boot_res.session.session_id.clone(),
-    ).await.expect("request_close_active");
+    )
+    .await
+    .expect("request_close_active");
 
     // Print the status banner which should now contain the pending-close UI text.
     if let Some(sline) = composition.latest_status_bar_line() {
@@ -867,7 +1077,9 @@ async fn main() -> Result<(), String> {
     }
 
     // Simulate user choosing "Discard and close" via the desktop action helper.
-    let _ = zaroxi_interface_desktop::actions::confirm_discard_and_close(&mut composition).await.expect("confirm_discard_and_close");
+    let _ = zaroxi_interface_desktop::actions::confirm_discard_and_close(&mut composition)
+        .await
+        .expect("confirm_discard_and_close");
 
     // Refresh composition post-resolution to observe cleared pending state.
     let _ = zaroxi_interface_desktop::refresh_desktop(
@@ -876,7 +1088,8 @@ async fn main() -> Result<(), String> {
         boot_res.session.session_id.clone(),
         Some(boot_res.session.workspace_id),
         Some(service_dyn.clone()),
-    ).await;
+    )
+    .await;
 
     if let Some(sline) = composition.latest_status_bar_line() {
         println!("Harness: status after resolution -> {}", sline.text);
@@ -894,7 +1107,9 @@ async fn main() -> Result<(), String> {
         view_dyn.clone(),
         boot_res.session.session_id.clone(),
         Some(service_dyn.clone()),
-    ).await.expect("request_close_session");
+    )
+    .await
+    .expect("request_close_session");
 
     if let Some(sline) = composition.latest_status_bar_line() {
         println!("Harness: pending-session-close banner -> {}", sline.text);
@@ -907,7 +1122,9 @@ async fn main() -> Result<(), String> {
         &mut composition,
         Some(service_dyn.clone()),
         boot_res.session.session_id.clone(),
-    ).await.expect("confirm_save_all_and_close");
+    )
+    .await
+    .expect("confirm_save_all_and_close");
 
     // After a successful save-and-close the composition should reflect a closed session.
     if composition.get_session_id().is_none() {
@@ -931,7 +1148,8 @@ async fn main() -> Result<(), String> {
         let refresh_idx = cb.commands.iter().position(|c| c == "Refresh").unwrap_or(0);
         // Move selection forward refresh_idx steps (keyboard-driven)
         for _ in 0..refresh_idx {
-            let _ = zaroxi_interface_desktop::actions::navigate_command_bar_next(&mut composition).await;
+            let _ = zaroxi_interface_desktop::actions::navigate_command_bar_next(&mut composition)
+                .await;
         }
 
         // Confirm the selected command via keyboard confirm action

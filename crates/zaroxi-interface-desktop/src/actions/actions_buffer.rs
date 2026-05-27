@@ -1,5 +1,5 @@
-use zaroxi_application_workspace::ports::{WorkspaceView, SessionId};
 use crate::desktop::RefreshReason;
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 
 use super::actions_refresh::{ActionResult, refresh_and_get_shell_context};
 
@@ -15,7 +15,10 @@ pub async fn set_active_buffer_and_get_shell_context(
     workspace_id: Option<zaroxi_kernel_types::Id>,
     buffer_id: crate::ports::BufferId,
 ) -> Result<super::actions_refresh::ShellActionResult, String> {
-    match service.get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() }).await {
+    match service
+        .get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
         Ok(get_res) => {
             if get_res.buffer_id == buffer_id {
                 let comp_active = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
@@ -25,9 +28,19 @@ pub async fn set_active_buffer_and_get_shell_context(
                     comp.set_pending_refresh_reason(RefreshReason::RefreshAction);
                 }
             } else {
-                if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+                if let Err(e) = service
+                    .set_active_buffer(crate::ports::SetActiveBufferRequest {
+                        session_id: session_id.clone(),
+                        buffer_id: buffer_id.clone(),
+                    })
+                    .await
+                {
                     return Ok(super::actions_refresh::ShellActionResult {
-                        action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                        action: ActionResult {
+                            success: false,
+                            message: Some(e.to_string()),
+                            refreshed: false,
+                        },
                         context: None,
                     });
                 }
@@ -35,9 +48,19 @@ pub async fn set_active_buffer_and_get_shell_context(
             }
         }
         Err(_e) => {
-            if let Err(e) = service.set_active_buffer(crate::ports::SetActiveBufferRequest { session_id: session_id.clone(), buffer_id: buffer_id.clone() }).await {
+            if let Err(e) = service
+                .set_active_buffer(crate::ports::SetActiveBufferRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: buffer_id.clone(),
+                })
+                .await
+            {
                 return Ok(super::actions_refresh::ShellActionResult {
-                    action: ActionResult { success: false, message: Some(e.to_string()), refreshed: false },
+                    action: ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    },
                     context: None,
                 });
             }
@@ -45,6 +68,7 @@ pub async fn set_active_buffer_and_get_shell_context(
         }
     }
 
-    let res = refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
+    let res =
+        refresh_and_get_shell_context(comp, view, session_id, workspace_id, Some(service)).await?;
     Ok(res)
 }

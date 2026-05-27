@@ -1,4 +1,4 @@
-use zaroxi_core_engine_text::{new_backend, TextLabel};
+use zaroxi_core_engine_text::{TextLabel, new_backend};
 
 #[test]
 fn engine_render_can_construct_text_backend() {

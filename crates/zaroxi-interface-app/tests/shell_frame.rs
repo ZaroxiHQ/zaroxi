@@ -1,7 +1,10 @@
 use zaroxi_interface_app::shell_frame::ShellFrameViewModel;
-use zaroxi_interface_app::shell_frame::{ShellFrameModel as AppShellFrameModel, TextView as AppTextView, SelectionView as AppSelectionView, Position as AppPosition};
-use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel as DesktopShellFrameModel;
+use zaroxi_interface_app::shell_frame::{
+    Position as AppPosition, SelectionView as AppSelectionView,
+    ShellFrameModel as AppShellFrameModel, TextView as AppTextView,
+};
 use zaroxi_interface_desktop::TextView as DesktopTextView;
+use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel as DesktopShellFrameModel;
 
 #[test]
 fn lifecycle_absent_before_present_after() {
@@ -18,7 +21,9 @@ fn lifecycle_absent_before_present_after() {
         cursor_column: Some(0),
     };
 
-    let viewport = "top_visible_line=1 visible_line_count=1 total_lines=1 cursor_visible=true anchoring=None".to_string();
+    let viewport =
+        "top_visible_line=1 visible_line_count=1 total_lines=1 cursor_visible=true anchoring=None"
+            .to_string();
     let desktop_frame = DesktopShellFrameModel {
         session_identity: None,
         shell_chrome: None,

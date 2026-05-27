@@ -1,4 +1,4 @@
-use zaroxi_core_engine_scene::{TextPrimitive, CaretItem, SelectionRect, EditorPrimitiveSet};
+use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
 
 /// editor layout / font helpers for caret/selection projection into transcript.
 /// Provide a tiny, local layout/font shim so this presenter does not

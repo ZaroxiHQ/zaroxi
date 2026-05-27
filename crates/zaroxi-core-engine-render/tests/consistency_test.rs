@@ -1,4 +1,4 @@
-use zaroxi_core_engine_render::{analyze, ShellDrawPlan};
+use zaroxi_core_engine_render::{ShellDrawPlan, analyze};
 
 #[test]
 fn default_plan_is_consistent_between_transcript_and_renderer() {

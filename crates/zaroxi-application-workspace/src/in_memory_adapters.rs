@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use zaroxi_kernel_types::Id;
@@ -10,10 +10,12 @@ use zaroxi_kernel_types::Id;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Domain workspace repository trait/types (owned by domain crate).
-use zaroxi_domain_workspace::ports::{WorkspaceRepository, WorkspaceOpenCommand, WorkspaceDTO, DomainError};
+use zaroxi_domain_workspace::ports::{
+    DomainError, WorkspaceDTO, WorkspaceOpenCommand, WorkspaceRepository,
+};
 
 /// Core buffer store trait/types (owned by core editor buffer crate).
-use zaroxi_core_editor_buffer::ports::{BufferStore, BufferId, BufferError, TextEdit};
+use zaroxi_core_editor_buffer::ports::{BufferError, BufferId, BufferStore, TextEdit};
 
 /// In-memory workspace repository used for tests/harness/composition in the application layer.
 ///
@@ -30,7 +32,10 @@ impl InMemoryWorkspaceRepo {
 }
 
 impl WorkspaceRepository for InMemoryWorkspaceRepo {
-    fn open_workspace(&self, cmd: WorkspaceOpenCommand) -> BoxFuture<'static, Result<WorkspaceDTO, DomainError>> {
+    fn open_workspace(
+        &self,
+        cmd: WorkspaceOpenCommand,
+    ) -> BoxFuture<'static, Result<WorkspaceDTO, DomainError>> {
         Box::pin(async move {
             // Minimal deterministic DTO for harness usage.
             let dto = WorkspaceDTO {
@@ -64,7 +69,9 @@ impl BufferStore for InMemoryBufferStore {
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            m.entry(key.clone()).or_insert_with(|| "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string());
+            m.entry(key.clone()).or_insert_with(|| {
+                "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string()
+            });
             Ok(id)
         })
     }
@@ -74,7 +81,11 @@ impl BufferStore for InMemoryBufferStore {
         m.get(&id.0).cloned()
     }
 
-    fn set_text(&self, id: &BufferId, content: String) -> BoxFuture<'static, Result<(), BufferError>> {
+    fn set_text(
+        &self,
+        id: &BufferId,
+        content: String,
+    ) -> BoxFuture<'static, Result<(), BufferError>> {
         let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
@@ -88,7 +99,11 @@ impl BufferStore for InMemoryBufferStore {
         })
     }
 
-    fn apply_transaction(&self, id: &BufferId, txn: TextEdit) -> BoxFuture<'static, Result<(), BufferError>> {
+    fn apply_transaction(
+        &self,
+        id: &BufferId,
+        txn: TextEdit,
+    ) -> BoxFuture<'static, Result<(), BufferError>> {
         let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {

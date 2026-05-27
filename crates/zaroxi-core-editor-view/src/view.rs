@@ -90,11 +90,7 @@ impl EditorView {
 
         let (first, last) = self.viewport.visible_line_range(scroll_y);
         let last = std::cmp::min(last, total_lines.saturating_sub(1));
-        let visible_range = if total_lines == 0 {
-            (0, 0)
-        } else {
-            (first, last)
-        };
+        let visible_range = if total_lines == 0 { (0, 0) } else { (first, last) };
 
         let mut line_positions: Vec<(u32, f32)> = Vec::new();
         for (li, y_rel) in self.viewport.visible_line_positions(scroll_y, total_lines) {

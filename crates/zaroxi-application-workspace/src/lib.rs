@@ -1,16 +1,16 @@
+pub mod editor_service;
 /// Workspace service orchestration logic for Zaroxi Studio.
 ///
 /// Application-level orchestrators (use-case services) live here. They depend on
 /// domain contracts and core ports, but not on infrastructure or interface.
 /// For Phase 1 keep implementations minimal and focused on the single slice.
 pub mod service;
-pub mod editor_service;
 pub use editor_service::EditorService;
-pub mod workspace_manager;
-pub mod ports;
 pub mod in_memory_adapters;
+pub mod ports;
 pub mod usecases;
-pub mod view; // small, read-only view seam (Phase 2)
+pub mod view;
+pub mod workspace_manager; // small, read-only view seam (Phase 2)
 
 /// Prelude for convenient imports.
 ///
@@ -19,17 +19,9 @@ pub mod view; // small, read-only view seam (Phase 2)
 pub mod prelude {
     // Re-export the application-owned port/type surface explicitly.
     pub use crate::ports::{
-        WorkspaceService,
-        WorkspaceBootRequest,
-        WorkspaceBootResponse,
-        OpenBufferRequest,
-        OpenBufferResponse,
-        DispatchCommandRequest,
-        DispatchCommandResponse,
-        AppCommand,
-        CommandResult,
-        WorkspaceSessionDTO,
-        DynWorkspaceService,
+        AppCommand, CommandResult, DispatchCommandRequest, DispatchCommandResponse,
+        DynWorkspaceService, OpenBufferRequest, OpenBufferResponse, WorkspaceBootRequest,
+        WorkspaceBootResponse, WorkspaceService, WorkspaceSessionDTO,
     };
 
     // Re-export the concrete orchestrator type for convenience.

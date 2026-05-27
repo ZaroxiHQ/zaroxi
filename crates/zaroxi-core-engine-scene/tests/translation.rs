@@ -1,5 +1,5 @@
-use zaroxi_core_engine_view::{EngineShellViewInput, EngineSelection};
 use zaroxi_core_engine_scene::ShellSceneModel;
+use zaroxi_core_engine_view::{EngineSelection, EngineShellViewInput};
 
 /// Semantic translation test:
 /// Ensure a populated EngineShellViewInput produces a ShellSceneModel that
@@ -27,10 +27,7 @@ fn translation_preserves_semantics() {
 
     let scene: ShellSceneModel = input.into();
 
-    assert_eq!(
-        scene.text_lines,
-        vec!["one".to_string(), "two".to_string(), "three".to_string()]
-    );
+    assert_eq!(scene.text_lines, vec!["one".to_string(), "two".to_string(), "three".to_string()]);
     assert_eq!(scene.viewport_top_line, 1);
     assert_eq!(scene.viewport_total_lines, 3);
     assert_eq!(scene.viewport_summary, Some("1-3/3".to_string()));

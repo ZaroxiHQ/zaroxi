@@ -19,9 +19,10 @@ a long-lived god file.
 
 // Re-export the original public API surface so callers/tests remain unchanged.
 pub use crate::presenters::model::{
-    ContentActivity, GpuShellPresenter, GpuShellView, KeyEvent, Region, RegionKind, RegionView,
-    ShellRegions, ShellTone, SlotName, SlotView, StatusEmphasis, TabAction, FocusAction, TabEntry, TabStrip,
-    apply_tab_action, compute_tab_action_target, apply_focus_action, compute_focus_action_target, activate_focused, handle_key_event, handle_focus_key_event,
+    ContentActivity, FocusAction, GpuShellPresenter, GpuShellView, KeyEvent, Region, RegionKind,
+    RegionView, ShellRegions, ShellTone, SlotName, SlotView, StatusEmphasis, TabAction, TabEntry,
+    TabStrip, activate_focused, apply_focus_action, apply_tab_action, compute_focus_action_target,
+    compute_tab_action_target, handle_focus_key_event, handle_key_event,
 };
 pub use crate::presenters::paint::{GpuPaintOp, GpuPaintPlan, GpuPaintRect, execute_paint_plan};
 pub use crate::presenters::transcript::ShellRenderTranscript;

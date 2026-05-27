@@ -1,4 +1,3 @@
-
 /// Small, single-source-of-truth model describing an in-progress close resolution
 /// flow that the desktop UI will present to the user.
 ///
@@ -22,9 +21,7 @@ pub enum PendingClose {
         summary: String,
     },
     /// A resolution failure: present message to the user and keep pending state until action.
-    ResolutionFailure {
-        message: String,
-    },
+    ResolutionFailure { message: String },
 }
 
 impl PendingClose {
@@ -33,9 +30,15 @@ impl PendingClose {
         match self {
             PendingClose::BufferClose { display, dirty, .. } => {
                 if *dirty {
-                    format!("Close buffer '{}' (unsaved changes)", display.clone().unwrap_or_else(|| "<unnamed>".to_string()))
+                    format!(
+                        "Close buffer '{}' (unsaved changes)",
+                        display.clone().unwrap_or_else(|| "<unnamed>".to_string())
+                    )
                 } else {
-                    format!("Close buffer '{}'", display.clone().unwrap_or_else(|| "<unnamed>".to_string()))
+                    format!(
+                        "Close buffer '{}'",
+                        display.clone().unwrap_or_else(|| "<unnamed>".to_string())
+                    )
                 }
             }
             PendingClose::SessionClose { summary, .. } => format!("Close session: {}", summary),

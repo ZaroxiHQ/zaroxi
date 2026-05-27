@@ -1,18 +1,18 @@
 use crate::error::RenderError;
-#[cfg(feature = "legacy_cosmic")]
-use crate::renderer::text::{PlacedGlyph, FontAtlas, GlyphInfo};
 use crate::renderer::geometry::color_to_rgba;
+#[cfg(feature = "legacy_cosmic")]
+use crate::renderer::text::{FontAtlas, GlyphInfo, PlacedGlyph};
 use log::{debug, info};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use wgpu::{Device, Queue, BindGroupLayout, BindGroup};
+use wgpu::{BindGroup, BindGroupLayout, Device, Queue};
 
 /* explicit re-exports expected by the backend code; cosmic-text crate is
-   provided as "cosmic-text" in Cargo.toml but the Rust module path is
-   `cosmic_text`. Import the commonly used types here so the file uses them
-   directly. */
+provided as "cosmic-text" in Cargo.toml but the Rust module path is
+`cosmic_text`. Import the commonly used types here so the file uses them
+directly. */
 #[cfg(feature = "legacy_cosmic")]
-use cosmic_text::{FontSystem, SwashCache, Buffer};
+use cosmic_text::{Buffer, FontSystem, SwashCache};
 
 /// A minimal backend boundary trait for text shaping/layout/rasterization.
 ///
@@ -62,8 +62,8 @@ pub trait TextBackend: Send + Sync {
 // layout using an explicit role (UI, Mono, Symbols) rather than assuming a
 // single implicit font for everything.
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Roles used by the renderer to request different font fallbacks.
 #[derive(Debug, Clone, Copy)]
@@ -128,11 +128,7 @@ impl FontPolicy {
             symbols.insert(0, name);
         }
 
-        Self {
-            ui_families: ui,
-            mono_families: mono,
-            symbol_families: symbols,
-        }
+        Self { ui_families: ui, mono_families: mono, symbol_families: symbols }
     }
 
     /// Return the family list for a particular role in preference order.
@@ -183,7 +179,12 @@ pub struct CosmicTextBackend {
 impl CosmicTextBackend {
     /// Create a new CosmicTextBackend and create an empty GPU atlas using
     /// the provided bind group layout so the backend can upload glyphs on-demand.
-    pub fn new(device: &Device, queue: &Queue, layout: &BindGroupLayout, font_size: f32) -> Result<Self, RenderError> {
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        layout: &BindGroupLayout,
+        font_size: f32,
+    ) -> Result<Self, RenderError> {
         // Initialize FontSystem and register the bundled TTF into a fontdb
         // database so cosmic-text can resolve the exact family name we intend to use.
         // This explicitly prefers the workspace-bundled JetBrainsMono Nerd Font
@@ -193,7 +194,8 @@ impl CosmicTextBackend {
         // Try to register bundled font using fontdb and attach the database to the FontSystem.
         // This uses fontdb 0.23 compatible APIs.
         let manifest = env!("CARGO_MANIFEST_DIR");
-        let font_path = PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let font_path =
+            PathBuf::from(manifest).join("../../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
         let mut db = fontdb::Database::new();
         let mut bundled_loaded = false;
         if font_path.exists() {
@@ -202,10 +204,17 @@ impl CosmicTextBackend {
             match db.load_font_file(&font_path) {
                 Ok(()) => {
                     bundled_loaded = true;
-                    debug!("CosmicTextBackend: bundled font loaded into fontdb from '{}'", font_path.display());
+                    debug!(
+                        "CosmicTextBackend: bundled font loaded into fontdb from '{}'",
+                        font_path.display()
+                    );
                 }
                 Err(e) => {
-                    debug!("CosmicTextBackend: fontdb failed to load bundled font '{}': {:?}", font_path.display(), e);
+                    debug!(
+                        "CosmicTextBackend: fontdb failed to load bundled font '{}': {:?}",
+                        font_path.display(),
+                        e
+                    );
                 }
             }
         } else {
@@ -232,9 +241,10 @@ impl CosmicTextBackend {
             // Query the local fontdb::Database we created above to discover registered families.
             // Collect discovered family names from faces. FaceInfo.families is Vec<(String, Language)>;
             // use the first family name for each face as the primary discovered family.
-            let matches: Vec<String> = db.faces().filter_map(|face| {
-                face.families.get(0).map(|(name, _lang)| name.clone())
-            }).collect();
+            let matches: Vec<String> = db
+                .faces()
+                .filter_map(|face| face.families.get(0).map(|(name, _lang)| name.clone()))
+                .collect();
 
             if matches.iter().any(|m| m == "JetBrainsMono Nerd Font") {
                 resolved_family = Some("JetBrainsMono Nerd Font".to_string());
@@ -248,7 +258,9 @@ impl CosmicTextBackend {
         if let Some(ref fam) = resolved_family {
             debug!("CosmicTextBackend: using resolved bundled family '{}'", fam);
         } else {
-            debug!("CosmicTextBackend: no bundled family resolved; will attempt to use default FontSystem fallbacks");
+            debug!(
+                "CosmicTextBackend: no bundled family resolved; will attempt to use default FontSystem fallbacks"
+            );
         }
 
         // Create an empty GPU atlas that the backend will populate on demand.
@@ -304,8 +316,13 @@ impl TextBackend for CosmicTextBackend {
                 self.bundled_font_loaded,
                 self.resolved_family.as_deref().unwrap_or("None"),
             );
-            info!("CosmicTextBackend: incoming text=\"{}\" font_size={}", text, self.atlas.font_size);
-            debug!("CosmicTextBackend: note: using cosmic-text layout + swash rasterization for rendering");
+            info!(
+                "CosmicTextBackend: incoming text=\"{}\" font_size={}",
+                text, self.atlas.font_size
+            );
+            debug!(
+                "CosmicTextBackend: note: using cosmic-text layout + swash rasterization for rendering"
+            );
         }
 
         // Validate clip rectangle semantics early: callers MUST pass (x, y, width, height).
@@ -360,7 +377,10 @@ impl TextBackend for CosmicTextBackend {
 
         // Create Metrics for the buffer (font size belongs in Metrics in cosmic-text 0.19).
         // Provide an explicit line_height (1.2x font size) to satisfy Metrics::new(font_size, line_height)
-        let metrics = cosmic_text::Metrics::new(self.atlas.font_size as f32, self.atlas.font_size as f32 * 1.2);
+        let metrics = cosmic_text::Metrics::new(
+            self.atlas.font_size as f32,
+            self.atlas.font_size as f32 * 1.2,
+        );
 
         // Create a new buffer using the FontSystem & Metrics.
         let mut buf = Buffer::new(&mut *fs_guard, metrics);
@@ -378,7 +398,7 @@ impl TextBackend for CosmicTextBackend {
 
         // Borrow the buffer together with the FontSystem to run layout/shape helpers.
         // This mirrors the intended 0.19 flow: use BorrowedWithFontSystem to obtain layout runs.
-        let mut jobs: Vec<(cosmic_text::CacheKey, u64, i32, i32, f32, [f32;4])> = Vec::new();
+        let mut jobs: Vec<(cosmic_text::CacheKey, u64, i32, i32, f32, [f32; 4])> = Vec::new();
         {
             let mut borrowed = buf.borrow_with(&mut *fs_guard);
 
@@ -446,7 +466,11 @@ impl TextBackend for CosmicTextBackend {
                         let x1_px = x0_px + existing_ginfo.width as f32;
                         let y1_px = y0_px + existing_ginfo.height as f32;
 
-                        if x1_px <= clip_x_e || x0_px >= (clip_x_e + clip_w_e) || y1_px <= clip_y_e || y0_px >= (clip_y_e + clip_h_e) {
+                        if x1_px <= clip_x_e
+                            || x0_px >= (clip_x_e + clip_w_e)
+                            || y1_px <= clip_y_e
+                            || y0_px >= (clip_y_e + clip_h_e)
+                        {
                             if should_log {
                                 debug!(
                                     "CosmicTextBackend: skip glyph reason=clip_reject text=\"{}\" glyph_id={} range={}..{} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1}) key={:?}",
@@ -534,14 +558,15 @@ impl TextBackend for CosmicTextBackend {
                     let data_len = img.data.len();
                     let img_w = img.placement.width;
                     let img_h = img.placement.height;
-                    let computed_bpp = if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h {
-                        1u32
-                    } else if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h * 4 {
-                        4u32
-                    } else {
-                        // Unknown packing: fall back to 1 and log for investigation.
-                        1u32
-                    };
+                    let computed_bpp =
+                        if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h {
+                            1u32
+                        } else if img_w > 0 && img_h > 0 && (data_len as u32) == img_w * img_h * 4 {
+                            4u32
+                        } else {
+                            // Unknown packing: fall back to 1 and log for investigation.
+                            1u32
+                        };
 
                     if should_log {
                         info!(
@@ -575,14 +600,32 @@ impl TextBackend for CosmicTextBackend {
                             let y1_px = y0_px + img.placement.height as f32;
 
                             // Clip-test (use tolerant clip)
-                            if x1_px <= clip_x_e || x0_px >= (clip_x_e + clip_w_e) || y1_px <= clip_y_e || y0_px >= (clip_y_e + clip_h_e) {
+                            if x1_px <= clip_x_e
+                                || x0_px >= (clip_x_e + clip_w_e)
+                                || y1_px <= clip_y_e
+                                || y0_px >= (clip_y_e + clip_h_e)
+                            {
                                 if should_log {
                                     debug!(
                                         "CosmicTextBackend: skip after_insert reason=clip_reject text=\"{}\" cache_key={:?} key_u64={} phys=({}, {}) rect=({:.1},{:.1})-({:.1},{:.1}) clip=({:.1},{:.1})-({:.1},{:.1})",
-                                        text, cache_key, key_u64, gx_i, gy_i, x0_px, y0_px, x1_px, y1_px, clip_x_e, clip_y_e, clip_x_e + clip_w_e, clip_y_e + clip_h_e
+                                        text,
+                                        cache_key,
+                                        key_u64,
+                                        gx_i,
+                                        gy_i,
+                                        x0_px,
+                                        y0_px,
+                                        x1_px,
+                                        y1_px,
+                                        clip_x_e,
+                                        clip_y_e,
+                                        clip_x_e + clip_w_e,
+                                        clip_y_e + clip_h_e
                                     );
                                 }
-                                *skipped_by_reason.entry("clip_reject_after_insert".to_string()).or_insert(0) += 1;
+                                *skipped_by_reason
+                                    .entry("clip_reject_after_insert".to_string())
+                                    .or_insert(0) += 1;
                                 continue;
                             }
 
@@ -610,8 +653,13 @@ impl TextBackend for CosmicTextBackend {
                         }
                         Err(e) => {
                             // Insertion failed; count as missing and continue.
-                            debug!("CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}", key_u64, e);
-                            *skipped_by_reason.entry("atlas_insert_failed".to_string()).or_insert(0) += 1;
+                            debug!(
+                                "CosmicTextBackend: atlas insertion failed for glyph key={} err={:?}",
+                                key_u64, e
+                            );
+                            *skipped_by_reason
+                                .entry("atlas_insert_failed".to_string())
+                                .or_insert(0) += 1;
                             missing_glyphs += 1;
                         }
                     }
@@ -631,16 +679,20 @@ impl TextBackend for CosmicTextBackend {
 
         // Summary diagnostics (gated)
         if should_log {
-            info!("CosmicTextBackend: layout_runs={} layout_glyphs={}", layout_runs_count, layout_glyphs);
-            info!("CosmicTextBackend: swash_images_obtained={} atlas_insert_attempts={} atlas_insert_succeeded={}", swash_images_obtained, atlas_insert_attempts, atlas_insert_succeeded);
+            info!(
+                "CosmicTextBackend: layout_runs={} layout_glyphs={}",
+                layout_runs_count, layout_glyphs
+            );
+            info!(
+                "CosmicTextBackend: swash_images_obtained={} atlas_insert_attempts={} atlas_insert_succeeded={}",
+                swash_images_obtained, atlas_insert_attempts, atlas_insert_succeeded
+            );
             info!("CosmicTextBackend: produced_placed_glyphs={}", produced_placed);
         }
 
         debug!(
             "CosmicTextBackend: layout glyphs={} rasterized_glyphs={} missing_glyphs={}",
-            layout_glyphs,
-            rasterized_count,
-            missing_glyphs
+            layout_glyphs, rasterized_count, missing_glyphs
         );
 
         Ok(out)

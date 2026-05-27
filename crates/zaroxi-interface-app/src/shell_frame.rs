@@ -117,14 +117,13 @@ impl ShellFrameViewModel {
     pub fn to_engine_input(&self) -> zaroxi_core_engine_view::EngineShellViewInput {
         // Use active_text_view as the mandatory piece for a meaningful input.
         if let Some(tv) = self.active_text_view() {
-            let selection = self.selection_view().map(|s| {
-                zaroxi_core_engine_view::EngineSelection {
+            let selection =
+                self.selection_view().map(|s| zaroxi_core_engine_view::EngineSelection {
                     start_line: s.start.line as u32,
                     start_column: s.start.column as u32,
                     end_line: s.end.line as u32,
                     end_column: s.end.column as u32,
-                }
-            });
+                });
 
             zaroxi_core_engine_view::EngineShellViewInput {
                 top_line: tv.top_line as u32,

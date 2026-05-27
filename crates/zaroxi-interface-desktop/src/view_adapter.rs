@@ -14,7 +14,7 @@ use zaroxi_application_workspace::ports::{
     GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, WorkspaceView,
 };
 use zaroxi_application_workspace::view::{
-    project_renderable_lines, RenderableLine as AppRenderableLine, SpanKind as AppSpanKind,
+    RenderableLine as AppRenderableLine, SpanKind as AppSpanKind, project_renderable_lines,
 };
 
 /// Interface-facing span kind (very small, read-only).
@@ -127,7 +127,11 @@ pub async fn fetch_renderable_window(
                 end_col: s.end_col,
             });
         }
-        lines.push(InterfaceRenderableLine { line_number: ar.line_number, spans, total_columns: ar.total_columns });
+        lines.push(InterfaceRenderableLine {
+            line_number: ar.line_number,
+            spans,
+            total_columns: ar.total_columns,
+        });
     }
 
     Ok(InterfaceRenderableWindow {
@@ -141,7 +145,10 @@ pub async fn fetch_renderable_window(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor};
+    use zaroxi_application_workspace::ports::{
+        EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetVisibleLinesRequest,
+        SessionId, WorkspaceView,
+    };
     use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
     use zaroxi_core_editor_buffer::ports::BufferId;
 
@@ -181,20 +188,42 @@ mod tests {
     }
 
     impl WorkspaceView for FakeView {
-        fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        fn get_buffer_content(
+            &self,
+            _buffer_id: crate::ports::BufferId,
+        ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+        {
             Box::pin(async move { Ok(Some("".to_string())) })
         }
 
-        fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+        fn get_active_buffer_content(
+            &self,
+            _session_id: crate::ports::SessionId,
+        ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+        {
             Box::pin(async move { Ok(Some("".to_string())) })
         }
 
-        fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+        fn get_active_editor_document(
+            &self,
+            _req: GetActiveEditorDocumentRequest,
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<crate::ports::GetActiveEditorDocumentResponse, crate::ports::UseCaseError>,
+        > {
             let d = self.doc.clone();
-            Box::pin(async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: d }) })
+            Box::pin(
+                async move { Ok(crate::ports::GetActiveEditorDocumentResponse { document: d }) },
+            )
         }
 
-        fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+        fn get_visible_lines(
+            &self,
+            _req: GetVisibleLinesRequest,
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<crate::ports::GetVisibleLinesResponse, crate::ports::UseCaseError>,
+        > {
             let w = self.window.clone();
             Box::pin(async move { Ok(crate::ports::GetVisibleLinesResponse { window: w }) })
         }
@@ -211,7 +240,9 @@ mod tests {
         let rl = &res.lines[0];
         assert_eq!(rl.line_number, 1);
         // expect a zero-width cursor span (empty text) or a Cursor span somewhere
-        let has_cursor = rl.spans.iter().any(|s| s.kind == InterfaceSpanKind::Cursor || s.kind == InterfaceSpanKind::SelectionCursor);
+        let has_cursor = rl.spans.iter().any(|s| {
+            s.kind == InterfaceSpanKind::Cursor || s.kind == InterfaceSpanKind::SelectionCursor
+        });
         assert!(has_cursor);
     }
 
@@ -230,7 +261,11 @@ mod tests {
     #[tokio::test]
     async fn fetch_renderable_strips_leading_slash() {
         use std::sync::Arc;
-        use zaroxi_application_workspace::ports::{WorkspaceView, GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, GetActiveEditorDocumentResponse, GetVisibleLinesResponse, EditorDocument, EditorCursor};
+        use zaroxi_application_workspace::ports::{
+            EditorCursor, EditorDocument, GetActiveEditorDocumentRequest,
+            GetActiveEditorDocumentResponse, GetVisibleLinesRequest, GetVisibleLinesResponse,
+            SessionId, WorkspaceView,
+        };
         use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 
         // Minimal fake view that returns one visible line starting with "/ sample file"
@@ -267,20 +302,40 @@ mod tests {
         }
 
         impl WorkspaceView for FakeViewSlash {
-            fn get_buffer_content(&self, _buffer_id: crate::ports::BufferId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+            fn get_buffer_content(
+                &self,
+                _buffer_id: crate::ports::BufferId,
+            ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+            {
                 Box::pin(async move { Ok(Some("".to_string())) })
             }
 
-            fn get_active_buffer_content(&self, _session_id: crate::ports::SessionId) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>> {
+            fn get_active_buffer_content(
+                &self,
+                _session_id: crate::ports::SessionId,
+            ) -> crate::ports::BoxFuture<'static, Result<Option<String>, crate::ports::UseCaseError>>
+            {
                 Box::pin(async move { Ok(Some("".to_string())) })
             }
 
-            fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> crate::ports::BoxFuture<'static, Result<GetActiveEditorDocumentResponse, crate::ports::UseCaseError>> {
+            fn get_active_editor_document(
+                &self,
+                _req: GetActiveEditorDocumentRequest,
+            ) -> crate::ports::BoxFuture<
+                'static,
+                Result<GetActiveEditorDocumentResponse, crate::ports::UseCaseError>,
+            > {
                 let d = self.doc.clone();
                 Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
             }
 
-            fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> crate::ports::BoxFuture<'static, Result<GetVisibleLinesResponse, crate::ports::UseCaseError>> {
+            fn get_visible_lines(
+                &self,
+                _req: GetVisibleLinesRequest,
+            ) -> crate::ports::BoxFuture<
+                'static,
+                Result<GetVisibleLinesResponse, crate::ports::UseCaseError>,
+            > {
                 let w = self.window.clone();
                 Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
             }

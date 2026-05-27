@@ -1,10 +1,10 @@
 use std::sync::Arc;
-use zaroxi_interface_desktop::{refresh_desktop, actions, DesktopComposition};
-use zaroxi_application_workspace::ports::{WorkspaceView, WorkspaceService, SessionId};
-use zaroxi_core_editor_buffer::ports::BufferId;
 use zaroxi_application_workspace::ports as aw_ports;
-use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_application_workspace::ports::EditorDocument;
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
+use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_interface_desktop::{DesktopComposition, actions, refresh_desktop};
 use zaroxi_kernel_types::Id;
 
 /// Minimal in-test WorkspaceView that returns a tiny document and a one-line visible window.
@@ -41,20 +41,38 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: aw_ports::BufferId) -> aw_ports::BoxFuture<'static, Result<Option<String>, aw_ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: aw_ports::BufferId,
+    ) -> aw_ports::BoxFuture<'static, Result<Option<String>, aw_ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: aw_ports::SessionId) -> aw_ports::BoxFuture<'static, Result<Option<String>, aw_ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: aw_ports::SessionId,
+    ) -> aw_ports::BoxFuture<'static, Result<Option<String>, aw_ports::UseCaseError>> {
         Box::pin(async move { Ok(Some("".to_string())) })
     }
 
-    fn get_active_editor_document(&self, _req: aw_ports::GetActiveEditorDocumentRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetActiveEditorDocumentResponse, aw_ports::UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: aw_ports::GetActiveEditorDocumentRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetActiveEditorDocumentResponse, aw_ports::UseCaseError>,
+    > {
         let d = self.doc.clone();
         Box::pin(async move { Ok(aw_ports::GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: aw_ports::GetVisibleLinesRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetVisibleLinesResponse, aw_ports::UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: aw_ports::GetVisibleLinesRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetVisibleLinesResponse, aw_ports::UseCaseError>,
+    > {
         let w = self.window.clone();
         Box::pin(async move { Ok(aw_ports::GetVisibleLinesResponse { window: w }) })
     }
@@ -69,20 +87,35 @@ struct FakeServiceActive {
 impl FakeServiceActive {
     fn new(initial: aw_ports::BufferId) -> Self {
         let v = vec![initial.clone()];
-        Self { opened: std::sync::Arc::new(std::sync::Mutex::new(v)), active: std::sync::Arc::new(std::sync::Mutex::new(Some(initial))) }
+        Self {
+            opened: std::sync::Arc::new(std::sync::Mutex::new(v)),
+            active: std::sync::Arc::new(std::sync::Mutex::new(Some(initial))),
+        }
     }
 }
 
 impl WorkspaceService for FakeServiceActive {
-    fn boot_workspace(&self, _req: aw_ports::WorkspaceBootRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>> {
+    fn boot_workspace(
+        &self,
+        _req: aw_ports::WorkspaceBootRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>>
+    {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownWorkspace) })
     }
 
-    fn open_buffer(&self, _req: aw_ports::OpenBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>> {
+    fn open_buffer(
+        &self,
+        _req: aw_ports::OpenBufferRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>>
+    {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
 
-    fn list_open_buffers(&self, _req: aw_ports::ListBuffersRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>> {
+    fn list_open_buffers(
+        &self,
+        _req: aw_ports::ListBuffersRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>>
+    {
         let opened = self.opened.clone();
         let active = self.active.clone();
         Box::pin(async move {
@@ -92,7 +125,13 @@ impl WorkspaceService for FakeServiceActive {
         })
     }
 
-    fn set_active_buffer(&self, req: aw_ports::SetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetActiveBufferResponse, aw_ports::UseCaseError>> {
+    fn set_active_buffer(
+        &self,
+        req: aw_ports::SetActiveBufferRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::SetActiveBufferResponse, aw_ports::UseCaseError>,
+    > {
         let active = self.active.clone();
         Box::pin(async move {
             let mut a = active.lock().unwrap();
@@ -101,7 +140,13 @@ impl WorkspaceService for FakeServiceActive {
         })
     }
 
-    fn get_active_buffer(&self, _req: aw_ports::GetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetActiveBufferResponse, aw_ports::UseCaseError>> {
+    fn get_active_buffer(
+        &self,
+        _req: aw_ports::GetActiveBufferRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetActiveBufferResponse, aw_ports::UseCaseError>,
+    > {
         let active = self.active.clone();
         Box::pin(async move {
             match active.lock().unwrap().clone() {
@@ -112,55 +157,160 @@ impl WorkspaceService for FakeServiceActive {
     }
 
     // The rest of the trait methods are not needed for this tiny test; return UnknownSession or defaults.
-    fn set_editor_cursor(&self, _req: aw_ports::SetEditorCursorRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetEditorCursorResponse, aw_ports::UseCaseError>> {
+    fn set_editor_cursor(
+        &self,
+        _req: aw_ports::SetEditorCursorRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::SetEditorCursorResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn set_editor_selection(&self, _req: aw_ports::SetSelectionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetSelectionResponse, aw_ports::UseCaseError>> {
+    fn set_editor_selection(
+        &self,
+        _req: aw_ports::SetSelectionRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetSelectionResponse, aw_ports::UseCaseError>>
+    {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn clear_editor_selection(&self, _req: aw_ports::ClearSelectionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ClearSelectionResponse, aw_ports::UseCaseError>> {
+    fn clear_editor_selection(
+        &self,
+        _req: aw_ports::ClearSelectionRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::ClearSelectionResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn get_editor_state(&self, _req: aw_ports::GetEditorStateRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetEditorStateResponse, aw_ports::UseCaseError>> {
+    fn get_editor_state(
+        &self,
+        _req: aw_ports::GetEditorStateRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetEditorStateResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn set_viewport_state(&self, _req: aw_ports::SetViewportRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetViewportResponse, aw_ports::UseCaseError>> {
+    fn set_viewport_state(
+        &self,
+        _req: aw_ports::SetViewportRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetViewportResponse, aw_ports::UseCaseError>>
+    {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn scroll_viewport(&self, _req: aw_ports::ScrollViewportRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ScrollViewportResponse, aw_ports::UseCaseError>> {
+    fn scroll_viewport(
+        &self,
+        _req: aw_ports::ScrollViewportRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::ScrollViewportResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn explain_active_buffer(&self, _req: aw_ports::GetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>> {
+    fn explain_active_buffer(
+        &self,
+        _req: aw_ports::GetActiveBufferRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::NoActiveBuffer) })
     }
-    fn dispatch_command(&self, _req: aw_ports::DispatchCommandRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>> {
+    fn dispatch_command(
+        &self,
+        _req: aw_ports::DispatchCommandRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn update_buffer(&self, _req: aw_ports::UpdateBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::UpdateBufferResponse, aw_ports::UseCaseError>> {
+    fn update_buffer(
+        &self,
+        _req: aw_ports::UpdateBufferRequest,
+    ) -> aw_ports::BoxFuture<'static, Result<aw_ports::UpdateBufferResponse, aw_ports::UseCaseError>>
+    {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn apply_text_transaction(&self, _req: aw_ports::ApplyTextTransactionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ApplyTextTransactionResponse, aw_ports::UseCaseError>> {
-        Box::pin(async { Ok(aw_ports::ApplyTextTransactionResponse { ok: true, state: aw_ports::EditorState { cursor: aw_ports::EditorCursor::zero(), selection: None }, content: None }) })
+    fn apply_text_transaction(
+        &self,
+        _req: aw_ports::ApplyTextTransactionRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::ApplyTextTransactionResponse, aw_ports::UseCaseError>,
+    > {
+        Box::pin(async {
+            Ok(aw_ports::ApplyTextTransactionResponse {
+                ok: true,
+                state: aw_ports::EditorState {
+                    cursor: aw_ports::EditorCursor::zero(),
+                    selection: None,
+                },
+                content: None,
+            })
+        })
     }
-    fn get_recent_commands(&self, _req: aw_ports::GetRecentCommandsRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>> {
+    fn get_recent_commands(
+        &self,
+        _req: aw_ports::GetRecentCommandsRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Ok(aw_ports::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
-    fn get_recent_events(&self, _req: aw_ports::GetRecentEventsRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetRecentEventsResponse, aw_ports::UseCaseError>> {
+    fn get_recent_events(
+        &self,
+        _req: aw_ports::GetRecentEventsRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetRecentEventsResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Ok(aw_ports::GetRecentEventsResponse { events: Vec::new() }) })
     }
-    fn get_session_snapshot(&self, _req: aw_ports::GetSessionSnapshotRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetSessionSnapshotResponse, aw_ports::UseCaseError>> {
+    fn get_session_snapshot(
+        &self,
+        _req: aw_ports::GetSessionSnapshotRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::GetSessionSnapshotResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn create_checkpoint(&self, _req: aw_ports::CreateCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::CreateCheckpointResponse, aw_ports::UseCaseError>> {
+    fn create_checkpoint(
+        &self,
+        _req: aw_ports::CreateCheckpointRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::CreateCheckpointResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn save_checkpoint(&self, _req: aw_ports::SaveCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SaveCheckpointResponse, aw_ports::UseCaseError>> {
+    fn save_checkpoint(
+        &self,
+        _req: aw_ports::SaveCheckpointRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::SaveCheckpointResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn load_checkpoint(&self, _req: aw_ports::LoadCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::LoadCheckpointResponse, aw_ports::UseCaseError>> {
+    fn load_checkpoint(
+        &self,
+        _req: aw_ports::LoadCheckpointRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::LoadCheckpointResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
-    fn restore_checkpoint(&self, _req: aw_ports::RestoreCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::RestoreCheckpointResponse, aw_ports::UseCaseError>> {
+    fn restore_checkpoint(
+        &self,
+        _req: aw_ports::RestoreCheckpointRequest,
+    ) -> aw_ports::BoxFuture<
+        'static,
+        Result<aw_ports::RestoreCheckpointResponse, aw_ports::UseCaseError>,
+    > {
         Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
     }
 }
@@ -172,14 +322,26 @@ async fn set_active_buffer_action_sets_and_refreshes() {
     let sid = SessionId(Id::new());
 
     // Build a fake service that supports active-buffer changes.
-    let fake = std::sync::Arc::new(FakeServiceActive::new(BufferId::from("buf:one"))) as std::sync::Arc<dyn WorkspaceService>;
+    let fake = std::sync::Arc::new(FakeServiceActive::new(BufferId::from("buf:one")))
+        as std::sync::Arc<dyn WorkspaceService>;
 
     let mut comp = DesktopComposition::new();
     // pre-refresh to populate presenter (realistic)
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None)
+        .await
+        .expect("initial refresh ok");
 
     // Invoke the tiny convenience action to set active buffer to "buf:two"
-    let res = actions::set_active_buffer_and_get_shell_context(&mut comp, fake.clone(), arc.clone(), sid.clone(), None, BufferId::from("buf:two")).await.expect("action ok");
+    let res = actions::set_active_buffer_and_get_shell_context(
+        &mut comp,
+        fake.clone(),
+        arc.clone(),
+        sid.clone(),
+        None,
+        BufferId::from("buf:two"),
+    )
+    .await
+    .expect("action ok");
     assert!(res.action.success);
     assert!(res.action.refreshed);
     let ctx = res.context.expect("context present");
@@ -188,8 +350,8 @@ async fn set_active_buffer_action_sets_and_refreshes() {
 
 #[tokio::test]
 async fn set_active_buffer_noop_when_already_active() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc as StdArc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let v = FakeView::new();
     let arc: Arc<dyn WorkspaceView> = Arc::new(v);
@@ -214,13 +376,31 @@ async fn set_active_buffer_noop_when_already_active() {
     }
 
     impl aw_ports::WorkspaceService for FakeSvcCounting {
-        fn boot_workspace(&self, _req: aw_ports::WorkspaceBootRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>> {
+        fn boot_workspace(
+            &self,
+            _req: aw_ports::WorkspaceBootRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::WorkspaceBootResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownWorkspace) })
         }
-        fn open_buffer(&self, _req: aw_ports::OpenBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>> {
+        fn open_buffer(
+            &self,
+            _req: aw_ports::OpenBufferRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::OpenBufferResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn list_open_buffers(&self, _req: aw_ports::ListBuffersRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>> {
+        fn list_open_buffers(
+            &self,
+            _req: aw_ports::ListBuffersRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::ListBuffersResponse, aw_ports::UseCaseError>,
+        > {
             let opened = self.opened.clone();
             let active = self.active.clone();
             Box::pin(async move {
@@ -229,7 +409,13 @@ async fn set_active_buffer_noop_when_already_active() {
                 Ok(aw_ports::ListBuffersResponse { buffer_ids: list, active_buffer: act })
             })
         }
-        fn set_active_buffer(&self, req: aw_ports::SetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetActiveBufferResponse, aw_ports::UseCaseError>> {
+        fn set_active_buffer(
+            &self,
+            req: aw_ports::SetActiveBufferRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::SetActiveBufferResponse, aw_ports::UseCaseError>,
+        > {
             let set_called = self.set_count.clone();
             let active = self.active.clone();
             Box::pin(async move {
@@ -239,7 +425,13 @@ async fn set_active_buffer_noop_when_already_active() {
                 Ok(aw_ports::SetActiveBufferResponse { ok: true })
             })
         }
-        fn get_active_buffer(&self, _req: aw_ports::GetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetActiveBufferResponse, aw_ports::UseCaseError>> {
+        fn get_active_buffer(
+            &self,
+            _req: aw_ports::GetActiveBufferRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::GetActiveBufferResponse, aw_ports::UseCaseError>,
+        > {
             let active = self.active.clone();
             Box::pin(async move {
                 match active.lock().unwrap().clone() {
@@ -250,55 +442,166 @@ async fn set_active_buffer_noop_when_already_active() {
         }
 
         // The rest are not needed for this tiny test; return defaults/errors.
-        fn set_editor_cursor(&self, _req: aw_ports::SetEditorCursorRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetEditorCursorResponse, aw_ports::UseCaseError>> {
+        fn set_editor_cursor(
+            &self,
+            _req: aw_ports::SetEditorCursorRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::SetEditorCursorResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn set_editor_selection(&self, _req: aw_ports::SetSelectionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetSelectionResponse, aw_ports::UseCaseError>> {
+        fn set_editor_selection(
+            &self,
+            _req: aw_ports::SetSelectionRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::SetSelectionResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn clear_editor_selection(&self, _req: aw_ports::ClearSelectionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ClearSelectionResponse, aw_ports::UseCaseError>> {
+        fn clear_editor_selection(
+            &self,
+            _req: aw_ports::ClearSelectionRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::ClearSelectionResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn get_editor_state(&self, _req: aw_ports::GetEditorStateRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetEditorStateResponse, aw_ports::UseCaseError>> {
+        fn get_editor_state(
+            &self,
+            _req: aw_ports::GetEditorStateRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::GetEditorStateResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn set_viewport_state(&self, _req: aw_ports::SetViewportRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SetViewportResponse, aw_ports::UseCaseError>> {
+        fn set_viewport_state(
+            &self,
+            _req: aw_ports::SetViewportRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::SetViewportResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn scroll_viewport(&self, _req: aw_ports::ScrollViewportRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ScrollViewportResponse, aw_ports::UseCaseError>> {
+        fn scroll_viewport(
+            &self,
+            _req: aw_ports::ScrollViewportRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::ScrollViewportResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn explain_active_buffer(&self, _req: aw_ports::GetActiveBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>> {
+        fn explain_active_buffer(
+            &self,
+            _req: aw_ports::GetActiveBufferRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::NoActiveBuffer) })
         }
-        fn dispatch_command(&self, _req: aw_ports::DispatchCommandRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>> {
+        fn dispatch_command(
+            &self,
+            _req: aw_ports::DispatchCommandRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::DispatchCommandResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn update_buffer(&self, _req: aw_ports::UpdateBufferRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::UpdateBufferResponse, aw_ports::UseCaseError>> {
+        fn update_buffer(
+            &self,
+            _req: aw_ports::UpdateBufferRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::UpdateBufferResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn apply_text_transaction(&self, _req: aw_ports::ApplyTextTransactionRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::ApplyTextTransactionResponse, aw_ports::UseCaseError>> {
-            Box::pin(async { Ok(aw_ports::ApplyTextTransactionResponse { ok: true, state: aw_ports::EditorState { cursor: aw_ports::EditorCursor::zero(), selection: None }, content: None }) })
+        fn apply_text_transaction(
+            &self,
+            _req: aw_ports::ApplyTextTransactionRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::ApplyTextTransactionResponse, aw_ports::UseCaseError>,
+        > {
+            Box::pin(async {
+                Ok(aw_ports::ApplyTextTransactionResponse {
+                    ok: true,
+                    state: aw_ports::EditorState {
+                        cursor: aw_ports::EditorCursor::zero(),
+                        selection: None,
+                    },
+                    content: None,
+                })
+            })
         }
-        fn get_recent_commands(&self, _req: aw_ports::GetRecentCommandsRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>> {
+        fn get_recent_commands(
+            &self,
+            _req: aw_ports::GetRecentCommandsRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Ok(aw_ports::GetRecentCommandsResponse { commands: Vec::new() }) })
         }
-        fn get_recent_events(&self, _req: aw_ports::GetRecentEventsRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetRecentEventsResponse, aw_ports::UseCaseError>> {
+        fn get_recent_events(
+            &self,
+            _req: aw_ports::GetRecentEventsRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::GetRecentEventsResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Ok(aw_ports::GetRecentEventsResponse { events: Vec::new() }) })
         }
-        fn get_session_snapshot(&self, _req: aw_ports::GetSessionSnapshotRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::GetSessionSnapshotResponse, aw_ports::UseCaseError>> {
+        fn get_session_snapshot(
+            &self,
+            _req: aw_ports::GetSessionSnapshotRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::GetSessionSnapshotResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn create_checkpoint(&self, _req: aw_ports::CreateCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::CreateCheckpointResponse, aw_ports::UseCaseError>> {
+        fn create_checkpoint(
+            &self,
+            _req: aw_ports::CreateCheckpointRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::CreateCheckpointResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn save_checkpoint(&self, _req: aw_ports::SaveCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::SaveCheckpointResponse, aw_ports::UseCaseError>> {
+        fn save_checkpoint(
+            &self,
+            _req: aw_ports::SaveCheckpointRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::SaveCheckpointResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn load_checkpoint(&self, _req: aw_ports::LoadCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::LoadCheckpointResponse, aw_ports::UseCaseError>> {
+        fn load_checkpoint(
+            &self,
+            _req: aw_ports::LoadCheckpointRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::LoadCheckpointResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
-        fn restore_checkpoint(&self, _req: aw_ports::RestoreCheckpointRequest) -> aw_ports::BoxFuture<'static, Result<aw_ports::RestoreCheckpointResponse, aw_ports::UseCaseError>> {
+        fn restore_checkpoint(
+            &self,
+            _req: aw_ports::RestoreCheckpointRequest,
+        ) -> aw_ports::BoxFuture<
+            'static,
+            Result<aw_ports::RestoreCheckpointResponse, aw_ports::UseCaseError>,
+        > {
             Box::pin(async { Err(aw_ports::UseCaseError::UnknownSession) })
         }
     }
@@ -313,10 +616,21 @@ async fn set_active_buffer_noop_when_already_active() {
     let mut comp = DesktopComposition::new();
 
     // pre-refresh to populate presenter (realistic)
-    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None).await.expect("initial refresh ok");
+    let _ = refresh_desktop(&mut comp, arc.clone(), sid.clone(), None, None)
+        .await
+        .expect("initial refresh ok");
 
     // Invoke action to set active to buf:two (already active)
-    let res = actions::set_active_buffer_and_get_shell_context(&mut comp, svc.clone(), arc.clone(), sid.clone(), None, BufferId::from("buf:two")).await.expect("action ok");
+    let res = actions::set_active_buffer_and_get_shell_context(
+        &mut comp,
+        svc.clone(),
+        arc.clone(),
+        sid.clone(),
+        None,
+        BufferId::from("buf:two"),
+    )
+    .await
+    .expect("action ok");
     assert!(res.action.success);
     assert!(res.action.refreshed);
     let ctx = res.context.expect("context present");

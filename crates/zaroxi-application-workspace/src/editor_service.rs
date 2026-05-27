@@ -1,7 +1,7 @@
-use zaroxi_core_editor_buffer::buffer::{Buffer, Selection};
-use std::sync::{Arc, Mutex};
-use std::path::{Path, PathBuf};
 use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use zaroxi_core_editor_buffer::buffer::{Buffer, Selection};
 
 /// Public snapshot type that the interface can consume to build presenter editor layout.
 ///
@@ -69,7 +69,9 @@ pub enum ResolveCloseSessionResult {
     ClosedAfterDiscardAll,
     /// Save-all failed; failed_buffers contains tuples (buffer_index, Option<PathBuf>)
     /// with None indicating unnamed buffers that could not be saved.
-    SaveAllFailed { failed_buffers: Vec<(usize, Option<PathBuf>)> },
+    SaveAllFailed {
+        failed_buffers: Vec<(usize, Option<PathBuf>)>,
+    },
     /// IO error while attempting to discard (reload) buffers from disk.
     IoError(std::io::Error),
     SessionNotFound,
@@ -101,15 +103,9 @@ impl EditorService {
     /// Construct service with a single unnamed buffer from text.
     pub fn new_with_text(text: &str) -> Self {
         let buf_arc = Arc::new(Mutex::new(Buffer::from_text(text)));
-        let state = BuffersState {
-            paths: vec![None],
-            buffers: vec![buf_arc.clone()],
-            active: Some(0),
-        };
-        Self {
-            buffer: buf_arc,
-            inner: Mutex::new(state),
-        }
+        let state =
+            BuffersState { paths: vec![None], buffers: vec![buf_arc.clone()], active: Some(0) };
+        Self { buffer: buf_arc, inner: Mutex::new(state) }
     }
 
     /// Create an EditorService by loading file contents from path.
@@ -121,18 +117,15 @@ impl EditorService {
             buffers: vec![buf_arc.clone()],
             active: Some(0),
         };
-        Ok(Self {
-            buffer: buf_arc,
-            inner: Mutex::new(state),
-        })
+        Ok(Self { buffer: buf_arc, inner: Mutex::new(state) })
     }
 }
 
- // Submodules split for maintainability (behavior preserved).
-mod management;
-mod snapshot;
-mod persistence;
-mod editing;
+// Submodules split for maintainability (behavior preserved).
 mod close;
 mod dirty_close;
+mod editing;
+mod management;
+mod persistence;
 mod session_close;
+mod snapshot;

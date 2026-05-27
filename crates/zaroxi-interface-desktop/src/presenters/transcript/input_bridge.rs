@@ -53,5 +53,13 @@ pub fn handle_mouse_click_and_place_cursor(
     line_h: u32,
     content_inset: u32,
 ) {
-    zaroxi_core_engine_scene::place_cursor_from_click(click_x, click_y, content_x, base_y, char_w, line_h, content_inset);
+    zaroxi_core_engine_scene::place_cursor_from_click(
+        click_x,
+        click_y,
+        content_x,
+        base_y,
+        char_w,
+        line_h,
+        content_inset,
+    );
 }

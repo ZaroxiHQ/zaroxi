@@ -1,4 +1,7 @@
-use zaroxi_interface_desktop::{SelectionView, view_adapter::InterfaceRenderableWindow, view_adapter::InterfaceRenderableLine, view_adapter::InterfaceRenderSpan, view_adapter::InterfaceSpanKind};
+use zaroxi_interface_desktop::{
+    SelectionView, view_adapter::InterfaceRenderSpan, view_adapter::InterfaceRenderableLine,
+    view_adapter::InterfaceRenderableWindow, view_adapter::InterfaceSpanKind,
+};
 
 #[test]
 fn selection_view_present_reports_bounds_and_visibility() {
@@ -28,11 +31,7 @@ fn selection_view_present_reports_bounds_and_visibility() {
         total_columns: 6,
     };
 
-    let win = InterfaceRenderableWindow {
-        top_line: 1,
-        total_lines: 1,
-        lines: vec![line],
-    };
+    let win = InterfaceRenderableWindow { top_line: 1, total_lines: 1, lines: vec![line] };
 
     let sv = SelectionView::from_window(&win).expect("selection present");
     assert_eq!(sv.start.line, 1);
@@ -61,11 +60,7 @@ fn selection_view_absent_returns_none() {
         spans: vec![span1, span_cursor],
         total_columns: 4,
     };
-    let win = InterfaceRenderableWindow {
-        top_line: 1,
-        total_lines: 1,
-        lines: vec![line],
-    };
+    let win = InterfaceRenderableWindow { top_line: 1, total_lines: 1, lines: vec![line] };
 
     let sv = SelectionView::from_window(&win);
     assert!(sv.is_none());

@@ -1,4 +1,4 @@
-use zaroxi_core_engine_text::{new_backend, TextLabel};
+use zaroxi_core_engine_text::{TextLabel, new_backend};
 
 #[test]
 fn backend_constructs_via_seam() {

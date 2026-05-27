@@ -81,9 +81,7 @@ impl From<zaroxi_core_engine_scene::ShellSceneModel> for ShellLayoutInput {
         let mut blocks: Vec<LayoutBlock> = Vec::new();
 
         // Text block (structural, always present)
-        blocks.push(LayoutBlock::Text(TextBlock {
-            lines: scene.text_lines.clone(),
-        }));
+        blocks.push(LayoutBlock::Text(TextBlock { lines: scene.text_lines.clone() }));
 
         // Selection block if the scene reports a cursor line
         if let Some(line) = scene.cursor_line {

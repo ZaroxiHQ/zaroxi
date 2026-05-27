@@ -1,24 +1,24 @@
 use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
+use wgpu::{
+    Backends, BindGroup, BindGroupLayout, Buffer, Color, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Extent3d, Features, Instance, InstanceDescriptor, Limits, Queue,
+    RequestAdapterOptions, SamplerDescriptor, Surface, SurfaceConfiguration, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
-use wgpu::{
-    Backends, BindGroup, BindGroupLayout, Buffer, CommandEncoderDescriptor, Device, DeviceDescriptor,
-    Features, Instance, InstanceDescriptor, Limits, Queue, RequestAdapterOptions, Surface,
-    SurfaceConfiguration, TextureFormat, TextureUsages, TextureViewDescriptor, Color,
-    Extent3d, TextureDescriptor, TextureDimension, TextureView, SamplerDescriptor,
-};
 
 use zaroxi_app::AppState;
 use zaroxi_theme::SemanticColors;
 
 use crate::renderer::debug::{
-    render_debug_enabled, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, FIRST_GLYPH_LOGGED,
-    LOGGED_TITLEBAR, LOGGED_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR_PACKED,
-    FORCE_MAGENTA_SIDEBAR, DISABLE_TEXT_PASS, VALIDATION_SCENE,
+    DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
+    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, VALIDATION_SCENE,
+    render_debug_enabled,
 };
-use crate::renderer::geometry::{Vertex, push_colored_quad, pixel_to_ndc};
+use crate::renderer::geometry::{Vertex, pixel_to_ndc, push_colored_quad};
 
 /// Internal context that groups per-frame geometry buffers and screen size.
 /// Introduced to reduce the responsibility surface of core.rs and to provide
@@ -63,7 +63,6 @@ impl<'a> FrameContext<'a> {
     }
 }
 
-
 /// Simple rectangle used by the resolved layout.
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
@@ -85,7 +84,6 @@ pub struct RenderLayout {
     pub status_bar: Rect,
     pub colors: SemanticColors,
 }
-
 
 /* Vertex type and vertex-layout helpers moved to renderer/geometry.rs */
 
@@ -154,20 +152,19 @@ impl<'a> Renderer<'a> {
 
         // NOTE: in this workspace adapter.request_device takes a single argument.
         let (device, queue) = adapter
-            .request_device(
-                &DeviceDescriptor {
-                    label: Some("zaroxi-engine-device"),
-                    required_features,
-                    required_limits,
-                    ..Default::default()
-                },
-            )
+            .request_device(&DeviceDescriptor {
+                label: Some("zaroxi-engine-device"),
+                required_features,
+                required_limits,
+                ..Default::default()
+            })
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
         let size = window.inner_size();
         // Configure the surface (moved to renderer::surface)
-        let config = crate::renderer::surface::configure_surface(&surface, &adapter, &device, size)?;
+        let config =
+            crate::renderer::surface::configure_surface(&surface, &adapter, &device, size)?;
 
         // Create pipelines & bind group layouts (moved to renderer::pipelines).
         let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
@@ -178,7 +175,12 @@ impl<'a> Renderer<'a> {
         // owns its native glyphon state and manages prepare/viewport/update/prepare/render lifecycle.
         let font_size = 14.0f32;
         let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
-            Box::new(crate::renderer::text::GlyphonTextRenderer::new(&device, &queue, config.format, font_size)?);
+            Box::new(crate::renderer::text::GlyphonTextRenderer::new(
+                &device,
+                &queue,
+                config.format,
+                font_size,
+            )?);
 
         // Create a simple shader for textured text (WGSL).
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
@@ -220,10 +222,7 @@ impl<'a> Renderer<'a> {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             // wgpu 29 uses multiview_mask & cache fields
@@ -314,7 +313,12 @@ impl<'a> Renderer<'a> {
         }
         self.size = new_size;
         // Delegate resize/reconfigure to renderer::surface (move-only refactor).
-        crate::renderer::surface::resize_surface(&self.surface, &self.device, &mut self.config, new_size)?;
+        crate::renderer::surface::resize_surface(
+            &self.surface,
+            &self.device,
+            &mut self.config,
+            new_size,
+        )?;
         debug!("Reconfigured surface to {}x{}", self.config.width, self.config.height);
         Ok(())
     }
@@ -336,7 +340,12 @@ impl<'a> Renderer<'a> {
     /// application/layout layer. The renderer only draws the provided layout.
     /// The renderer expects generic UiBlock descriptors (rect + visual hints)
     /// rather than interpreting application-specific identifiers.
-    pub fn render_with_layout(&mut self, _app_state: &AppState, layout: &RenderLayout, render_blocks: &[crate::UiBlock]) -> Result<(), RenderError> {
+    pub fn render_with_layout(
+        &mut self,
+        _app_state: &AppState,
+        layout: &RenderLayout,
+        render_blocks: &[crate::UiBlock],
+    ) -> Result<(), RenderError> {
         if self.config.width == 0 || self.config.height == 0 {
             return Ok(());
         }
@@ -350,7 +359,10 @@ impl<'a> Renderer<'a> {
         // Log received render panels for traceability (debug only).
         if RENDER_DEBUG {
             for p in render_blocks.iter() {
-                debug!("renderer received render_panel id='{}' title='{}' visible={}", p.id, p.title, p.visible);
+                debug!(
+                    "renderer received render_panel id='{}' title='{}' visible={}",
+                    p.id, p.title, p.visible
+                );
             }
         }
 
@@ -391,8 +403,15 @@ impl<'a> Renderer<'a> {
         // Disabled by default to avoid contaminating normal rendering.
         const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = false;
         if render_debug_enabled() {
-            log::debug!("debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
-                DEBUG_RENDER, FORCE_DIAGNOSTIC_COLORS, DIAGNOSTIC_TEXT_ONLY, DIAGNOSTIC_DISABLE_SCISSOR, DIAGNOSTIC_FULLSCREEN_QUAD, DIAGNOSTIC_INJECT_CENTER_TEXT);
+            log::debug!(
+                "debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
+                DEBUG_RENDER,
+                FORCE_DIAGNOSTIC_COLORS,
+                DIAGNOSTIC_TEXT_ONLY,
+                DIAGNOSTIC_DISABLE_SCISSOR,
+                DIAGNOSTIC_FULLSCREEN_QUAD,
+                DIAGNOSTIC_INJECT_CENTER_TEXT
+            );
         }
 
         let sem = &layout.colors;
@@ -434,14 +453,34 @@ impl<'a> Renderer<'a> {
                 let ry = inset;
                 let rw = (width as f32) - inset * 2.0;
                 let rh = (height as f32) - inset * 2.0;
-                push_colored_quad(&mut panel_verts, &mut panel_indices, rx, ry, rw, rh, [1.0, 0.0, 1.0, 1.0], width, height);
+                push_colored_quad(
+                    &mut panel_verts,
+                    &mut panel_indices,
+                    rx,
+                    ry,
+                    rw,
+                    rh,
+                    [1.0, 0.0, 1.0, 1.0],
+                    width,
+                    height,
+                );
             }
 
             {
                 // top-left quarter green
                 let rw = width * 0.5;
                 let rh = height * 0.5;
-                push_colored_quad(&mut panel_verts, &mut panel_indices, 0.0, 0.0, rw, rh, [0.0, 1.0, 0.0, 1.0], width, height);
+                push_colored_quad(
+                    &mut panel_verts,
+                    &mut panel_indices,
+                    0.0,
+                    0.0,
+                    rw,
+                    rh,
+                    [0.0, 1.0, 0.0, 1.0],
+                    width,
+                    height,
+                );
             }
 
             {
@@ -450,7 +489,17 @@ impl<'a> Renderer<'a> {
                 let rh = height * 0.25;
                 let rx = (width - rw) * 0.5;
                 let ry = (height - rh) * 0.5;
-                push_colored_quad(&mut panel_verts, &mut panel_indices, rx, ry, rw, rh, [0.0, 0.4, 1.0, 1.0], width, height);
+                push_colored_quad(
+                    &mut panel_verts,
+                    &mut panel_indices,
+                    rx,
+                    ry,
+                    rw,
+                    rh,
+                    [0.0, 0.4, 1.0, 1.0],
+                    width,
+                    height,
+                );
             }
             // --- end visual debug ---
         }
@@ -520,7 +569,10 @@ impl<'a> Renderer<'a> {
         let content_padding = 8.0f32;
         for block in render_blocks.iter() {
             if RENDER_DEBUG {
-                debug!("drawing block id='{}' title='{}' visible={}", block.id, block.title, block.visible);
+                debug!(
+                    "drawing block id='{}' title='{}' visible={}",
+                    block.id, block.title, block.visible
+                );
             }
             if !block.visible {
                 if RENDER_DEBUG {
@@ -563,10 +615,38 @@ impl<'a> Renderer<'a> {
                          v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v2 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v3 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3})",
-                        v0.pos[0], v0.pos[1], v0.uv[0], v0.uv[1], v0.color[0], v0.color[1], v0.color[2], v0.color[3],
-                        v1.pos[0], v1.pos[1], v1.uv[0], v1.uv[1], v1.color[0], v1.color[1], v1.color[2], v1.color[3],
-                        v2.pos[0], v2.pos[1], v2.uv[0], v2.uv[1], v2.color[0], v2.color[1], v2.color[2], v2.color[3],
-                        v3.pos[0], v3.pos[1], v3.uv[0], v3.uv[1], v3.color[0], v3.color[1], v3.color[2], v3.color[3],
+                        v0.pos[0],
+                        v0.pos[1],
+                        v0.uv[0],
+                        v0.uv[1],
+                        v0.color[0],
+                        v0.color[1],
+                        v0.color[2],
+                        v0.color[3],
+                        v1.pos[0],
+                        v1.pos[1],
+                        v1.uv[0],
+                        v1.uv[1],
+                        v1.color[0],
+                        v1.color[1],
+                        v1.color[2],
+                        v1.color[3],
+                        v2.pos[0],
+                        v2.pos[1],
+                        v2.uv[0],
+                        v2.uv[1],
+                        v2.color[0],
+                        v2.color[1],
+                        v2.color[2],
+                        v2.color[3],
+                        v3.pos[0],
+                        v3.pos[1],
+                        v3.uv[0],
+                        v3.uv[1],
+                        v3.color[0],
+                        v3.color[1],
+                        v3.color[2],
+                        v3.color[3],
                     );
                 }
             }
@@ -598,7 +678,17 @@ impl<'a> Renderer<'a> {
             // upload missing glyph bitmaps into its internal atlas before returning
             // placed glyphs with valid UVs.
             // Queue title for the native Glyphon text renderer (prepare/render will occur later).
-            self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(&block.title, title_x, title_y, title_color, DEFAULT_FONT_SIZE, hx, hy, hw, hh));
+            self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+                &block.title,
+                title_x,
+                title_y,
+                title_color,
+                DEFAULT_FONT_SIZE,
+                hx,
+                hy,
+                hw,
+                hh,
+            ));
             // Concise info for queued title (no per-glyph spam).
             debug!("queued title for block='{}'", block.id);
 
@@ -616,12 +706,17 @@ impl<'a> Renderer<'a> {
             // Structural-only suppression for well-known header regions:
             // - titlebar and status_bar are header-only and must not render block.content.
             // This is a renderer-level, structural rule (not application-domain logic).
-            let is_titlebar = block.id == "titlebar" || block.id == "title_bar" || block.id == "title-bar";
-            let is_statusbar = block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
+            let is_titlebar =
+                block.id == "titlebar" || block.id == "title_bar" || block.id == "title-bar";
+            let is_statusbar =
+                block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
 
             if is_titlebar || is_statusbar {
                 if RENDER_DEBUG && !content.is_empty() {
-                    debug!("emit_text: skipping body content for structural header block='{}'", block.id);
+                    debug!(
+                        "emit_text: skipping body content for structural header block='{}'",
+                        block.id
+                    );
                 }
             } else if !content.is_empty() {
                 // Emit content into the block's content area using the provided rect.
@@ -631,7 +726,17 @@ impl<'a> Renderer<'a> {
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
                 if content_w > 0.0 && content_h > 0.0 {
                     // Queue content for Glyphon native rendering
-                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(&block.content, content_x, content_y, title_color, DEFAULT_FONT_SIZE, content_x, content_y, content_w, content_h));
+                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                        &block.content,
+                        content_x,
+                        content_y,
+                        title_color,
+                        DEFAULT_FONT_SIZE,
+                        content_x,
+                        content_y,
+                        content_w,
+                        content_h,
+                    ));
                     debug!("queued content for block='{}'", block.id);
                 } else if RENDER_DEBUG {
                     info!("emit_text: content area too small for block='{}'", block.id);
@@ -677,7 +782,7 @@ impl<'a> Renderer<'a> {
             text_verts.push(b);
             text_verts.push(c);
             text_verts.push(d);
-            text_indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
+            text_indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
 
         // Merge panel + text geometry into final buffers. Text indices must be
@@ -724,9 +829,15 @@ impl<'a> Renderer<'a> {
         }
         if render_debug_enabled() {
             if oob_count > 0 {
-                log::debug!("vertex OOB summary: total_verts={} out_of_bounds={}", verts.len(), oob_count);
+                log::debug!(
+                    "vertex OOB summary: total_verts={} out_of_bounds={}",
+                    verts.len(),
+                    oob_count
+                );
             } else {
-                log::debug!("vertex positions all within expected NDC/pixel ranges (no obvious OOB)");
+                log::debug!(
+                    "vertex positions all within expected NDC/pixel ranges (no obvious OOB)"
+                );
             }
         }
 
@@ -738,7 +849,15 @@ impl<'a> Renderer<'a> {
                 let v = verts[i];
                 log::debug!(
                     "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
-                    i, v.pos[0], v.pos[1], v.uv[0], v.uv[1], v.color[0], v.color[1], v.color[2], v.color[3]
+                    i,
+                    v.pos[0],
+                    v.pos[1],
+                    v.uv[0],
+                    v.uv[1],
+                    v.color[0],
+                    v.color[1],
+                    v.color[2],
+                    v.color[3]
                 );
             }
         }
@@ -803,7 +922,10 @@ impl<'a> Renderer<'a> {
                             }
                             rpass.draw(0..verts_to_draw, 0..1);
                         } else {
-                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            rpass.set_index_buffer(
+                                self.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
                             info!("debug indexed draw (full): indices_drawn={}", total_indices_len);
                             rpass.draw_indexed(0..total_indices_len, 0, 0..1);
                         }
@@ -826,28 +948,49 @@ impl<'a> Renderer<'a> {
                     if !DIAGNOSTIC_TEXT_ONLY {
                         if panel_indices_len > 0 {
                             if render_debug_enabled() {
-                                log::debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                                log::debug!(
+                                    "shape pass indexed draw (suboptimal path): indices_drawn={}",
+                                    panel_indices_len
+                                );
                             }
                             // Diagnostic: explicit draw parameters for shape pass
-                            debug!("shape pass draw_indexed: start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
-                            crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
+                            debug!(
+                                "shape pass draw_indexed: start=0 end={} count={} base_vertex=0",
+                                panel_indices_len, panel_indices_len
+                            );
+                            crate::renderer::shapes::submit_shape_pass(
+                                &mut rpass,
+                                &self.shape_pipeline,
+                                &self.vertex_buffer,
+                                &self.index_buffer,
+                                panel_indices_len,
+                            );
                         }
                     } else {
                         if render_debug_enabled() {
-                            log::debug!("DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass");
+                            log::debug!(
+                                "DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass"
+                            );
                         }
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     // Run text pass if either legacy text indices indicate text geometry OR there are queued native Glyphon commands.
-                    if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0 {
+                    if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0
+                    {
                         if DISABLE_TEXT_PASS {
                             if render_debug_enabled() {
-                                log::debug!("DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)", total_indices_len.saturating_sub(panel_indices_len));
+                                log::debug!(
+                                    "DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)",
+                                    total_indices_len.saturating_sub(panel_indices_len)
+                                );
                             }
                         } else {
                             if render_debug_enabled() {
-                                log::debug!("binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                                log::debug!(
+                                    "binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})",
+                                    DIAGNOSTIC_TEXT_ONLY
+                                );
                             }
 
                             // Diagnostic: explicit draw parameters for text pass
@@ -874,7 +1017,12 @@ impl<'a> Renderer<'a> {
                             }
 
                             info!("Glyphon render called");
-                            match self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len) {
+                            match self.text_renderer.render_pass(
+                                &mut rpass,
+                                &self.text_pipeline,
+                                panel_indices_len,
+                                total_indices_len,
+                            ) {
                                 Ok(()) => info!("Glyphon render succeeded"),
                                 Err(e) => {
                                     info!("Glyphon render failed: {:?}", e);
@@ -924,11 +1072,20 @@ impl<'a> Renderer<'a> {
                         let total_indices_len = indices.len() as u32;
                         if total_indices_len == 0 {
                             let verts_to_draw = verts.len() as u32;
-                            info!("debug non-indexed draw (full, suboptimal path): verts={}", verts_to_draw);
+                            info!(
+                                "debug non-indexed draw (full, suboptimal path): verts={}",
+                                verts_to_draw
+                            );
                             rpass.draw(0..verts_to_draw, 0..1);
                         } else {
-                            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            info!("debug indexed draw (full, suboptimal path): indices_drawn={}", total_indices_len);
+                            rpass.set_index_buffer(
+                                self.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            info!(
+                                "debug indexed draw (full, suboptimal path): indices_drawn={}",
+                                total_indices_len
+                            );
                             rpass.draw_indexed(0..total_indices_len, 0, 0..1);
                         }
                     }
@@ -950,25 +1107,45 @@ impl<'a> Renderer<'a> {
                     if !DIAGNOSTIC_TEXT_ONLY {
                         if panel_indices_len > 0 {
                             if RENDER_DEBUG {
-                                debug!("shape pass indexed draw (suboptimal path): indices_drawn={}", panel_indices_len);
+                                debug!(
+                                    "shape pass indexed draw (suboptimal path): indices_drawn={}",
+                                    panel_indices_len
+                                );
                             }
                             // Diagnostic: explicit draw parameters for shape pass
-                            debug!("shape pass draw_indexed (suboptimal): start=0 end={} count={} base_vertex=0", panel_indices_len, panel_indices_len);
-                            crate::renderer::shapes::submit_shape_pass(&mut rpass, &self.shape_pipeline, &self.vertex_buffer, &self.index_buffer, panel_indices_len);
+                            debug!(
+                                "shape pass draw_indexed (suboptimal): start=0 end={} count={} base_vertex=0",
+                                panel_indices_len, panel_indices_len
+                            );
+                            crate::renderer::shapes::submit_shape_pass(
+                                &mut rpass,
+                                &self.shape_pipeline,
+                                &self.vertex_buffer,
+                                &self.index_buffer,
+                                panel_indices_len,
+                            );
                         }
                     } else {
-                        info!("DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass");
+                        info!(
+                            "DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass"
+                        );
                     }
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
                         if DISABLE_TEXT_PASS {
                             if render_debug_enabled() {
-                                log::debug!("DISABLE_TEXT_PASS enabled (suboptimal path): skipping text pass (would draw {} indices)", total_indices_len - panel_indices_len);
+                                log::debug!(
+                                    "DISABLE_TEXT_PASS enabled (suboptimal path): skipping text pass (would draw {} indices)",
+                                    total_indices_len - panel_indices_len
+                                );
                             }
                         } else {
                             if render_debug_enabled() {
-                                log::debug!("binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})", DIAGNOSTIC_TEXT_ONLY);
+                                log::debug!(
+                                    "binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})",
+                                    DIAGNOSTIC_TEXT_ONLY
+                                );
                             }
 
                             // Diagnostic: explicit draw parameters for text pass (suboptimal)
@@ -983,7 +1160,12 @@ impl<'a> Renderer<'a> {
 
                             // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
                             self.text_renderer.prepare(&self.device, &mut self.queue)?;
-                            self.text_renderer.render_pass(&mut rpass, &self.text_pipeline, panel_indices_len, total_indices_len)?;
+                            self.text_renderer.render_pass(
+                                &mut rpass,
+                                &self.text_pipeline,
+                                panel_indices_len,
+                                total_indices_len,
+                            )?;
                         }
                     }
                 }
@@ -1018,5 +1200,4 @@ impl<'a> Renderer<'a> {
             }
         }
     }
-
 }

@@ -1,10 +1,10 @@
 use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
-use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
-use zaroxi_core_engine_scene::{TextPrimitive, CaretItem, SelectionRect, EditorPrimitiveSet};
+use zaroxi_core_engine_scene::scene::ShellChrome;
+use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
 
-use super::editor_projection::{EditorLayoutSpec, DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT};
+use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, EditorLayoutSpec};
 use super::scene_snapshot;
 
 /// ShellRenderTranscript and its associated presentation assembly logic.
@@ -36,7 +36,15 @@ impl ShellRenderTranscript {
         plan: &GpuPaintPlan,
     ) -> Self {
         // Legacy convenience constructor delegates to the tabbed variant without editor layout.
-        Self::from_view_and_plan_with_tabs_and_editor(width, height, view, plan, &TabStrip::default(), None, None)
+        Self::from_view_and_plan_with_tabs_and_editor(
+            width,
+            height,
+            view,
+            plan,
+            &TabStrip::default(),
+            None,
+            None,
+        )
     }
 
     /// Construct a transcript from the stable presenter view + paint plan and
@@ -51,7 +59,15 @@ impl ShellRenderTranscript {
         editor_lines: Option<&[String]>,
     ) -> Self {
         // Backwards-compatible: call the extended constructor without editor layout.
-        Self::from_view_and_plan_with_tabs_and_editor(width, height, view, plan, tabs, editor_lines, None)
+        Self::from_view_and_plan_with_tabs_and_editor(
+            width,
+            height,
+            view,
+            plan,
+            tabs,
+            editor_lines,
+            None,
+        )
     }
 
     /// Extended constructor that accepts an optional EditorViewLayout so the
@@ -80,11 +96,16 @@ impl ShellRenderTranscript {
                         rect.x, rect.y, rect.width, rect.height, rect.color, thickness
                     ));
                 }
-                crate::presenters::paint::GpuPaintOp::Text { x, y, text, color, max_w: _, max_h: _ } => {
-                    plan_lines.push(format!(
-                        "Text x={} y={} text=\"{}\" color={:?}",
-                        x, y, text, color
-                    ));
+                crate::presenters::paint::GpuPaintOp::Text {
+                    x,
+                    y,
+                    text,
+                    color,
+                    max_w: _,
+                    max_h: _,
+                } => {
+                    plan_lines
+                        .push(format!("Text x={} y={} text=\"{}\" color={:?}", x, y, text, color));
                 }
             }
         }
@@ -162,14 +183,18 @@ impl ShellRenderTranscript {
                             continue;
                         }
                         let sel_start_col = if row == sline { scol } else { 0 };
-                        let sel_end_col = if row == eline { ecol } else { // rough fallback: full line
+                        let sel_end_col = if row == eline {
+                            ecol
+                        } else {
+                            // rough fallback: full line
                             // fallback width: use length of the provided visible text if available
                             ed_lines.get(i).map(|s| s.chars().count() as u32).unwrap_or(0)
                         };
                         if sel_end_col <= sel_start_col {
                             continue;
                         }
-                        let sx = content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
+                        let sx =
+                            content_text_x.saturating_add(sel_start_col.saturating_mul(char_w));
                         let w = sel_end_col.saturating_sub(sel_start_col).saturating_mul(char_w);
                         // sy is based on the visible row offset (i)
                         let sy = base_y.saturating_add((i as u32).saturating_mul(lh));
@@ -183,7 +208,8 @@ impl ShellRenderTranscript {
         // view + TabStrip and convert it into the engine-render ChromePrimitive.
         // This explicitly reuses the engine-render conversion so downstream engine
         // consumers receive the canonical engine-facing chrome primitive.
-        let mut scene_tabs: Vec<zaroxi_core_engine_scene::scene::Tab> = Vec::with_capacity(tabs.tabs.len());
+        let mut scene_tabs: Vec<zaroxi_core_engine_scene::scene::Tab> =
+            Vec::with_capacity(tabs.tabs.len());
         for t in tabs.tabs.iter() {
             scene_tabs.push(zaroxi_core_engine_scene::scene::Tab {
                 index: t.index as u32,
@@ -217,9 +243,9 @@ impl ShellRenderTranscript {
         let scene_model = {
             // prefer explicit editor_lines if provided; otherwise fall back to a
             // single-line content_preview (when present) or an empty vec.
-            let text_lines: Vec<String> = editor_lines
-                .map(|s| s.to_vec())
-                .unwrap_or_else(|| view.content_preview.as_ref().map(|p| vec![p.clone()]).unwrap_or_else(|| vec![]));
+            let text_lines: Vec<String> = editor_lines.map(|s| s.to_vec()).unwrap_or_else(|| {
+                view.content_preview.as_ref().map(|p| vec![p.clone()]).unwrap_or_else(|| vec![])
+            });
 
             let top_line = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
             let total_lines = if !text_lines.is_empty() {
@@ -230,7 +256,8 @@ impl ShellRenderTranscript {
 
             let cursor_line = editor_layout.and_then(|l| l.cursor_line);
             let cursor_column = editor_layout.and_then(|l| l.cursor_column);
-            let selection_present = editor_layout.and_then(|l| l.selection).is_some() || cursor_line.is_some();
+            let selection_present =
+                editor_layout.and_then(|l| l.selection).is_some() || cursor_line.is_some();
 
             zaroxi_core_engine_scene::ShellSceneModel {
                 text_lines,
@@ -302,17 +329,33 @@ impl ShellRenderTranscript {
         ));
         // Stabilized transcript: always emit explicit keys with deterministic fallbacks.
         lines.push(format!("marker: {}", self.view.marker.as_deref().unwrap_or("<none>")));
-        lines.push(format!("chrome_label: {}", self.view.chrome_label.as_deref().unwrap_or("<none>")));
-        lines.push(format!("status_text: {}", self.view.status_text.as_deref().unwrap_or("<none>")));
+        lines.push(format!(
+            "chrome_label: {}",
+            self.view.chrome_label.as_deref().unwrap_or("<none>")
+        ));
+        lines
+            .push(format!("status_text: {}", self.view.status_text.as_deref().unwrap_or("<none>")));
         // Additive semantic projection lines for richer observability.
-        lines.push(format!("active_buffer: {}", self.view.active_buffer_label.as_deref().unwrap_or("<none>")));
-        lines.push(format!("content_preview_count: {}", self.view.content_preview_count.unwrap_or(0)));
-        lines.push(format!("ai_indicator: {}", self.view.ai_indicator.as_deref().unwrap_or("<none>")));
+        lines.push(format!(
+            "active_buffer: {}",
+            self.view.active_buffer_label.as_deref().unwrap_or("<none>")
+        ));
+        lines.push(format!(
+            "content_preview_count: {}",
+            self.view.content_preview_count.unwrap_or(0)
+        ));
+        lines.push(format!(
+            "ai_indicator: {}",
+            self.view.ai_indicator.as_deref().unwrap_or("<none>")
+        ));
         // Additive: emit the small deterministic status emphasis semantic.
         lines.push(format!("status_emphasis: {}", self.view.status_emphasis.as_str()));
         lines.push(format!("shell_tone: {}", self.view.shell_tone.as_str()));
         // Deterministic focus semantic (observational only).
-        lines.push(format!("focus_slot: {}", self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>")));
+        lines.push(format!(
+            "focus_slot: {}",
+            self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>")
+        ));
         // Emit slots (stable, deterministic small vocabulary)
         if self.view.slots.is_empty() {
             lines.push("slots: <none>".to_string());
@@ -353,12 +396,7 @@ impl ShellRenderTranscript {
             .find(|t| t.active)
             .map(|t| t.index.to_string())
             .unwrap_or_else(|| "<none>".to_string());
-        let focus_slot = self
-            .view
-            .focus_slot
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("<none>");
+        let focus_slot = self.view.focus_slot.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
 
         // Compact, user-facing single-line tab summary. Rules:
         // - no tabs: "tabs_compact: <none>"
@@ -435,7 +473,12 @@ impl ShellRenderTranscript {
         editor_lines: &[String],
         editor_layout: Option<&EditorLayoutSpec>,
     ) -> EditorPrimitiveSet {
-        super::editor_projection::build_editor_primitives_from_lines(content_x, base_y, editor_lines, editor_layout)
+        super::editor_projection::build_editor_primitives_from_lines(
+            content_x,
+            base_y,
+            editor_lines,
+            editor_layout,
+        )
     }
 
     /// Produce a minimal engine-facing EditorPrimitiveSet by parsing the

@@ -18,13 +18,13 @@ pub struct ContextItem {
 
 impl ContextItem {
     /// Create a new ContextItem.
-    pub fn new(id: Uuid, content: impl Into<String>, source: impl Into<String>, relevance: f32) -> Self {
-        Self {
-            id,
-            content: content.into(),
-            source: source.into(),
-            relevance,
-        }
+    pub fn new(
+        id: Uuid,
+        content: impl Into<String>,
+        source: impl Into<String>,
+        relevance: f32,
+    ) -> Self {
+        Self { id, content: content.into(), source: source.into(), relevance }
     }
 }
 
@@ -74,7 +74,9 @@ impl ContextCollection {
     /// a prompt or packing context.
     pub fn top_n_by_relevance(&self, n: usize) -> Vec<ContextItem> {
         let mut items = self.items.clone();
-        items.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+        items.sort_by(|a, b| {
+            b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal)
+        });
         items.truncate(n);
         items
     }
@@ -84,7 +86,9 @@ impl ContextCollection {
         if self.items.len() <= max_items {
             return;
         }
-        self.items.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal));
+        self.items.sort_by(|a, b| {
+            b.relevance.partial_cmp(&a.relevance).unwrap_or(std::cmp::Ordering::Equal)
+        });
         self.items.truncate(max_items);
     }
 }

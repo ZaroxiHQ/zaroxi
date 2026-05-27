@@ -13,14 +13,24 @@ pub struct GpuPaintRect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GpuPaintOp {
     FillRect(GpuPaintRect),
-    BorderRect { rect: GpuPaintRect, thickness: u32 },
+    BorderRect {
+        rect: GpuPaintRect,
+        thickness: u32,
+    },
     /// Semantic text op: carries the textual label, a color, and an explicit
     /// clipping box (max width/height in pixels) that the executor should honor.
     ///
     /// Rationale: ensure small label/text regions are rendered into a bounded
     /// rect (avoid passing full-frame dims as the label bounds) and allow the
     /// executor to clip and avoid wide full-frame debug fills.
-    Text { x: u32, y: u32, text: String, color: [u8; 4], max_w: u32, max_h: u32 },
+    Text {
+        x: u32,
+        y: u32,
+        text: String,
+        color: [u8; 4],
+        max_w: u32,
+        max_h: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,10 +169,16 @@ impl GpuPaintPlan {
                 // Smarter chrome label sizing: ensure a minimum readable height and
                 // vertically center the label box inside the chrome. This tightens the
                 // chrome layout and provides balanced vertical placement for the label.
-                let box_h = std::cmp::max(8u32, std::cmp::min(frame.chrome.height.saturating_sub(4), 18u32));
+                let box_h = std::cmp::max(
+                    8u32,
+                    std::cmp::min(frame.chrome.height.saturating_sub(4), 18u32),
+                );
                 let box_y = frame.chrome.y + (frame.chrome.height.saturating_sub(box_h) / 2);
 
-                if box_h > 0 && box_x.saturating_add(box_w) <= frame.chrome.x.saturating_add(frame.chrome.width) {
+                if box_h > 0
+                    && box_x.saturating_add(box_w)
+                        <= frame.chrome.x.saturating_add(frame.chrome.width)
+                {
                     // Decorative background for chrome label for better contrast
                     ops.push(GpuPaintOp::FillRect(GpuPaintRect {
                         x: box_x,
@@ -323,8 +339,13 @@ impl GpuPaintPlan {
                 let display = t.display.clone();
 
                 // Compute max chars that fit considering glyph width and padding.
-                let available_for_text = if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
-                let max_label_chars = if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
+                let available_for_text = if w > pad_x.saturating_mul(2) {
+                    w.saturating_sub(pad_x.saturating_mul(2))
+                } else {
+                    0
+                };
+                let max_label_chars =
+                    if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
 
                 let label_text = if max_label_chars == 0 {
                     String::new()
@@ -342,7 +363,8 @@ impl GpuPaintPlan {
                     // Compute text pixel bounds and label box including padding.
                     let text_pixel_w = (label_text.chars().count() as u32).saturating_mul(glyph_w);
                     let label_box_w = text_pixel_w.saturating_add(pad_x.saturating_mul(2)).min(w);
-                    let label_box_h = glyph_h.saturating_add(pad_y.saturating_mul(2)).min(tab_bar_h);
+                    let label_box_h =
+                        glyph_h.saturating_add(pad_y.saturating_mul(2)).min(tab_bar_h);
 
                     // Center label box inside tab body.
                     let label_box_x = x + ((w.saturating_sub(label_box_w)) / 2);
@@ -356,7 +378,17 @@ impl GpuPaintPlan {
                     if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
                         eprintln!(
                             "TAB DEBUG: tab_body x={} y={} w={} h={} | label_box x={} y={} w={} h={} | text_origin x={} y={} | text=\"{}\" | draw_order=body,border,text",
-                            x, tab_bar_y, w, tab_bar_h, label_box_x, label_box_y, label_box_w, label_box_h, text_x, text_y, label_text
+                            x,
+                            tab_bar_y,
+                            w,
+                            tab_bar_h,
+                            label_box_x,
+                            label_box_y,
+                            label_box_w,
+                            label_box_h,
+                            text_x,
+                            text_y,
+                            label_text
                         );
                     }
 
@@ -524,10 +556,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         } else {
             // Attempt idempotent initialization; tests and binaries can rely on this convenience.
             crate::text::init_cosmic_renderer().expect("failed to initialize COSMIC_RENDERER");
-            crate::text::COSMIC_RENDERER
-                .get()
-                .expect("COSMIC_RENDERER not set after init")
-                .clone()
+            crate::text::COSMIC_RENDERER.get().expect("COSMIC_RENDERER not set after init").clone()
         };
 
         // Delegate shaping/layout/rasterization to the canonical CosmicTextRenderer.
@@ -585,7 +614,9 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
     for op in plan.ops.iter() {
         match op {
             GpuPaintOp::FillRect(r) => fill_rect(buffer, width, r),
-            GpuPaintOp::BorderRect { rect, thickness } => draw_border_rect(buffer, width, rect, *thickness),
+            GpuPaintOp::BorderRect { rect, thickness } => {
+                draw_border_rect(buffer, width, rect, *thickness)
+            }
             GpuPaintOp::Text { x, y, text, color, max_w, max_h } => {
                 // Use framebuffer dims for bounds but pass the explicit clip box
                 // (max_w/max_h) to avoid treating the full frame as the text region.

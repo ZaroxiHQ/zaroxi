@@ -205,13 +205,11 @@ mod tests {
     #[test]
     fn presenter_formats_viewmodel_and_debug_text() {
         let vm = ShellRenderViewModel {
-            sections: vec![
-                SectionView {
-                    id: "main".to_string(),
-                    present: true,
-                    lines: vec!["RenderSection { id: \"main\", ... }".to_string()],
-                },
-            ],
+            sections: vec![SectionView {
+                id: "main".to_string(),
+                present: true,
+                lines: vec!["RenderSection { id: \"main\", ... }".to_string()],
+            }],
         };
 
         let presenter = ShellRenderPresenter::new();
@@ -229,13 +227,11 @@ mod tests {
     #[test]
     fn render_terminal_outputs_layout_and_content() {
         let vm = ShellRenderViewModel {
-            sections: vec![
-                SectionView {
-                    id: "content".to_string(),
-                    present: true,
-                    lines: vec!["hello from content".to_string()],
-                },
-            ],
+            sections: vec![SectionView {
+                id: "content".to_string(),
+                present: true,
+                lines: vec!["hello from content".to_string()],
+            }],
         };
 
         let out = render_terminal(&vm);
@@ -248,13 +244,11 @@ mod tests {
     #[test]
     fn render_shell_sections_builds_structured_tree() {
         let vm = ShellRenderViewModel {
-            sections: vec![
-                SectionView {
-                    id: "content".to_string(),
-                    present: true,
-                    lines: vec!["line1".to_string(), "line2".to_string()],
-                },
-            ],
+            sections: vec![SectionView {
+                id: "content".to_string(),
+                present: true,
+                lines: vec!["line1".to_string(), "line2".to_string()],
+            }],
         };
 
         let tree = render_shell_sections(&vm);
@@ -335,12 +329,7 @@ pub mod ui {
 
             let lines = s.lines.iter().cloned().map(UiLine).collect::<Vec<_>>();
 
-            blocks.push(UiBlock {
-                id: s.id.clone(),
-                kind,
-                present: s.present,
-                lines,
-            });
+            blocks.push(UiBlock { id: s.id.clone(), kind, present: s.present, lines });
         }
 
         UiTree { blocks }
@@ -360,11 +349,7 @@ pub mod ui {
                         present: true,
                         lines: vec!["line1".to_string()],
                     },
-                    SectionView {
-                        id: "status".to_string(),
-                        present: false,
-                        lines: vec![],
-                    },
+                    SectionView { id: "status".to_string(), present: false, lines: vec![] },
                     SectionView {
                         id: "ai".to_string(),
                         present: true,
@@ -455,8 +440,8 @@ pub mod terminal_ui {
 
     #[cfg(test)]
     mod tests {
+        use super::super::ui::{UiBlock, UiLine, UiSectionKind, UiTree};
         use super::*;
-        use super::super::ui::{UiTree, UiBlock, UiLine, UiSectionKind};
 
         #[test]
         fn terminal_ui_renders_order_and_presence() {
@@ -524,11 +509,7 @@ pub mod layout {
 
     impl SplitLayout {
         pub fn new() -> Self {
-            Self {
-                top: Vec::new(),
-                main: Vec::new(),
-                bottom: Vec::new(),
-            }
+            Self { top: Vec::new(), main: Vec::new(), bottom: Vec::new() }
         }
 
         /// Reconstruct a UiTree by concatenating regions top->main->bottom.

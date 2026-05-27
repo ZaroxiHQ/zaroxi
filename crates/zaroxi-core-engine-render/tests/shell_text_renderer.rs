@@ -1,4 +1,4 @@
-use zaroxi_core_engine_render::{ShellTextRenderer, ShellDrawPlan};
+use zaroxi_core_engine_render::{ShellDrawPlan, ShellTextRenderer};
 
 #[test]
 fn renders_default_shell_draw_plan_stably() {
@@ -10,10 +10,7 @@ fn renders_default_shell_draw_plan_stably() {
     let transcript = renderer.render(&plan);
 
     // Expected content is deterministic: header + pretty Debug of the plan.
-    let expected_lines = vec![
-        "ShellDrawPlan:".to_string(),
-        format!("{:#?}", plan),
-    ];
+    let expected_lines = vec!["ShellDrawPlan:".to_string(), format!("{:#?}", plan)];
 
     assert_eq!(transcript.lines, expected_lines, "Renderer produced unstable or unexpected output");
 }

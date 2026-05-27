@@ -1,10 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_core_editor_buffer::ports::BufferId;
-use zaroxi_application_workspace::ports::{GetActiveEditorDocumentRequest, GetVisibleLinesRequest, SessionId, EditorDocument, EditorCursor, GetActiveEditorDocumentResponse, GetVisibleLinesResponse};
-use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
 use zaroxi_application_workspace::ports::WorkspaceView;
+use zaroxi_application_workspace::ports::{
+    EditorCursor, EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
+    GetVisibleLinesRequest, GetVisibleLinesResponse, SessionId,
+};
+use zaroxi_application_workspace::view::{VisibleLine, VisibleLinesWindow};
+use zaroxi_core_editor_buffer::ports::BufferId;
+use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_kernel_types::Id;
 
 /// Minimal fake view that exposes a mutable EditorDocument so tests can mutate cursor/content.
@@ -25,7 +28,11 @@ impl MutableFakeView {
             selection_start_column: None,
             selection_end_column: None,
         };
-        let vw = VisibleLinesWindow { top_line: 1, total_lines: content.as_ref().map(|s| s.lines().count()).unwrap_or(0), lines: vec![vl] };
+        let vw = VisibleLinesWindow {
+            top_line: 1,
+            total_lines: content.as_ref().map(|s| s.lines().count()).unwrap_or(0),
+            lines: vec![vl],
+        };
         let doc = EditorDocument {
             buffer_id,
             content,
@@ -72,22 +79,46 @@ impl MutableFakeView {
 }
 
 impl WorkspaceView for MutableFakeView {
-    fn get_buffer_content(&self, _buffer_id: zaroxi_application_workspace::ports::BufferId) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: zaroxi_application_workspace::ports::BufferId,
+    ) -> zaroxi_application_workspace::ports::BoxFuture<
+        'static,
+        Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let d = self.inner.lock().unwrap().content.clone();
         Box::pin(async move { Ok(d) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: zaroxi_application_workspace::ports::SessionId) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: zaroxi_application_workspace::ports::SessionId,
+    ) -> zaroxi_application_workspace::ports::BoxFuture<
+        'static,
+        Result<Option<String>, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let d = self.inner.lock().unwrap().content.clone();
         Box::pin(async move { Ok(d) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<GetActiveEditorDocumentResponse, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> zaroxi_application_workspace::ports::BoxFuture<
+        'static,
+        Result<GetActiveEditorDocumentResponse, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let d = self.inner.lock().unwrap().clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: d }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> zaroxi_application_workspace::ports::BoxFuture<'static, Result<GetVisibleLinesResponse, zaroxi_application_workspace::ports::UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> zaroxi_application_workspace::ports::BoxFuture<
+        'static,
+        Result<GetVisibleLinesResponse, zaroxi_application_workspace::ports::UseCaseError>,
+    > {
         let w = self.window.lock().unwrap().clone();
         Box::pin(async move { Ok(GetVisibleLinesResponse { window: w }) })
     }
@@ -95,7 +126,11 @@ impl WorkspaceView for MutableFakeView {
 
 #[tokio::test]
 async fn summary_reflects_initial_open_and_cursor() {
-    let v = MutableFakeView::new(BufferId::from("buf:fake"), Some("abcd".to_string()), EditorCursor { line: 0, column: 2 });
+    let v = MutableFakeView::new(
+        BufferId::from("buf:fake"),
+        Some("abcd".to_string()),
+        EditorCursor { line: 0, column: 2 },
+    );
     let arc: Arc<dyn WorkspaceView> = Arc::new(v);
     let sid = SessionId(Id::new());
     let mut comp = DesktopComposition::new();
@@ -112,7 +147,11 @@ async fn summary_reflects_initial_open_and_cursor() {
 
 #[tokio::test]
 async fn summary_updates_after_cursor_change() {
-    let v = MutableFakeView::new(BufferId::from("buf:fake"), Some("hello world".to_string()), EditorCursor { line: 0, column: 5 });
+    let v = MutableFakeView::new(
+        BufferId::from("buf:fake"),
+        Some("hello world".to_string()),
+        EditorCursor { line: 0, column: 5 },
+    );
     let arc_v = Arc::new(v);
     let view_clone = arc_v.clone() as Arc<dyn WorkspaceView>;
     let sid = SessionId(Id::new());
@@ -132,7 +171,11 @@ async fn summary_updates_after_cursor_change() {
 
 #[tokio::test]
 async fn summary_updates_after_content_change_and_buffer_switch() {
-    let v = MutableFakeView::new(BufferId::from("buf:one"), Some("line1".to_string()), EditorCursor { line: 0, column: 0 });
+    let v = MutableFakeView::new(
+        BufferId::from("buf:one"),
+        Some("line1".to_string()),
+        EditorCursor { line: 0, column: 0 },
+    );
     let arc_v = Arc::new(v);
     let view_clone = arc_v.clone() as Arc<dyn WorkspaceView>;
     let sid = SessionId(Id::new());

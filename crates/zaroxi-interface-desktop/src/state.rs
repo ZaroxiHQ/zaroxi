@@ -16,10 +16,7 @@ pub struct EditorState {
 
 impl EditorState {
     pub fn new() -> Self {
-        Self {
-            open_documents: Vec::new(),
-            active_document: None,
-        }
+        Self { open_documents: Vec::new(), active_document: None }
     }
 
     /// Open a document in the editor (adds to open_documents and activates it).
@@ -43,7 +40,8 @@ impl EditorState {
                 if let Some(doc) = self.open_documents.iter_mut().find(|d| d.id == doc_id) {
                     // naive insert
                     let mut content = doc.text.clone();
-                    let byte_pos = content.char_indices().nth(offset).map(|(b, _)| b).unwrap_or(content.len());
+                    let byte_pos =
+                        content.char_indices().nth(offset).map(|(b, _)| b).unwrap_or(content.len());
                     content.insert_str(byte_pos, &text);
                     doc.text = content;
                     doc.dirty = true;

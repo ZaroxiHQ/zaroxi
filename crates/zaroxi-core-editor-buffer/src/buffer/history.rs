@@ -1,5 +1,5 @@
-use std::cmp::min;
 use super::types::{Buffer, Snapshot};
+use std::cmp::min;
 
 impl Snapshot {
     fn from_buffer(b: &Buffer) -> Self {
@@ -36,23 +36,22 @@ impl Buffer {
         // Also ensure selection endpoints are within the restored document bounds.
         if let Some(sel) = &mut self.selection {
             // Clamp line indices to available range.
-            let max_line_idx = if self.lines.is_empty() { 0 } else { self.lines.len().saturating_sub(1) };
+            let max_line_idx =
+                if self.lines.is_empty() { 0 } else { self.lines.len().saturating_sub(1) };
             sel.anchor_line = min(sel.anchor_line, max_line_idx);
             sel.active_line = min(sel.active_line, max_line_idx);
 
             // Clamp column indices to the respective line lengths.
-            let anchor_line_len = self.lines.get(sel.anchor_line).map(|l| l.chars().count()).unwrap_or(0);
-            let active_line_len = self.lines.get(sel.active_line).map(|l| l.chars().count()).unwrap_or(0);
+            let anchor_line_len =
+                self.lines.get(sel.anchor_line).map(|l| l.chars().count()).unwrap_or(0);
+            let active_line_len =
+                self.lines.get(sel.active_line).map(|l| l.chars().count()).unwrap_or(0);
             sel.anchor_col = min(sel.anchor_col, anchor_line_len);
             sel.active_col = min(sel.active_col, active_line_len);
         }
 
         // Recompute dirty state relative to last saved text (if known).
-        self.dirty = self
-            .saved_text
-            .as_ref()
-            .map(|s| s != &self.to_text())
-            .unwrap_or(true);
+        self.dirty = self.saved_text.as_ref().map(|s| s != &self.to_text()).unwrap_or(true);
     }
 
     /// Record an "undo boundary" before a mutating operation.

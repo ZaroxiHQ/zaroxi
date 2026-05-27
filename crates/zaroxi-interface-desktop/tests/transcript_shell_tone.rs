@@ -1,4 +1,6 @@
-use zaroxi_interface_desktop::presenters::gpu_shell::{GpuShellPresenter, GpuShellView, GpuPaintPlan, ShellRenderTranscript, SlotName};
+use zaroxi_interface_desktop::presenters::gpu_shell::{
+    GpuPaintPlan, GpuShellPresenter, GpuShellView, ShellRenderTranscript, SlotName,
+};
 
 #[test]
 fn transcript_includes_derived_shell_tone() {
@@ -20,7 +22,8 @@ fn transcript_includes_derived_shell_tone() {
     r_ai.ai_indicator = Some("ai:available".to_string());
     let view_ai = GpuShellView::from_shell_regions(&r_ai);
     let plan_ai = GpuPaintPlan::from_view(&view_ai);
-    let transcript_ai = ShellRenderTranscript::from_view_and_plan(width, height, &view_ai, &plan_ai);
+    let transcript_ai =
+        ShellRenderTranscript::from_view_and_plan(width, height, &view_ai, &plan_ai);
     let txt_ai = transcript_ai.to_string();
     assert!(txt_ai.contains("shell_tone: ai"));
 
@@ -29,7 +32,8 @@ fn transcript_includes_derived_shell_tone() {
     r_att.status_text = Some("error".to_string());
     let view_att = GpuShellView::from_shell_regions(&r_att);
     let plan_att = GpuPaintPlan::from_view(&view_att);
-    let transcript_att = ShellRenderTranscript::from_view_and_plan(width, height, &view_att, &plan_att);
+    let transcript_att =
+        ShellRenderTranscript::from_view_and_plan(width, height, &view_att, &plan_att);
     let txt_att = transcript_att.to_string();
     assert!(txt_att.contains("shell_tone: attention"));
 

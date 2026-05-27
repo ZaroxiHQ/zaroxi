@@ -8,4 +8,4 @@ pub fn info() -> &'static str {
 }
 
 pub mod engine_shell_view_input;
-pub use engine_shell_view_input::{EngineShellViewInput, EngineSelection};
+pub use engine_shell_view_input::{EngineSelection, EngineShellViewInput};

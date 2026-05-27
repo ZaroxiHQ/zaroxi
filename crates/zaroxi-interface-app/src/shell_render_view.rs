@@ -90,7 +90,10 @@ impl From<&ShellRenderTranscript> for ShellRenderViewModel {
                     let mut sect_lines: Vec<String> = Vec::new();
                     sect_lines.push(line.trim_start().to_string());
                     idx += 1;
-                    while idx < t.lines.len() && !t.lines[idx].contains("RenderSection") && ShellRenderViewModel::extract_id_from_line(&t.lines[idx]).is_none() {
+                    while idx < t.lines.len()
+                        && !t.lines[idx].contains("RenderSection")
+                        && ShellRenderViewModel::extract_id_from_line(&t.lines[idx]).is_none()
+                    {
                         sect_lines.push(t.lines[idx].trim_start().to_string());
                         idx += 1;
                     }
@@ -109,14 +112,9 @@ impl From<&ShellRenderTranscript> for ShellRenderViewModel {
             // that carries the whole transcript. Prefer "content" over the older
             // generic "debug" id so harness output reads more like the real shell.
             let present = !t.lines.is_empty();
-            let section = SectionView {
-                id: "content".to_string(),
-                present,
-                lines: t.lines.clone(),
-            };
-            ShellRenderViewModel {
-                sections: vec![section],
-            }
+            let section =
+                SectionView { id: "content".to_string(), present, lines: t.lines.clone() };
+            ShellRenderViewModel { sections: vec![section] }
         } else {
             ShellRenderViewModel { sections }
         }
