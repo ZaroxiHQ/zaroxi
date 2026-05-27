@@ -222,6 +222,6 @@ async fn ai_cancel_clears_proposal() {
     let _ = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None).await;
     assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_some());
 
-    cancel_ai_edit_active(&mut comp);
+    cancel_ai_edit_active(&mut comp, None, None);
     assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_none());
 }

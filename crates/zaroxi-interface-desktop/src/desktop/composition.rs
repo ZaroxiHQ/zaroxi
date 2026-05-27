@@ -535,7 +535,7 @@ pub async fn request_ai_edit_active(
     comp: &mut super::DesktopComposition,
     view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
     session_id: crate::ports::SessionId,
-    service: std::sync::Arc<dyn crate::ports::WorkspaceService>,
+    service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
 ) -> Result<(), String> {
     // Read the active editor document via the view seam.
     let doc_res = view
@@ -553,46 +553,82 @@ pub async fn request_ai_edit_active(
 
     let target_buffer = document.buffer_id.clone();
 
-    // Build application-level request carrying the buffer snapshot/context.
-    let ai_req = crate::ports::RequestAiEditRequest {
-        session_id: session_id.clone(),
-        buffer_id: target_buffer.clone(),
-        content: document.content.clone(),
-    };
+    // If an application service is provided, prefer delegating AI orchestration to it.
+    if let Some(svc) = service {
+        // Build application-level request carrying the buffer snapshot/context.
+        let ai_req = crate::ports::RequestAiEditRequest {
+            session_id: session_id.clone(),
+            buffer_id: target_buffer.clone(),
+            content: document.content.clone(),
+        };
 
-    // Ask the application/AI layer for a proposal.
-    match service.request_ai_edit(ai_req).await {
-        Ok(resp) => {
-            // Ensure metadata exists and store the ai projection with Proposed state.
-            if comp.metadata.is_none() {
-                comp.metadata = Some(super::DesktopMetadata {
-                    session_id: Some(session_id.clone()),
-                    workspace_id: comp.workspace_id.clone(),
-                    active_buffer: Some(target_buffer.clone()),
-                    opened_buffer_count: 0,
-                    opened_buffers: Vec::new(),
-                    active_buffer_details: None,
-                    ai_projection: None,
-                    visible_window: None,
-                    last_command_line: None,
-                    refresh_reason: None,
-                });
+        // Ask the application/AI layer for a proposal.
+        match svc.request_ai_edit(ai_req).await {
+            Ok(resp) => {
+                // Ensure metadata exists and store the ai projection with Proposed state.
+                if comp.metadata.is_none() {
+                    comp.metadata = Some(super::DesktopMetadata {
+                        session_id: Some(session_id.clone()),
+                        workspace_id: comp.workspace_id.clone(),
+                        active_buffer: Some(target_buffer.clone()),
+                        opened_buffer_count: 0,
+                        opened_buffers: Vec::new(),
+                        active_buffer_details: None,
+                        ai_projection: None,
+                        visible_window: None,
+                        last_command_line: None,
+                        refresh_reason: None,
+                    });
+                }
+
+                if let Some(md) = comp.metadata.as_mut() {
+                    md.ai_projection = Some(super::AiProjection {
+                        kind: Some("Edit".to_string()),
+                        result: resp.proposal.summary.clone(),
+                        target_buffer: Some(resp.proposal.target_buffer.clone()),
+                        proposal_text: Some(resp.proposal.proposal_text.clone()),
+                        state: Some(super::AiState::Proposed),
+                    });
+                }
+
+                comp.set_status_message("AI edit proposed".to_string());
+                Ok(())
             }
-
-            if let Some(md) = comp.metadata.as_mut() {
-                md.ai_projection = Some(super::AiProjection {
-                    kind: Some("Edit".to_string()),
-                    result: resp.proposal.summary.clone(),
-                    target_buffer: Some(resp.proposal.target_buffer.clone()),
-                    proposal_text: Some(resp.proposal.proposal_text.clone()),
-                    state: Some(super::AiState::Proposed),
-                });
-            }
-
-            comp.set_status_message("AI edit proposed".to_string());
-            Ok(())
+            Err(e) => Err(format!("request_ai_edit failed: {}", e)),
         }
-        Err(e) => Err(format!("request_ai_edit failed: {}", e)),
+    } else {
+        // No application service provided: fall back to a deterministic interface-local mock provider.
+        let provider = crate::ai::MockAiProvider::new();
+        let proposal_text: String = provider.propose_edit(target_buffer.clone(), document.content.clone()).await;
+
+        // Ensure metadata exists and store the ai projection with Proposed state.
+        if comp.metadata.is_none() {
+            comp.metadata = Some(super::DesktopMetadata {
+                session_id: Some(session_id.clone()),
+                workspace_id: comp.workspace_id.clone(),
+                active_buffer: Some(target_buffer.clone()),
+                opened_buffer_count: 0,
+                opened_buffers: Vec::new(),
+                active_buffer_details: None,
+                ai_projection: None,
+                visible_window: None,
+                last_command_line: None,
+                refresh_reason: None,
+            });
+        }
+
+        if let Some(md) = comp.metadata.as_mut() {
+            md.ai_projection = Some(super::AiProjection {
+                kind: Some("Edit".to_string()),
+                result: Some("AI edit proposed".to_string()),
+                target_buffer: Some(target_buffer.clone()),
+                proposal_text: Some(proposal_text.clone()),
+                state: Some(super::AiState::Proposed),
+            });
+        }
+
+        comp.set_status_message("AI edit proposed".to_string());
+        Ok(())
     }
 }
 
