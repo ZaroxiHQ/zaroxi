@@ -1000,6 +1000,8 @@ fn latest_status_bar_line_prefers_ai_result() {
             kind: None,
             result: Some("ai-result".to_string()),
             target_buffer: None,
+            proposal_text: None,
+            state: Some(AiState::Idle),
         }),
         visible_window: None,
         last_command_line: None,
