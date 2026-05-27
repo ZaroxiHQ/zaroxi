@@ -60,7 +60,10 @@ async fn main() -> Result<(), String> {
 
     // Boot workspace (use-case)
     let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
-    let boot_res = orchestrator.boot_workspace(boot_req).await.map_err(|e| e.to_string())?;
+    let boot_res = orchestrator
+        .boot_workspace(WorkspaceBootRequest { path: boot_req.path.clone() })
+        .await
+        .map_err(|e| e.to_string())?;
     println!("Harness: opened workspace session: {}", boot_res.session.session_id);
 
     // SessionIdentityLine: intentionally not emitted until after the first composition refresh.
