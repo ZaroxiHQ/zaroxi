@@ -40,11 +40,13 @@ impl FakeView {
 
 impl WorkspaceView for FakeView {
     fn get_buffer_content(&self, _buffer_id: BufferId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
-        Box::pin(async move { Ok(self.doc.content.clone()) })
+        let content = self.doc.content.clone();
+        Box::pin(async move { Ok(content) })
     }
 
     fn get_active_buffer_content(&self, _session_id: SessionId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
-        Box::pin(async move { Ok(self.doc.content.clone()) })
+        let content = self.doc.content.clone();
+        Box::pin(async move { Ok(content) })
     }
 
     fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
