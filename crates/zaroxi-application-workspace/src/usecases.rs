@@ -1644,7 +1644,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
         let sessions = self.sessions.clone();
         let store = self.buffer_store.clone();
         let history = self.history.clone();
-        let workspace_events = self.repo.clone();
+        let _workspace_events = self.repo.clone();
         Box::pin(async move {
             // Validate session known and buffer membership.
             {

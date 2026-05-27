@@ -693,7 +693,7 @@ async fn desktop_composition_consistency_report_is_valid() {
 
         fn apply_ai_edit(
             &self,
-            req: crate::ports::ApplyAiEditRequest,
+            _req: crate::ports::ApplyAiEditRequest,
         ) -> crate::ports::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
             Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
         }

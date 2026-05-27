@@ -736,7 +736,7 @@ pub trait WorkspaceService: Send + Sync {
     /// should override this with a real implementation.
     fn request_ai_edit(
         &self,
-        req: RequestAiEditRequest,
+        _req: RequestAiEditRequest,
     ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::AiFailure("request_ai_edit not implemented".to_string())) })
     }
@@ -749,7 +749,7 @@ pub trait WorkspaceService: Send + Sync {
     /// should override this with a real implementation.
     fn apply_ai_edit(
         &self,
-        req: ApplyAiEditRequest,
+        _req: ApplyAiEditRequest,
     ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::AiFailure("apply_ai_edit not implemented".to_string())) })
     }
