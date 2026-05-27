@@ -1562,6 +1562,140 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
         })
     }
 
+    // ----------------------------
+    // Phase 10: AI edit/application orchestration (application-owned)
+    // ----------------------------
+
+    fn request_ai_edit(
+        &self,
+        req: RequestAiEditRequest,
+    ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>> {
+        let sessions = self.sessions.clone();
+        let store = self.buffer_store.clone();
+        let ai = self.ai_client.clone();
+        let history = self.history.clone();
+        Box::pin(async move {
+            // Resolve session and ensure buffer is opened in the session.
+            let info = {
+                let s = sessions.lock().unwrap();
+                s.get(&req.session_id.0).cloned().ok_or(UseCaseError::UnknownSession)?
+            };
+
+            if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+            }
+
+            // Snapshot content for AI context (synchronous read from BufferStore).
+            let content = store.get_text(&req.buffer_id);
+
+            // Build AI client request and forward to configured AiClient.
+            let ai_req = ai_ports::AiRequest {
+                session_id: req.session_id.0,
+                workspace_id: info.workspace_id,
+                buffer_id: req.buffer_id.clone(),
+                content_snapshot: content.clone(),
+            };
+
+            let ai_res = match ai.request(ai_req).await {
+                Ok(r) => r,
+                Err(_e) => return Err(UseCaseError::AiFailure("ai request failed".to_string())),
+            };
+
+            // Build a simple proposal payload for Phase 10: prepend a clear comment and the AI text.
+            let proposal_text = format!("// AI Edit: proposed change\n{}", ai_res.text);
+
+            let proposal = RequestAiEditResponse {
+                proposal: AiProposal {
+                    target_buffer: req.buffer_id.clone(),
+                    proposal_text: proposal_text.clone(),
+                    summary: Some("AI edit proposed".to_string()),
+                },
+            };
+
+            // Optionally record a command for observability (best-effort; ignore errors).
+            let _ = history
+                .record_command(CommandRecord::new_success(
+                    CommandKind::DispatchAppCommand {
+                        command: AppCommand::AiExplain { buffer_id: req.buffer_id.clone() },
+                    },
+                    Some(req.session_id.0),
+                    Some(info.workspace_id),
+                    Some(req.buffer_id.clone()),
+                    Some("ai edit proposed".to_string()),
+                ))
+                .await;
+
+            Ok(proposal)
+        })
+    }
+
+    fn apply_ai_edit(
+        &self,
+        req: ApplyAiEditRequest,
+    ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>> {
+        let sessions = self.sessions.clone();
+        let store = self.buffer_store.clone();
+        let history = self.history.clone();
+        let workspace_events = self.repo.clone();
+        Box::pin(async move {
+            // Validate session known and buffer membership.
+            {
+                let s = sessions.lock().unwrap();
+                let info = s.get(&req.session_id.0).cloned().ok_or(UseCaseError::UnknownSession)?;
+                if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
+                    return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
+                }
+            }
+
+            // Validate content against buffer rules.
+            if let Err(m) = buffer_rules::validate_content(&req.proposal_text) {
+                return Err(UseCaseError::InvalidMutation(m));
+            }
+
+            // Persist the proposal content via BufferStore (authoritative path).
+            if let Err(_e) = store.set_text(&req.buffer_id, req.proposal_text.clone()).await {
+                return Err(UseCaseError::UnknownBuffer);
+            }
+
+            // Record success command and event (best-effort).
+            let cmd = CommandRecord::new_success(
+                CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                Some(req.session_id.0),
+                None,
+                Some(req.buffer_id.clone()),
+                Some("ai edit applied".to_string()),
+            );
+            let _ = history.record_command(cmd).await;
+
+            // Emit a workspace event indicating buffer updated (best-effort).
+            // We attempt to discover workspace id; if absent, skip event emission.
+            if let Some(workspace_id) = {
+                let s = sessions.lock().unwrap();
+                s.get(&req.session_id.0).map(|i| i.workspace_id)
+            } {
+                let ev = WorkspaceEvent {
+                    id: Uuid::new_v4(),
+                    timestamp: Utc::now(),
+                    session_id: req.session_id.clone(),
+                    workspace_id,
+                    kind: WorkspaceEventKind::BufferUpdated { buffer_id: req.buffer_id.clone() },
+                };
+                let _ = history.record_event(ev).await;
+            }
+
+            Ok(ApplyAiEditResponse { ok: true })
+        })
+    }
+
+    fn cancel_ai_edit(
+        &self,
+        _req: CancelAiEditRequest,
+    ) -> BoxFuture<'static, Result<CancelAiEditResponse, UseCaseError>> {
+        // For Phase 10 the application orchestrator does not persist pending proposals;
+        // cancellation is a no-op that returns success so UI can clear presentation-only state.
+        Box::pin(async move { Ok(CancelAiEditResponse { ok: true }) })
+    }
+
     fn apply_text_transaction(
         &self,
         req: ApplyTextTransactionRequest,
