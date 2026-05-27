@@ -5,46 +5,41 @@
 [![CI](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml) [![Security Audit](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
 Overview
-- Zaroxi is a Rust-native, crate-first editor and IDE architecture. The repository contains core libraries, engine subsystems, infrastructure adapters, intelligence scaffolding, and the desktop harness used to exercise editor flows prior to Phase 9.
-- Status: Active development — documentation & architecture modernization (pre‑Phase‑9).
+
+Zaroxi Studio is an open-source, AI-first integrated development environment built in Rust. It combines modern IDE features with AI-powered assistance to create a next-generation development experience.
+
+This repository contains the crate-based architecture, core libraries, engine subsystems, infrastructure adapters, intelligence scaffolding, and the desktop harness used to exercise editor flows prior to Phase 9.
+
+Quick status
+- Stage: Active development — documentation & architecture modernization (pre‑Phase‑9).
+- Current: A working Rust-native editor shell and desktop harness (implemented via `zaroxi-interface-*` and `zaroxi-application-*` crates). Desktop harness tests are passing; core editor and engine primitives are under active development.
 
 Key current capabilities
-- Crate-based architecture with explicit layer boundaries and naming conventions.
-- Working editor primitives (buffers, transactions, view/projection models) and engine subsystems.
-- Desktop harness (`zaroxi-interface-desktop` / `zaroxi-interface-app`) that exercises workspace flows, buffer switching, checkpoint restore, pending-close/session-close handling, command bar, transcript/shell composition, AI explanation/projection, and GPU shell rendering.
-- Inline AI explanation/projection (editor-side explain-only flows).
-- Desktop/app harness tests are passing and used as the primary runtime verification path.
+- Modular crate-first architecture with explicit layer boundaries.
+- Editor primitives: in-memory buffers, transactions, checkpoints, and view/projection models.
+- Desktop harness: exercises workspace open/close, buffer switching, checkpoint restore, pending-close/session-close flows, command bar, transcript/shell composition, AI explanation/projection, and GPU shell rendering.
+- AI explanation/projection: editor-side explain-only flows for previewing suggestions.
 
-What is not implemented yet (important limits)
-- Real disk-backed workspace/file persistence (planned for Phase 9).
-- Production LSP integration (Phase 10 target).
-- Full AI edit/apply flow (AI projection/explain exists; safe apply is planned for Phase 11).
-- Some infrastructure adapters and platform integrations remain scaffolding and will mature in upcoming phases.
+Important limitations
+- Real disk-backed workspace/file persistence is planned for Phase 9.
+- Production LSP integration is planned for Phase 10.
+- Full AI edit/apply flow (safe apply) is planned for Phase 11.
 
-Key Features (detailed)
-- Modular Layers: Kernel → Core → Domain → Application → Interface. Special namespaces for `infrastructure`, `intelligence`, and `security`.
-- Editor Core: In-memory buffer primitives, transactions, checkpoints, and view/projection models suitable for building an editor shell.
-- GPU Shell: Engine rendering primitives and backend adapters used by the desktop harness to exercise rendering paths.
-- Desktop Harness: A runnable harness that composes interface → application → domain → core to exercise open/close, buffer operations, command flows, and AI projection.
-- AI Explanation: Editor-side AI explain/projection for previewing suggestions and explanations; end-to-end AI apply remains planned.
+Key Features (concise)
+- Clear layer model: Kernel → Core → Domain → Application → Interface, with separate namespaces for `infrastructure`, `intelligence`, and `security`.
+- Engine-first design: rendering, input, scheduling, and GPU shell primitives are core to the architecture.
+- Testable harness: the desktop harness is the primary verification path for runtime behaviors.
 
 Documentation
 Comprehensive documentation is available in the `docs/` directory:
 - `docs/architecture.md` — High-level system design and layer responsibilities
-- `docs/crates.md` — Detailed crate documentation and recommended reading order
-- `docs/rpc.md` — RPC scaffold and communication role
+- `docs/crates.md` — Crate inventory and recommended reading order
+- `docs/rpc.md` — RPC scaffold and role
 - `docs/security.md` — Security crate family and posture
 - `docs/roadmap.md` — Development roadmap and next phases
 
-Contact & Links
-- Website: https://www.zaroxi.com
-- GitHub: https://github.com/mujaxso/zaroxi
-- Documentation: https://docs.zaroxi.com
-- Twitter: @zaroxi_studio
-- Email: contact@zaroxi.com
-
-Build & Run
-Requirements: Rust (stable, recent; 1.75+ recommended)
+Build & run
+Prerequisite: Rust (stable, recent; 1.75+ recommended)
 
 Build workspace
 ```bash
@@ -70,7 +65,7 @@ cargo test -p zaroxi-interface-desktop
 ```
 
 Roadmap (short)
-- Current (pre-Phase-9): Rust-native editor shell, desktop harness, engine primitives, AI explain/projection, tests.
+- Current: Rust-native editor shell, desktop harness, engine primitives, AI explanation/projection, tests.
 - Phase 9: Disk-backed workspace persistence and file-backed buffers.
 - Phase 10: LSP baseline and diagnostics plumbing.
 - Phase 11: Safe AI edit/apply with preview & verification.
@@ -78,9 +73,16 @@ Roadmap (short)
 - Phase 13: Productization (packaging, installers, release infra).
 - Phase 14: Alpha release.
 
-Contribution & Documentation note
-- Keep `docs/` in sync with the crate layout and architecture changes. When adding, renaming, or removing crates, update `docs/crates.md` and `docs/architecture.md`.
-- Use the roadmap to describe planned work; avoid describing planned features as implemented.
+Contributing & support
+- If you find Zaroxi useful, please consider starring the project on GitHub — it helps improve visibility, attract contributors, and signals community interest.
+- Contributions welcome: open issues, propose designs, and submit pull requests. Keep documentation updated (`docs/architecture.md`, `docs/crates.md`) when crates change.
+
+Contact & links
+- Website: https://www.zaroxi.com
+- GitHub: https://github.com/mujaxso/zaroxi
+- Documentation: https://docs.zaroxi.com
+- Twitter: @zaroxi_studio
+- Email: contact@zaroxi.com
 
 License
 - MIT — See `LICENSE` for details.
