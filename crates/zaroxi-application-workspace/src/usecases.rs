@@ -426,6 +426,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                         active_buffer: None,
                         editor_states: std::collections::HashMap::new(),
                         viewport_states: std::collections::HashMap::new(),
+                        pending_proposals: std::collections::HashMap::new(),
                     },
                 );
             }
@@ -2164,6 +2165,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                         active_buffer: ck.active_buffer.clone(),
                         editor_states: std::collections::HashMap::new(),
                         viewport_states: std::collections::HashMap::new(),
+                        pending_proposals: std::collections::HashMap::new(),
                     },
                 );
             }
