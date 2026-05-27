@@ -144,6 +144,41 @@ pub fn clear_mock_diagnostics() {
     MOCK_PROVIDER.lock().unwrap().clear();
 }
 
+/// Return detailed diagnostics for a URI when the provider is ready.
+///
+/// - Returns Some(Vec<Diagnostic>) when a provider (in-memory mock or real adapter)
+///   can supply diagnostics (may be empty to indicate zero-count ready state).
+/// - Returns None when diagnostics are not available (feature disabled or adapter absent).
+pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
+    let u = uri.trim();
+    if u.is_empty() {
+        // Treat empty uri as "no active buffer" -> return an empty ready set so callers
+        // can render a coherent "none" state without confusing it with disabled.
+        return Some(Vec::new());
+    }
+
+    // First, consult the in-memory mock provider.
+    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(u) {
+        return Some(v.clone());
+    }
+
+    // If feature is disabled and no mock, report no provider available.
+    #[cfg(not(feature = "use_core_lsp"))]
+    {
+        return None;
+    }
+
+    // When feature enabled, forward to collect_for_uri mapping.
+    #[cfg(feature = "use_core_lsp")]
+    {
+        match collect_for_uri(u) {
+            DiagnosticsSummary::Some(v) => Some(v),
+            DiagnosticsSummary::None => Some(Vec::new()),
+            DiagnosticsSummary::Disabled => None,
+        }
+    }
+}
+
 /// Compose a compact, stable human-readable summary for the given DesktopComposition.
 ///
 /// This prints a one-line summary intended for harness output like:
@@ -158,27 +193,22 @@ pub fn summarize_for_composition(composition: &DesktopComposition) -> String {
         "<none>".to_string()
     };
 
-    match collect_for_uri(&uri) {
-        DiagnosticsSummary::Disabled => format!("lsp=disabled active_buffer={}", uri),
-        DiagnosticsSummary::None => format!("diagnostics active_buffer={} -> none", uri),
-        DiagnosticsSummary::Some(v) => {
-            let mut errors = 0usize;
-            let mut warnings = 0usize;
-            let mut infos = 0usize;
-            let mut hints = 0usize;
-            for d in &v {
-                match d.severity {
-                    DiagnosticSeverity::Error => errors += 1,
-                    DiagnosticSeverity::Warning => warnings += 1,
-                    DiagnosticSeverity::Information => infos += 1,
-                    DiagnosticSeverity::Hint => hints += 1,
-                }
-            }
-            format!(
-                "diagnostics active_buffer={} -> errors={} warnings={} infos={} hints={}",
-                uri, errors, warnings, infos, hints
-            )
-        }
+    // No active buffer case -> explicit none.
+    if uri.trim().is_empty() || uri == "<none>" {
+        return format!("diagnostics active_buffer={} -> none", uri);
+    }
+
+    // Use the compact diagnostics snapshot/provider boundary to determine visible state.
+    match diagnostics_snapshot_for_uri(&uri) {
+        Some(snap) => match snap.provider {
+            ProviderState::Disabled => format!("lsp=disabled active_buffer={}", uri),
+            ProviderState::Ready => format!(
+                "lsp=ready active_buffer={} errors={} warnings={} infos={} hints={}",
+                uri, snap.errors, snap.warnings, snap.infos, snap.hints
+            ),
+            ProviderState::Unavailable => format!("lsp=unavailable active_buffer={}", uri),
+        },
+        None => format!("diagnostics active_buffer={} -> none", uri),
     }
 }
 

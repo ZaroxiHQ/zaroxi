@@ -3,7 +3,7 @@ use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
-use crate::diagnostics::{collect_for_uri, Diagnostic as PresentDiagnostic, DiagnosticsSummary};
+use crate::diagnostics::{diagnostics_details_for_uri, Diagnostic as PresentDiagnostic};
 
 use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, EditorLayoutSpec};
 use super::scene_snapshot;
@@ -292,16 +292,15 @@ impl ShellRenderTranscript {
             .trim()
             .to_string();
 
-        let diagnostics_summary = if diag_uri.is_empty() {
-            DiagnosticsSummary::None
+        let (diagnostics, diagnostics_enabled) = if diag_uri.is_empty() {
+            // No active buffer: treat as ready/no-diagnostics for presenter display.
+            (Vec::new(), true)
+        } else if let Some(v) = diagnostics_details_for_uri(&diag_uri) {
+            // Provider present (mock or real adapter) -> ready, may be empty.
+            (v, true)
         } else {
-            collect_for_uri(&diag_uri)
-        };
-
-        let (diagnostics, diagnostics_enabled) = match diagnostics_summary {
-            DiagnosticsSummary::Disabled => (Vec::new(), false),
-            DiagnosticsSummary::None => (Vec::new(), true),
-            DiagnosticsSummary::Some(v) => (v, true),
+            // Provider not available for this uri (feature off / adapter absent).
+            (Vec::new(), false)
         };
 
         ShellRenderTranscript {
