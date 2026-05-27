@@ -1,0 +1,40 @@
+name: Docs API Publish
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build-and-upload-docs:
+    name: Build and upload Rust API docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/gh-install-rust@v1
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build workspace docs
+        run: |
+          cargo doc --workspace --no-deps --all-features
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaroxi-api-docs
+          path: target/doc
+
+      - name: Notes
+        run: |
+          echo "API docs artifact uploaded as 'zaroxi-api-docs'."
+          echo "This workflow is manual (workflow_dispatch) to keep publishing behind an explicit toggle."
