@@ -123,6 +123,62 @@ pub struct UpdateBufferResponse {
     pub ok: bool,
 }
 
+/// AI proposal payload returned by AI orchestration.
+///
+/// This small DTO is intentionally minimal for Phase 10: it carries a human-facing
+/// summary and the full proposed replacement text when an edit is suggested.
+#[derive(Clone, Debug)]
+pub struct AiProposal {
+    pub target_buffer: BufferId,
+    pub proposal_text: String,
+    pub summary: Option<String>,
+}
+
+/// Request to ask the AI subsystem to propose an edit for a buffer in a session.
+///
+/// The composition layer may obtain the current document snapshot from the WorkspaceView
+/// and pass the content here so the application/AI layer has the full local context.
+#[derive(Clone, Debug)]
+pub struct RequestAiEditRequest {
+    pub session_id: SessionId,
+    pub buffer_id: BufferId,
+    pub content: Option<String>,
+}
+
+/// Response carrying the proposed edit payload.
+#[derive(Clone, Debug)]
+pub struct RequestAiEditResponse {
+    pub proposal: AiProposal,
+}
+
+/// Request to apply a previously-proposed AI edit.
+/// The application-side orchestration may validate session/buffer identity before applying.
+#[derive(Clone, Debug)]
+pub struct ApplyAiEditRequest {
+    pub session_id: SessionId,
+    pub buffer_id: BufferId,
+    pub proposal_text: String,
+}
+
+/// Response from attempting to apply an AI proposal.
+#[derive(Clone, Debug)]
+pub struct ApplyAiEditResponse {
+    pub ok: bool,
+}
+
+/// Request to cancel/clear a pending AI proposal for a session/buffer.
+#[derive(Clone, Debug)]
+pub struct CancelAiEditRequest {
+    pub session_id: SessionId,
+    pub buffer_id: BufferId,
+}
+
+/// Response to a cancel request.
+#[derive(Clone, Debug)]
+pub struct CancelAiEditResponse {
+    pub ok: bool,
+}
+
 /// Request to apply a typed text transaction to a buffer within a session.
 /// The `transaction` uses the core `TextEdit` type (character-indexed).
 #[derive(Clone, Debug)]
@@ -672,6 +728,27 @@ pub trait WorkspaceService: Send + Sync {
         &self,
         req: UpdateBufferRequest,
     ) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>>;
+
+    /// Request an AI-generated edit proposal for the active buffer/context.
+    /// The supplied request carries a snapshot of the current buffer content where available.
+    fn request_ai_edit(
+        &self,
+        req: RequestAiEditRequest,
+    ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>>;
+
+    /// Apply a previously-returned AI proposal. Implementations are expected to
+    /// validate session/buffer identity and persist the edit via the authoritative
+    /// buffer/update path. The response indicates success of the overall operation.
+    fn apply_ai_edit(
+        &self,
+        req: ApplyAiEditRequest,
+    ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>>;
+
+    /// Cancel a pending AI proposal for the given session/buffer.
+    fn cancel_ai_edit(
+        &self,
+        req: CancelAiEditRequest,
+    ) -> BoxFuture<'static, Result<CancelAiEditResponse, UseCaseError>>;
 
     /// Apply a typed text transaction/edit to an open buffer within a session.
     /// This use-case composes the current editor transient state (cursor/selection)

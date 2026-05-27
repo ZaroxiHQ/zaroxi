@@ -137,6 +137,31 @@ impl WorkspaceService for FakeService {
     fn restore_checkpoint(&self, _req: ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
+
+    // Phase 10: application-level AI orchestration API (test mock implementations).
+    fn request_ai_edit(&self, req: crate::ports::RequestAiEditRequest) -> BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, UseCaseError>> {
+        let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+        let resp = crate::ports::RequestAiEditResponse {
+            proposal: crate::ports::AiProposal {
+                target_buffer: req.buffer_id.clone(),
+                proposal_text: proposal.clone(),
+                summary: Some("AI edit proposed".to_string()),
+            },
+        };
+        Box::pin(async move { Ok(resp) })
+    }
+
+    fn apply_ai_edit(&self, req: crate::ports::ApplyAiEditRequest) -> BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, UseCaseError>> {
+        // Record the applied content similarly to update_buffer for test observation.
+        let mut guard = self.last_update.lock().unwrap();
+        *guard = Some(req.proposal_text.clone());
+        Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+    }
+
+    fn cancel_ai_edit(&self, _req: crate::ports::CancelAiEditRequest) -> BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, UseCaseError>> {
+        Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
+    }
+
     fn attempt_close_session(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
@@ -162,8 +187,8 @@ async fn ai_request_and_apply_flow() {
     // Create a dummy session id; use default Id if available.
     let session_id = SessionId(Id::new());
 
-    // Request AI edit.
-    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None).await;
+    // Request AI edit (use the application service so orchestration lives in application layer).
+    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), service.clone()).await;
     assert!(req_res.is_ok(), "request_ai_edit_active failed: {:?}", req_res);
 
     // Ensure ai_projection is present and proposed.
