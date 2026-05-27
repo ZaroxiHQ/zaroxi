@@ -57,6 +57,7 @@ pub use presenters::ShellRenderPresenter;
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.
 pub mod projections;
+pub mod ai;
 pub use projections::active_buffer_line::ActiveBufferLine;
 pub use projections::last_event_line::LastEventLine;
 pub use projections::last_event_line::summarize_last_event;
