@@ -362,6 +362,10 @@ impl DesktopComposition {
 
     // Pending-close helpers delegated to the small pending_close module.
     pub fn set_pending_close(&mut self, pending: PendingClose) {
+        // When entering a new pending-close flow, any previously preserved explicit
+        // close-result status must not remain visible. Clear it here so the pending
+        // close banner can take precedence immediately.
+        self.clear_close_result_status();
         pending_close::set_pending_close(self, pending);
     }
 
