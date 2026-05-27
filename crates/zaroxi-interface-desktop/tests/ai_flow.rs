@@ -188,7 +188,7 @@ async fn ai_request_and_apply_flow() {
     let session_id = SessionId(Id::new());
 
     // Request AI edit (use the application service so orchestration lives in application layer).
-    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), service.clone()).await;
+    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service.clone())).await;
     assert!(req_res.is_ok(), "request_ai_edit_active failed: {:?}", req_res);
 
     // Ensure ai_projection is present and proposed.
