@@ -1,177 +1,69 @@
-# Zaroxi Studio Roadmap
+# Roadmap — From Current State Toward Phase 14
 
-This document outlines the development roadmap for Zaroxi Studio, an AI-first IDE. The roadmap is organized into phases, with each phase building upon the previous to deliver increasing functionality and polish.
+This roadmap starts from the current, verified pre-Phase-9 state and lays out concrete next phases. It is intentionally pragmatic: each phase lists specific deliverables and keeps the distinction between implemented and planned work clear.
 
-## Phase 1: Foundation (Current)
-**Goal**: Establish the basic architecture and development workflow.
+Current (pre-Phase-9)
+- Rust-native, crate-based editor shell and desktop harness (`zaroxi-interface-desktop`, `zaroxi-interface-app`) are working and used to exercise runtime flows.
+- Core editor primitives, engine subsystems, and the GPU shell are present and under test.
+- AI explanation/projection is implemented (editor-side projection), but full AI edit/apply flow is not yet implemented.
+- Desktop/app tests for the harness path are passing.
+- Real disk-backed workspace persistence and full LSP integration are not yet implemented.
 
-### Completed
-- ✅ Project scaffold with Cargo workspace structure
-- ✅ Basic crate organization and dependencies
-- ✅ GitHub Actions CI/CD pipeline
-- ✅ Documentation structure
-- ✅ Code formatting and linting setup
-- ✅ Tauri desktop application with React frontend
-- ✅ Core type definitions (`core-types`)
-- ✅ Theme system with dark/light modes (`theme`)
-- ✅ Editor core implementation (`editor-core`)
-- ✅ AI agent and context systems (`ai-agent`, `ai-context`)
-- ✅ Workspace domain model (`workspace-model`)
-- ✅ Background services (`workspace-daemon`, `ai-daemon`)
+Next (Phase 9) — Disk-backed workspaces (priority)
+Goal: Implement reliable disk-backed workspace and file persistence so the editor can operate on real file trees and durable buffers.
+Deliverables:
+- Storage adapter implementations for local filesystem (infrastructure-storage) with crash-safe write semantics.
+- Integration: wire `zaroxi-application-workspace` and `zaroxi-domain-buffer` to persistent storage.
+- Migration tests and end-to-end harness validation using the desktop harness.
+- Backup and checkpoint persistence strategy (safe restore on crash).
 
-### In Progress
-- Enhanced AI task execution and tool integration
-- Improved code editor with syntax highlighting
-- Workspace file operations and Git integration
+Phase 10 — LSP baseline
+Goal: Provide a stable LSP integration baseline for language features and diagnostics.
+Deliverables:
+- LSP client scaffolding and session manager (`zaroxi-core-platform-lsp` / `zaroxi-infrastructure-*` where necessary).
+- Diagnostics plumbing into editor UI and workspace indexing.
+- Tests and sample integrations for Rust and one additional language (e.g., TypeScript).
 
-### Upcoming
-- Language Server Protocol (LSP) integration
-- Preview system for mobile/desktop simulations
-- Enhanced AI capabilities with multiple providers
-- Plugin system for extensibility
+Phase 11 — AI edit/apply
+Goal: Ship a safe AI edit/apply workflow that supports preview, verification, and explicit user confirmation before applying changes.
+Deliverables:
+- AI apply pipeline with preview and verification (`zaroxi-intelligence-*` + patch-engine integration).
+- Safety checks and validation (`zaroxi-security-validation`) before any automatic apply.
+- UI/UX flows in the desktop harness for preview and user confirmation.
 
-## Phase 2: Core Functionality
-**Goal**: Implement essential IDE features and AI integration.
+Phase 12 — Performance and rendering
+Goal: Improve performance across rendering, workspace operations, and large-file handling.
+Deliverables:
+- Incremental rendering and layout improvements in `zaroxi-core-engine-*`.
+- Workspace indexing and search performance improvements.
+- Memory and CPU profiling with actionable optimizations.
 
-### Editor & Workspace
-- Text editing with syntax highlighting
-- File tree navigation and management
-- Project configuration and build integration
-- Basic version control (Git) integration
-- Terminal emulation within the IDE
+Phase 13 — Productization
+Goal: Prepare the codebase for wider distribution and early adopters.
+Deliverables:
+- Packaging and installers for target platforms.
+- Update & installer signing, release pipelines, and reproducible build documentation.
+- Documentation and contributor onboarding improvements.
 
-### AI Integration
-- Context collection from workspace (`ai-context`)
-- Basic AI agent planning and execution (`ai-agent`)
-- Patch generation and application (`patch-engine`)
-- Integration with AI providers (OpenAI, Claude, local models)
+Phase 14 — Alpha release
+Goal: Publish an alpha release that includes the core editor experience, persistent workspaces, LSP baseline, and safe AI apply flows.
+Deliverables:
+- Public alpha release artifacts and release notes.
+- Early user feedback channels and tracked issues.
 
-### Language Support
-- LSP client implementation (`lsp-client`)
-- Rust language support (via rust-analyzer)
-- TypeScript/JavaScript support
-- Markdown editing and preview
-- Extension system for additional languages
+Later work (post-alpha)
+- Collaboration & multi-user editing.
+- Advanced AI features (fine-tuning, local model support, agent orchestration).
+- Enterprise features and integrations.
 
-### Preview & Simulation
-- Preview engine crate for device simulation (`preview-engine`)
-- Tauri‑based preview shell for mobile, desktop, and website previews
-- Real‑time synchronization between editor and preview windows
-- Device‑frame rendering and interactive viewport controls
+How to contribute to the roadmap
+- Open an issue labeled `roadmap` with a clear proposal and implementation plan.
+- For feature work: open a design doc and link to relevant crates and tests.
+- Keep docs/roadmap.md and docs/architecture.md synchronized when plans shift.
 
-## Phase 3: User Experience
-**Goal**: Polish the UI/UX and add productivity features.
+Success criteria for Phase 9
+- Desktop harness exercises real disk-backed open/save flows in CI.
+- Tests cover storage, checkpoint, and recovery flows.
+- No regressions in desktop/app harness tests.
 
-### Desktop Application
-- Native UI framework selection and implementation
-- Multi-pane layout management
-- Theme system (light/dark/custom)
-- Keyboard shortcuts and command palette
-- Search and navigation across workspace
-
-### AI Features
-- AI-powered code completion and suggestions
-- Natural language to code transformations
-- Code explanation and documentation generation
-- Bug detection and fix suggestions
-- Test generation from specifications
-
-### Collaboration
-- Real-time collaborative editing
-- Code review with AI assistance
-- Shared workspace sessions
-- Comment and annotation system
-
-## Phase 4: Advanced Features
-**Goal**: Add sophisticated capabilities and ecosystem integration.
-
-### Advanced AI
-- Custom AI model fine-tuning for code
-- Domain-specific AI assistants
-- Automated refactoring and optimization
-- Architecture analysis and suggestions
-- Performance profiling and recommendations
-
-### Development Tools
-- Advanced debugging with AI assistance
-- Performance profiling and optimization
-- Dependency analysis and security scanning
-- Deployment and infrastructure management
-- Database integration and query tools
-
-### Ecosystem
-- Plugin system for third-party extensions
-- Marketplace for themes, extensions, and AI models
-- Integration with cloud services
-- Mobile companion applications
-- API for external tool integration
-
-## Phase 5: Production & Scale
-**Goal**: Enterprise readiness and scalability.
-
-### Enterprise Features
-- Multi-user authentication and authorization
-- Team and organization management
-- Audit logging and compliance
-- Data encryption and security
-- On-premises deployment options
-
-### Performance & Scale
-- Large workspace optimization
-- Distributed computation for AI tasks
-- Offline functionality
-- Cross-platform performance tuning
-- Resource usage optimization
-
-### Community & Ecosystem
-- Open source community building
-- Contributor documentation and guides
-- Regular release cycles
-- Commercial support options
-- Partner integrations
-
-## Technical Milestones
-
-### Q2 2026
-- MVP with basic text editing and AI chat
-- Rust language support via LSP
-- Local AI model integration
-
-### Q3 2026
-- Multi-language support (TypeScript, Python)
-- Advanced AI features (refactoring, debugging)
-- Plugin system beta
-
-### Q4 2026
-- Collaborative editing
-- Enterprise features beta
-- Performance optimizations
-
-### Q1 2027
-- Version 1.0 release
-- Marketplace launch
-- Mobile applications
-
-## Contributing to the Roadmap
-
-The Zaroxi Studio roadmap is a living document that evolves based on:
-
-1. **Community feedback**: User needs and pain points
-2. **Technology trends**: Advances in AI and development tools
-3. **Contributor interest**: Areas where contributors are most engaged
-4. **Resource availability**: Development capacity and funding
-
-To suggest changes or additions to the roadmap:
-
-1. Open an issue with the `roadmap` label
-2. Participate in discussion on GitHub Discussions
-3. Submit a pull request with proposed updates
-
-## Success Metrics
-
-- **Adoption**: Number of active users and contributors
-- **Quality**: Code review feedback and bug reports
-- **Performance**: Editor responsiveness and AI latency
-- **Satisfaction**: User feedback and community engagement
-
-This roadmap provides direction while maintaining flexibility to adapt to new opportunities and challenges in the rapidly evolving landscape of AI-assisted development.
+This roadmap is purposely concrete and conservative; it reflects the repository's current state and the next practical milestones toward a durable editor product.
