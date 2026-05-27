@@ -61,6 +61,14 @@ use crate::ports::{
     WorkspaceEvent,
     WorkspaceEventKind,
     WorkspaceSessionDTO,
+    // Phase 10 AI DTOs (application-level re-exports from ports::types)
+    RequestAiEditRequest,
+    RequestAiEditResponse,
+    AiProposal,
+    ApplyAiEditRequest,
+    ApplyAiEditResponse,
+    CancelAiEditRequest,
+    CancelAiEditResponse,
 };
 
 use chrono::Utc;
@@ -1593,7 +1601,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                 session_id: req.session_id.0,
                 workspace_id: info.workspace_id,
                 buffer_id: req.buffer_id.clone(),
-                content_snapshot: content.clone(),
+                content_snapshot: content.clone().unwrap_or_default(),
             };
 
             let ai_res = match ai.request(ai_req).await {

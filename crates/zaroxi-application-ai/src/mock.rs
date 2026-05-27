@@ -1,6 +1,4 @@
 use crate::ports as ai_ports;
-use std::pin::Pin;
-use std::future::Future;
 
 /// Deterministic application-level mock AiClient used for Phase 10.
 /// Behavior: return a simple text response based on the buffer id.
