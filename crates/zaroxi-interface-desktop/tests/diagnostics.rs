@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use zaroxi_interface_desktop::diagnostics::{
-    collect_for_uri, diagnostics_snapshot_for_uri, DiagnosticsSummary, DiagnosticsSnapshot,
+    collect_for_uri, diagnostics_snapshot_for_uri, DiagnosticsSummary,
     ProviderState, register_mock_diagnostics, clear_mock_diagnostics, Diagnostic,
     DiagnosticSeverity,
 };
