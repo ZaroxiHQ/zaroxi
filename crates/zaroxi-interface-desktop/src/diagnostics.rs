@@ -139,6 +139,21 @@ pub fn register_mock_diagnostics(uri: &str, diags: Vec<Diagnostic>) {
     }
 }
 
+/// Public ingestion API for externally-supplied diagnostics payloads.
+///
+/// This is the narrow provider boundary used by Phase 9E. Callers may provide
+/// diagnostics entries for a given URI; the stored snapshot for that URI is
+/// replaced atomically. Passing an empty vector clears any stored diagnostics
+/// for the URI (removes the entry).
+///
+/// The current implementation writes into the same in-memory provider used by
+/// tests/harness; later this function can be adapted to forward to a real
+/// adapter or queue without affecting the presenter surface.
+pub fn ingest_diagnostics_payload(uri: &str, diags: Vec<Diagnostic>) {
+    // Reuse the existing mock registrar to mutate the in-memory provider map.
+    register_mock_diagnostics(uri, diags)
+}
+
 /// Clear all registered mock diagnostics (test convenience).
 pub fn clear_mock_diagnostics() {
     MOCK_PROVIDER.lock().unwrap().clear();

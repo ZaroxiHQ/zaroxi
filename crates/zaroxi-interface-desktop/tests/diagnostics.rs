@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use zaroxi_interface_desktop::diagnostics::{
     collect_for_uri, diagnostics_snapshot_for_uri, DiagnosticsSummary,
-    ProviderState, register_mock_diagnostics, clear_mock_diagnostics, Diagnostic,
-    DiagnosticSeverity,
+    ProviderState, register_mock_diagnostics, clear_mock_diagnostics, ingest_diagnostics_payload,
+    Diagnostic, DiagnosticSeverity,
 };
 use zaroxi_interface_desktop::DesktopComposition;
 
@@ -162,4 +162,145 @@ fn missing_snapshot_for_active_buffer_is_handled_cleanly() {
     clear_mock_diagnostics();
     let snap = diagnostics_snapshot_for_uri("unknown.rs");
     assert!(snap.is_some(), "expected Some snapshot even when no provider entry present");
+}
+
+/// Phase 9E tests: ingestion API exercises small, honest external-update semantics.
+
+#[test]
+fn ingest_payload_updates_summary_for_active_buffer() {
+    clear_mock_diagnostics();
+
+    // Ingest a deterministic payload for `ingest.rs`: 1 error, 2 warnings.
+    ingest_diagnostics_payload(
+        "ingest.rs",
+        vec![
+            Diagnostic { message: "E: failure".to_string(), severity: DiagnosticSeverity::Error, uri: Some("ingest.rs".to_string()) },
+            Diagnostic { message: "W: warn1".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("ingest.rs".to_string()) },
+            Diagnostic { message: "W: warn2".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("ingest.rs".to_string()) },
+        ],
+    );
+
+    let snap = diagnostics_snapshot_for_uri("ingest.rs").expect("expected snapshot after ingest");
+    assert_eq!(snap.provider, ProviderState::Ready);
+    assert_eq!(snap.errors, 1);
+    assert_eq!(snap.warnings, 2);
+
+    // cleanup
+    clear_mock_diagnostics();
+}
+
+#[test]
+#[cfg(not(feature = "use_core_lsp"))]
+fn ingest_empty_payload_clears_summary_counts_feature_off() {
+    clear_mock_diagnostics();
+
+    register_mock_diagnostics(
+        "clear_test.xyz",
+        vec![
+            Diagnostic { message: "W: w".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("clear_test.xyz".to_string()) },
+        ],
+    );
+
+    // Ingest empty payload -> clears entry
+    ingest_diagnostics_payload("clear_test.xyz", Vec::new());
+
+    let snap = diagnostics_snapshot_for_uri("clear_test.xyz").expect("expected snapshot after clear");
+    // When feature is off and no mock entry, provider should be Disabled per contract.
+    assert_eq!(snap.provider, ProviderState::Disabled);
+
+    clear_mock_diagnostics();
+}
+
+#[test]
+#[cfg(feature = "use_core_lsp")]
+fn ingest_empty_payload_clears_summary_counts_feature_on() {
+    clear_mock_diagnostics();
+
+    register_mock_diagnostics(
+        "clear_test.txt",
+        vec![
+            Diagnostic { message: "W: w".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("clear_test.txt".to_string()) },
+        ],
+    );
+
+    // Ingest empty payload -> clears entry
+    ingest_diagnostics_payload("clear_test.txt", Vec::new());
+
+    let snap = diagnostics_snapshot_for_uri("clear_test.txt").expect("expected snapshot after clear");
+    // With feature on, absent mock falls back to adapter; if adapter reports none,
+    // we map to Ready with zero counts; assert counts are zero.
+    assert_eq!(snap.errors + snap.warnings + snap.infos + snap.hints, 0);
+
+    clear_mock_diagnostics();
+}
+
+#[test]
+fn switching_active_buffer_reads_correct_uri_snapshot_after_updates() {
+    clear_mock_diagnostics();
+
+    ingest_diagnostics_payload(
+        "a.rs",
+        vec![
+            Diagnostic { message: "W: a".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("a.rs".to_string()) },
+        ],
+    );
+
+    ingest_diagnostics_payload(
+        "b.rs",
+        vec![
+            Diagnostic { message: "E: b".to_string(), severity: DiagnosticSeverity::Error, uri: Some("b.rs".to_string()) },
+            Diagnostic { message: "W: b".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("b.rs".to_string()) },
+        ],
+    );
+
+    let snap_a = diagnostics_snapshot_for_uri("a.rs").expect("a.rs snapshot");
+    let snap_b = diagnostics_snapshot_for_uri("b.rs").expect("b.rs snapshot");
+
+    assert_eq!(snap_a.warnings, 1);
+    assert_eq!(snap_a.errors, 0);
+
+    assert_eq!(snap_b.errors, 1);
+    assert_eq!(snap_b.warnings, 1);
+
+    clear_mock_diagnostics();
+}
+
+#[test]
+fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
+    clear_mock_diagnostics();
+
+    ingest_diagnostics_payload(
+        "one.rs",
+        vec![
+            Diagnostic { message: "W: one".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("one.rs".to_string()) },
+        ],
+    );
+
+    ingest_diagnostics_payload(
+        "two.rs",
+        vec![
+            Diagnostic { message: "W: two".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("two.rs".to_string()) },
+        ],
+    );
+
+    // Update only `one.rs`
+    ingest_diagnostics_payload(
+        "one.rs",
+        vec![
+            Diagnostic { message: "E: one now error".to_string(), severity: DiagnosticSeverity::Error, uri: Some("one.rs".to_string()) },
+        ],
+    );
+
+    let snap_one = diagnostics_snapshot_for_uri("one.rs").expect("one.rs snapshot");
+    let snap_two = diagnostics_snapshot_for_uri("two.rs").expect("two.rs snapshot");
+
+    // one.rs should reflect updated counts
+    assert_eq!(snap_one.errors, 1);
+    assert_eq!(snap_one.warnings, 0);
+
+    // two.rs should be unchanged
+    assert_eq!(snap_two.warnings, 1);
+    assert_eq!(snap_two.errors, 0);
+
+    clear_mock_diagnostics();
 }
