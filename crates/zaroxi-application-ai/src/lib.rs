@@ -6,9 +6,11 @@ pub mod tasks;
 pub mod mock;
 
 /// Prelude for convenient imports used by outer composition and tests.
+/// Note: do not re-export `mock` here to avoid exposing infra test adapters
+/// unnecessarily and to silence unused-import warnings when the infra mock
+/// is not linked into a particular composition.
 pub mod prelude {
     pub use super::ports::*;
     pub use super::service::*;
     pub use super::tasks::*;
-    pub use super::mock::*;
 }
