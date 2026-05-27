@@ -7,6 +7,15 @@ compact API used by the harness and presenter.
 */
 
 use crate::DesktopComposition;
+use std::collections::HashMap;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+/// In-memory mock provider map used by harness and tests to exercise a
+/// ready-state diagnostics path without a full LSP client. Keys are normalized
+/// resource URIs (strings) and values are presenter-local Diagnostic vectors.
+static MOCK_PROVIDER: Lazy<Mutex<HashMap<String, Vec<Diagnostic>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Local severity model used by the presenter and tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,6 +127,23 @@ pub struct DiagnosticsSnapshot {
     pub hints: u32,
 }
 
+/// Register deterministic mock diagnostics for a URI. Tests and the harness
+/// may call this to simulate a provider producing diagnostics for a given
+/// active buffer. Passing an empty vector will clear any existing mock entry.
+pub fn register_mock_diagnostics(uri: &str, diags: Vec<Diagnostic>) {
+    let mut map = MOCK_PROVIDER.lock().unwrap();
+    if diags.is_empty() {
+        map.remove(uri);
+    } else {
+        map.insert(uri.to_string(), diags);
+    }
+}
+
+/// Clear all registered mock diagnostics (test convenience).
+pub fn clear_mock_diagnostics() {
+    MOCK_PROVIDER.lock().unwrap().clear();
+}
+
 /// Compose a compact, stable human-readable summary for the given DesktopComposition.
 ///
 /// This prints a one-line summary intended for harness output like:
@@ -165,7 +191,33 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
         return None;
     }
 
-    // Feature disabled path: report Disabled provider explicitly.
+    // First, consult the in-memory mock provider. This allows the harness and
+    // tests to exercise a ready-state diagnostics path without a full LSP.
+    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(u) {
+        let mut errors = 0u32;
+        let mut warnings = 0u32;
+        let mut infos = 0u32;
+        let mut hints = 0u32;
+        for d in v.iter() {
+            match d.severity {
+                DiagnosticSeverity::Error => errors += 1,
+                DiagnosticSeverity::Warning => warnings += 1,
+                DiagnosticSeverity::Information => infos += 1,
+                DiagnosticSeverity::Hint => hints += 1,
+            }
+        }
+        return Some(DiagnosticsSnapshot {
+            provider: ProviderState::Ready,
+            active_buffer: u.to_string(),
+            errors,
+            warnings,
+            infos,
+            hints,
+        });
+    }
+
+    // When the feature is not enabled and no mock provider has an entry,
+    // report explicit Disabled provider state so the UI remains honest.
     #[cfg(not(feature = "use_core_lsp"))]
     {
         return Some(DiagnosticsSnapshot {
@@ -178,7 +230,7 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
         });
     }
 
-    // Feature enabled: map collect_for_uri results into a snapshot.
+    // When feature enabled, forward to the core platform adapter and map types.
     #[cfg(feature = "use_core_lsp")]
     {
         match collect_for_uri(u) {

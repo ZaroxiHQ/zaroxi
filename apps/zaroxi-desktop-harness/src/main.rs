@@ -161,6 +161,17 @@ async fn main() -> Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?;
 
+            // Register a small in-memory diagnostics snapshot for the active buffer so the harness
+            // can demonstrate a ready-state diagnostics summary without a full LSP client.
+            zaroxi_interface_desktop::diagnostics::register_mock_diagnostics(
+                "main.rs",
+                vec![zaroxi_interface_desktop::diagnostics::Diagnostic {
+                    message: "mock: warning in main.rs".to_string(),
+                    severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Warning,
+                    uri: Some("main.rs".to_string()),
+                }],
+            );
+
             // Use a tiny desktop composition to fetch and hold the renderable window.
             // The composition reuses the existing Presenter and adapter seam and
             // records minimal shell metadata (session/workspace) for harness printing.
@@ -823,6 +834,23 @@ async fn main() -> Result<(), String> {
     let open2_res = orchestrator.open_buffer(open2).await.map_err(|e| e.to_string())?;
     println!("Harness: opened buffer id: {}", open2_res.buffer_id);
 
+    // Register mock diagnostics for lib.rs so switching active buffer demonstrates counts.
+    zaroxi_interface_desktop::diagnostics::register_mock_diagnostics(
+        "lib.rs",
+        vec![
+            zaroxi_interface_desktop::diagnostics::Diagnostic {
+                message: "mock: error in lib.rs".to_string(),
+                severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Error,
+                uri: Some("lib.rs".to_string()),
+            },
+            zaroxi_interface_desktop::diagnostics::Diagnostic {
+                message: "mock: warning in lib.rs".to_string(),
+                severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Warning,
+                uri: Some("lib.rs".to_string()),
+            },
+        ],
+    );
+
     // List buffers and show active buffer
     let list_req = ListBuffersRequest { session_id: boot_res.session.session_id.clone() };
     let list_res = orchestrator.list_open_buffers(list_req).await.map_err(|e| e.to_string())?;
@@ -853,6 +881,11 @@ async fn main() -> Result<(), String> {
             if let Some(ctx) = res.context {
                 println!("Harness: shell context after set_active: rev={} active_buffer={:?} active_display={:?} refresh_reason={:?}", ctx.latest_revision, ctx.active_buffer, ctx.active_display, ctx.latest_refresh_reason);
             }
+
+            // Print diagnostics summary again after switching active buffer so the harness
+            // demonstrates the ready-state counts for the newly active buffer.
+            let diag_summary_after = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+            println!("Harness: diagnostics summary after set_active -> {}", diag_summary_after);
         }
         Err(e) => println!("Harness: set_active_and_get_shell_context failed: {}", e),
     }
