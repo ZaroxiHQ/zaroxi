@@ -1,4 +1,4 @@
-# Tauri build outputs
+# Build outputs (frontend & native targets)
 src-tauri/target/
 
 # Frontend dependencies
