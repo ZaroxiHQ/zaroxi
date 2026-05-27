@@ -3,6 +3,7 @@ use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
+use zaroxi_core_platform_lsp::session::{request_diagnostics, Diagnostic};
 
 use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, EditorLayoutSpec};
 use super::scene_snapshot;
@@ -23,6 +24,10 @@ pub struct ShellRenderTranscript {
     /// Additive presenter-facing tab strip. Consumers may pass an explicitly
     /// constructed TabStrip when producing a transcript; the default is empty.
     pub tabs: TabStrip,
+    /// Optional diagnostics produced for the active/open buffer (presenter-facing).
+    /// Diagnostics are intentionally small and deterministic in Phase 10 so tests
+    /// and harnesses can assert on their presence easily.
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl ShellRenderTranscript {
@@ -278,6 +283,18 @@ impl ShellRenderTranscript {
         // frame will observe the presenter's active buffer & caret.
         zaroxi_core_engine_scene::set_current_scene(scene_model);
 
+        let diag_uri = view
+            .active_buffer_label
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let diagnostics = if diag_uri.is_empty() {
+            Vec::new()
+        } else {
+            request_diagnostics(&diag_uri)
+        };
+
         ShellRenderTranscript {
             width,
             height,
@@ -285,6 +302,7 @@ impl ShellRenderTranscript {
             plan_lines,
             engine_chrome,
             tabs: tabs.clone(),
+            diagnostics,
         }
     }
 
@@ -452,6 +470,17 @@ impl ShellRenderTranscript {
         let scene_summary = ShellRenderTranscript::engine_scene_summary();
         for line in scene_summary.lines() {
             lines.push(format!("  {}", line));
+        }
+
+        // Diagnostics: deterministic presenter-facing projection for Phase 10.
+        lines.push("diagnostics:".to_string());
+        if self.diagnostics.is_empty() {
+            lines.push("  <none>".to_string());
+        } else {
+            for d in &self.diagnostics {
+                let uri_part = d.uri.as_deref().unwrap_or("<unknown>");
+                lines.push(format!("  {}: {} ({})", d.severity.as_str(), d.message, uri_part));
+            }
         }
 
         lines.join("\n")
