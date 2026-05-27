@@ -333,6 +333,37 @@ async fn desktop_composition_ai_projection_refreshes() {
             })
         }
 
+        // Minimal Phase 10 AI test doubles implemented inline for desktop tests.
+        fn request_ai_edit(
+            &self,
+            req: crate::ports::RequestAiEditRequest,
+        ) -> crate::BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, crate::ports::UseCaseError>> {
+            let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+            let resp = crate::ports::RequestAiEditResponse {
+                proposal: crate::ports::AiProposal {
+                    target_buffer: req.buffer_id.clone(),
+                    proposal_text: proposal.clone(),
+                    summary: Some("AI edit proposed".to_string()),
+                },
+            };
+            Box::pin(async move { Ok(resp) })
+        }
+
+        fn apply_ai_edit(
+            &self,
+            req: crate::ports::ApplyAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
+            // For test doubles, apply succeeds and we do not persist beyond the fake `last_update` used in other tests.
+            Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+        }
+
+        fn cancel_ai_edit(
+            &self,
+            _req: crate::ports::CancelAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, crate::ports::UseCaseError>> {
+            Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
+        }
+
         fn get_session_snapshot(
             &self,
             _req: crate::ports::GetSessionSnapshotRequest,
@@ -641,6 +672,66 @@ async fn desktop_composition_consistency_report_is_valid() {
                 };
                 Ok(crate::ports::GetRecentEventsResponse { events: vec![ev] })
             })
+        }
+
+        // Minimal Phase 10 AI test doubles implemented inline for desktop tests.
+        fn request_ai_edit(
+            &self,
+            req: crate::ports::RequestAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, crate::ports::UseCaseError>> {
+            let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+            let resp = crate::ports::RequestAiEditResponse {
+                proposal: crate::ports::AiProposal {
+                    target_buffer: req.buffer_id.clone(),
+                    proposal_text: proposal.clone(),
+                    summary: Some("AI edit proposed".to_string()),
+                },
+            };
+            Box::pin(async move { Ok(resp) })
+        }
+
+        fn apply_ai_edit(
+            &self,
+            req: crate::ports::ApplyAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
+            Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+        }
+
+        fn cancel_ai_edit(
+            &self,
+            _req: crate::ports::CancelAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, crate::ports::UseCaseError>> {
+            Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
+        }
+
+        // Minimal Phase 10 AI test doubles implemented inline for desktop tests.
+        fn request_ai_edit(
+            &self,
+            req: crate::ports::RequestAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, crate::ports::UseCaseError>> {
+            let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+            let resp = crate::ports::RequestAiEditResponse {
+                proposal: crate::ports::AiProposal {
+                    target_buffer: req.buffer_id.clone(),
+                    proposal_text: proposal.clone(),
+                    summary: Some("AI edit proposed".to_string()),
+                },
+            };
+            Box::pin(async move { Ok(resp) })
+        }
+
+        fn apply_ai_edit(
+            &self,
+            req: crate::ports::ApplyAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
+            Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+        }
+
+        fn cancel_ai_edit(
+            &self,
+            _req: crate::ports::CancelAiEditRequest,
+        ) -> crate::ports::BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, crate::ports::UseCaseError>> {
+            Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
         }
 
         fn get_session_snapshot(
