@@ -1,89 +1,76 @@
-# Zaroxi
+# Zaroxi Studio: AI-First IDE
 
-Zaroxi is a Rust-native, crate-first editor architecture and working editor harness. This repository contains the core libraries, engine subsystems, infrastructure adapters, and the desktop harness used to exercise editor flows prior to Phase 9.
+⚠️ Heavily Under Development: Zaroxi Studio is currently in active development. APIs, features, and architecture are subject to change. We welcome early adopters and contributors to help shape the project.
 
-Summary
-- Status: Active development — documentation and architecture modernization (pre‑Phase‑9).
-- Current state: A working Rust-native editor shell and desktop harness (implemented via `zaroxi-interface-*` and `zaroxi-application-*` crates). Desktop harness tests are passing; core editor and engine primitives are under active development.
+[![CI](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/ci.yml) [![Security Audit](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml/badge.svg)](https://github.com/mujaxso/zaroxi/actions/workflows/security-audit.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
-What Zaroxi is
-- A modular, crate-oriented editor and IDE architecture implemented in Rust, designed for clear layer separation and testability.
-- Focused on a rigorous layer model (kernel → core → domain → application → interface) and dedicated namespaces for infrastructure, intelligence, and security.
+Overview
+- Zaroxi is a Rust-native, crate-first editor and IDE architecture. The repository contains core libraries, engine subsystems, infrastructure adapters, intelligence scaffolding, and the desktop harness used to exercise editor flows prior to Phase 9.
+- Status: Active development — documentation & architecture modernization (pre‑Phase‑9).
 
 Key current capabilities
 - Crate-based architecture with explicit layer boundaries and naming conventions.
 - Working editor primitives (buffers, transactions, view/projection models) and engine subsystems.
-- Desktop harness that exercises workspace flows, buffer switching, checkpoint restore, pending-close/session-close handling, command bar, transcript/shell composition, AI explanation/projection, and GPU shell rendering.
-- Inline AI explanation/projection (editor-side projections used for explain-only flows).
+- Desktop harness (`zaroxi-interface-desktop` / `zaroxi-interface-app`) that exercises workspace flows, buffer switching, checkpoint restore, pending-close/session-close handling, command bar, transcript/shell composition, AI explanation/projection, and GPU shell rendering.
+- Inline AI explanation/projection (editor-side explain-only flows).
+- Desktop/app harness tests are passing and used as the primary runtime verification path.
 
-Important limitations (what is not implemented yet)
+What is not implemented yet (important limits)
 - Real disk-backed workspace/file persistence (planned for Phase 9).
 - Production LSP integration (Phase 10 target).
 - Full AI edit/apply flow (AI projection/explain exists; safe apply is planned for Phase 11).
-- Some infrastructure adapters and platform integrations are scaffolding and will mature in upcoming phases.
+- Some infrastructure adapters and platform integrations remain scaffolding and will mature in upcoming phases.
 
-Architecture (concise)
-- Kernel: `zaroxi-kernel-*` — tiny stable primitives and canonical types.
-- Core: `zaroxi-core-*` — engine, editor primitives, rendering, input, scheduling.
-- Domain: `zaroxi-domain-*` — workspace, buffer semantics, session, settings, plugins.
-- Application: `zaroxi-application-*` — feature orchestration and composition.
-- Interface: `zaroxi-interface-*` — concrete entrypoints (desktop harness, CLI, theme assets).
-- Special namespaces: `zaroxi-infrastructure-*`, `zaroxi-intelligence-*`, `zaroxi-security-*`.
+Key Features (detailed)
+- Modular Layers: Kernel → Core → Domain → Application → Interface. Special namespaces for `infrastructure`, `intelligence`, and `security`.
+- Editor Core: In-memory buffer primitives, transactions, checkpoints, and view/projection models suitable for building an editor shell.
+- GPU Shell: Engine rendering primitives and backend adapters used by the desktop harness to exercise rendering paths.
+- Desktop Harness: A runnable harness that composes interface → application → domain → core to exercise open/close, buffer operations, command flows, and AI projection.
+- AI Explanation: Editor-side AI explain/projection for previewing suggestions and explanations; end-to-end AI apply remains planned.
 
-Repository layout (high-level)
-- `crates/` — workspace crates: kernel, core, domain, application, interface, infrastructure, intelligence, security.
-- `docs/` — architecture, crates guide, RPC, security, roadmap, and related documentation.
-- `Cargo.toml` — workspace configuration.
+Documentation
+Comprehensive documentation is available in the `docs/` directory:
+- `docs/architecture.md` — High-level system design and layer responsibilities
+- `docs/crates.md` — Detailed crate documentation and recommended reading order
+- `docs/rpc.md` — RPC scaffold and communication role
+- `docs/security.md` — Security crate family and posture
+- `docs/roadmap.md` — Development roadmap and next phases
 
-Core crates to inspect first
-- `zaroxi-interface-desktop`, `zaroxi-interface-app` — desktop harness and app shell.
-- `zaroxi-application-workspace` — workspace lifecycle and orchestration.
-- `zaroxi-core-editor-buffer`, `zaroxi-domain-buffer` — buffer primitives and higher-level semantics.
-- `zaroxi-core-engine-render`, `zaroxi-core-engine-view` — rendering and view composition primitives.
-- `zaroxi-infrastructure-rpc`, `zaroxi-application-remote` — RPC scaffolding and remote orchestration.
-- `zaroxi-intelligence-agent`, `zaroxi-intelligence-context` — AI agent scaffolding and context packing.
+Contact & Links
+- Website: https://www.zaroxi.com
+- GitHub: https://github.com/mujaxso/zaroxi
+- Documentation: https://docs.zaroxi.com
+- Twitter: @zaroxi_studio
+- Email: contact@zaroxi.com
 
-Build
-- Requires a recent Rust toolchain (stable, e.g., 1.75+ recommended).
+Build & Run
+Requirements: Rust (stable, recent; 1.75+ recommended)
 
 Build workspace
-
 ```bash
-# From repository root
 cargo build --workspace
 ```
 
-Run the desktop harness
-
+Run desktop harness
 ```bash
-# Build and run the primary desktop harness
+# Build and run primary desktop harness
 cargo run -p zaroxi-interface-desktop --release
 
-# Development/debug build
+# Development/debug
 cargo run -p zaroxi-interface-desktop
 ```
 
-Notes: the harness is provided by `zaroxi-interface-desktop`. Inspect `crates/zaroxi-interface-desktop/Cargo.toml` for the exact binary target if necessary.
-
 Run tests
-
 ```bash
 # All workspace tests
 cargo test --workspace
 
-# Desktop harness tests only
+# Desktop harness tests
 cargo test -p zaroxi-interface-desktop
 ```
 
-Where to read more
-- `docs/architecture.md` — canonical architecture and layer responsibilities.
-- `docs/crates.md` — guided crate inventory and reading order.
-- `docs/roadmap.md` — concrete next phases from the current state through Phase 14.
-- `docs/rpc.md` — role of RPC and current scaffold.
-- `docs/security.md` — security crate family and conservative posture.
-
 Roadmap (short)
-- Current: Rust-native editor shell, desktop harness, engine primitives, AI explanation/projection, tests.
+- Current (pre-Phase-9): Rust-native editor shell, desktop harness, engine primitives, AI explain/projection, tests.
 - Phase 9: Disk-backed workspace persistence and file-backed buffers.
 - Phase 10: LSP baseline and diagnostics plumbing.
 - Phase 11: Safe AI edit/apply with preview & verification.
@@ -91,9 +78,9 @@ Roadmap (short)
 - Phase 13: Productization (packaging, installers, release infra).
 - Phase 14: Alpha release.
 
-Contribution and documentation note
-- Keep docs in `docs/` in sync with crate changes. When adding, renaming, or removing crates, update `docs/crates.md` and `docs/architecture.md`.
-- Do not describe planned features as implemented; use the roadmap for planned work and the README for the current, verifiable state.
+Contribution & Documentation note
+- Keep `docs/` in sync with the crate layout and architecture changes. When adding, renaming, or removing crates, update `docs/crates.md` and `docs/architecture.md`.
+- Use the roadmap to describe planned work; avoid describing planned features as implemented.
 
 License
-- See `LICENSE` for license details.
+- MIT — See `LICENSE` for details.
