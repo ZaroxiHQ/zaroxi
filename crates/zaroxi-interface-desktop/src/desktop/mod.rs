@@ -84,6 +84,10 @@ pub struct AiProjection {
     pub kind: Option<String>,
     pub result: Option<String>,
     pub target_buffer: Option<crate::ports::BufferId>,
+    /// Optional full proposal payload (when an edit is proposed).
+    pub proposal_text: Option<String>,
+    /// Current state of the AI projection (idle / proposed / applied / failed).
+    pub state: Option<AiState>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,13 +95,24 @@ pub enum AiKind {
     Explain,
     Suggest,
     Refactor,
+    /// New: Edit kind for AI-produced edits that may be applied to a buffer.
+    Edit,
     Other(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AiState {
+    /// No AI activity present.
+    Idle,
+    /// Provider ready (idle-but-ready).
     Ready,
+    /// Provider is running/generating.
     Running,
+    /// A proposal has been produced and is awaiting explicit apply.
+    Proposed,
+    /// Proposal has been applied to the buffer.
+    Applied,
+    /// Provider or apply failed.
     Failed,
 }
 

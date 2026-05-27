@@ -517,3 +517,152 @@ pub fn latest_shell_context(comp: &super::DesktopComposition) -> Option<super::S
         last_command_line: comp.metadata.as_ref().and_then(|m| m.last_command_line.clone()),
     })
 }
+
+// ----------------------------
+// AI edit/apply helpers (Phase 10)
+// ----------------------------
+
+/// Request an AI edit proposal for the currently active buffer in `session_id`.
+///
+/// This consults the provided `view` to obtain the active editor document (content),
+/// calls the deterministic mock AI provider, and stores a proposal into the composition
+/// metadata.ai_projection slot with state=Proposed. It also sets a small status message.
+pub async fn request_ai_edit_active(
+    comp: &mut super::DesktopComposition,
+    view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+) -> Result<(), String> {
+    // Attempt to read the active editor document via the view seam.
+    let doc_res = view
+        .get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest {
+            session_id: session_id.clone(),
+        })
+        .await;
+
+    let document = match doc_res {
+        Ok(r) => r.document,
+        Err(_) => {
+            return Err("failed to read active document".to_string());
+        }
+    };
+
+    let target_buffer = document.buffer_id.clone();
+
+    // Call deterministic mock AI provider to produce a proposal.
+    let provider = crate::ai::MockAiProvider::new();
+    let proposal_text = provider.propose_edit(target_buffer.clone(), document.content.clone()).await;
+
+    // Ensure metadata exists and store the ai projection with proposed state.
+    if comp.metadata.is_none() {
+        comp.metadata = Some(super::DesktopMetadata {
+            session_id: Some(session_id.clone()),
+            workspace_id: comp.workspace_id.clone(),
+            active_buffer: Some(target_buffer.clone()),
+            opened_buffer_count: 0,
+            opened_buffers: Vec::new(),
+            active_buffer_details: None,
+            ai_projection: None,
+            visible_window: None,
+            last_command_line: None,
+            refresh_reason: None,
+        });
+    }
+
+    if let Some(md) = comp.metadata.as_mut() {
+        md.ai_projection = Some(super::AiProjection {
+            kind: Some("Edit".to_string()),
+            result: Some("AI edit proposed".to_string()),
+            target_buffer: Some(target_buffer.clone()),
+            proposal_text: Some(proposal_text.clone()),
+            state: Some(super::AiState::Proposed),
+        });
+    }
+
+    comp.set_status_message("AI edit proposed".to_string());
+
+    // Optionally, if a service is provided, we may record the proposal in history via
+    // get_recent_commands or a custom command; for Phase 10 we keep it local.
+    let _ = service;
+
+    Ok(())
+}
+
+/// Apply the currently proposed AI edit for the active buffer.
+///
+/// Preconditions:
+/// - comp.metadata.ai_projection must be present with state=Proposed and contain a proposal_text.
+/// - `service` must be provided and implement the update_buffer port.
+///
+/// This function applies the proposal using the normal WorkspaceService.update_buffer path,
+/// sets the ai_projection.state to Applied on success, sets a user-visible status message,
+/// and refreshes the composition so the new content is visible.
+pub async fn apply_ai_edit_active(
+    comp: &mut super::DesktopComposition,
+    view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    service: std::sync::Arc<dyn crate::ports::WorkspaceService>,
+) -> Result<(), String> {
+    let md = comp
+        .metadata
+        .as_mut()
+        .ok_or_else(|| "no composition metadata present".to_string())?;
+
+    let ai = md.ai_projection.as_ref().ok_or_else(|| "no ai proposal present".to_string())?;
+
+    if ai.state != Some(super::AiState::Proposed) {
+        return Err("ai proposal not in proposed state".to_string());
+    }
+
+    let proposal = ai
+        .proposal_text
+        .clone()
+        .ok_or_else(|| "ai proposal text missing".to_string())?;
+
+    let buffer_id = ai
+        .target_buffer
+        .clone()
+        .ok_or_else(|| "ai target buffer missing".to_string())?;
+
+    // Build update request and call the WorkspaceService update_buffer port.
+    let update_req = crate::ports::UpdateBufferRequest {
+        session_id: session_id.clone(),
+        buffer_id: buffer_id.clone(),
+        new_content: proposal.clone(),
+    };
+
+    match service.update_buffer(update_req).await {
+        Ok(resp) => {
+            if resp.ok {
+                // Mark applied in the projection.
+                if let Some(md_mut) = comp.metadata.as_mut() {
+                    if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
+                        ai_mut.state = Some(super::AiState::Applied);
+                        ai_mut.result = Some("AI edit applied".to_string());
+                    }
+                }
+
+                comp.set_status_message("AI edit applied".to_string());
+
+                // Refresh composition so the new content is visible. We pass the service
+                // back into the refresh so opened-buffer lists and authoritative active buffer
+                // info may be read by the composition helpers.
+                comp.refresh_with_service(view, session_id, workspace_id, Some(service.clone()))
+                    .await?;
+                Ok(())
+            } else {
+                Err("workspace update reported failure".to_string())
+            }
+        }
+        Err(e) => Err(format!("update_buffer failed: {}", e)),
+    }
+}
+
+/// Cancel and clear any pending AI proposal in the composition without mutating buffers.
+pub fn cancel_ai_edit_active(comp: &mut super::DesktopComposition) {
+    if let Some(md) = comp.metadata.as_mut() {
+        md.ai_projection = None;
+    }
+    comp.set_status_message("AI proposal cancelled".to_string());
+}
