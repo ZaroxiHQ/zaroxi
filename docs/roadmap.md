@@ -1,69 +1,72 @@
-# Roadmap — From Current State Toward Phase 14
+# Roadmap — Execution Plan From Current State (Pre‑Phase‑9)
 
-This roadmap starts from the current, verified pre-Phase-9 state and lays out concrete next phases. It is intentionally pragmatic: each phase lists specific deliverables and keeps the distinction between implemented and planned work clear.
+Purpose: Provide concrete, delivery‑oriented checkpoints from the project's current state toward Phase 14. Each phase lists deliverables and measurable success criteria.
 
-Current (pre-Phase-9)
-- Rust-native, crate-based editor shell and desktop harness (`zaroxi-interface-desktop`, `zaroxi-interface-app`) are working and used to exercise runtime flows.
-- Core editor primitives, engine subsystems, and the GPU shell are present and under test.
-- AI explanation/projection is implemented (editor-side projection), but full AI edit/apply flow is not yet implemented.
-- Desktop/app tests for the harness path are passing.
-- Real disk-backed workspace persistence and full LSP integration are not yet implemented.
+---
 
-Next (Phase 9) — Disk-backed workspaces (priority)
-Goal: Implement reliable disk-backed workspace and file persistence so the editor can operate on real file trees and durable buffers.
+## Where we are now
+
+- Working desktop harness that exercises runtime flows and GPU shell rendering.
+- Core editor primitives and engine subsystems are implemented and under test.
+- AI explanation/projection exists; full AI edit/apply is not implemented.
+- Disk-backed persistence and LSP baseline are not implemented yet.
+
+---
+
+## Phase 9 — Disk-backed workspaces (priority)
+
 Deliverables:
-- Storage adapter implementations for local filesystem (infrastructure-storage) with crash-safe write semantics.
+- `zaroxi-infrastructure-storage` local FS adapter with crash-safe write semantics.
 - Integration: wire `zaroxi-application-workspace` and `zaroxi-domain-buffer` to persistent storage.
-- Migration tests and end-to-end harness validation using the desktop harness.
-- Backup and checkpoint persistence strategy (safe restore on crash).
+- Migration and recovery tests exercised by the desktop harness.
 
-Phase 10 — LSP baseline
-Goal: Provide a stable LSP integration baseline for language features and diagnostics.
+Success criteria:
+- Desktop harness CI exercises open/save and checkpoint restore on real disk-backed workspaces.
+- No regressions in harness tests.
+
+---
+
+## Phase 10 — LSP baseline
+
 Deliverables:
-- LSP client scaffolding and session manager (`zaroxi-core-platform-lsp` / `zaroxi-infrastructure-*` where necessary).
+- LSP client scaffolding and session manager in `zaroxi-core-platform-lsp` or equivalent.
 - Diagnostics plumbing into editor UI and workspace indexing.
-- Tests and sample integrations for Rust and one additional language (e.g., TypeScript).
+- Tests and example integrations for Rust and one other language.
 
-Phase 11 — AI edit/apply
-Goal: Ship a safe AI edit/apply workflow that supports preview, verification, and explicit user confirmation before applying changes.
+Success criteria:
+- LSP sessions can be started/stopped in the harness and diagnostics surface in editor views.
+
+---
+
+## Phase 11 — AI edit/apply
+
 Deliverables:
-- AI apply pipeline with preview and verification (`zaroxi-intelligence-*` + patch-engine integration).
-- Safety checks and validation (`zaroxi-security-validation`) before any automatic apply.
-- UI/UX flows in the desktop harness for preview and user confirmation.
+- AI apply pipeline: produce patches, preview UI, verification and user confirmation flows.
+- Safety checks via `zaroxi-security-validation` and audit emissions.
 
-Phase 12 — Performance and rendering
-Goal: Improve performance across rendering, workspace operations, and large-file handling.
-Deliverables:
-- Incremental rendering and layout improvements in `zaroxi-core-engine-*`.
-- Workspace indexing and search performance improvements.
-- Memory and CPU profiling with actionable optimizations.
+Success criteria:
+- Harness tests cover preview/verify/apply flows and policy failures.
 
-Phase 13 — Productization
-Goal: Prepare the codebase for wider distribution and early adopters.
-Deliverables:
-- Packaging and installers for target platforms.
-- Update & installer signing, release pipelines, and reproducible build documentation.
-- Documentation and contributor onboarding improvements.
+---
 
-Phase 14 — Alpha release
-Goal: Publish an alpha release that includes the core editor experience, persistent workspaces, LSP baseline, and safe AI apply flows.
-Deliverables:
-- Public alpha release artifacts and release notes.
-- Early user feedback channels and tracked issues.
+## Later phases (12–14)
 
-Later work (post-alpha)
-- Collaboration & multi-user editing.
-- Advanced AI features (fine-tuning, local model support, agent orchestration).
-- Enterprise features and integrations.
+- Phase 12: Performance and incremental rendering improvements.
+- Phase 13: Packaging, installers, and release infrastructure.
+- Phase 14: Public alpha release with core editor, persistence, LSP baseline, and safe AI apply.
 
-How to contribute to the roadmap
-- Open an issue labeled `roadmap` with a clear proposal and implementation plan.
-- For feature work: open a design doc and link to relevant crates and tests.
-- Keep docs/roadmap.md and docs/architecture.md synchronized when plans shift.
+---
 
-Success criteria for Phase 9
-- Desktop harness exercises real disk-backed open/save flows in CI.
-- Tests cover storage, checkpoint, and recovery flows.
-- No regressions in desktop/app harness tests.
+## Not a priority right now
 
-This roadmap is purposely concrete and conservative; it reflects the repository's current state and the next practical milestones toward a durable editor product.
+- Full multi-node collaboration (real-time multi-user editing) — low priority before persistence and LSP.
+- Enterprise identity connectors and signed-update systems — planned after Phase 9–11 foundations.
+
+---
+
+## How to contribute to the roadmap
+
+- Open an issue labeled `roadmap` with a clear implementation plan and targeted crates.
+- Small PRs that add tests or per-crate README are high-value early contributions.
+
+Related: `docs/MISSING_FILES.md` outlines immediate documentation and small engineering tasks contributors can pick up.

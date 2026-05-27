@@ -1,101 +1,87 @@
-# Zaroxi Architecture
+# Architecture — System Responsibilities and Runtime Flow
 
-This document describes the current, canonical architecture for Zaroxi as it exists before Phase 9. It focuses on the active crate-based layer model, the primary runtime paths, and how the desktop harness fits into the system.
+Purpose: Describe the real, current architecture and runtime flow for Zaroxi (pre‑Phase‑9). This file explains boundaries, request/data/control flow, where infrastructure/intelligence/security belong, and how the desktop harness and GPU shell are exercised.
 
-Layer model (top → bottom)
-- Interface (`zaroxi-interface-*`): Entry points and concrete products (desktop harness, CLI, theming). Integrates application features into runnable artifacts.
-- Application (`zaroxi-application-*`): Feature composition and orchestration built from domain and core primitives (workspace orchestration, command routing, editor composition).
-- Domain (`zaroxi-domain-*`): Pure business logic and domain models (workspace, buffer semantics, sessions, settings, plugins).
-- Core (`zaroxi-core-*`): Foundational engines and primitives used across the system (editor buffers, rendering primitives, input, scheduling, workspace helpers).
-- Kernel (`zaroxi-kernel-*`): Minimal, stable primitives (IDs, small types, lightweight utilities).
+---
 
-Special namespaces
-- Infrastructure (`zaroxi-infrastructure-*`): Adapters and implementations (RPC, storage adapters, networking, tracing, settings). Infrastructure crates implement trait contracts defined in core/domain.
-- Intelligence (`zaroxi-intelligence-*`): Agent runtimes, planning, context packing, and evaluation utilities. Intelligence crates are intentionally isolated from interface/application layers and prefer pure data and algorithms.
-- Security (`zaroxi-security-*`): Audit, auth, policy, sandbox and validation primitives.
+## Architecture principles
 
-Principles
-- Clear layer boundaries: lower layers must not depend on higher layers.
-- Small stable kernels: keep kernel crates minimal and dependency-light.
-- Adapter pattern: platform-specific implementations live in infrastructure; core/domain define traits/contracts.
-- Pragmatic modularity: crates are split along responsibility lines and named consistently: `zaroxi-{layer}-{...}`.
+- Strict layer separation: Kernel → Core → Domain → Application → Interface. Lower layers must not depend on higher layers.
+- Small, stable kernels: keep primitives minimal, vet external dependencies.
+- Adapter pattern for platform concerns: platform-specific code lives in `zaroxi-infrastructure-*` crates that implement trait contracts defined in core/domain.
+- Intelligence and security are first-class families but avoid upward dependencies into application/interface layers.
 
-Layers and responsibilities (summary)
-- Kernel (`zaroxi-kernel-*`)
-  - Purpose: Extremely small, stable primitives and canonical types (IDs, small numeric helpers, protocol types, traits).
-  - Allowed deps: Rust standard library and a minimal set of vetted externals. Kernel crates should not depend on other `zaroxi-*` crates.
+---
 
-- Core (`zaroxi-core-*`)
-  - Purpose: Engine and runtime primitives used across the stack (rendering, input, scheduling, editor primitives, workspace helpers).
-  - Allowed deps: Kernel crates and other core crates only.
+## Layer model (concise)
 
-- Domain (`zaroxi-domain-*`)
-  - Purpose: Pure business logic and domain models (workspace model, buffer semantics, session lifecycle, settings schema, plugin contracts).
-  - Allowed deps: Kernel and core crates and other domain crates.
+- Kernel (`zaroxi-kernel-*`): canonical types, IDs, tiny traits.
+- Core (`zaroxi-core-*`): engine/runtime primitives — buffers, render pipeline, input, scheduling.
+- Domain (`zaroxi-domain-*`): pure business logic — workspace, buffer semantics, session lifecycle.
+- Application (`zaroxi-application-*`): feature composition — workspace orchestration, editor composition, command routing.
+- Interface (`zaroxi-interface-*`): concrete shells — desktop harness, CLI, lightweight app glue.
 
-- Application (`zaroxi-application-*`)
-  - Purpose: High-level feature composition and orchestration: editor composition, workspace flows, command routing, search, navigation.
-  - Allowed deps: Kernel, core, domain, and other application crates.
+Special families:
+- Infrastructure (`zaroxi-infrastructure-*`) — adapters for storage, RPC, OS integrations.
+- Intelligence (`zaroxi-intelligence-*`) — agent runtimes, planning, context packing.
+- Security (`zaroxi-security-*`) — policy, audit, sandbox helpers.
 
-- Interface (`zaroxi-interface-*`)
-  - Purpose: Concrete entry points and product shells (desktop harness, CLI, theming assets). Integrates application features into runnable artifacts.
-  - Allowed deps: Kernel, core, domain, application, and other interface crates.
+---
 
-- Infrastructure (`zaroxi-infrastructure-*`)
-  - Purpose: Adapter implementations for networking, storage, RPC, tracing, settings, process management, and platform-specific integrations.
-  - Allowed deps: Kernel and core crates (implementations should depend on trait contracts from core/domain as appropriate).
+## Runtime flow (request / control / data)
 
-- Intelligence (`zaroxi-intelligence-*`)
-  - Purpose: Agent runtimes, context packing, planning, embeddings, evaluation tools and safe orchestration primitives for AI features.
-  - Allowed deps: Kernel, core, domain (avoid depending on application or interface layers).
+1. User interaction at the Interface layer (desktop, CLI) produces high-level intents: open workspace, run command, request AI suggestion.
+2. Interface maps intents to Application APIs (workspace orchestration, command dispatch). The application layer composes domain primitives and coordinates long-running flows.
+3. Application executes domain operations (workspace model, buffer semantics). Domain crates encapsulate the pure logic and emit domain events.
+4. Core crates implement low-level mechanics: in-memory buffers, transactions, checkpoints, render/view composition, scheduling and input dispatch. Core exposes trait contracts consumed by domain/application.
+5. Infrastructure adapters (storage, RPC, OS) implement concrete persistence, transport, and platform-specific behavior behind well-defined traits.
+6. Intelligence crates observe/consume domain/core state (via well-scoped interfaces) to provide planning, context packing, and suggestions. Intelligence must not perform side-effects directly; side-effects are requested through application-layer APIs for explicit approval.
+7. Security crates provide policy evaluation, audit event models, and validation helpers. Enforcement occurs at the application/service boundary (explicit checks before privileged operations).
 
-- Security (`zaroxi-security-*`)
-  - Purpose: Policy language and evaluation, authentication primitives, audit models, sandbox helpers, and validation primitives.
-  - Allowed deps: Kernel, core, domain (avoid depending on application/interface/infrastructure where possible).
+---
 
-Primary runtime paths
-1. Desktop harness (interface-desktop / interface-app)
-   - The desktop harness is the active developer-facing entry point. It composes `interface` → `application` → `domain` → `core` layers to exercise editor features and flows.
-   - Current harness responsibilities: workspace open, buffer open, editor state refresh, active buffer switching, checkpoint restore, pending-close and session-close flows, command bar, transcript/shell composition, GPU shell rendering, and AI explanation/projection flows.
-   - The harness is implemented via `zaroxi-interface-app` and `zaroxi-interface-desktop` crates; these are the starting point for running and testing desktop behaviors.
+## Where infrastructure fits
 
-2. Application-workspace flow
-   - `zaroxi-application-workspace` orchestrates workspace lifecycle events: open, close, indexing triggers, and interactions with application-level features (search, navigation, project metadata).
-   - Workspace orchestration uses domain models in `zaroxi-domain-workspace` and `zaroxi-domain-buffer` and leverages core helpers for snapshots and patch application.
+- Infrastructure crates implement adapters for traits defined by core/domain. Examples: filesystem storage adapters, RPC transports, logging/tracing adapters.
+- Infrastructure is responsible for side‑effects and platform integration; code here may depend on OS crates and external libraries.
+- Keep protocol/format definitions in core/domain so infrastructure can provide multiple adapters without duplicating logic.
 
-3. Editor buffer and view
-   - Core buffer primitives: `zaroxi-core-editor-buffer` (in-memory rope-like representation, transactions, checkpoints).
-   - Buffer semantics and higher-level behaviors: `zaroxi-domain-buffer` and editor composition in `zaroxi-application-editor`.
-   - Rendering and view: `zaroxi-core-engine-*` crates provide view composition, render resource management, and GPU shell plumbing used by the desktop harness.
+---
 
-4. Intelligence integration (current)
-   - Intelligence crates provide planning, context packing, and tooling for agent workflows.
-   - Current AI functionality is primarily explanation/projection (editor-side AI explain flows). The end-to-end AI edit/apply path remains work-in-progress.
+## Where intelligence fits
 
-5. Infrastructure adapters
-   - `zaroxi-infrastructure-rpc` provides RPC transport adapters. `zaroxi-application-remote` consumes RPC adapters to enable remote orchestration.
-   - Storage adapters (local FS and other backends) are present as infrastructure crates but full disk-backed workspace persistence is targeted for Phase 9.
+- Intelligence crates provide algorithmic, data‑processing, and planning capabilities: context packing, embeddings, agent planners, and verification helpers.
+- Intelligence operates on copies or read-only views of domain/core state and returns suggestions, plans, or patches.
+- All apply-side effects from intelligence must be mediated by application APIs and pass security/policy checks before applying to persistent state.
 
-GPU shell and composition
-- The GPU shell is part of the core engine rendering stack (`zaroxi-core-engine-render*` family) and is exercised by the desktop harness.
-- The GPU shell provides device-agnostic render APIs and resource abstractions; backend-specific adapters (wgpu/Metal/etc.) are isolated behind feature flags and live in render-backend crates.
+---
 
-Current state before Phase 9 (concise)
-- The project is a Rust-native, crate-first architecture with a functioning desktop harness that exercises editor and engine flows.
-- Desktop harness and selected tests are passing and are the primary verification path for runtime behaviors.
-- Real disk-backed persistence, a production LSP integration, and the AI edit/apply flow are intentionally not yet implemented.
-- Infrastructure and adapter layers contain scaffolding and some implemented adapters, but several platform integrations are planned for Phase 9 and later.
+## Where security fits
 
-Near-term planned evolution (high level)
-- Phase 9: Implement disk-backed workspace persistence and file-backed buffers (storage adapters, crash-safe persistence).
-- Phase 10: Establish an LSP baseline and tighten language integration (lsp client/server scaffolding, diagnostics plumbing).
-- Phase 11: Produce a safe AI edit/apply flow with preview, verification, and human approval controls.
-- Phase 12+: Performance and rendering improvements, packaging, and alpha/beta releases.
+- Security crates model policies, perform validation, and emit audit events; they are libraries used by application and infrastructure code.
+- Runtime enforcement is implemented at the application boundary where requests are validated and audited.
+- OS-level sandboxing and enterprise integrations are planned features (Phase 9+); current crates provide evaluation primitives and audit models.
 
-Historical notes
-- Older references to prior UI experiments have been removed from the canonical architecture documentation. Any historical references that remain in commit history are strictly historical and should not be treated as the current product architecture.
+---
 
-Where to look next
-- `docs/crates.md` — guided reading order for crates and advice for new contributors.
-- `docs/rpc.md` — current RPC scaffold and role in the system.
-- `docs/roadmap.md` — concrete phase plan from current state to Phase 14.
+## Desktop harness and GPU shell
+
+- The desktop harness (`zaroxi-interface-desktop` + `zaroxi-interface-app`) is the active integration and test harness used to exercise workspace flows and runtime behaviors.
+- GPU shell and render pipelines (core engine crates) are exercised by the harness; backend-specific adapters are feature-gated and isolated behind render-backend crates.
+- The harness is the primary verification path for flows such as open/close, pending-close, checkpoint restore, command bar flows, and AI explanation/projection.
+
+---
+
+## Current state (pre‑Phase‑9)
+
+- The repository implements a working Rust-native editor shell and desktop harness that composes interface → application → domain → core.
+- Disk-backed persistence, hardened LSP, and end-to-end AI apply are intentionally not implemented yet.
+- Infrastructure contains scaffolding and some adapters; production-grade integrations are a near-term priority (Phase 9).
+
+---
+
+> Note: References to older Tauri/iced UI experiments are historical. The canonical architecture uses the layer model above and does not rely on Tauri/iced as the current stack.
+
+---
+
+Related docs: see `docs/crates.md` for a crate-focused contribution guide and `docs/roadmap.md` for phase-based delivery checkpoints.
