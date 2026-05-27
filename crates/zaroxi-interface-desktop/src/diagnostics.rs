@@ -7,21 +7,36 @@ compact API used by the harness and presenter.
 */
 
 use crate::DesktopComposition;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
+use std::thread;
 
 /// In-memory mock provider map used by harness and tests to exercise a
 /// ready-state diagnostics path without a full LSP client. Keys are normalized
 /// resource URIs (strings) and values are presenter-local Diagnostic vectors.
+/// Keys are namespaced by the current thread token so test cases running in
+/// parallel do not interfere with one another.
 static MOCK_PROVIDER: Lazy<Mutex<HashMap<String, Vec<Diagnostic>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Whether an in-memory provider has been installed (registered) by the harness
-/// or tests. This separates provider availability from the presence of an
+/// Per-thread marker set indicating which threads have installed an in-memory
+/// provider. This separates provider availability from the presence of an
 /// entry for a specific URI: an installed provider may have zero diagnostics
 /// for a given URI and should still be considered "ready".
-static MOCK_PROVIDER_INSTALLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+static MOCK_PROVIDER_INSTALLED: Lazy<Mutex<HashSet<String>>> =
+    Lazy::new(|| Mutex::new(HashSet::new()));
+
+/// Return a stable token for the current thread used to namespace mock provider keys.
+fn current_thread_token() -> String {
+    // Debug format is stable for ThreadId and suitable for map namespace.
+    format!("{:?}", thread::current().id())
+}
+
+/// Build the internal storage key for a given URI scoped to the current thread.
+fn storage_key_for_uri(uri: &str) -> String {
+    format!("{}::{}", current_thread_token(), uri)
+}
 
 /// Local severity model used by the presenter and tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,17 +153,22 @@ pub struct DiagnosticsSnapshot {
 /// active buffer. Passing an empty vector will clear any existing mock entry.
 ///
 /// Behavior:
-/// - non-empty `diags` inserts the entry and marks the in-memory provider as installed.
+/// - non-empty `diags` inserts the entry and marks the in-memory provider as installed
+///   for the current test thread.
 /// - empty `diags` removes the entry for the URI but does NOT mark the provider
 ///   as uninstalled (so provider availability is preserved until explicitly cleared).
 pub fn register_mock_diagnostics(uri: &str, diags: Vec<Diagnostic>) {
+    let key = storage_key_for_uri(uri);
     let mut map = MOCK_PROVIDER.lock().unwrap();
     if diags.is_empty() {
-        map.remove(uri);
+        map.remove(&key);
     } else {
-        map.insert(uri.to_string(), diags);
-        // Mark provider installed when a non-empty registration occurs.
-        *MOCK_PROVIDER_INSTALLED.lock().unwrap() = true;
+        map.insert(key, diags);
+        // Mark provider installed for this thread token.
+        MOCK_PROVIDER_INSTALLED
+            .lock()
+            .unwrap()
+            .insert(current_thread_token());
     }
 }
 
@@ -167,13 +187,25 @@ pub fn ingest_diagnostics_payload(uri: &str, diags: Vec<Diagnostic>) {
     register_mock_diagnostics(uri, diags)
 }
 
-/// Clear all registered mock diagnostics (test convenience).
+/// Clear all registered mock diagnostics for the current thread (test convenience).
 ///
-/// Also clear the "installed" marker so tests can reset provider availability
-/// to the initial state.
+/// Also clear the "installed" marker for the current thread so tests can reset
+/// provider availability to the initial state without affecting other parallel tests.
 pub fn clear_mock_diagnostics() {
-    MOCK_PROVIDER.lock().unwrap().clear();
-    *MOCK_PROVIDER_INSTALLED.lock().unwrap() = false;
+    let token = current_thread_token();
+    // Remove keys for this thread only.
+    let mut map = MOCK_PROVIDER.lock().unwrap();
+    let prefix = format!("{}::", token);
+    let keys_to_remove: Vec<String> = map
+        .keys()
+        .filter(|k| k.starts_with(&prefix))
+        .cloned()
+        .collect();
+    for k in keys_to_remove {
+        map.remove(&k);
+    }
+    // Remove installed marker for this thread.
+    MOCK_PROVIDER_INSTALLED.lock().unwrap().remove(&token);
 }
 
 /// Return detailed diagnostics for a URI when the provider is ready.
@@ -189,14 +221,19 @@ pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
         return Some(Vec::new());
     }
 
-    // First, consult the in-memory mock provider.
-    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(u) {
+    let key = storage_key_for_uri(u);
+    // First, consult the in-memory mock provider for this thread.
+    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(&key) {
         return Some(v.clone());
     }
 
-    // If an in-memory provider was installed (but has no entry for this URI),
+    // If an in-memory provider was installed for this thread (but has no entry for this URI),
     // report an empty ready set (provider present, zero diagnostics).
-    if *MOCK_PROVIDER_INSTALLED.lock().unwrap() {
+    if MOCK_PROVIDER_INSTALLED
+        .lock()
+        .unwrap()
+        .contains(&current_thread_token())
+    {
         return Some(Vec::new());
     }
 
@@ -259,9 +296,11 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
         return None;
     }
 
-    // First, consult the in-memory mock provider. This allows the harness and
+    let key = storage_key_for_uri(u);
+
+    // First, consult the in-memory mock provider for this thread. This allows the harness and
     // tests to exercise a ready-state diagnostics path without a full LSP.
-    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(u) {
+    if let Some(v) = MOCK_PROVIDER.lock().unwrap().get(&key) {
         let mut errors = 0u32;
         let mut warnings = 0u32;
         let mut infos = 0u32;
@@ -284,9 +323,13 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
         });
     }
 
-    // If an in-memory provider was installed but no entry exists for this URI,
+    // If an in-memory provider was installed for this thread but no entry exists for this URI,
     // treat the provider as present and return a zero-count Ready snapshot.
-    if *MOCK_PROVIDER_INSTALLED.lock().unwrap() {
+    if MOCK_PROVIDER_INSTALLED
+        .lock()
+        .unwrap()
+        .contains(&current_thread_token())
+    {
         return Some(DiagnosticsSnapshot {
             provider: ProviderState::Ready,
             active_buffer: u.to_string(),
