@@ -13,3 +13,7 @@ license = "MIT"
 # on the canonical kernel id crate for UuidId.
 serde = { workspace = true }
 zaroxi-kernel-id = { workspace = true }
+
+# Workspace-owned external crates (hoisted to workspace root pins).
+thiserror = { workspace = true }
+memmap2 = { workspace = true }
