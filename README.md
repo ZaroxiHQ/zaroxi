@@ -1,6 +1,7 @@
 # Zaroxi Studio: AI-First IDE
 
-⚠️ Heavily Under Development: Zaroxi Studio is currently in active development. APIs, features, and architecture are subject to change. We welcome early adopters and contributors to help shape the project!
+> ⚠️ **Warning — Heavily under development (muted)**  
+> <small><em>This project is actively evolving. APIs, features, and architecture may change without notice. Early adopters and contributors are welcome, but expect instability and breaking changes.</em></small>
 
 Repository: https://github.com/ZaroxiHQ/zaroxi
 
