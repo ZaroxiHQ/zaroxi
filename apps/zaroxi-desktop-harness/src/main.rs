@@ -180,6 +180,9 @@ async fn main() -> Result<(), String> {
                         "Harness: refresh action result: success={} refreshed={} message={:?}",
                         action_result.success, action_result.refreshed, action_result.message
                     );
+                    // Print a compact diagnostics summary (Phase 10 observable path).
+                    let diag_summary = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+                    println!("Harness: diagnostics summary -> {}", diag_summary);
 
                     // Reusable helper: print an editor-focused verification slice using the real presenter helper.
                     // Relies on the presenter->transcript local helper `build_editor_primitives_from_lines`
