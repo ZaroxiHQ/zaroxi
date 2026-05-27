@@ -1,8 +1,7 @@
 #![cfg(test)]
 
 use std::sync::Arc;
-use futures::future::BoxFuture;
-use std::pin::Pin;
+use crate::BoxFuture;
 
 use zaroxi_interface_desktop::desktop::DesktopComposition;
 use zaroxi_interface_desktop::desktop::request_ai_edit_active;
@@ -18,6 +17,7 @@ use zaroxi_application_workspace::ports::{
     EditorDocument, BufferId, SessionId, UseCaseError, ApplyTextTransactionRequest, ApplyTextTransactionResponse,
 };
 use zaroxi_kernel_types::Id;
+use zaroxi_interface_desktop::ports;
 
 struct FakeView {
     doc: EditorDocument,
@@ -29,7 +29,7 @@ impl FakeView {
             doc: EditorDocument {
                 buffer_id,
                 content,
-                cursor: crate::ports::EditorCursor::zero(),
+                cursor: ports::EditorCursor::zero(),
                 selection: None,
                 line_count: 1,
                 current_line: None,
@@ -153,13 +153,13 @@ async fn ai_request_and_apply_flow() {
     let mut comp = DesktopComposition::new();
     // Create fake buffer id by using a simple BufferId::new() if available; otherwise use Default/constructors.
     // We'll construct a BufferId via a simple path helper (BufferId often wraps a path in tests).
-    let buf_id = crate::ports::BufferId::from_path(std::path::PathBuf::from("file1.txt"));
+    let buf_id = ports::BufferId::from_path(std::path::PathBuf::from("file1.txt"));
 
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("original content".to_string())));
     let service = Arc::new(FakeService::new());
 
     // Create a dummy session id; use default Id if available.
-    let session_id = SessionId(Id::default());
+    let session_id = SessionId(Id::new());
 
     // Request AI edit.
     let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None).await;
@@ -189,9 +189,9 @@ async fn ai_request_and_apply_flow() {
 #[tokio::test]
 async fn ai_cancel_clears_proposal() {
     let mut comp = DesktopComposition::new();
-    let buf_id = crate::ports::BufferId::from_path(std::path::PathBuf::from("file2.txt"));
+    let buf_id = ports::BufferId::from_path(std::path::PathBuf::from("file2.txt"));
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("something".to_string())));
-    let session_id = SessionId(Id::default());
+    let session_id = SessionId(Id::new());
 
     let _ = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None).await;
     assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_some());

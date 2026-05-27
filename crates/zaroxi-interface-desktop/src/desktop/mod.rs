@@ -18,6 +18,7 @@ use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 use zaroxi_kernel_types::Id;
 
 mod composition;
+pub use composition::{refresh_with_service, latest_active_document_summary, request_ai_edit_active, apply_ai_edit_active, cancel_ai_edit_active};
 mod consistency;
 mod projections;
 mod snapshot;
