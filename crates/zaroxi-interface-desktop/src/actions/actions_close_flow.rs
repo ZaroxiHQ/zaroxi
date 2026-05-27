@@ -183,6 +183,10 @@ pub async fn confirm_discard_and_close(
 pub async fn confirm_cancel_close(
     comp: &mut crate::desktop::DesktopComposition,
 ) -> Result<ActionResult, String> {
+    // Ensure any previously preserved explicit close-result status is cleared
+    // so a cancelled close does not accidentally display a stale "Saved/Discarded"
+    // message.
+    comp.clear_close_result_status();
     comp.clear_pending_close();
     comp.set_status_message("Close cancelled".to_string());
     Ok(ActionResult { success: true, message: None, refreshed: false })

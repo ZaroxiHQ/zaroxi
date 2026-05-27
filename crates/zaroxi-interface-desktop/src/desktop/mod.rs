@@ -222,6 +222,9 @@ pub struct DesktopComposition {
     pending_refresh_reason: Option<RefreshReason>,
     pending_close: Option<PendingClose>,
     command_bar: Option<CommandBarState>,
+    /// When set, this explicit close-result status should be preferred by
+    /// visible status helpers over transient refresh/update messages.
+    close_result_status: Option<String>,
 }
 
 impl DesktopComposition {
@@ -236,6 +239,7 @@ impl DesktopComposition {
             pending_refresh_reason: None,
             pending_close: None,
             command_bar: None,
+            close_result_status: None,
         }
     }
 
@@ -446,7 +450,12 @@ impl DesktopComposition {
     pub fn set_close_result_status(&mut self, text: String) {
         // Ensure pending-close is cleared before setting the final status.
         self.clear_pending_close();
-        // Reuse set_status_message to populate metadata.last_command_line in a consistent way.
+
+        // Preserve an explicit close-result status separately so it will survive
+        // an immediately-following refresh that may update the generic
+        // metadata.last_command_line. We still populate metadata.last_command_line
+        // for backward compatibility with any consumers that read that field.
+        self.close_result_status = Some(text.clone());
         self.set_status_message(text);
     }
 
@@ -454,6 +463,12 @@ impl DesktopComposition {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = None;
         }
+    }
+
+    /// Clear any preserved explicit close-result status. Call this to allow
+    /// subsequent generic refresh/update messages to be surfaced normally.
+    pub fn clear_close_result_status(&mut self) {
+        self.close_result_status = None;
     }
 
     /// Perform a local in-process "close" of the composition to reflect a session/window
@@ -527,6 +542,12 @@ impl DesktopComposition {
     }
 
     pub fn latest_status_bar_line(&self) -> Option<StatusBarLine> {
+        // If a close-result status is currently preserved prefer it over any
+        // transient refresh/update status. This makes explicit close results
+        // survive the immediate refresh path as required by the harness.
+        if let Some(cr) = self.close_result_status.clone() {
+            return Some(StatusBarLine { text: cr, sticky: None });
+        }
         status::latest_status_bar_line(self)
     }
 
