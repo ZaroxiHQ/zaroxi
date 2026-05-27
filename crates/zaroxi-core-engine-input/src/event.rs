@@ -1,4 +1,3 @@
-
 //! Minimal engine input event shim used by the runtime.
 //!
 //! This small module provides a placeholder `Event` type and a conversion

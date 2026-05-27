@@ -1,4 +1,3 @@
-
 //! Workspace manager.
 
 use serde::{Deserialize, Serialize};
