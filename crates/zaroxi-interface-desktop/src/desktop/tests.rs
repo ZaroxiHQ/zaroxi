@@ -351,7 +351,7 @@ async fn desktop_composition_ai_projection_refreshes() {
 
         fn apply_ai_edit(
             &self,
-            req: crate::ports::ApplyAiEditRequest,
+            _req: crate::ports::ApplyAiEditRequest,
         ) -> crate::ports::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
             // For test doubles, apply succeeds and we do not persist beyond the fake `last_update` used in other tests.
             Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
