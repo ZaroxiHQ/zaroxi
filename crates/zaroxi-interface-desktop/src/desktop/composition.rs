@@ -208,6 +208,8 @@ pub async fn refresh_with_service(
                         kind: Some("ExplainExecuted".to_string()),
                         result: Some(result.clone()),
                         target_buffer: Some(buffer_id.clone()),
+                        proposal_text: None,
+                        state: Some(super::AiState::Idle),
                     });
                     break;
                 }
