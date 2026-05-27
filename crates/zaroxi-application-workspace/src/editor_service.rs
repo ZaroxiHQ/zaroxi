@@ -2,6 +2,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use zaroxi_core_editor_buffer::buffer::{Buffer, Selection};
+use zaroxi_core_workspace_files::FileStorage;
 
 /// Public snapshot type that the interface can consume to build presenter editor layout.
 ///
@@ -97,6 +98,9 @@ pub struct EditorService {
 
     /// Internal multi-buffer state protected by a mutex.
     inner: Mutex<BuffersState>,
+
+    /// Optional storage adapter for filesystem operations. Injected by composition (harness).
+    pub storage: Option<Arc<dyn FileStorage>>,
 }
 
 impl EditorService {
@@ -105,7 +109,7 @@ impl EditorService {
         let buf_arc = Arc::new(Mutex::new(Buffer::from_text(text)));
         let state =
             BuffersState { paths: vec![None], buffers: vec![buf_arc.clone()], active: Some(0) };
-        Self { buffer: buf_arc, inner: Mutex::new(state) }
+        Self { buffer: buf_arc, inner: Mutex::new(state), storage: None }
     }
 
     /// Create an EditorService by loading file contents from path.
@@ -117,7 +121,134 @@ impl EditorService {
             buffers: vec![buf_arc.clone()],
             active: Some(0),
         };
-        Ok(Self { buffer: buf_arc, inner: Mutex::new(state) })
+        Ok(Self { buffer: buf_arc, inner: Mutex::new(state), storage: None })
+    }
+
+    /// Attach a storage adapter for subsequent save/load operations.
+    pub fn set_storage(&mut self, storage: Option<Arc<dyn FileStorage>>) {
+        self.storage = storage;
+    }
+
+    /// Save a specific buffer (by index) to its associated filesystem path using the configured storage.
+    /// Returns Ok(()) on success or an io::Error describing the failure.
+    pub fn save_buffer(&self, index: usize) -> io::Result<()> {
+        let storage = match &self.storage {
+            Some(s) => s.clone(),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "no storage adapter configured",
+                ))
+            }
+        };
+
+        // Snapshot required state (path + buffer arc) under the inner mutex.
+        let (path_opt, buf_arc) = {
+            let state = self.inner.lock().unwrap();
+            if index >= state.buffers.len() {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "buffer index out of range"));
+            }
+            (state.paths[index].clone(), state.buffers[index].clone())
+        };
+
+        let path = match path_opt {
+            Some(p) => p,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "target buffer has no associated filesystem path",
+                ))
+            }
+        };
+
+        // Read buffer text while holding the buffer lock, then perform IO.
+        let text = {
+            let buf = buf_arc.lock().unwrap();
+            buf.to_text()
+        };
+
+        storage.write_file(&path, &text)?;
+
+        // On success update saved_text and clear dirty flag.
+        {
+            let mut buf = buf_arc.lock().unwrap();
+            buf.saved_text = Some(text);
+            buf.dirty = false;
+        }
+
+        Ok(())
+    }
+
+    /// Save the currently active buffer (if any).
+    pub fn save_active_buffer(&self) -> io::Result<()> {
+        let index = {
+            let state = self.inner.lock().unwrap();
+            match state.active {
+                Some(i) => i,
+                None => {
+                    return Err(io::Error::new(io::ErrorKind::Other, "no active buffer"));
+                }
+            }
+        };
+        self.save_buffer(index)
+    }
+
+    /// Save all dirty buffers that have associated filesystem paths using the configured storage.
+    /// Returns the number of buffers successfully saved.
+    pub fn save_all_buffers(&self) -> io::Result<usize> {
+        let storage = match &self.storage {
+            Some(s) => s.clone(),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "no storage adapter configured",
+                ))
+            }
+        };
+
+        // Collect indices to save to avoid holding the inner mutex during IO.
+        let to_save: Vec<(usize, PathBuf, Arc<Mutex<Buffer>>)> = {
+            let state = self.inner.lock().unwrap();
+            state
+                .paths
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, path_opt)| {
+                    if let Some(path) = path_opt {
+                        let buf_arc = state.buffers[idx].clone();
+                        let dirty = {
+                            let buf = buf_arc.lock().unwrap();
+                            buf.dirty
+                        };
+                        if dirty {
+                            return Some((idx, path.clone(), buf_arc));
+                        }
+                    }
+                    None
+                })
+                .collect()
+        };
+
+        let mut saved_count = 0usize;
+        for (_idx, path, buf_arc) in to_save {
+            let text = {
+                let buf = buf_arc.lock().unwrap();
+                buf.to_text()
+            };
+            if let Err(e) = storage.write_file(&path, &text) {
+                // Stop on first failure and return the error.
+                return Err(e);
+            }
+            // update buffer saved state
+            {
+                let mut buf = buf_arc.lock().unwrap();
+                buf.saved_text = Some(text);
+                buf.dirty = false;
+            }
+            saved_count += 1;
+        }
+
+        Ok(saved_count)
     }
 }
 

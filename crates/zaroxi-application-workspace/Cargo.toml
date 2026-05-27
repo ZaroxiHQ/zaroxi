@@ -19,6 +19,8 @@ zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
+# Workspace file storage port (storage adapters implement this).
+zaroxi-core-workspace-files = { path = "../zaroxi-core-workspace-files" }
 
 # Application command types (new narrow crate owning command DTOs)
 zaroxi-application-command = { path = "../zaroxi-application-command" }

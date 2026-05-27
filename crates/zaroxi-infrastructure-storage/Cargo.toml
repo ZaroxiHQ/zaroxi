@@ -2,8 +2,9 @@
 name = "zaroxi-infrastructure-storage"
 version = "0.1.0"
 edition = "2024"
-description = "zaroxi-infrastructure-storage (auto-generated)"
+description = "zaroxi-infrastructure-storage (filesystem adapter)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Adapter depends on the workspace file ports crate.
+zaroxi-core-workspace-files = { path = "../zaroxi-core-workspace-files" }
