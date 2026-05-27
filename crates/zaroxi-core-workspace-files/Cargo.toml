@@ -13,7 +13,3 @@ license = "MIT"
 # on the canonical kernel id crate for UuidId.
 serde = { workspace = true }
 zaroxi-kernel-id = { workspace = true }
-
-# External crates required by file loading/cargo features.
-thiserror = "2.0.18"
-memmap2 = "0.9.10"

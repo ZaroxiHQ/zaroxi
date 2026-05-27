@@ -230,6 +230,7 @@ cc = "1.0"
 parking_lot = "0.12"
 libloading = "0.9.0"
 tempfile = "3.27.0"
+memmap2 = "0.9.10"
 anyhow = "1.0"
 uuid = { version = "1.4", features = ["serde", "v4"] }
 zaroxi-kernel-id = { version = "0.1.0" }
