@@ -529,6 +529,7 @@ pub fn latest_shell_context(comp: &super::DesktopComposition) -> Option<super::S
 /// This consults the provided `view` to obtain the active editor document (content),
 /// calls the deterministic mock AI provider, and stores a proposal into the composition
 /// metadata.ai_projection slot with state=Proposed. It also sets a small status message.
+#[allow(dead_code)]
 pub async fn request_ai_edit_active(
     comp: &mut super::DesktopComposition,
     view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
@@ -599,6 +600,7 @@ pub async fn request_ai_edit_active(
 /// This function applies the proposal using the normal WorkspaceService.update_buffer path,
 /// sets the ai_projection.state to Applied on success, sets a user-visible status message,
 /// and refreshes the composition so the new content is visible.
+#[allow(dead_code)]
 pub async fn apply_ai_edit_active(
     comp: &mut super::DesktopComposition,
     view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
@@ -662,6 +664,7 @@ pub async fn apply_ai_edit_active(
 }
 
 /// Cancel and clear any pending AI proposal in the composition without mutating buffers.
+#[allow(dead_code)]
 pub fn cancel_ai_edit_active(comp: &mut super::DesktopComposition) {
     if let Some(md) = comp.metadata.as_mut() {
         md.ai_projection = None;
