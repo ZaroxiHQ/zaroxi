@@ -44,7 +44,7 @@ runtime/treesitter/*
 !runtime/treesitter/grammars
 !runtime/treesitter/languages
 
-# Tauri
+# Build artifacts (project-wide)
 **/target/
 **/dist/
 

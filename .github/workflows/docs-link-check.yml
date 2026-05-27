@@ -1,0 +1,40 @@
+name: Docs Link Check
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - '.github/**'
+      - 'README.md'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/**'
+      - 'README.md'
+
+jobs:
+  link-check:
+    name: Validate internal Markdown links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check
+
+      - name: Run link checks (skip external URLs)
+        run: |
+          set -e
+          # Find all markdown files under docs/ and README.md
+          files=$(find docs -name '*.md' -print; echo README.md)
+          config=.github/markdown-link-check.json
+          for f in $files; do
+            echo "Checking $f"
+            markdown-link-check -c "$config" "$f"
+          done

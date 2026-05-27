@@ -3,7 +3,7 @@
 //! This module stores a parsed `SyntaxTree` and the resulting
 //! `HighlightSpan`s for each open document, keyed by file path and
 //! document version.  It is the single source of truth for the syntax
-//! layer and is consumed directly by the Tauri editor commands.
+//! layer and is consumed directly by the frontend editor commands.
 //!
 //! Only document content changes (edits) cause cache invalidation;
 //! scrolling or viewport changes never repopulate the cache.
@@ -126,7 +126,7 @@ pub fn clear() {
 }
 
 /// Number of documents currently cached.  Mostly useful for
-/// diagnostics.
+diagnostics.
 pub fn len() -> usize {
     CACHE.lock().len()
 }

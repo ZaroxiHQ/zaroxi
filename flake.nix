@@ -65,7 +65,7 @@
             # Tree-sitter for syntax highlighting
             tree-sitter
 
-            # WebKitGTK for Tauri (includes javascriptcoregtk-4.1)
+            # WebKitGTK (optional webview dependencies)
             webkitgtk_4_1
           ];
 
@@ -131,7 +131,7 @@
               xdg-desktop-portal-hyprland
               # Tree-sitter
               tree-sitter
-              # WebKitGTK for Tauri
+              # WebKitGTK (optional webview dependencies)
               webkitgtk_4_1
             ];
           };
@@ -184,7 +184,7 @@
             xdg-desktop-portal-hyprland
             # Tree-sitter
             tree-sitter
-            # WebKitGTK for Tauri (includes javascriptcoregtk-4.1)
+            # WebKitGTK (optional webview dependencies)
             webkitgtk_4_1
           ];
 
