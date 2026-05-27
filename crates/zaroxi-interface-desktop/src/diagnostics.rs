@@ -102,10 +102,12 @@ pub fn collect_for_uri(uri: &str) -> DiagnosticsSummary {
 pub fn summarize_for_composition(composition: &DesktopComposition) -> String {
     // Derive uri from active buffer details when available.
     let maybe_active = composition.latest_active_buffer_details();
-    let uri = maybe_active
-        .as_ref()
-        .and_then(|d| d.display.clone())
-        .unwrap_or_else(|| maybe_active.map(|d| d.buffer_id).unwrap_or_else(|| "<none>".to_string()));
+    let uri = if let Some(ref abd) = maybe_active {
+        // Prefer explicit display name, fall back to buffer_id string representation.
+        abd.display.clone().unwrap_or_else(|| abd.buffer_id.to_string())
+    } else {
+        "<none>".to_string()
+    };
 
     match collect_for_uri(&uri) {
         DiagnosticsSummary::Disabled => format!("lsp=disabled active_buffer={}", uri),
