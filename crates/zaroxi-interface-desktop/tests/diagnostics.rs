@@ -205,8 +205,11 @@ fn ingest_empty_payload_clears_summary_counts_feature_off() {
     ingest_diagnostics_payload("clear_test.xyz", Vec::new());
 
     let snap = diagnostics_snapshot_for_uri("clear_test.xyz").expect("expected snapshot after clear");
-    // When feature is off and no mock entry, provider should be Disabled per contract.
-    assert_eq!(snap.provider, ProviderState::Disabled);
+    // After clearing the specific URI, provider availability should remain ready
+    // (the in-memory provider was installed), and counts should be zero.
+    assert_eq!(snap.provider, ProviderState::Ready);
+    assert_eq!(snap.errors, 0);
+    assert_eq!(snap.warnings, 0);
 
     clear_mock_diagnostics();
 }

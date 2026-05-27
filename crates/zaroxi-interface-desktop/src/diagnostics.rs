@@ -17,6 +17,12 @@ use std::sync::Mutex;
 static MOCK_PROVIDER: Lazy<Mutex<HashMap<String, Vec<Diagnostic>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Whether an in-memory provider has been installed (registered) by the harness
+/// or tests. This separates provider availability from the presence of an
+/// entry for a specific URI: an installed provider may have zero diagnostics
+/// for a given URI and should still be considered "ready".
+static MOCK_PROVIDER_INSTALLED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
+
 /// Local severity model used by the presenter and tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiagnosticSeverity {
@@ -130,12 +136,19 @@ pub struct DiagnosticsSnapshot {
 /// Register deterministic mock diagnostics for a URI. Tests and the harness
 /// may call this to simulate a provider producing diagnostics for a given
 /// active buffer. Passing an empty vector will clear any existing mock entry.
+///
+/// Behavior:
+/// - non-empty `diags` inserts the entry and marks the in-memory provider as installed.
+/// - empty `diags` removes the entry for the URI but does NOT mark the provider
+///   as uninstalled (so provider availability is preserved until explicitly cleared).
 pub fn register_mock_diagnostics(uri: &str, diags: Vec<Diagnostic>) {
     let mut map = MOCK_PROVIDER.lock().unwrap();
     if diags.is_empty() {
         map.remove(uri);
     } else {
         map.insert(uri.to_string(), diags);
+        // Mark provider installed when a non-empty registration occurs.
+        *MOCK_PROVIDER_INSTALLED.lock().unwrap() = true;
     }
 }
 
@@ -155,15 +168,19 @@ pub fn ingest_diagnostics_payload(uri: &str, diags: Vec<Diagnostic>) {
 }
 
 /// Clear all registered mock diagnostics (test convenience).
+///
+/// Also clear the "installed" marker so tests can reset provider availability
+/// to the initial state.
 pub fn clear_mock_diagnostics() {
     MOCK_PROVIDER.lock().unwrap().clear();
+    *MOCK_PROVIDER_INSTALLED.lock().unwrap() = false;
 }
 
 /// Return detailed diagnostics for a URI when the provider is ready.
 ///
 /// - Returns Some(Vec<Diagnostic>) when a provider (in-memory mock or real adapter)
 ///   can supply diagnostics (may be empty to indicate zero-count ready state).
-/// - Returns None when diagnostics are not available (feature disabled or adapter absent).
+/// - Returns None when diagnostics are not available (feature disabled and no mock provider).
 pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
     let u = uri.trim();
     if u.is_empty() {
@@ -177,7 +194,13 @@ pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
         return Some(v.clone());
     }
 
-    // If feature is disabled and no mock, report no provider available.
+    // If an in-memory provider was installed (but has no entry for this URI),
+    // report an empty ready set (provider present, zero diagnostics).
+    if *MOCK_PROVIDER_INSTALLED.lock().unwrap() {
+        return Some(Vec::new());
+    }
+
+    // If feature is disabled and no mock provider, report no provider available.
     #[cfg(not(feature = "use_core_lsp"))]
     {
         return None;
@@ -258,6 +281,19 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
             warnings,
             infos,
             hints,
+        });
+    }
+
+    // If an in-memory provider was installed but no entry exists for this URI,
+    // treat the provider as present and return a zero-count Ready snapshot.
+    if *MOCK_PROVIDER_INSTALLED.lock().unwrap() {
+        return Some(DiagnosticsSnapshot {
+            provider: ProviderState::Ready,
+            active_buffer: u.to_string(),
+            errors: 0,
+            warnings: 0,
+            infos: 0,
+            hints: 0,
         });
     }
 
