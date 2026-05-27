@@ -1,24 +1,12 @@
-use crate::ports as ai_ports;
+/*
+  Removed: application-level mock implementation.
 
-/// Deterministic application-level mock AiClient used for Phase 10.
-/// Behavior: return a simple text response based on the buffer id.
-pub struct MockAiClient;
+  Rationale:
+  - Concrete mock AI adapters belong in the infrastructure layer (`crates/zaroxi-infrastructure-ai-mock`).
+  - The application layer should depend only on the `AiClient` port and not ship a concrete mock,
+    to preserve separation of concerns and enable swapping infra adapters at composition time.
 
-impl MockAiClient {
-    pub fn new() -> Self {
-        MockAiClient
-    }
-}
-
-impl ai_ports::AiClient for MockAiClient {
-    fn request(
-        &self,
-        req: ai_ports::AiRequest,
-    ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
-        let buf = req.buffer_id.clone();
-        Box::pin(async move {
-            let text = format!("fake-explain: {}", buf);
-            Ok(ai_ports::AiResponseDTO { text })
-        })
-    }
-}
+  If an application-level mock is needed for tests outside of the infra composition,
+  wire `zaroxi-infrastructure-ai-mock` into the test composition or provide a lightweight
+  test double there. For Phase 10 the infra mock is the canonical implementation.
+*/

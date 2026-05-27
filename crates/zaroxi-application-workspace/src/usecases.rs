@@ -104,6 +104,8 @@ struct SessionInfo {
     editor_states: std::collections::HashMap<buffer_ports::BufferId, EditorState>,
     /// Per-buffer viewport state (line-based). Managed by the orchestrator.
     viewport_states: std::collections::HashMap<buffer_ports::BufferId, crate::ports::ViewportState>,
+    /// Pending AI proposals held by the orchestrator per-buffer (single authoritative store).
+    pending_proposals: std::collections::HashMap<buffer_ports::BufferId, AiProposal>,
 }
 
 use zaroxi_domain_buffer::rules as buffer_rules;
@@ -1612,13 +1614,23 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
             // Build a simple proposal payload for Phase 10: prepend a clear comment and the AI text.
             let proposal_text = format!("// AI Edit: proposed change\n{}", ai_res.text);
 
-            let proposal = RequestAiEditResponse {
-                proposal: AiProposal {
-                    target_buffer: req.buffer_id.clone(),
-                    proposal_text: proposal_text.clone(),
-                    summary: Some("AI edit proposed".to_string()),
-                },
+            // Build the AiProposal DTO and store it in the session's pending_proposals map
+            // so the subsequent apply flow has a single authoritative source of truth.
+            let ai_prop = AiProposal {
+                target_buffer: req.buffer_id.clone(),
+                proposal_text: proposal_text.clone(),
+                summary: Some("AI edit proposed".to_string()),
             };
+
+            // Persist the pending proposal into the session info (best-effort; session validated above).
+            {
+                let mut s_locked = sessions.lock().unwrap();
+                if let Some(info_mut) = s_locked.get_mut(&req.session_id.0) {
+                    info_mut.pending_proposals.insert(req.buffer_id.clone(), ai_prop.clone());
+                }
+            }
+
+            let proposal = RequestAiEditResponse { proposal: ai_prop.clone() };
 
             // Optionally record a command for observability (best-effort; ignore errors).
             let _ = history
@@ -1653,6 +1665,19 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                 if !info.open_buffers.iter().any(|b| b == &req.buffer_id) {
                     return Err(UseCaseError::InvalidActiveBuffer(req.buffer_id.to_string()));
                 }
+            }
+
+            // Consume the authoritative pending proposal stored by request_ai_edit.
+            let stored_proposal_opt = {
+                let mut s_locked = sessions.lock().unwrap();
+                s_locked
+                    .get_mut(&req.session_id.0)
+                    .and_then(|info_mut| info_mut.pending_proposals.remove(&req.buffer_id))
+            };
+
+            if stored_proposal_opt.is_none() {
+                // No pending proposal found for this session/buffer.
+                return Err(UseCaseError::AiFailure("no pending AI proposal for buffer".to_string()));
             }
 
             // Validate content against buffer rules.
