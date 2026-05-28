@@ -673,71 +673,80 @@ pub async fn apply_ai_edit_active(
         proposal_text: proposal_text.clone(),
     };
 
-    // Try authoritative update_buffer first. If that succeeds mark applied.
-    // Otherwise attempt the dedicated apply_ai_edit port. If any of these paths
-    // fail (including UnknownSession from lightweight test doubles), we conservatively
-    // record the projection as Applied locally so UI-level tests and harnesses
-    // can observe deterministic state. This keeps the desktop adapter resilient
-    // across a variety of test/service implementations for Phase 10.
+    // Strict apply semantics:
+    // - Attempt authoritative update_buffer first. If it succeeds we mark Applied and return success.
+    // - Otherwise attempt the dedicated apply_ai_edit port. If it succeeds we mark Applied and return success.
+    // - If both fail, do NOT mark the proposal as Applied. Return an explicit error so callers (UI/harness)
+    //   can surface the failure and decide whether to trigger any fallback behavior.
     let update_req = crate::ports::UpdateBufferRequest {
         session_id: session_id.clone(),
         buffer_id: buffer_id.clone(),
         new_content: proposal_text.clone(),
     };
 
-    let mut applied_locally = false;
-
-    if let Ok(uresp) = service.update_buffer(update_req).await {
-        if uresp.ok {
-            applied_locally = true;
-            if let Some(md_mut) = comp.metadata.as_mut() {
-                if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                    ai_mut.state = Some(super::AiState::Applied);
-                    ai_mut.result = Some("AI edit applied (via update_buffer)".to_string());
-                }
-            }
-            comp.set_status_message("AI edit applied (via update_buffer)".to_string());
-        }
-    } else {
-        // update_buffer failed (e.g. UnknownSession); try apply_ai_edit below,
-        // but if both fail we'll still mark applied_locally to keep test harness stable.
-    }
-
-    if !applied_locally {
-        match service.apply_ai_edit(apply_req).await {
-            Ok(resp) => {
-                if resp.ok {
-                    applied_locally = true;
-                    if let Some(md_mut) = comp.metadata.as_mut() {
-                        if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                            ai_mut.state = Some(super::AiState::Applied);
-                            ai_mut.result = Some("AI edit applied".to_string());
-                        }
+    // Try update_buffer
+    match service.update_buffer(update_req).await {
+        Ok(uresp) => {
+            if uresp.ok {
+                if let Some(md_mut) = comp.metadata.as_mut() {
+                    if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
+                        ai_mut.state = Some(super::AiState::Applied);
+                        ai_mut.result = Some("AI edit applied (via update_buffer)".to_string());
                     }
-                    comp.set_status_message("AI edit applied".to_string());
+                }
+                comp.set_status_message("AI edit applied (via update_buffer)".to_string());
+                comp.refresh(view, session_id, workspace_id).await?;
+                return Ok(());
+            } else {
+                // update_buffer reported failure -> try apply_ai_edit next
+            }
+        }
+        Err(e_upd) => {
+            // update_buffer errored -> try apply_ai_edit next, but capture error for reporting if apply also fails
+            let upd_err = e_upd.to_string();
+
+            match service.apply_ai_edit(apply_req).await {
+                Ok(resp) => {
+                    if resp.ok {
+                        if let Some(md_mut) = comp.metadata.as_mut() {
+                            if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
+                                ai_mut.state = Some(super::AiState::Applied);
+                                ai_mut.result = Some("AI edit applied".to_string());
+                            }
+                        }
+                        comp.set_status_message("AI edit applied".to_string());
+                        comp.refresh(view, session_id, workspace_id).await?;
+                        return Ok(());
+                    } else {
+                        return Err(format!("update_buffer failed: {}; apply_ai_edit reported failure", upd_err));
+                    }
+                }
+                Err(e_apply) => {
+                    return Err(format!("update_buffer failed: {}; apply_ai_edit failed: {}", upd_err, e_apply));
                 }
             }
-            Err(_) => {
-                // ignore error here; we'll fall back to marking applied locally below.
-            }
         }
     }
 
-    // If neither remote path succeeded, mark the projection as applied locally so
-    // composition observers (tests/harness) can proceed deterministically.
-    if !applied_locally {
-        if let Some(md_mut) = comp.metadata.as_mut() {
-            if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                ai_mut.state = Some(super::AiState::Applied);
-                ai_mut.result = Some("AI edit applied (no service)".to_string());
+    // If we reached here it means update_buffer returned Ok but uresp.ok == false, try apply_ai_edit.
+    match service.apply_ai_edit(apply_req).await {
+        Ok(resp) => {
+            if resp.ok {
+                if let Some(md_mut) = comp.metadata.as_mut() {
+                    if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
+                        ai_mut.state = Some(super::AiState::Applied);
+                        ai_mut.result = Some("AI edit applied".to_string());
+                    }
+                }
+                comp.set_status_message("AI edit applied".to_string());
+                comp.refresh(view, session_id, workspace_id).await?;
+                Ok(())
+            } else {
+                Err("apply_ai_edit reported failure".to_string())
             }
         }
-        comp.set_status_message("AI edit applied (no service)".to_string());
+        Err(e) => Err(format!("apply_ai_edit failed: {}", e)),
     }
-
-    // Best-effort refresh; ignore refresh error when marking applied.
-    let _ = comp.refresh(view, session_id, workspace_id).await;
-    Ok(())
 }
 
 /// Cancel and clear any pending AI proposal in the composition without mutating buffers.
