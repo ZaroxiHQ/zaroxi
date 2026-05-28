@@ -49,6 +49,20 @@ pub enum ResolveDirtyCloseResult {
     NotDirty,
 }
 
+/// Result of attempting to reload a buffer from disk.
+///
+/// - Reloaded: buffer was reloaded from disk (and marked clean).
+/// - BlockedByDirty: buffer had unsaved edits and reload was refused.
+/// - IoError: underlying IO/read/write failure occurred.
+/// - BufferNotFound: no opened buffer matched the provided path.
+#[derive(Debug)]
+pub enum ReloadResult {
+    Reloaded,
+    BlockedByDirty,
+    IoError(std::io::Error),
+    BufferNotFound,
+}
+
 /// Result of attempting to close an entire workspace/session.
 ///
 /// - Closed: session had no dirty buffers and was closed (buffers removed).
@@ -249,6 +263,119 @@ impl EditorService {
         }
 
         Ok(saved_count)
+    }
+
+    /// Attempt to reload buffer from disk. If the buffer is dirty, the reload is blocked and returns BlockedByDirty.
+    pub fn reload_buffer(&self, path: &Path) -> ReloadResult {
+        // find index
+        let idx_opt = {
+            let st = self.inner.lock().unwrap();
+            st.paths.iter().rposition(|p| match p {
+                Some(pp) => pp == path,
+                None => false,
+            })
+        };
+        let idx = match idx_opt {
+            Some(i) => i,
+            None => return ReloadResult::BufferNotFound,
+        };
+
+        let buf_arc = {
+            let st = self.inner.lock().unwrap();
+            st.buffers[idx].clone()
+        };
+
+        {
+            let b = buf_arc.lock().unwrap();
+            if b.dirty {
+                return ReloadResult::BlockedByDirty;
+            }
+        }
+
+        // read from disk
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => return ReloadResult::IoError(e),
+        };
+
+        {
+            let mut b = buf_arc.lock().unwrap();
+            b.load_from_text(&content);
+            b.saved_text = Some(content);
+            b.dirty = false;
+        }
+
+        ReloadResult::Reloaded
+    }
+
+    /// Force-reload: discard in-memory edits and replace buffer with on-disk contents.
+    pub fn resolve_reload_discard(&self, path: &Path) -> ReloadResult {
+        let idx_opt = {
+            let st = self.inner.lock().unwrap();
+            st.paths.iter().rposition(|p| match p {
+                Some(pp) => pp == path,
+                None => false,
+            })
+        };
+        let idx = match idx_opt {
+            Some(i) => i,
+            None => return ReloadResult::BufferNotFound,
+        };
+
+        let buf_arc = {
+            let st = self.inner.lock().unwrap();
+            st.buffers[idx].clone()
+        };
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => return ReloadResult::IoError(e),
+        };
+
+        {
+            let mut b = buf_arc.lock().unwrap();
+            b.load_from_text(&content);
+            b.saved_text = Some(content);
+            b.dirty = false;
+        }
+
+        ReloadResult::Reloaded
+    }
+
+    /// Force-save current buffer to disk and then mark as saved (used to resolve reload conflicts).
+    pub fn resolve_reload_save(&self, path: &Path) -> ReloadResult {
+        let idx_opt = {
+            let st = self.inner.lock().unwrap();
+            st.paths.iter().rposition(|p| match p {
+                Some(pp) => pp == path,
+                None => false,
+            })
+        };
+        let idx = match idx_opt {
+            Some(i) => i,
+            None => return ReloadResult::BufferNotFound,
+        };
+
+        let buf_arc = {
+            let st = self.inner.lock().unwrap();
+            st.buffers[idx].clone()
+        };
+
+        let text = {
+            let b = buf_arc.lock().unwrap();
+            b.to_text()
+        };
+
+        if let Err(e) = std::fs::write(path, text.as_bytes()) {
+            return ReloadResult::IoError(e);
+        }
+
+        {
+            let mut b = buf_arc.lock().unwrap();
+            b.set_saved_state();
+        }
+
+        ReloadResult::Reloaded
     }
 }
 
