@@ -198,7 +198,7 @@ async fn ai_request_and_apply_flow() {
     assert!(ai.proposal_text.is_some());
 
     // Apply the proposal using the same injected application service as the request.
-    let apply_res = apply_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service.clone())).await;
+    let apply_res = apply_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None, service.clone()).await;
     assert!(apply_res.is_ok(), "apply_ai_edit_active failed: {:?}", apply_res);
 
     // After apply, projection should be Applied.
