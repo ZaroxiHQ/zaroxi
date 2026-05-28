@@ -49,6 +49,7 @@ pub mod render_debug_text;
 pub use render_debug_text::render_debug_text;
 
 pub mod presenters;
+pub mod gui;
 pub mod diagnostics;
 pub use clipboard::InMemoryClipboard;
 pub use presenters::GpuShellPresenter;
