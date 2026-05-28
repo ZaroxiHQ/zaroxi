@@ -146,14 +146,12 @@ impl EditorService {
     /// Save a specific buffer (by index) to its associated filesystem path using the configured storage.
     /// Returns Ok(()) on success or an io::Error describing the failure.
     pub fn save_buffer(&self, index: usize) -> io::Result<()> {
-        let storage = match &self.storage {
+        let storage: Arc<dyn zaroxi_core_workspace_files::FileStorage> = match &self.storage {
             Some(s) => s.clone(),
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "no storage adapter configured",
-                ))
-            }
+            // Fallback to a disk-backed implementation when no adapter was injected.
+            // This keeps tests and simple harnesses convenient while allowing harnesses
+            // to inject mocks in more advanced scenarios.
+            None => Arc::new(zaroxi_core_workspace_files::DiskFileStorage::new()),
         };
 
         // Snapshot required state (path + buffer arc) under the inner mutex.
@@ -210,14 +208,10 @@ impl EditorService {
     /// Save all dirty buffers that have associated filesystem paths using the configured storage.
     /// Returns the number of buffers successfully saved.
     pub fn save_all_buffers(&self) -> io::Result<usize> {
-        let storage = match &self.storage {
+        let storage: Arc<dyn zaroxi_core_workspace_files::FileStorage> = match &self.storage {
             Some(s) => s.clone(),
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "no storage adapter configured",
-                ))
-            }
+            // Default to the disk-backed storage when no adapter was provided.
+            None => Arc::new(zaroxi_core_workspace_files::DiskFileStorage::new()),
         };
 
         // Collect indices to save to avoid holding the inner mutex during IO.
