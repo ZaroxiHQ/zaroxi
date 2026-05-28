@@ -38,3 +38,28 @@ impl FileStorage for DiskFileStorage {
         zaroxi_core_io::write_file(path.as_path(), contents)
     }
 }
+
+/// Read direct children entries of a directory and return a vector of (path, is_dir).
+///
+/// This helper is intentionally minimal and synchronous — it mirrors the simple,
+/// blocking style of the existing DiskFileStorage adapter and is suitable for
+/// small workspaces and tests. Consumers (application/domain) may build the
+/// richer tree model from this raw listing.
+pub fn list_dir_entries(path: &PathBuf) -> io::Result<Vec<(PathBuf, bool)>> {
+    let mut res: Vec<(PathBuf, bool)> = Vec::new();
+
+    if !path.exists() {
+        return Ok(res);
+    }
+
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let e = entry?;
+            let p = e.path();
+            let is_dir = p.is_dir();
+            res.push((p, is_dir));
+        }
+    }
+
+    Ok(res)
+}
