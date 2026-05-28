@@ -37,7 +37,7 @@ pub fn latest_active_document_summary(
         if snippet_line_no >= vw.top_line {
             let idx = snippet_line_no.saturating_sub(vw.top_line);
             if let Some(line_text) = vw.lines.get(idx) {
-                let snippet: String = line_text.chars().take(120).collect();
+                let snippet: String = line_text.chars().take(120).collect::<String>();
                 current_line_snippet = Some(snippet);
             }
         }

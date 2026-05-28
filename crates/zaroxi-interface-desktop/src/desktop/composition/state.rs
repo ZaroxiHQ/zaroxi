@@ -111,6 +111,13 @@ pub enum RefreshReason {
     AiProjectionUpdated,
 }
 
+pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> String {
+    // Lightweight textual short-name for a CommandKind used in tiny status lines.
+    // Preserve the original behaviour by producing a stable Debug-based string when
+    // a more specific mapping is not required.
+    format!("{:?}", kind)
+}
+
 #[derive(Clone, Debug)]
 pub struct DesktopMetadata {
     pub session_id: Option<SessionId>,
@@ -205,18 +212,18 @@ pub struct ShellSnapshot {
 /* DesktopConsistencyReport is provided by crate::desktop::consistency */
 #[derive(Clone, Debug)]
 pub struct DesktopComposition {
-    presenter: Presenter,
-    pub session_id: Option<SessionId>,
-    pub workspace_id: Option<Id>,
-    metadata: Option<DesktopMetadata>,
-    status: Option<DesktopStatus>,
-    revision: u64,
-    pending_refresh_reason: Option<RefreshReason>,
-    pending_close: Option<crate::desktop::pending_close::PendingClose>,
-    command_bar: Option<CommandBarState>,
+    pub(super) presenter: Presenter,
+    pub(super) session_id: Option<SessionId>,
+    pub(super) workspace_id: Option<Id>,
+    pub(super) metadata: Option<DesktopMetadata>,
+    pub(super) status: Option<DesktopStatus>,
+    pub(super) revision: u64,
+    pub(super) pending_refresh_reason: Option<RefreshReason>,
+    pub(super) pending_close: Option<crate::desktop::pending_close::PendingClose>,
+    pub(super) command_bar: Option<CommandBarState>,
     /// When set, this explicit close-result status should be preferred by
     /// visible status helpers over transient refresh/update messages.
-    close_result_status: Option<String>,
+    pub(super) close_result_status: Option<String>,
 }
 
 impl DesktopComposition {
