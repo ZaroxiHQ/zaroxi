@@ -6,6 +6,7 @@
 /// to call `super::command_kind_short_name(...)` without any changes.
 
 /// Convert CommandKind to a short stable name used in tiny shell-facing status lines.
+#[allow(dead_code)]
 pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
     match kind {
         crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace",
