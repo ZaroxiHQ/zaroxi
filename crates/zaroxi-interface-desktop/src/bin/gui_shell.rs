@@ -8,9 +8,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let size = Size { width: 1280, height: 800 };
     let shell = ShellFrame::new(size);
 
-    for line in shell.render_lines() {
-        println!("{}", line);
+    // Try to open a native window and render the shell. If that fails (headless CI,
+    // missing GPU, etc.) fall back to printing the deterministic transcript.
+    match zaroxi_interface_desktop::gui::window::run_shell_window(shell.clone()) {
+        Ok(_) => {
+            // Window runner handled lifecycle and exited normally.
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("window init failed; falling back to transcript output: {}", e);
+            for line in shell.render_lines() {
+                println!("{}", line);
+            }
+            Ok(())
+        }
     }
-
-    Ok(())
 }
