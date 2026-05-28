@@ -65,16 +65,27 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         fn new_events(&mut self, active_loop: &winit::event_loop::ActiveEventLoop, cause: StartCause) {
             // Create the window once on Init (or when resumed on some platforms).
             if self.maybe_window.is_none() && matches!(cause, StartCause::Init) {
+                eprintln!("GuiApp: attempting to create window (StartCause::Init)");
                 match active_loop.create_window(self.window_attributes.clone()) {
                     Ok(w) => {
+                        let wid = w.id();
+                        eprintln!("GuiApp: created window id={:?}", wid);
+                        // Ensure a visible title is set (small visual hint).
                         w.set_title(&self.title);
+                        // Keep the window handle so we can request redraws later.
                         self.maybe_window = Some(w);
                     }
                     Err(e) => {
-                        eprintln!("failed to create window: {}", e);
+                        eprintln!("GuiApp: failed to create window: {}", e);
+                        // Ask the event loop to exit; caller will fall back to transcript.
                         active_loop.exit();
                     }
                 }
+            } else if self.maybe_window.is_some() {
+                // Already created; noop but log for diagnostics.
+                eprintln!("GuiApp: new_events called but window already created");
+            } else {
+                eprintln!("GuiApp: new_events called with cause={:?} (no creation)", cause);
             }
         }
 
