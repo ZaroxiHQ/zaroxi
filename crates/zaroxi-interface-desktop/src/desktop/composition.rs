@@ -563,7 +563,7 @@ pub async fn request_ai_edit_active(
         };
 
         // Ask the application/AI layer for a proposal.
-        match svc.request_ai_edit(ai_req).await {
+        match svc.request_ai_edit(ai_req.clone()).await {
             Ok(resp) => {
                 // Ensure metadata exists and store the ai projection with Proposed state.
                 if comp.metadata.is_none() {
@@ -594,7 +594,63 @@ pub async fn request_ai_edit_active(
                 comp.set_status_message("AI edit proposed".to_string());
                 Ok(())
             }
-            Err(e) => Err(format!("request_ai_edit failed: {}", e)),
+            Err(e) => {
+                // If the application reports the buffer is not known/opened, attempt an opportunistic
+                // open_buffer call (desktop can do this safely as an adapter). This helps UI flows where
+                // the presenter/view knows an active buffer but the orchestrator hasn't opened it yet.
+                match e {
+                    crate::ports::UseCaseError::InvalidActiveBuffer(_) | crate::ports::UseCaseError::UnknownSession => {
+                        // Try to derive a path from the BufferId and open it in the session.
+                        if let Some(path) = target_buffer.path() {
+                            let open_req = crate::ports::OpenBufferRequest {
+                                session_id: session_id.clone(),
+                                path,
+                            };
+                            match svc.open_buffer(open_req).await {
+                                Ok(_open_res) => {
+                                    // Retry the AI request after the open succeeded.
+                                    match svc.request_ai_edit(ai_req.clone()).await {
+                                        Ok(resp2) => {
+                                            if comp.metadata.is_none() {
+                                                comp.metadata = Some(super::DesktopMetadata {
+                                                    session_id: Some(session_id.clone()),
+                                                    workspace_id: comp.workspace_id.clone(),
+                                                    active_buffer: Some(target_buffer.clone()),
+                                                    opened_buffer_count: 0,
+                                                    opened_buffers: Vec::new(),
+                                                    active_buffer_details: None,
+                                                    ai_projection: None,
+                                                    visible_window: None,
+                                                    last_command_line: None,
+                                                    refresh_reason: None,
+                                                });
+                                            }
+
+                                            if let Some(md) = comp.metadata.as_mut() {
+                                                md.ai_projection = Some(super::AiProjection {
+                                                    kind: Some("Edit".to_string()),
+                                                    result: resp2.proposal.summary.clone(),
+                                                    target_buffer: Some(resp2.proposal.target_buffer.clone()),
+                                                    proposal_text: Some(resp2.proposal.proposal_text.clone()),
+                                                    state: Some(super::AiState::Proposed),
+                                                });
+                                            }
+
+                                            comp.set_status_message("AI edit proposed".to_string());
+                                            Ok(())
+                                        }
+                                        Err(e2) => Err(format!("request_ai_edit failed after open: {}", e2)),
+                                    }
+                                }
+                                Err(open_err) => Err(format!("request_ai_edit failed: {}; open_buffer failed: {}", e, open_err)),
+                            }
+                        } else {
+                            Err(format!("request_ai_edit failed: {}", e))
+                        }
+                    }
+                    other => Err(format!("request_ai_edit failed: {}", other)),
+                }
+            }
         }
     } else {
         // No application service provided: fall back to a deterministic interface-local mock provider.
