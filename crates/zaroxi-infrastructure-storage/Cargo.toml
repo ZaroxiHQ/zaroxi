@@ -6,5 +6,6 @@ description = "zaroxi-infrastructure-storage (filesystem adapter)"
 license = "MIT"
 
 [dependencies]
-# Adapter depends on the workspace file ports crate.
-zaroxi-core-workspace-files = { path = "../zaroxi-core-workspace-files" }
+# Infrastructure adapter: rely only on the low-level core IO crate to avoid
+# pulling in higher-level core-runtime transitive dependencies.
+zaroxi-core-io = { path = "../zaroxi-core-io" }
