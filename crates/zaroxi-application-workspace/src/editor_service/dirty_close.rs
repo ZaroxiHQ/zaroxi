@@ -9,10 +9,10 @@ impl EditorService {
     /// - On successful save+close -> ClosedAfterSave
     /// - On save failure -> SaveFailed(io::Error) and the buffer remains open
     pub fn resolve_dirty_close_save(&self, path: &Path) -> ResolveDirtyCloseResult {
-        // locate index under lock
+        // locate index under lock (pick the most-recently-opened matching buffer)
         let idx_opt = {
             let st = self.inner.lock().unwrap();
-            st.paths.iter().position(|p| match p {
+            st.paths.iter().rposition(|p| match p {
                 Some(pp) => pp == path,
                 None => false,
             })
@@ -54,7 +54,7 @@ impl EditorService {
 
         // Now remove buffer from workspace (re-find its index in case of concurrent changes).
         let mut st = self.inner.lock().unwrap();
-        let idx = match st.paths.iter().position(|p| match p {
+        let idx = match st.paths.iter().rposition(|p| match p {
             Some(pp) => pp == path,
             None => false,
         }) {
@@ -101,10 +101,10 @@ impl EditorService {
     /// - On success -> ClosedAfterDiscard
     /// - On IO/read failure when trying to restore on-disk content -> IoError(io::Error)
     pub fn resolve_dirty_close_discard(&self, path: &Path) -> ResolveDirtyCloseResult {
-        // find index
+        // find index (prefer the most-recently-opened matching buffer)
         let idx_opt = {
             let st = self.inner.lock().unwrap();
-            st.paths.iter().position(|p| match p {
+            st.paths.iter().rposition(|p| match p {
                 Some(pp) => pp == path,
                 None => false,
             })
@@ -152,7 +152,7 @@ impl EditorService {
 
         // Now remove buffer from workspace (re-find index)
         let mut st = self.inner.lock().unwrap();
-        let idx = match st.paths.iter().position(|p| match p {
+        let idx = match st.paths.iter().rposition(|p| match p {
             Some(pp) => pp == path,
             None => false,
         }) {

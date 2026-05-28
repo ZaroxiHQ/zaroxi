@@ -6,8 +6,8 @@ impl EditorService {
     /// or BufferNotFound if no opened buffer matches the path.
     pub fn close_buffer(&self, path: &Path) -> CloseResult {
         let mut st = self.inner.lock().unwrap();
-        // find index
-        let idx = st.paths.iter().position(|p| match p {
+        // find index (prefer the most-recently-opened matching buffer)
+        let idx = st.paths.iter().rposition(|p| match p {
             Some(pp) => pp == path,
             None => false,
         });
