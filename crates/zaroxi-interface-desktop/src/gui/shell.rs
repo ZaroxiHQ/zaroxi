@@ -208,6 +208,19 @@ impl ShellFrame {
         for r in &self.regions {
             lines.push(format!("  id={} name={} rect={}", r.id, r.name, r.rect));
         }
+
+        // Append chrome/widget-level deterministic placeholders produced by the widgets module.
+        // Keeping widget rendering logic in `gui/widgets` preserves separation of concerns:
+        // - `shell` remains the layout model and region source of truth
+        // - `widgets` provides small, interface-facing chrome transcripts derived from regions
+        let widget_lines = super::widgets::render_chrome(&self.regions);
+        if !widget_lines.is_empty() {
+            lines.push("widgets:".to_string());
+            for wl in widget_lines {
+                lines.push(format!("  {}", wl));
+            }
+        }
+
         lines
     }
 }

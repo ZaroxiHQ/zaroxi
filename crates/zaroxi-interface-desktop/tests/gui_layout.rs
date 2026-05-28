@@ -23,4 +23,22 @@ fn canonical_layout_contains_expected_regions() {
         let found = lines.iter().any(|l| l.contains(name));
         assert!(found, "missing region '{}' in transcript: {:?}", name, lines);
     }
+
+    // GUI-2: assert presence of chrome/widget placeholders produced by widgets module.
+    let widget_expect = [
+        "toolbar.brand",
+        "app_rail.icons",
+        "app_rail.avatar_slot",
+        "sidebar.search_field",
+        "sidebar.section: PROJECT",
+        "bottom_dock.tabs",
+        "bottom_dock.problems_count",
+        "status.line_col",
+        "ai.header.title",
+    ];
+
+    for name in widget_expect.iter() {
+        let found = lines.iter().any(|l| l.contains(name));
+        assert!(found, "missing widget/chrome '{}' in transcript: {:?}", name, lines);
+    }
 }
