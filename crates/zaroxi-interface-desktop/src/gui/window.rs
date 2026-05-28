@@ -25,7 +25,7 @@ use std::error::Error;
 use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::ControlFlow,
 };
 
 use crate::gui::ShellFrame;
@@ -37,8 +37,10 @@ use crate::gui::ShellFrame;
 /// may fall back to the transcript output in that case.
 pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // Create the event loop explicitly from the winit path to avoid any local
-    // name resolution ambiguity.
-    let event_loop = winit::event_loop::EventLoop::new();
+    // name resolution ambiguity. EventLoop::new() is fallible on some platforms,
+    // so propagate the error with `?` to allow callers to fallback to the
+    // transcript mode when necessary.
+    let event_loop = winit::event_loop::EventLoop::new()?;
 
     // Build the window using the fully-qualified path to ensure the import
     // resolution does not conflict with local modules named `window`.
