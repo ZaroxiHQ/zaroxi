@@ -57,7 +57,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     let mut maybe_window: Option<Window> = None;
 
     // Use run_app (preferred over deprecated `run`) and handle events with access to ActiveEventLoop.
-    let run_result = event_loop.run_app(move |event, active_loop| {
+    let run_result = event_loop.run_app(move |event, active_loop: &winit::event_loop::ActiveEventLoop| {
         // Default to waiting for events between iterations.
         active_loop.set_control_flow(ControlFlow::Wait);
 
@@ -66,7 +66,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             Event::NewEvents(_) => {
                 if maybe_window.is_none() {
                     match active_loop.create_window(window_attributes.clone()) {
-                        Ok(w) => {
+                        Ok(new_w) => {
+                            // Give the window an explicit type so the compiler can infer captures.
+                            let w: Window = new_w;
                             w.set_title(&title);
                             maybe_window = Some(w);
                         }
