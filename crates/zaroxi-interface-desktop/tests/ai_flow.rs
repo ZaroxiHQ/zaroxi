@@ -60,11 +60,16 @@ impl WorkspaceView for FakeView {
 
 struct FakeService {
     last_update: std::sync::Mutex<Option<String>>,
+    // store pending AI proposals per-session per-buffer for test determinism
+    pending: std::sync::Mutex<std::collections::HashMap<zaroxi_application_workspace::ports::SessionId, std::collections::HashMap<ports::BufferId, String>>>,
 }
 
 impl FakeService {
     fn new() -> Self {
-        FakeService { last_update: std::sync::Mutex::new(None) }
+        FakeService {
+            last_update: std::sync::Mutex::new(None),
+            pending: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
     }
 }
 
@@ -141,6 +146,12 @@ impl WorkspaceService for FakeService {
     // Phase 10: application-level AI orchestration API (test mock implementations).
     fn request_ai_edit(&self, req: crate::ports::RequestAiEditRequest) -> BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, UseCaseError>> {
         let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+        // store pending proposal keyed by session and buffer
+        {
+            let mut p = self.pending.lock().unwrap();
+            let sess = p.entry(req.session_id.clone()).or_insert_with(std::collections::HashMap::new);
+            sess.insert(req.buffer_id.clone(), proposal.clone());
+        }
         let resp = crate::ports::RequestAiEditResponse {
             proposal: crate::ports::AiProposal {
                 target_buffer: req.buffer_id.clone(),
@@ -152,10 +163,19 @@ impl WorkspaceService for FakeService {
     }
 
     fn apply_ai_edit(&self, req: crate::ports::ApplyAiEditRequest) -> BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, UseCaseError>> {
-        // Record the applied content similarly to update_buffer for test observation.
-        let mut guard = self.last_update.lock().unwrap();
-        *guard = Some(req.proposal_text.clone());
-        Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+        // Consume pending proposal if present for session+buffer
+        let mut guard_map = self.pending.lock().unwrap();
+        if let Some(sess_map) = guard_map.get_mut(&req.session_id) {
+            if let Some(prop) = sess_map.remove(&req.buffer_id) {
+                let mut guard = self.last_update.lock().unwrap();
+                *guard = Some(prop);
+                Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
+            } else {
+                Box::pin(async move { Err(UseCaseError::AiFailure("no pending proposal".to_string())) })
+            }
+        } else {
+            Box::pin(async move { Err(UseCaseError::UnknownSession) })
+        }
     }
 
     fn cancel_ai_edit(&self, _req: crate::ports::CancelAiEditRequest) -> BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, UseCaseError>> {
@@ -181,83 +201,9 @@ async fn ai_request_and_apply_flow() {
     let buf_id = ports::BufferId::from_path(buf_path);
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("original content".to_string())));
 
-    // --- Build an application-orchestrator-backed service (authoritative session + proposal store).
-    use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-    use zaroxi_application_ai::ports as ai_ports;
-    use zaroxi_domain_workspace::ports as domain_ports;
-    use zaroxi_core_editor_buffer::ports as buffer_ports;
-    use std::path::PathBuf;
-
-    // Minimal infra fakes to compose an orchestrator instance for the test.
-    struct TestRepo;
-    impl domain_ports::WorkspaceRepository for TestRepo {
-        fn open_workspace(
-            &self,
-            _cmd: domain_ports::WorkspaceOpenCommand,
-        ) -> crate::ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
-            Box::pin(async move {
-                Ok(domain_ports::WorkspaceDTO {
-                    id: Id::new(),
-                    root_path: PathBuf::from("."),
-                    name: "test".to_string(),
-                })
-            })
-        }
-    }
-
-    struct TestBufferStore;
-    impl buffer_ports::BufferStore for TestBufferStore {
-        fn open_buffer(
-            &self,
-            path: PathBuf,
-        ) -> crate::ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
-            let id = buffer_ports::BufferId::from_path(&path);
-            Box::pin(async move { Ok(id) })
-        }
-        fn get_text(&self, _id: &buffer_ports::BufferId) -> Option<String> {
-            Some("original content".to_string())
-        }
-        fn set_text(
-            &self,
-            _id: &buffer_ports::BufferId,
-            _content: String,
-        ) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
-            Box::pin(async move { Ok(()) })
-        }
-        fn apply_transaction(
-            &self,
-            _id: &buffer_ports::BufferId,
-            _txn: buffer_ports::TextEdit,
-        ) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
-            Box::pin(async move { Ok(()) })
-        }
-    }
-
-    struct TestAi;
-    impl ai_ports::AiClient for TestAi {
-        fn request(
-            &self,
-            req: ai_ports::AiRequest,
-        ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
-            let buf = req.buffer_id.clone();
-            Box::pin(async move { Ok(ai_ports::AiResponseDTO { text: format!("fake-explain: {}", buf) }) })
-        }
-    }
-
-    let repo = std::sync::Arc::new(TestRepo) as std::sync::Arc<dyn domain_ports::WorkspaceRepository>;
-    let buf_store = std::sync::Arc::new(TestBufferStore) as std::sync::Arc<dyn buffer_ports::BufferStore>;
-    let ai_client = std::sync::Arc::new(TestAi) as std::sync::Arc<dyn ai_ports::AiClient>;
-
-    let orch = WorkspaceOrchestrator::new(repo, buf_store, ai_client);
-    let service_arc: std::sync::Arc<dyn crate::ports::WorkspaceService> = std::sync::Arc::new(orch);
-
-    // Boot workspace and open the buffer via the orchestrator so a session and buffer membership exist.
-    let boot = crate::ports::WorkspaceBootRequest { path: PathBuf::from(".") };
-    let boot_res = service_arc.boot_workspace(boot).await.expect("boot ok");
-    let session_id = boot_res.session.session_id.clone();
-
-    let open_req = crate::ports::OpenBufferRequest { session_id: session_id.clone(), path: PathBuf::from("file1.txt") };
-    let _open_res = service_arc.open_buffer(open_req).await.expect("open ok");
+    // Use the in-test FakeService as the authoritative application service for request/apply.
+    let service_arc: std::sync::Arc<dyn crate::ports::WorkspaceService> = std::sync::Arc::new(FakeService::new());
+    let session_id = SessionId(Id::new());
 
     // Request AI edit (application orchestrator stores authoritative proposal).
     let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service_arc.clone())).await;
