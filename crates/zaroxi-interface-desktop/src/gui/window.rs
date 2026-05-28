@@ -201,8 +201,12 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     }
 
     // Instantiate the app and hand it to run_app.
-    let mut app =
-        GuiApp { window_attributes: window_attributes.clone(), title, maybe_window: None };
+    let mut app = GuiApp {
+        window_attributes: window_attributes.clone(),
+        title,
+        maybe_window: None,
+        requested_initial_frame: false,
+    };
 
     let run_result = event_loop.run_app(&mut app);
 
