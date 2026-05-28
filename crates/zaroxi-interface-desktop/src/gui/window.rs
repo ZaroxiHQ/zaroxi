@@ -24,8 +24,8 @@ Behavior:
 use std::error::Error;
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, WindowEvent, StartCause},
-    event_loop::{EventLoop, ControlFlow},
+    event::{WindowEvent, StartCause},
+    event_loop::EventLoop,
     window::{Window, WindowAttributes},
 };
 
@@ -76,6 +76,12 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
+        }
+
+        fn resumed(&mut self, _active_loop: &winit::event_loop::ActiveEventLoop) {
+            // No-op for this minimal bootstrap. Some platforms may call `resumed`
+            // before or instead of `NewEvents(Init)`; window creation is handled
+            // in new_events, so we keep resumed safe and idempotent.
         }
 
         fn window_event(
