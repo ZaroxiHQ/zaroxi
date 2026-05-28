@@ -57,6 +57,16 @@ pub async fn refresh_with_service(
     let new_sig = make_presenter_sig(new_presenter_snapshot.clone());
     // Lightweight previous active buffer read (presenter/service authoritative resolution happens later).
     let prev_active = comp.metadata.as_ref().and_then(|m| m.active_buffer.clone());
+    // Detect whether we previously had an AI projection. If none existed before, we must consult
+    // the service events during refresh because an ExplainExecuted may have been produced by the
+    // application/orchestrator and would not necessarily change presenter output. This is a
+    // conservative, narrow addition that only forces event/command queries when we previously
+    // had no AI projection recorded in composition metadata.
+    let prev_has_ai = comp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.ai_projection.as_ref())
+        .is_some();
 
     // 2) Attempt to read the active editor document via the WorkspaceView seam.
     let active_buf_opt = match view
@@ -233,6 +243,7 @@ pub async fn refresh_with_service(
             || prev_active != active_buf_opt
             || comp.pending_refresh_reason.is_some()
             || comp.session_id.is_none()
+            || !prev_has_ai
         {
             if let Ok(ev_res) = svc
                 .get_recent_events(crate::ports::GetRecentEventsRequest {
