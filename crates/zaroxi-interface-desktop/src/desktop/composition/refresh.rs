@@ -33,6 +33,31 @@ pub async fn refresh_with_service(
     // (shell-facing, presentation-only signal).
     let new_presenter_snapshot = comp.presenter.latest();
 
+    // signature helper for presenter snapshots (concatenate span texts) - compute early for lightweight change detection
+    let make_presenter_sig = |opt: Option<crate::view_adapter::InterfaceRenderableWindow>| -> String {
+        if let Some(w) = opt {
+            let mut out = String::new();
+            for line in w.lines.iter() {
+                for sp in line.spans.iter() {
+                    out.push_str(&sp.text);
+                    out.push('|');
+                }
+                out.push('\n');
+            }
+            out
+        } else {
+            String::new()
+        }
+    };
+
+    // Compute presenter signatures early so we can decide whether to call potentially-expensive
+    // service ports (recent events / recent commands). This narrows recomputation and avoids
+    // extra service calls for trivial refreshes that did not change the presenter output.
+    let prev_sig = make_presenter_sig(prev_presenter_snapshot.clone());
+    let new_sig = make_presenter_sig(new_presenter_snapshot.clone());
+    // Lightweight previous active buffer read (presenter/service authoritative resolution happens later).
+    let prev_active = comp.metadata.as_ref().and_then(|m| m.active_buffer.clone());
+
     // 2) Attempt to read the active editor document via the WorkspaceView seam.
     let active_buf_opt = match view
         .get_active_editor_document(crate::ports::GetActiveEditorDocumentRequest {
@@ -200,42 +225,53 @@ pub async fn refresh_with_service(
     let mut last_command_line: Option<String> = None;
 
     if let Some(svc) = &service {
-        if let Ok(ev_res) = svc
-            .get_recent_events(crate::ports::GetRecentEventsRequest {
-                session_id: session_id.clone(),
-                limit: 20,
-            })
-            .await
+        // We always ask the service for opened-buffers (list_open_buffers) above when present because
+        // the opened-buffer projection is authoritative for the shell. However, fetching recent events
+        // and recent commands can be deferred for trivial refreshes that did not change presenter output
+        // or active buffer. Only query these potentially-expensive ports when there is a plausible change.
+        if prev_sig != new_sig
+            || prev_active != active_buf_opt
+            || comp.pending_refresh_reason.is_some()
+            || comp.session_id.is_none()
         {
-            // Iterate from newest to oldest and pick the first ExplainExecuted we find.
-            for ev in ev_res.events.iter().rev() {
-                if let crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id, result } =
-                    &ev.kind
-                {
-                    ai_proj = Some(super::AiProjection {
-                        kind: Some("ExplainExecuted".to_string()),
-                        result: Some(result.clone()),
-                        target_buffer: Some(buffer_id.clone()),
-                        proposal_text: None,
-                        state: Some(super::AiState::Idle),
-                    });
-                    break;
+            if let Ok(ev_res) = svc
+                .get_recent_events(crate::ports::GetRecentEventsRequest {
+                    session_id: session_id.clone(),
+                    limit: 20,
+                })
+                .await
+            {
+                // Iterate from newest to oldest and pick the first ExplainExecuted we find.
+                for ev in ev_res.events.iter().rev() {
+                    if let crate::ports::WorkspaceEventKind::ExplainExecuted { buffer_id, result } =
+                        &ev.kind
+                    {
+                        ai_proj = Some(super::AiProjection {
+                            kind: Some("ExplainExecuted".to_string()),
+                            result: Some(result.clone()),
+                            target_buffer: Some(buffer_id.clone()),
+                            proposal_text: None,
+                            state: Some(super::AiState::Idle),
+                        });
+                        break;
+                    }
                 }
             }
-        }
 
-        // Attempt to obtain the most recent command (limit=1) and render a tiny one-line string.
-        if let Ok(cmd_res) = svc
-            .get_recent_commands(crate::ports::GetRecentCommandsRequest {
-                session_id: session_id.clone(),
-                limit: 1,
-            })
-            .await
-        {
-            if let Some(rec) = cmd_res.commands.last() {
-                let kind_name = crate::desktop::composition::state::command_kind_short_name(&rec.kind);
-                let suffix = if rec.success { " ✓" } else { " ✗" };
-                last_command_line = Some(format!("{}{}", kind_name, suffix));
+            // Attempt to obtain the most recent command (limit=1) and render a tiny one-line string.
+            if let Ok(cmd_res) = svc
+                .get_recent_commands(crate::ports::GetRecentCommandsRequest {
+                    session_id: session_id.clone(),
+                    limit: 1,
+                })
+                .await
+            {
+                if let Some(rec) = cmd_res.commands.last() {
+                    let kind_name =
+                        crate::desktop::composition::state::command_kind_short_name(&rec.kind);
+                    let suffix = if rec.success { " ✓" } else { " ✗" };
+                    last_command_line = Some(format!("{}{}", kind_name, suffix));
+                }
             }
         }
     }
@@ -256,7 +292,6 @@ pub async fn refresh_with_service(
     //
     // Note: comparisons are tiny and presentation-only (strings / buffer ids); we avoid
     // introducing an event stream or mirroring application internals.
-    let prev_active = comp.metadata.as_ref().and_then(|m| m.active_buffer.clone());
     let prev_opened_active = comp
         .metadata
         .as_ref()
@@ -266,25 +301,6 @@ pub async fn refresh_with_service(
         .as_ref()
         .and_then(|m| m.ai_projection.as_ref().and_then(|a| a.result.clone()));
 
-    // signature helper for presenter snapshots (concatenate span texts)
-    let make_presenter_sig = |opt: Option<crate::view_adapter::InterfaceRenderableWindow>| -> String {
-        if let Some(w) = opt {
-            let mut out = String::new();
-            for line in w.lines.iter() {
-                for sp in line.spans.iter() {
-                    out.push_str(&sp.text);
-                    out.push('|');
-                }
-                out.push('\n');
-            }
-            out
-        } else {
-            String::new()
-        }
-    };
-
-    let prev_sig = make_presenter_sig(prev_presenter_snapshot.clone());
-    let new_sig = make_presenter_sig(new_presenter_snapshot.clone());
     let new_ai_result = ai_proj.as_ref().and_then(|a| a.result.clone());
 
     // If the composition consulted a WorkspaceService, prefer the service-provided
