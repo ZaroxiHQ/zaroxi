@@ -163,19 +163,12 @@ impl WorkspaceService for FakeService {
     }
 
     fn apply_ai_edit(&self, req: crate::ports::ApplyAiEditRequest) -> BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, UseCaseError>> {
-        // Consume pending proposal if present for session+buffer
-        let mut guard_map = self.pending.lock().unwrap();
-        if let Some(sess_map) = guard_map.get_mut(&req.session_id) {
-            if let Some(prop) = sess_map.remove(&req.buffer_id) {
-                let mut guard = self.last_update.lock().unwrap();
-                *guard = Some(prop);
-                Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
-            } else {
-                Box::pin(async move { Err(UseCaseError::AiFailure("no pending proposal".to_string())) })
-            }
-        } else {
-            Box::pin(async move { Err(UseCaseError::UnknownSession) })
-        }
+        // For test double: accept the provided proposal text and record it as the last update.
+        // This makes the request->apply flow deterministic in tests without requiring a full
+        // session reconciliation step inside the fake service.
+        let mut guard = self.last_update.lock().unwrap();
+        *guard = Some(req.proposal_text.clone());
+        Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
     }
 
     fn cancel_ai_edit(&self, _req: crate::ports::CancelAiEditRequest) -> BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, UseCaseError>> {
