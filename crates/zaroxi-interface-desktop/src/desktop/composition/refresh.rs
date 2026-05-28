@@ -12,8 +12,6 @@ use std::sync::Arc;
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 use zaroxi_kernel_types::Id;
 
-use crate::presenter::Presenter;
-
 /// Refresh the DesktopComposition using a WorkspaceView and optional WorkspaceService.
 ///
 /// This is the migrated implementation from the original monolithic composition

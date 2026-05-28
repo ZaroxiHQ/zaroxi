@@ -34,4 +34,3 @@ pub use projections::{latest_active_document_summary, latest_opened_buffers_summ
 pub use summary::latest_ai_projection_summary;
 
 /// Keep the small internal helper available to the crate as before.
-pub(crate) use state::command_kind_short_name;

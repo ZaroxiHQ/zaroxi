@@ -111,6 +111,7 @@ pub enum RefreshReason {
     AiProjectionUpdated,
 }
 
+#[allow(dead_code)]
 pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> String {
     // Lightweight textual short-name for a CommandKind used in tiny status lines.
     // Preserve the original behaviour by producing a stable Debug-based string when
