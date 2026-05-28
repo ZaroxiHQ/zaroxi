@@ -22,9 +22,9 @@ pub mod summary;
 
 pub use state::{
     ActiveBufferDetails, ActiveDocumentSummary, AiKind, AiProjection, AiProjectionSummary, AiState,
-    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopStatus, OpenedBufferItem,
-    OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext, ShellSnapshot,
-    StatusBarLine, ViewportAnchoring, ViewportSummary,
+    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopStatus, DesktopSummary,
+    OpenedBufferItem, OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext,
+    ShellSnapshot, StatusBarLine, ViewportAnchoring, ViewportSummary,
 };
 
 pub use refresh::{apply_ai_edit_active, cancel_ai_edit_active, request_ai_edit_active, refresh_with_service};

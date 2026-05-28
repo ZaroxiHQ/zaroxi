@@ -212,18 +212,18 @@ pub struct ShellSnapshot {
 /* DesktopConsistencyReport is provided by crate::desktop::consistency */
 #[derive(Clone, Debug)]
 pub struct DesktopComposition {
-    pub(super) presenter: Presenter,
-    pub(super) session_id: Option<SessionId>,
-    pub(super) workspace_id: Option<Id>,
-    pub(super) metadata: Option<DesktopMetadata>,
-    pub(super) status: Option<DesktopStatus>,
-    pub(super) revision: u64,
-    pub(super) pending_refresh_reason: Option<RefreshReason>,
-    pub(super) pending_close: Option<crate::desktop::pending_close::PendingClose>,
-    pub(super) command_bar: Option<CommandBarState>,
+    pub(crate) presenter: Presenter,
+    pub(crate) session_id: Option<SessionId>,
+    pub(crate) workspace_id: Option<Id>,
+    pub(crate) metadata: Option<DesktopMetadata>,
+    pub(crate) status: Option<DesktopStatus>,
+    pub(crate) revision: u64,
+    pub(crate) pending_refresh_reason: Option<RefreshReason>,
+    pub(crate) pending_close: Option<crate::PendingClose>,
+    pub(crate) command_bar: Option<CommandBarState>,
     /// When set, this explicit close-result status should be preferred by
     /// visible status helpers over transient refresh/update messages.
-    pub(super) close_result_status: Option<String>,
+    pub(crate) close_result_status: Option<String>,
 }
 
 impl DesktopComposition {
@@ -364,7 +364,7 @@ impl DesktopComposition {
     }
 
     // Pending-close helpers delegated to the small pending_close module (desktop-level).
-    pub fn set_pending_close(&mut self, pending: crate::desktop::pending_close::PendingClose) {
+    pub fn set_pending_close(&mut self, pending: crate::PendingClose) {
         // When entering a new pending-close flow, any previously preserved explicit
         // close-result status must not remain visible. Clear it here so the pending
         // close banner can take precedence immediately.
@@ -380,7 +380,7 @@ impl DesktopComposition {
         crate::desktop::pending_close::has_pending_close(self)
     }
 
-    pub fn latest_pending_close(&self) -> Option<crate::desktop::pending_close::PendingClose> {
+    pub fn latest_pending_close(&self) -> Option<crate::PendingClose> {
         crate::desktop::pending_close::latest_pending_close(self)
     }
 
