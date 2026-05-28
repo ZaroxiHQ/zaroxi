@@ -26,7 +26,7 @@ use std::error::Error;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{EventLoop, ControlFlow},
     window::{Window, WindowAttributes},
 };
 
@@ -92,17 +92,18 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         w.set_title(&self.title);
                         // Try to place the window at a sane on-screen position (small offset)
                         // to avoid some compositors placing a new window off-screen or unmapped.
-                        // Use PhysicalPosition so we call the exact winit API.
                         let _ = w.set_outer_position(PhysicalPosition::new(100, 100));
                         // Make sure the window is visible and request an immediate frame.
-                        // `set_visible` and `request_redraw` are the safe, public APIs exposed
-                        // by winit; `pre_present_notify` nudges Wayland to schedule a frame.
                         // These calls are best-effort and help ensure the compositor maps the window.
                         let _ = w.set_visible(true);
                         let _ = w.pre_present_notify();
                         let _ = w.request_redraw();
                         // Keep the window handle so we can request redraws later.
                         self.maybe_window = Some(w);
+
+                        // Switch to Poll so we actively request redraws in about_to_wait.
+                        active_loop.set_control_flow(ControlFlow::Poll);
+                        eprintln!("GuiApp: set control flow to Poll to drive redraws");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: failed to create window: {}", e);
@@ -131,6 +132,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         let _ = w.pre_present_notify();
                         let _ = w.request_redraw();
                         self.maybe_window = Some(w);
+
+                        active_loop.set_control_flow(ControlFlow::Poll);
+                        eprintln!("GuiApp: set control flow to Poll after resumed creation");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: resumed failed to create window: {}", e);
@@ -140,6 +144,18 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             } else {
                 eprintln!("GuiApp: resumed called but window already created");
             }
+        }
+
+        fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
+            // Called just before the event loop blocks; use this to request a redraw so
+            // the compositor sees an activity and we get a RedrawRequested event.
+            if let Some(w) = self.maybe_window.as_ref() {
+                eprintln!("GuiApp: about_to_wait -> requesting redraw");
+                let _ = w.request_redraw();
+            } else {
+                // No window yet; nothing to do.
+            }
+            // Keep the control flow as previously set by new_events/resumed.
         }
 
         fn window_event(
@@ -154,12 +170,25 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                 }
                 WindowEvent::Resized(_size) => {
                     if let Some(w) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: Resized -> requesting redraw");
                         let _ = w.request_redraw();
                     }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     if let Some(w) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: ScaleFactorChanged -> requesting redraw");
                         let _ = w.request_redraw();
+                    }
+                }
+                WindowEvent::RedrawRequested => {
+                    eprintln!("GuiApp: RedrawRequested received");
+                    if let Some(w) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: performing present-related nudges");
+                        let _ = w.pre_present_notify();
+                        // After pre_present_notify we still don't have a GPU frame here,
+                        // but these nudges help Wayland/X11 ensure the window is mapped.
+                        // If a GPU render path is required (wgpu), we'll add it next and
+                        // hook it to this RedrawRequested handler to submit a visible frame.
                     }
                 }
                 _ => {}
