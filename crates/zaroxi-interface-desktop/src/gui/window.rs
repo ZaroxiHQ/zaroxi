@@ -24,7 +24,7 @@ Behavior:
 
 use std::error::Error;
 use winit::{
-    dpi::PhysicalSize,
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
     event_loop::EventLoop,
     window::{Window, WindowAttributes},
@@ -90,6 +90,10 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         eprintln!("GuiApp: created window id={:?}", wid);
                         // Ensure a visible title is set (small visual hint).
                         w.set_title(&self.title);
+                        // Try to place the window at a sane on-screen position (small offset)
+                        // to avoid some compositors placing a new window off-screen or unmapped.
+                        // Use PhysicalPosition so we call the exact winit API.
+                        let _ = w.set_outer_position(PhysicalPosition::new(100, 100));
                         // Make sure the window is visible and request an immediate frame.
                         // `set_visible` and `request_redraw` are the safe, public APIs exposed
                         // by winit; `pre_present_notify` nudges Wayland to schedule a frame.
