@@ -386,7 +386,7 @@ pub async fn refresh_with_service(
         // Surface visible-window projection when we could obtain one from the WorkspaceView.
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
-        refresh_reason: Some(reason),
+        refresh_reason: Some(reason.clone()),
     };
 
     // Status summarizes availability of key projections: presenter window, metadata, active details, opened list, AI projection.
