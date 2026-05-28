@@ -90,6 +90,13 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         eprintln!("GuiApp: created window id={:?}", wid);
                         // Ensure a visible title is set (small visual hint).
                         w.set_title(&self.title);
+                        // Make sure the window is visible and request an immediate frame.
+                        // `set_visible` and `request_redraw` are the safe, public APIs exposed
+                        // by winit; `pre_present_notify` nudges Wayland to schedule a frame.
+                        // These calls are best-effort and help ensure the compositor maps the window.
+                        let _ = w.set_visible(true);
+                        let _ = w.pre_present_notify();
+                        let _ = w.request_redraw();
                         // Keep the window handle so we can request redraws later.
                         self.maybe_window = Some(w);
                     }
@@ -107,10 +114,28 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        fn resumed(&mut self, _active_loop: &winit::event_loop::ActiveEventLoop) {
-            // No-op for this minimal bootstrap. Some platforms may call `resumed`
-            // before or instead of `NewEvents(Init)`; window creation is handled
-            // in new_events, so we keep resumed safe and idempotent.
+        fn resumed(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
+            // Some Wayland compositors deliver readiness after `resumed`, not Init.
+            // Attempt window creation here as a fallback when new_events didn't create it.
+            if self.maybe_window.is_none() {
+                eprintln!("GuiApp: resumed -> attempting to create window");
+                match active_loop.create_window(self.window_attributes.clone()) {
+                    Ok(w) => {
+                        eprintln!("GuiApp: created window on resumed id={:?}", w.id());
+                        w.set_title(&self.title);
+                        let _ = w.set_visible(true);
+                        let _ = w.pre_present_notify();
+                        let _ = w.request_redraw();
+                        self.maybe_window = Some(w);
+                    }
+                    Err(e) => {
+                        eprintln!("GuiApp: resumed failed to create window: {}", e);
+                        active_loop.exit();
+                    }
+                }
+            } else {
+                eprintln!("GuiApp: resumed called but window already created");
+            }
         }
 
         fn window_event(
