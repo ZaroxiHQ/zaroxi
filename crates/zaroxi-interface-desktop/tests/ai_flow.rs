@@ -65,6 +65,7 @@ struct FakeService {
     pending: std::sync::Mutex<std::collections::HashMap<zaroxi_application_workspace::ports::SessionId, std::collections::HashMap<ports::BufferId, String>>>,
 }
 
+#[allow(dead_code)]
 impl FakeService {
     fn new() -> Self {
         FakeService {
