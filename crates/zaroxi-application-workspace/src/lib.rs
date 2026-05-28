@@ -14,6 +14,7 @@ pub mod workspace_manager; // small, read-only view seam (Phase 2)
 
 use std::path::PathBuf;
 use std::io;
+use zaroxi_core_workspace_files::FileStorage;
 
 /// Thin application-level helpers for Phase 9 disk-backed operations.
 ///
