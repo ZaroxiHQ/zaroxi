@@ -69,10 +69,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // Build a small ApplicationHandler implementation to satisfy winit's run_app
     // API. This avoids passing a closure and matches the ApplicationHandler trait
     // expected by `EventLoop::run_app`.
+    // Use the engine's ZaroxiWindow wrapper for safe, unified window handling.
     struct GuiApp {
         window_attributes: WindowAttributes,
         title: String,
-        maybe_window: Option<Window>,
+        maybe_window: Option<zaroxi_core_engine_window::ZaroxiWindow>,
         /// Request the initial frame once after window creation to avoid a busy loop.
         requested_initial_frame: bool,
     }
@@ -88,26 +89,24 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                 eprintln!("GuiApp: attempting to create window (StartCause::Init)");
                 match active_loop.create_window(self.window_attributes.clone()) {
                     Ok(w) => {
-                        let wid = w.id();
-                        eprintln!("GuiApp: created window id={:?}", wid);
+                        // Convert the raw winit Window into the engine wrapper and warm it up.
+                        let mut zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
+                        let wid = zaroxi_w.window().id();
+                        eprintln!("GuiApp: created engine window id={:?}", wid);
                         // Ensure a visible title is set (small visual hint).
-                        w.set_title(&self.title);
-                        // Try to place the window at a sane on-screen position (small offset)
-                        // to avoid some compositors placing a new window off-screen or unmapped.
-                        let _ = w.set_outer_position(PhysicalPosition::new(100, 100));
-                        // Make sure the window is visible and request an immediate frame.
-                        // These calls are best-effort and help ensure the compositor maps the window.
-                        let _ = w.set_visible(true);
-                        let _ = w.pre_present_notify();
-                        let _ = w.request_redraw();
-                        // Keep the window handle so we can request redraws later.
-                        self.maybe_window = Some(w);
+                        zaroxi_w.window().set_title(&self.title);
+                        // Try to place the window at a sane on-screen position.
+                        let _ = zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
+                        // Warmup: visible + pre-present + redraw requests to nudge compositor mapping.
+                        zaroxi_w.show_and_warmup();
+                        // Keep the engine window handle so we can request redraws later.
+                        self.maybe_window = Some(zaroxi_w);
 
                         // Ask for a single initial frame via about_to_wait rather than switching
                         // to Poll (which can result in busy redraw loops). The initial frame
                         // will be requested once and the flag cleared.
                         self.requested_initial_frame = true;
-                        eprintln!("GuiApp: marked initial frame request");
+                        eprintln!("GuiApp: marked initial frame request (engine window)");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: failed to create window: {}", e);
@@ -173,26 +172,23 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                     active_loop.exit();
                 }
                 WindowEvent::Resized(_size) => {
-                    if let Some(w) = self.maybe_window.as_ref() {
-                        eprintln!("GuiApp: Resized -> requesting redraw");
-                        let _ = w.request_redraw();
+                    if let Some(z) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: Resized -> requesting redraw (engine window)");
+                        let _ = z.window().request_redraw();
                     }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
-                    if let Some(w) = self.maybe_window.as_ref() {
-                        eprintln!("GuiApp: ScaleFactorChanged -> requesting redraw");
-                        let _ = w.request_redraw();
+                    if let Some(z) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
+                        let _ = z.window().request_redraw();
                     }
                 }
                 WindowEvent::RedrawRequested => {
                     eprintln!("GuiApp: RedrawRequested received");
-                    if let Some(w) = self.maybe_window.as_ref() {
-                        eprintln!("GuiApp: performing present-related nudges");
-                        let _ = w.pre_present_notify();
-                        // After pre_present_notify we still don't have a GPU frame here,
-                        // but these nudges help Wayland/X11 ensure the window is mapped.
-                        // If a GPU render path is required (wgpu), we'll add it next and
-                        // hook it to this RedrawRequested handler to submit a visible frame.
+                    if let Some(z) = self.maybe_window.as_ref() {
+                        eprintln!("GuiApp: performing present-related nudges (engine window)");
+                        let _ = z.window().pre_present_notify();
+                        // If we later add a wgpu clear/present path we will call it here.
                     }
                 }
                 _ => {}

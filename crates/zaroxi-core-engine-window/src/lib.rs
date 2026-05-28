@@ -51,6 +51,29 @@ impl ZaroxiWindow {
         Self { window, width, height }
     }
 
+    /// Construct a ZaroxiWindow from an existing winit Window.
+    /// This is useful when the window was created via ActiveEventLoop::create_window.
+    pub fn from_window(window: Window) -> Self {
+        let size = window.inner_size();
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+        Self { window, width, height }
+    }
+
+    /// Make the window visible and perform a small "warm-up" sequence of calls
+    /// intended to nudge compositors (especially Wayland) to map the surface
+    /// and schedule an initial frame. These are best-effort and safe public calls.
+    pub fn show_and_warmup(&self) {
+        // Try to make the window visible and request a frame.
+        let _ = self.window.set_visible(true);
+        let _ = self.window.pre_present_notify();
+        let _ = self.window.request_redraw();
+
+        // Small sleep + second request helps some compositors surface the window.
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let _ = self.window.request_redraw();
+    }
+
     /// Return the cached size (width, height) in physical pixels.
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
