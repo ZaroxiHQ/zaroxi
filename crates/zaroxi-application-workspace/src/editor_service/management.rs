@@ -3,7 +3,24 @@ use std::fs;
 
 impl EditorService {
     /// Open a file into a new buffer and activate it.
+    ///
+    /// If the path is already opened, activate the most-recently-opened matching buffer
+    /// instead of creating a duplicate. This keeps opened_paths stable and deterministic
+    /// for callers that expect a single entry per filesystem path.
     pub fn open_file(&self, path: &Path) -> io::Result<()> {
+        // Fast-path: if already opened, activate existing (prefer most-recently-opened).
+        {
+            let mut st = self.inner.lock().unwrap();
+            if let Some(i) = st.paths.iter().rposition(|p| match p {
+                Some(pp) => pp == path,
+                None => false,
+            }) {
+                st.active = Some(i);
+                return Ok(());
+            }
+        }
+
+        // Not opened yet — read content and create a new buffer.
         let content = fs::read_to_string(path)?;
         let buf_arc = Arc::new(Mutex::new(Buffer::from_text(&content)));
         let mut st = self.inner.lock().unwrap();
