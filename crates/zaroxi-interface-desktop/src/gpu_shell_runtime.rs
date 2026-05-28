@@ -196,13 +196,12 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
     if let Some(m) = meta {
         // Marker & chrome_label: prefer active_buffer display if present.
         if let Some(ref ab) = m.active_buffer {
-            regions.marker = Some(ab.to_string());
-            regions.chrome_label = Some(ab.to_string());
-            regions.status_text = Some(
-                m.last_command_line
-                    .clone()
-                    .unwrap_or_else(|| format!("status: {}", ab.to_string())),
-            );
+            // Explicitly convert BufferId -> String once to avoid closure/type inference issues.
+            let ab_s: String = ab.to_string();
+            regions.marker = Some(ab_s.clone());
+            regions.chrome_label = Some(ab_s.clone());
+            regions.status_text =
+                Some(m.last_command_line.clone().unwrap_or_else(|| format!("status: {}", ab_s)));
         } else if let Some(ref cmd) = m.last_command_line {
             regions.status_text = Some(cmd.clone());
         }
@@ -214,7 +213,8 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
         }
 
         // active buffer semantic projection: use the explicit active buffer label when available.
-        regions.active_buffer_label = m.active_buffer.as_ref().map(|b| b.to_string());
+        regions.active_buffer_label =
+            m.active_buffer.as_ref().map(|b: &crate::ports::BufferId| b.to_string());
 
         // opened buffers: if present, synthesize a small ai_indicator / marker for visibility.
         if !m.opened_buffers.is_empty() {
@@ -296,7 +296,7 @@ pub fn get_opened_and_active(width: u32, height: u32) -> (Vec<(String, String)>,
             let display = ob.display.clone().unwrap_or_else(|| id.clone());
             opened.push((id, display));
         }
-        let active = meta.active_buffer.as_ref().map(|b| b.to_string());
+        let active = meta.active_buffer.as_ref().map(|b: &crate::ports::BufferId| b.to_string());
         (opened, active)
     } else {
         (opened, None)

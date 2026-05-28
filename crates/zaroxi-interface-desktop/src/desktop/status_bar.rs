@@ -31,8 +31,11 @@ pub fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super:
     if let Some(ai) = meta.ai_projection.as_ref() {
         if let Some(result) = ai.result.as_ref() {
             // Truncate to keep status short and stable.
+            // Use an explicit local String construction to avoid type-inference ambiguities.
             let snippet: String = if result.chars().count() > 120 {
-                result.chars().take(120).collect::<String>() + "..."
+                let mut s = result.chars().take(120).collect::<String>();
+                s.push_str("...");
+                s
             } else {
                 result.clone()
             };

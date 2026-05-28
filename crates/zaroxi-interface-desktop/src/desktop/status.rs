@@ -22,8 +22,9 @@ pub(crate) fn latest_status_bar_line(
     // Transient last-command-line status takes next precedence.
     if let Some(m) = comp.metadata.as_ref() {
         if let Some(ref last) = m.last_command_line {
+            let text: String = last.clone();
             return Some(super::StatusBarLine {
-                text: last.clone(),
+                text,
                 sticky: Some("status-message".to_string()),
             });
         }
