@@ -46,9 +46,14 @@ zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
 [features]
+# Enable gui_window by default so `cargo run -p zaroxi-interface-desktop --bin gui_shell`
+# opens the native window in developer/local runs. CI can opt-out by disabling default features.
+default = ["gui_window"]
+
 gpu_shell_bin = []
 layout = []
 use_core_lsp = ["zaroxi-core-platform-lsp"]
+gui_window = []
 
 # The gpu_shell binary is now an optional binary (feature gated at top-level).
 [[bin]]
