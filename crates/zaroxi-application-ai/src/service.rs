@@ -76,7 +76,7 @@ impl AiService {
         let ai_req = AiRequest {
             session_id: Id::new(),
             workspace_id: Id::new(),
-            buffer_id: req.buffer_id.clone(),
+            buffer_id: zaroxi_core_editor_buffer::ports::BufferId(req.buffer_id.clone()),
             content_snapshot: req.content.clone(),
         };
 
@@ -135,7 +135,7 @@ impl AiService {
     pub fn accept_proposal(&self, id: &str) -> Result<AiEditApplyResult, anyhow::Error> {
         let mut state = self.state.lock().unwrap();
         if let Some(pos) = state.pending_proposals.iter().position(|p| p.id == id) {
-            if let Some(mut p) = state.pending_proposals.get_mut(pos) {
+            if let Some(p) = state.pending_proposals.get_mut(pos) {
                 p.state = AiProposalState::Applied;
                 return Ok(AiEditApplyResult { ok: true, message: Some("Marked applied (service)".to_string()) });
             }
