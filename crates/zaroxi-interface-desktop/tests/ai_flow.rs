@@ -175,20 +175,92 @@ impl WorkspaceService for FakeService {
 
 #[tokio::test]
 async fn ai_request_and_apply_flow() {
-    // Create a simple composition and fake interfaces.
+    // Create composition and a fake view that references a known buffer id.
     let mut comp = DesktopComposition::new();
-    // Create fake buffer id by using a simple BufferId::new() if available; otherwise use Default/constructors.
-    // We'll construct a BufferId via a simple path helper (BufferId often wraps a path in tests).
-    let buf_id = ports::BufferId::from_path(std::path::Path::new("file1.txt"));
-
+    let buf_path = std::path::Path::new("file1.txt");
+    let buf_id = ports::BufferId::from_path(buf_path);
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("original content".to_string())));
-    let service = Arc::new(FakeService::new());
 
-    // Create a dummy session id; use default Id if available.
-    let session_id = SessionId(Id::new());
+    // --- Build an application-orchestrator-backed service (authoritative session + proposal store).
+    use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
+    use zaroxi_application_ai::ports as ai_ports;
+    use zaroxi_domain_workspace::ports as domain_ports;
+    use zaroxi_core_editor_buffer::ports as buffer_ports;
+    use std::path::PathBuf;
 
-    // Request AI edit (use the application service so orchestration lives in application layer).
-    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service.clone())).await;
+    // Minimal infra fakes to compose an orchestrator instance for the test.
+    struct TestRepo;
+    impl domain_ports::WorkspaceRepository for TestRepo {
+        fn open_workspace(
+            &self,
+            _cmd: domain_ports::WorkspaceOpenCommand,
+        ) -> crate::ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
+            Box::pin(async move {
+                Ok(domain_ports::WorkspaceDTO {
+                    id: Id::new(),
+                    root_path: PathBuf::from("."),
+                    name: "test".to_string(),
+                })
+            })
+        }
+    }
+
+    struct TestBufferStore;
+    impl buffer_ports::BufferStore for TestBufferStore {
+        fn open_buffer(
+            &self,
+            path: PathBuf,
+        ) -> crate::ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+            let id = buffer_ports::BufferId::from_path(&path);
+            Box::pin(async move { Ok(id) })
+        }
+        fn get_text(&self, _id: &buffer_ports::BufferId) -> Option<String> {
+            Some("original content".to_string())
+        }
+        fn set_text(
+            &self,
+            _id: &buffer_ports::BufferId,
+            _content: String,
+        ) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn apply_transaction(
+            &self,
+            _id: &buffer_ports::BufferId,
+            _txn: buffer_ports::TextEdit,
+        ) -> crate::ports::BoxFuture<'static, Result<(), buffer_ports::BufferError>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    struct TestAi;
+    impl ai_ports::AiClient for TestAi {
+        fn request(
+            &self,
+            req: ai_ports::AiRequest,
+        ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
+            let buf = req.buffer_id.clone();
+            Box::pin(async move { Ok(ai_ports::AiResponseDTO { text: format!("fake-explain: {}", buf) }) })
+        }
+    }
+
+    let repo = std::sync::Arc::new(TestRepo) as std::sync::Arc<dyn domain_ports::WorkspaceRepository>;
+    let buf_store = std::sync::Arc::new(TestBufferStore) as std::sync::Arc<dyn buffer_ports::BufferStore>;
+    let ai_client = std::sync::Arc::new(TestAi) as std::sync::Arc<dyn ai_ports::AiClient>;
+
+    let orch = WorkspaceOrchestrator::new(repo, buf_store, ai_client);
+    let service_arc: std::sync::Arc<dyn crate::ports::WorkspaceService> = std::sync::Arc::new(orch);
+
+    // Boot workspace and open the buffer via the orchestrator so a session and buffer membership exist.
+    let boot = crate::ports::WorkspaceBootRequest { path: PathBuf::from(".") };
+    let boot_res = service_arc.boot_workspace(boot).await.expect("boot ok");
+    let session_id = boot_res.session.session_id.clone();
+
+    let open_req = crate::ports::OpenBufferRequest { session_id: session_id.clone(), path: PathBuf::from("file1.txt") };
+    let _open_res = service_arc.open_buffer(open_req).await.expect("open ok");
+
+    // Request AI edit (application orchestrator stores authoritative proposal).
+    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service_arc.clone())).await;
     assert!(req_res.is_ok(), "request_ai_edit_active failed: {:?}", req_res);
 
     // Ensure ai_projection is present and proposed.
@@ -197,19 +269,14 @@ async fn ai_request_and_apply_flow() {
     assert_eq!(ai.state, Some(zaroxi_interface_desktop::desktop::AiState::Proposed));
     assert!(ai.proposal_text.is_some());
 
-    // Apply the proposal using the same injected application service as the request.
-    let apply_res = apply_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None, service.clone()).await;
+    // Apply the proposal using the same orchestrator service.
+    let apply_res = apply_ai_edit_active(&mut comp, view.clone(), session_id.clone(), None, service_arc.clone()).await;
     assert!(apply_res.is_ok(), "apply_ai_edit_active failed: {:?}", apply_res);
 
     // After apply, projection should be Applied.
     let md2 = comp.latest_metadata().expect("metadata expected after apply");
     let ai2 = md2.ai_projection.expect("ai projection expected after apply");
     assert_eq!(ai2.state, Some(zaroxi_interface_desktop::desktop::AiState::Applied));
-
-    // Ensure AI projection was applied in composition. Recording in the service adapter is optional.
-    let md_after = comp.latest_metadata().expect("metadata expected after apply");
-    let ai_after = md_after.ai_projection.expect("ai projection expected after apply");
-    assert_eq!(ai_after.state, Some(zaroxi_interface_desktop::desktop::AiState::Applied));
 }
 
 #[tokio::test]
