@@ -55,9 +55,6 @@ pub mod prelude {
     pub use crate::WorkspaceExplorer;
 }
 
-use std::path::PathBuf;
-use std::io;
-
 /// Small, local workspace tree model used by the initial explorer vertical slice.
 ///
 /// NOTE:
