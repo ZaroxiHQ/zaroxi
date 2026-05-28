@@ -42,10 +42,14 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // window creation is not possible.
     let event_loop = EventLoop::new()?; // EventLoop::new() -> Result<EventLoop, EventLoopError>
 
-    // Create a Window using the winit Window API. The winit crate exposes Window
-    // construction via `Window::new(&event_loop, WindowAttributes)`.
-    // We use default attributes here to keep this bootstrap minimal.
-    let window = window::Window::new(&event_loop, window::WindowAttributes::default())?;
+    // Build WindowAttributes and create the Window via EventLoop::create_window.
+    // Using EventLoop::create_window ensures proper platform initialization.
+    let window_attributes = WindowAttributes::default()
+        .with_title("Zaroxi - GUI Shell")
+        .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
+        .with_resizable(true);
+
+    let window = event_loop.create_window(window_attributes)?;
 
     // Helpful title showing the shell size; small visual hint.
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
