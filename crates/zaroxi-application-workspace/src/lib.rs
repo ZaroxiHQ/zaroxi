@@ -12,6 +12,23 @@ pub mod usecases;
 pub mod view;
 pub mod workspace_manager; // small, read-only view seam (Phase 2)
 
+use std::path::PathBuf;
+use std::io;
+
+/// Thin application-level helpers for Phase 9 disk-backed operations.
+///
+/// These convenience functions are small facades used by integration tests and
+/// simple harnesses; richer application commands should live in the ports/usecases.
+pub fn save_buffer_to_disk(path: &PathBuf, contents: &str) -> io::Result<()> {
+    let storage = zaroxi_core_workspace_files::DiskFileStorage::new();
+    storage.write_file(path, contents)
+}
+
+pub fn read_file_from_disk(path: &PathBuf) -> io::Result<String> {
+    let storage = zaroxi_core_workspace_files::DiskFileStorage::new();
+    storage.read_file(path)
+}
+
 /// Prelude for convenient imports.
 ///
 /// Be explicit about exported symbols to avoid ambiguous glob re-export warnings.

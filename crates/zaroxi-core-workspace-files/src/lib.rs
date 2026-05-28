@@ -18,3 +18,23 @@ pub trait FileStorage: Send + Sync {
     /// Write text content to disk at the given path, replacing the file.
     fn write_file(&self, path: &PathBuf, contents: &str) -> io::Result<()>;
 }
+
+/// A simple disk-backed FileStorage implementation that delegates to the core IO crate.
+pub struct DiskFileStorage;
+
+impl DiskFileStorage {
+    pub fn new() -> Self {
+        DiskFileStorage
+    }
+}
+
+impl FileStorage for DiskFileStorage {
+    fn read_file(&self, path: &PathBuf) -> io::Result<String> {
+        // Delegate to core io helpers.
+        zaroxi_core_io::read_file(path.as_path())
+    }
+
+    fn write_file(&self, path: &PathBuf, contents: &str) -> io::Result<()> {
+        zaroxi_core_io::write_file(path.as_path(), contents)
+    }
+}
