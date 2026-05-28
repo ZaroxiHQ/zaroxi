@@ -37,53 +37,50 @@ use crate::gui::ShellFrame;
 /// not return. It returns Err only if the window cannot be created so callers
 /// may fall back to the transcript output in that case.
 pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
-    // Create an EventLoop. On some platforms EventLoop::new() may be fallible,
-    // so propagate the error into the caller using `?`.
-    let event_loop = EventLoop::new()?;
+    // Create the EventLoop using the winit API. This returns a Result which we
+    // propagate to the caller so the caller can fall back to transcript mode when
+    // window creation is not possible.
+    let event_loop = EventLoop::new()?; // EventLoop::new() -> Result<EventLoop, EventLoopError>
 
-    // Build the window using the winit WindowBuilder.
-    let window = window::WindowBuilder::new()
-        .with_title("Zaroxi - GUI Shell")
-        .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
-        .with_resizable(true)
-        .build(&event_loop)?;
+    // Create a Window using the winit Window API. The winit crate exposes Window
+    // construction via `Window::new(&event_loop, WindowAttributes)`.
+    // We use default attributes here to keep this bootstrap minimal.
+    let window = window::Window::new(&event_loop, window::WindowAttributes::default())?;
 
-    // Put a helpful title showing the shell size; this is a tiny visual hint.
+    // Helpful title showing the shell size; small visual hint.
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
     window.set_title(&title);
 
-    // Run the event loop. The closure signature is (event, &EventLoopWindowTarget<_>, &mut ControlFlow)
-    let run_result = event_loop.run(move |event, _window_target, control_flow| {
-        *control_flow = ControlFlow::Wait;
+    // Run the event loop. For winit v0.30 the (deprecated) `run` method expects a
+    // handler of the form `FnMut(Event<T>, &ActiveEventLoop) -> ()`. We set the
+    // control flow via the ActiveEventLoop API exposed as `set_control_flow`.
+    let run_result = event_loop.run(move |event, active_loop| {
+        // Default to waiting for events.
+        active_loop.set_control_flow(ControlFlow::Wait);
 
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::CloseRequested => {
+                    // Exit the process on close request for this minimal bootstrap.
+                    std::process::exit(0);
+                }
                 WindowEvent::Resized(_size) => {
-                    // In a future patch we'll rebuild GPU surfaces / vertex data here.
-                    window.request_redraw();
+                    // Request a redraw; in the next phase we'll reconfigure GPU surfaces.
+                    let _ = window.request_redraw();
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
-                    window.request_redraw();
+                    let _ = window.request_redraw();
                 }
                 _ => {}
             },
 
-            Event::RedrawRequested(_) => {
-                // No GPU rendering yet — placeholder for future draw code.
+            Event::NewEvents(_) | Event::UserEvent(_) | Event::DeviceEvent { .. } | Event::Suspended
+            | Event::Resumed | Event::AboutToWait | Event::LoopExiting | Event::MemoryWarning => {
+                // No-op for now; placeholder for future behavior.
             }
-
-            Event::MainEventsCleared => {
-                // Drive a modest refresh rate for simple animations / updates later.
-                window.request_redraw();
-            }
-
-            _ => {}
         }
     });
 
-    // `event_loop.run` returns `Result<(), EventLoopError>` in the pinned winit version;
-    // convert that into the function's Result type.
     match run_result {
         Ok(()) => Ok(()),
         Err(e) => Err(Box::new(e)),
