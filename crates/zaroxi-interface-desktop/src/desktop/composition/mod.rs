@@ -32,5 +32,3 @@ pub use refresh::{apply_ai_edit_active, cancel_ai_edit_active, request_ai_edit_a
 pub use projections::{latest_active_document_summary, latest_opened_buffers_summary, latest_shell_context};
 
 pub use summary::latest_ai_projection_summary;
-
-/// Keep the small internal helper available to the crate as before.

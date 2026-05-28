@@ -197,13 +197,13 @@ fn metadata_to_regions(width: u32, height: u32, meta: Option<DesktopMetadata>) -
         // Marker & chrome_label: prefer active_buffer display if present.
         if let Some(ref ab) = m.active_buffer {
             // Explicitly convert BufferId -> String once to avoid closure/type inference issues.
-            let ab_s: String = ab.to_string();
+            let ab_s = ab.to_string();
             regions.marker = Some(ab_s.clone());
             regions.chrome_label = Some(ab_s.clone());
             regions.status_text =
                 Some(m.last_command_line.clone().unwrap_or_else(|| format!("status: {}", ab_s)));
         } else if let Some(ref cmd) = m.last_command_line {
-            regions.status_text = Some(cmd.clone());
+            regions.status_text = Some(cmd.to_string());
         }
 
         // content_preview: expose a single-line hint when active document summary or content_preview exists.

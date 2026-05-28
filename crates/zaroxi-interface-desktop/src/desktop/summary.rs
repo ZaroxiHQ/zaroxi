@@ -20,7 +20,7 @@ pub fn latest_ai_projection_summary(
 ) -> Option<super::AiProjectionSummary> {
     let ap = comp.latest_ai_projection()?;
     // Map kind string to small enum
-    let kind_opt = ap.kind.as_ref().map(|k| {
+    let kind_opt = ap.kind.as_ref().map(|k: &String| {
         let kl = k.to_lowercase();
         if kl.contains("explain") {
             super::AiKind::Explain
