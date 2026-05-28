@@ -20,11 +20,18 @@ mod command_bar;
 mod pending_close;
 mod status;
 
+// Re-export the composition-facing public surface.
+//
+// Many internal modules (actions, status_bar, gpu runtime, etc.) import a
+// small set of types from `crate::desktop`. Preserve that surface here so
+// existing callers remain unchanged while the implementation is split.
 pub use composition::{
-    ActiveDocumentSummary, CommandBarState, DesktopComposition, DesktopSummary,
-    OpenedBufferItemSummary, OpenedBuffersSummary, ShellContext, ShellSnapshot,
-    ViewportAnchoring, ViewportSummary,
+    ActiveBufferDetails, ActiveDocumentSummary, AiKind, AiProjection, AiProjectionSummary, AiState,
+    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopSummary, OpenedBufferItem,
+    OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext, ShellSnapshot,
+    StatusBarLine, ViewportAnchoring, ViewportSummary,
 };
 
+// Preserve other re-exports used across the crate.
 pub use consistency::DesktopConsistencyReport;
 pub use crate::close::PendingClose;
