@@ -48,25 +48,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
         Err(err) => {
-            // Inspect environment to decide if an X11 fallback is reasonable.
-            let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default().to_lowercase();
-            let has_display = std::env::var_os("DISPLAY").is_some();
-            let backend_env = std::env::var_os("WINIT_UNIX_BACKEND");
-
-            if session == "wayland" && has_display && backend_env.is_none() {
-                eprintln!("EventLoop::new() failed: {}. Retrying with WINIT_UNIX_BACKEND=x11", err);
-                std::env::set_var("WINIT_UNIX_BACKEND", "x11");
-                match EventLoop::new() {
-                    Ok(el2) => el2,
-                    Err(err2) => {
-                        eprintln!("EventLoop::new() retry with x11 backend also failed: {}", err2);
-                        return Err(Box::new(err2));
-                    }
-                }
-            } else {
-                // No safe fallback; propagate original error so caller can fallback to transcript.
-                return Err(Box::new(err));
-            }
+            // EventLoop creation failed (commonly due to missing Wayland libs on some systems).
+            // Do not call unsafe or process-global environment setters here; instead
+            // propagate the error so the caller can fall back to transcript output.
+            eprintln!("EventLoop::new() failed: {}. Falling back to transcript mode.", err);
+            return Err(Box::new(err));
         }
     }; // EventLoop::new() -> Result<EventLoop, EventLoopError>
 
