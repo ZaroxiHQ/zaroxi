@@ -398,8 +398,81 @@ pub async fn refresh_with_service(
         has_ai_projection: ai_proj.is_some(),
     };
 
-    comp.metadata = Some(metadata);
-    comp.status = Some(status);
+    // Determine whether the new metadata materially differs from the previous metadata.
+    // If nothing significant changed (heavy fields identical), avoid replacing the entire
+    // metadata object to reduce downstream recomputation. We still update small mutable
+    // fields (refresh_reason / last_command_line) so callers can observe the latest reason.
+    let mut should_replace_metadata = true;
+    if let Some(prev_md) = comp.metadata.as_ref() {
+        // Lightweight comparisons only: compare AI result, opened-active marker, active buffer ids,
+        // presenter signature, opened count, visible-window shape, and active-buffer details.
+        let prev_ai_result = prev_md.ai_projection.as_ref().and_then(|a| a.result.clone());
+        let prev_opened_active = prev_md.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
+        let prev_last_command = prev_md.last_command_line.clone();
+        let prev_opened_count = prev_md.opened_buffer_count;
+
+        // Compute a small signature for visible_window to avoid relying on a PartialEq impl.
+        let prev_vw_sig = prev_md.visible_window.as_ref().map(|v| {
+            (
+                v.top_line,
+                v.total_lines,
+                v.lines.len(),
+                v.cursor_line,
+                v.cursor_column,
+                v.selection_present,
+            )
+        });
+        let new_vw_sig = visible_window_opt.as_ref().map(|v| {
+            (
+                v.top_line,
+                v.total_lines,
+                v.lines.len(),
+                v.cursor_line,
+                v.cursor_column,
+                v.selection_present,
+            )
+        });
+
+        let prev_abd_sig = prev_md
+            .active_buffer_details
+            .as_ref()
+            .map(|d| (d.buffer_id.clone(), d.line_count));
+        let new_abd_sig = active_buffer_details.as_ref().map(|d| (d.buffer_id.clone(), d.line_count));
+
+        // If any of these lightweight indicators differ, we must replace the metadata.
+        should_replace_metadata = prev_ai_result != new_ai_result
+            || prev_opened_active != current_opened_active
+            || prev_active != active_buf_opt
+            || prev_sig != new_sig
+            || prev_last_command != last_command_line
+            || prev_opened_count != opened_count
+            || prev_vw_sig != new_vw_sig
+            || prev_abd_sig != new_abd_sig;
+    }
+
+    if should_replace_metadata {
+        comp.metadata = Some(metadata);
+        comp.status = Some(status);
+    } else {
+        // Reuse previous metadata object to minimize churn; update only small fields that reflect
+        // the most recent refresh reason / last command so observers still see fresh status.
+        if let Some(md_mut) = comp.metadata.as_mut() {
+            md_mut.refresh_reason = Some(reason);
+            md_mut.last_command_line = last_command_line.clone();
+            // Keep the heavy projections (ai_projection, visible_window, opened_buffers, etc.) as-is.
+            md_mut.opened_buffer_count = opened_count;
+            md_mut.opened_buffers = opened_list.clone();
+            md_mut.active_buffer_details = active_buffer_details.clone();
+        }
+        if let Some(st_mut) = comp.status.as_mut() {
+            st_mut.has_ai_projection = ai_proj.is_some();
+            st_mut.has_opened_buffers = !opened_list.is_empty();
+            st_mut.has_active_buffer_details = active_buffer_details.is_some();
+            st_mut.has_render_window = comp.presenter.latest().is_some();
+        } else {
+            comp.status = Some(status);
+        }
+    }
 
     // Increment the small, shell-facing revision counter on each successful refresh.
     comp.revision = comp.revision.saturating_add(1);
