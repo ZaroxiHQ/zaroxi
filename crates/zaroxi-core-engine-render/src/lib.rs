@@ -45,3 +45,22 @@ pub mod shell_text_renderer;
 pub use shell_text_renderer::ShellTextRenderer;
 
 pub use consistency::{RenderConsistencyReport, analyze};
+
+/// Lightweight utility: produce a cached string for a ShellRenderTranscript.
+/// Callers may pass a mutable Option<String> to avoid recomputing the joined
+/// lines when the transcript content is unchanged. This is intentionally small
+/// and local so consumers (presenters/harness) can opt-in to avoid repeated
+/// allocation and string-join work on hot paths.
+pub fn transcript_to_string_cached(
+    transcript: &ShellRenderTranscript,
+    prev_cache: &mut Option<String>,
+) -> String {
+    let s = transcript.to_string();
+    if let Some(prev) = prev_cache {
+        if prev == &s {
+            return prev.clone();
+        }
+    }
+    *prev_cache = Some(s.clone());
+    s
+}
