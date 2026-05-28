@@ -58,7 +58,7 @@ async fn request_and_apply_ai_edit_flow() {
 
     // We expect a proposal to be returned.
     assert!(resp.proposal.summary.as_deref().map(|s| s.len()).unwrap_or(0) > 0);
-    assert!(resp.proposal.proposal_text.as_deref().map(|s| s.len()).unwrap_or(0) > 0);
+    assert!(resp.proposal.proposal_text.len() > 0);
 
     // Apply the proposal (use the returned proposal_text as the authoritative payload).
     let apply_req = ApplyAiEditRequest {
