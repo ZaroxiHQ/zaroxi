@@ -36,6 +36,8 @@ zaroxi-core-platform-lsp = { path = "../zaroxi-core-platform-lsp", optional = tr
 [dev-dependencies]
 uuid = { workspace = true }
 chrono = { workspace = true }
+zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
