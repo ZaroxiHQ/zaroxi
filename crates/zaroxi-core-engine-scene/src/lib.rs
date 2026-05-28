@@ -84,6 +84,50 @@ impl EditorPrimitiveSet {
     }
 }
 
+/// Provide a small, explicit PartialEq implementation for TextPrimitive and
+/// EditorPrimitiveSet to allow callers to cheaply detect identity-equivalence
+/// of scene outputs without performing a deep, semantic re-layout. This is a
+/// conservative optimization: equality compares text runs and gutter labels
+/// contents exactly and compares the lengths of caret/selection lists (not their
+/// full geometry), keeping the comparison robust and easy to reason about.
+impl PartialEq for TextPrimitive {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x
+            && self.y == other.y
+            && self.text == other.text
+            && self.font_name == other.font_name
+            && self.max_width == other.max_width
+    }
+}
+
+impl PartialEq for EditorPrimitiveSet {
+    fn eq(&self, other: &Self) -> bool {
+        if self.texts.len() != other.texts.len()
+            || self.carets.len() != other.carets.len()
+            || self.selections.len() != other.selections.len()
+            || self.gutter_labels.len() != other.gutter_labels.len()
+        {
+            return false;
+        }
+
+        for (a, b) in self.texts.iter().zip(other.texts.iter()) {
+            if a != b {
+                return false;
+            }
+        }
+
+        // Compare gutter labels by content.
+        for (a, b) in self.gutter_labels.iter().zip(other.gutter_labels.iter()) {
+            if a != b {
+                return false;
+            }
+        }
+
+        // For carets and selections we conservatively compare lengths only.
+        true
+    }
+}
+
 pub fn info() -> &'static str {
     CRATE_NAME
 }
