@@ -32,6 +32,10 @@ pub use composition::{
     StatusBarLine, ViewportAnchoring, ViewportSummary,
 };
 
+// Re-export async helpers moved into the composition refresh module so callers
+// that previously imported them from `crate::desktop` continue to compile.
+pub use composition::{request_ai_edit_active, apply_ai_edit_active, cancel_ai_edit_active};
+
 // Preserve other re-exports used across the crate.
 pub use consistency::DesktopConsistencyReport;
 pub use crate::close::PendingClose;
