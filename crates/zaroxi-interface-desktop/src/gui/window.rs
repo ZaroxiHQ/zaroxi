@@ -73,6 +73,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         window_attributes: WindowAttributes,
         title: String,
         maybe_window: Option<Window>,
+        /// Request the initial frame once after window creation to avoid a busy loop.
+        requested_initial_frame: bool,
     }
 
     impl winit::application::ApplicationHandler for GuiApp {
@@ -101,9 +103,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         // Keep the window handle so we can request redraws later.
                         self.maybe_window = Some(w);
 
-                        // Switch to Poll so we actively request redraws in about_to_wait.
-                        active_loop.set_control_flow(ControlFlow::Poll);
-                        eprintln!("GuiApp: set control flow to Poll to drive redraws");
+                        // Ask for a single initial frame via about_to_wait rather than switching
+                        // to Poll (which can result in busy redraw loops). The initial frame
+                        // will be requested once and the flag cleared.
+                        self.requested_initial_frame = true;
+                        eprintln!("GuiApp: marked initial frame request");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: failed to create window: {}", e);
@@ -146,16 +150,16 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
-            // Called just before the event loop blocks; use this to request a redraw so
-            // the compositor sees an activity and we get a RedrawRequested event.
-            if let Some(w) = self.maybe_window.as_ref() {
-                eprintln!("GuiApp: about_to_wait -> requesting redraw");
-                let _ = w.request_redraw();
-            } else {
-                // No window yet; nothing to do.
+        fn about_to_wait(&mut self, _active_loop: &winit::event_loop::ActiveEventLoop) {
+            // Request the initial frame once to avoid a continuous busy redraw loop.
+            if self.requested_initial_frame {
+                if let Some(w) = self.maybe_window.as_ref() {
+                    eprintln!("GuiApp: about_to_wait -> requesting initial redraw");
+                    let _ = w.request_redraw();
+                }
+                self.requested_initial_frame = false;
             }
-            // Keep the control flow as previously set by new_events/resumed.
+            // Otherwise remain idle (Wait) and let the platform wake us for real events.
         }
 
         fn window_event(
