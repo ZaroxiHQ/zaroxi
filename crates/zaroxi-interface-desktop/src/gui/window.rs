@@ -41,7 +41,34 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // Create the EventLoop using the winit API. This returns a Result which we
     // propagate to the caller so the caller can fall back to transcript mode when
     // window creation is not possible.
-    let event_loop = EventLoop::new()?; // EventLoop::new() -> Result<EventLoop, EventLoopError>
+    // Create the EventLoop using the winit API.
+    // If the default attempt fails (commonly because Wayland libs couldn't be loaded
+    // in this environment), try a conservative fallback: if an X11 DISPLAY is set
+    // and the session is Wayland, set WINIT_UNIX_BACKEND=x11 and retry once.
+    let event_loop = match EventLoop::new() {
+        Ok(el) => el,
+        Err(err) => {
+            // Inspect environment to decide if an X11 fallback is reasonable.
+            let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default().to_lowercase();
+            let has_display = std::env::var_os("DISPLAY").is_some();
+            let backend_env = std::env::var_os("WINIT_UNIX_BACKEND");
+
+            if session == "wayland" && has_display && backend_env.is_none() {
+                eprintln!("EventLoop::new() failed: {}. Retrying with WINIT_UNIX_BACKEND=x11", err);
+                std::env::set_var("WINIT_UNIX_BACKEND", "x11");
+                match EventLoop::new() {
+                    Ok(el2) => el2,
+                    Err(err2) => {
+                        eprintln!("EventLoop::new() retry with x11 backend also failed: {}", err2);
+                        return Err(Box::new(err2));
+                    }
+                }
+            } else {
+                // No safe fallback; propagate original error so caller can fallback to transcript.
+                return Err(Box::new(err));
+            }
+        }
+    }; // EventLoop::new() -> Result<EventLoop, EventLoopError>
 
     // Build WindowAttributes once and create the Window from the ActiveEventLoop
     // inside the run_app handler (recommended by this winit version).
