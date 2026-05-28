@@ -3,5 +3,6 @@ pub mod last_event_line;
 pub mod location_line;
 pub mod selection_line;
 pub mod session_identity_line;
+pub mod ai_proposal;
 pub mod shell_chrome_snapshot;
 pub mod shell_frame;
