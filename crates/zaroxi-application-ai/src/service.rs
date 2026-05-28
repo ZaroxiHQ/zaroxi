@@ -5,6 +5,7 @@ use tracing::info;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zaroxi_domain_ai::types::{AiEditRequest, AiEditProposal, AiProposalState, AiEditApplyResult};
+use zaroxi_kernel_types::Id;
 
 /// Re-export port traits used by infra adapters (AiClient trait lives in crate::ports).
 use crate::ports::{AiClient, AiRequest};
@@ -73,6 +74,8 @@ impl AiService {
     ) -> Result<AiEditProposal, anyhow::Error> {
         // Build the adapter-level AiRequest expected by infra adapters.
         let ai_req = AiRequest {
+            session_id: Id::new(),
+            workspace_id: Id::new(),
             buffer_id: req.buffer_id.clone(),
             content_snapshot: req.content.clone(),
         };
