@@ -113,10 +113,16 @@ pub enum RefreshReason {
 
 #[allow(dead_code)]
 pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> String {
-    // Lightweight textual short-name for a CommandKind used in tiny status lines.
-    // Preserve the original behaviour by producing a stable Debug-based string when
-    // a more specific mapping is not required.
-    format!("{:?}", kind)
+    // Prefer concise variant names for small status lines (avoid Debug output with fields).
+    match kind {
+        crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace".to_string(),
+        crate::ports::CommandKind::OpenBuffer { .. } => "OpenBuffer".to_string(),
+        crate::ports::CommandKind::UpdateBuffer { .. } => "UpdateBuffer".to_string(),
+        crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer".to_string(),
+        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer".to_string(),
+        crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand".to_string(),
+        other => format!("{:?}", other),
+    }
 }
 
 #[derive(Clone, Debug)]
