@@ -6,6 +6,5 @@ description = "zaroxi-infrastructure-storage (filesystem adapter)"
 license = "MIT"
 
 [dependencies]
-# Infrastructure adapter: rely only on the low-level core IO crate to avoid
-# pulling in higher-level core-runtime transitive dependencies.
-zaroxi-core-io = { path = "../zaroxi-core-io" }
+# No direct workspace/core dependencies required for this adapter.
+# Keep the crate minimal and self-contained (use std::fs directly).

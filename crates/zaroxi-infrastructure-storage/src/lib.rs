@@ -1,16 +1,16 @@
 #![allow(dead_code)]
-#![doc = "Filesystem-backed storage adapter providing simple read/write helpers via core-io"]
+#![doc = "Filesystem-backed storage adapter implementing simple read/write via std::fs"]
 
-use std::io;
+use std::fs::File;
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
-use zaroxi_core_io;
-
-/// Simple filesystem storage adapter implemented on top of the core IO helpers.
+/// Simple filesystem storage adapter.
 ///
-/// This adapter intentionally does not pull in the workspace-level types (which
-/// may transitively depend on higher-level core crates). By depending only on
-/// `zaroxi-core-io` we avoid creating a forbidden dependency edge to core-runtime.
+/// This adapter uses synchronous std::fs operations directly to avoid introducing
+/// any dependency on core workspace/runtime crates. It provides straightforward
+/// read/write helpers suitable for infrastructure wiring without pulling in
+/// higher-layer transitive dependencies.
 pub struct FileSystemStorage;
 
 impl FileSystemStorage {
@@ -20,12 +20,17 @@ impl FileSystemStorage {
 
     /// Read a UTF-8 file from disk.
     pub fn read_file(&self, path: &PathBuf) -> io::Result<String> {
-        zaroxi_core_io::read_file(path.as_path())
+        let mut s = String::new();
+        let mut f = File::open(path)?;
+        f.read_to_string(&mut s)?;
+        Ok(s)
     }
 
     /// Write text content to disk at the given path, replacing/creating the file.
     pub fn write_file(&self, path: &PathBuf, contents: &str) -> io::Result<()> {
-        zaroxi_core_io::write_file(path.as_path(), contents)
+        let mut f = File::create(path)?;
+        f.write_all(contents.as_bytes())?;
+        Ok(())
     }
 }
 
