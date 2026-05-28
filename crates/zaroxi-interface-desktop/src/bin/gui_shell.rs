@@ -8,19 +8,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     let size = Size { width: 1280, height: 800 };
     let shell = ShellFrame::new(size);
 
-    // Try to open a native window and render the shell. If that fails (headless CI,
-    // missing GPU, etc.) fall back to printing the deterministic transcript.
-    match zaroxi_interface_desktop::gui::window::run_shell_window(shell.clone()) {
-        Ok(_) => {
-            // Window runner handled lifecycle and exited normally.
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("window init failed; falling back to transcript output: {}", e);
-            for line in shell.render_lines() {
-                println!("{}", line);
+    // If compiled with the "gui_window" feature, attempt to open a native window.
+    // Otherwise, fall back to deterministic transcript output.
+    #[cfg(feature = "gui_window")]
+    {
+        match zaroxi_interface_desktop::gui::run_shell_window(shell.clone()) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                eprintln!("window init failed; falling back to transcript output: {}", e);
             }
-            Ok(())
         }
     }
+
+    // Default / fallback path: print deterministic transcript to stdout.
+    for line in shell.render_lines() {
+        println!("{}", line);
+    }
+
+    Ok(())
 }
