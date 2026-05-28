@@ -42,45 +42,64 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // window creation is not possible.
     let event_loop = EventLoop::new()?; // EventLoop::new() -> Result<EventLoop, EventLoopError>
 
-    // Build WindowAttributes and create the Window via EventLoop::create_window.
-    // Using EventLoop::create_window ensures proper platform initialization.
+    // Build WindowAttributes once and create the Window from the ActiveEventLoop
+    // inside the run_app handler (recommended by this winit version).
     let window_attributes = WindowAttributes::default()
         .with_title("Zaroxi - GUI Shell")
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
         .with_resizable(true);
 
-    let window = event_loop.create_window(window_attributes)?;
-
-    // Helpful title showing the shell size; small visual hint.
+    // Helpful title showing the shell size; keep this small visual hint.
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
-    window.set_title(&title);
 
-    // Run the event loop. For winit v0.30 the (deprecated) `run` method expects a
-    // handler of the form `FnMut(Event<T>, &ActiveEventLoop) -> ()`. We set the
-    // control flow via the ActiveEventLoop API exposed as `set_control_flow`.
-    let run_result = event_loop.run(move |event, active_loop| {
-        // Default to waiting for events.
+    // We'll create the Window inside the event loop via ActiveEventLoop::create_window.
+    // Store it in an Option captured by the closure so we can reference it for redraws.
+    let mut maybe_window: Option<Window> = None;
+
+    // Use run_app (preferred over deprecated `run`) and handle events with access to ActiveEventLoop.
+    let run_result = event_loop.run_app(move |event, active_loop| {
+        // Default to waiting for events between iterations.
         active_loop.set_control_flow(ControlFlow::Wait);
 
         match event {
+            // Create the window once when the event loop initializes (NewEvents/Init).
+            Event::NewEvents(_) => {
+                if maybe_window.is_none() {
+                    match active_loop.create_window(window_attributes.clone()) {
+                        Ok(w) => {
+                            w.set_title(&title);
+                            maybe_window = Some(w);
+                        }
+                        Err(e) => {
+                            // If window creation fails, log and exit the loop so caller can fallback.
+                            eprintln!("failed to create window: {}", e);
+                            active_loop.exit();
+                            return;
+                        }
+                    }
+                }
+            }
+
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    // Exit the process on close request for this minimal bootstrap.
-                    std::process::exit(0);
+                    // Ask the loop to exit cleanly.
+                    active_loop.exit();
                 }
                 WindowEvent::Resized(_size) => {
-                    // Request a redraw; in the next phase we'll reconfigure GPU surfaces.
-                    let _ = window.request_redraw();
+                    if let Some(w) = maybe_window.as_ref() {
+                        let _ = w.request_redraw();
+                    }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
-                    let _ = window.request_redraw();
+                    if let Some(w) = maybe_window.as_ref() {
+                        let _ = w.request_redraw();
+                    }
                 }
                 _ => {}
             },
 
-            Event::NewEvents(_) | Event::UserEvent(_) | Event::DeviceEvent { .. } | Event::Suspended
-            | Event::Resumed | Event::AboutToWait | Event::LoopExiting | Event::MemoryWarning => {
-                // No-op for now; placeholder for future behavior.
+            _ => {
+                // No-op for other events in this minimal bootstrap.
             }
         }
     });
