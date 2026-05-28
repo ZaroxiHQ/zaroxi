@@ -5,6 +5,7 @@ This minimal version intentionally avoids direct wgpu calls so it compiles
 cleanly against the workspace policy (no unsafe blocks enforced by workspace lints)
 and opens a native window for manual verification.
 
+
 Notes:
 - This is an incremental step: it opens a window and runs a simple event loop.
 - It does not perform GPU rendering yet. The previous GPU-based implementation
@@ -24,7 +25,7 @@ Behavior:
 use std::error::Error;
 use winit::{
     dpi::PhysicalSize,
-    event::{WindowEvent, StartCause},
+    event::{StartCause, WindowEvent},
     event_loop::EventLoop,
     window::{Window, WindowAttributes},
 };
@@ -62,7 +63,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     }
 
     impl winit::application::ApplicationHandler for GuiApp {
-        fn new_events(&mut self, active_loop: &winit::event_loop::ActiveEventLoop, cause: StartCause) {
+        fn new_events(
+            &mut self,
+            active_loop: &winit::event_loop::ActiveEventLoop,
+            cause: StartCause,
+        ) {
             // Create the window once on Init (or when resumed on some platforms).
             if self.maybe_window.is_none() && matches!(cause, StartCause::Init) {
                 eprintln!("GuiApp: attempting to create window (StartCause::Init)");
@@ -121,11 +126,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     }
 
     // Instantiate the app and hand it to run_app.
-    let mut app = GuiApp {
-        window_attributes: window_attributes.clone(),
-        title,
-        maybe_window: None,
-    };
+    let mut app =
+        GuiApp { window_attributes: window_attributes.clone(), title, maybe_window: None };
 
     let run_result = event_loop.run_app(&mut app);
 
