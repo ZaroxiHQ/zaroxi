@@ -15,7 +15,7 @@ uuid = { workspace = true }
 serde_json = { workspace = true }
 
 # Domain crate: small DTOs for AI edit requests/proposals (Phase 11).
-zaroxi-domain-ai = { path = "../zaroxi-domain-ai", workspace = true }
+zaroxi-domain-ai = { workspace = true }
 
 # Kernel types (strongly-typed ids) used by AI request/response DTOs.
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
