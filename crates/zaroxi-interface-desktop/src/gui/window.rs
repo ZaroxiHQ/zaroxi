@@ -24,7 +24,7 @@ Behavior:
 use std::error::Error;
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, WindowEvent},
+    event::{Event, WindowEvent, StartCause},
     event_loop::{EventLoop, ControlFlow},
     window::{Window, WindowAttributes},
 };
@@ -52,59 +52,65 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // Helpful title showing the shell size; keep this small visual hint.
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
 
-    // We'll create the Window inside the event loop via ActiveEventLoop::create_window.
-    // Store it in an Option captured by the closure so we can reference it for redraws.
-    let mut maybe_window: Option<Window> = None;
+    // Build a small ApplicationHandler implementation to satisfy winit's run_app
+    // API. This avoids passing a closure and matches the ApplicationHandler trait
+    // expected by `EventLoop::run_app`.
+    struct GuiApp {
+        window_attributes: WindowAttributes,
+        title: String,
+        maybe_window: Option<Window>,
+    }
 
-    // Use run_app (preferred over deprecated `run`) and handle events with access to ActiveEventLoop.
-    let run_result = event_loop.run_app(move |event, active_loop: &winit::event_loop::ActiveEventLoop| {
-        // Default to waiting for events between iterations.
-        active_loop.set_control_flow(ControlFlow::Wait);
-
-        match event {
-            // Create the window once when the event loop initializes (NewEvents/Init).
-            Event::NewEvents(_) => {
-                if maybe_window.is_none() {
-                    match active_loop.create_window(window_attributes.clone()) {
-                        Ok(new_w) => {
-                            // Give the window an explicit type so the compiler can infer captures.
-                            let w: Window = new_w;
-                            w.set_title(&title);
-                            maybe_window = Some(w);
-                        }
-                        Err(e) => {
-                            // If window creation fails, log and exit the loop so caller can fallback.
-                            eprintln!("failed to create window: {}", e);
-                            active_loop.exit();
-                            return;
-                        }
+    impl winit::application::ApplicationHandler for GuiApp {
+        fn new_events(&mut self, active_loop: &winit::event_loop::ActiveEventLoop, cause: StartCause) {
+            // Create the window once on Init (or when resumed on some platforms).
+            if self.maybe_window.is_none() && matches!(cause, StartCause::Init) {
+                match active_loop.create_window(self.window_attributes.clone()) {
+                    Ok(w) => {
+                        w.set_title(&self.title);
+                        self.maybe_window = Some(w);
+                    }
+                    Err(e) => {
+                        eprintln!("failed to create window: {}", e);
+                        active_loop.exit();
                     }
                 }
             }
+        }
 
-            Event::WindowEvent { event, .. } => match event {
+        fn window_event(
+            &mut self,
+            active_loop: &winit::event_loop::ActiveEventLoop,
+            _window_id: winit::window::WindowId,
+            event: WindowEvent,
+        ) {
+            match event {
                 WindowEvent::CloseRequested => {
-                    // Ask the loop to exit cleanly.
                     active_loop.exit();
                 }
                 WindowEvent::Resized(_size) => {
-                    if let Some(w) = maybe_window.as_ref() {
+                    if let Some(w) = self.maybe_window.as_ref() {
                         let _ = w.request_redraw();
                     }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
-                    if let Some(w) = maybe_window.as_ref() {
+                    if let Some(w) = self.maybe_window.as_ref() {
                         let _ = w.request_redraw();
                     }
                 }
                 _ => {}
-            },
-
-            _ => {
-                // No-op for other events in this minimal bootstrap.
             }
         }
-    });
+    }
+
+    // Instantiate the app and hand it to run_app.
+    let mut app = GuiApp {
+        window_attributes: window_attributes.clone(),
+        title,
+        maybe_window: None,
+    };
+
+    let run_result = event_loop.run_app(&mut app);
 
     match run_result {
         Ok(()) => Ok(()),
