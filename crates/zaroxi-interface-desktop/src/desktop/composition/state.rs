@@ -112,16 +112,15 @@ pub enum RefreshReason {
 }
 
 #[allow(dead_code)]
-pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> String {
+pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
     // Prefer concise variant names for small status lines (avoid Debug output with fields).
     match kind {
-        crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace".to_string(),
-        crate::ports::CommandKind::OpenBuffer { .. } => "OpenBuffer".to_string(),
-        crate::ports::CommandKind::UpdateBuffer { .. } => "UpdateBuffer".to_string(),
-        crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer".to_string(),
-        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer".to_string(),
-        crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand".to_string(),
-        other => format!("{:?}", other),
+        crate::ports::CommandKind::BootWorkspace { .. } => "BootWorkspace",
+        crate::ports::CommandKind::OpenBuffer { .. } => "OpenBuffer",
+        crate::ports::CommandKind::UpdateBuffer { .. } => "UpdateBuffer",
+        crate::ports::CommandKind::SetActiveBuffer { .. } => "SetActiveBuffer",
+        crate::ports::CommandKind::ExplainActiveBuffer => "ExplainActiveBuffer",
+        crate::ports::CommandKind::DispatchAppCommand { .. } => "DispatchAppCommand",
     }
 }
 
