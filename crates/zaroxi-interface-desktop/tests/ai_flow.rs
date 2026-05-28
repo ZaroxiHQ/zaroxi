@@ -58,6 +58,7 @@ impl WorkspaceView for FakeView {
     }
 }
 
+#[allow(dead_code)]
 struct FakeService {
     last_update: std::sync::Mutex<Option<String>>,
     // store pending AI proposals per-session per-buffer for test determinism
