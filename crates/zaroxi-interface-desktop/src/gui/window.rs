@@ -26,7 +26,6 @@ use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
 };
 
 use crate::gui::ShellFrame;
@@ -37,9 +36,13 @@ use crate::gui::ShellFrame;
 /// not return. It returns Err only if the window cannot be created so callers
 /// may fall back to the transcript output in that case.
 pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new();
+    // Create the event loop explicitly from the winit path to avoid any local
+    // name resolution ambiguity.
+    let event_loop = winit::event_loop::EventLoop::new();
 
-    let window = WindowBuilder::new()
+    // Build the window using the fully-qualified path to ensure the import
+    // resolution does not conflict with local modules named `window`.
+    let window = winit::window::WindowBuilder::new()
         .with_title("Zaroxi - GUI Shell")
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
         .with_resizable(true)
@@ -49,8 +52,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
     window.set_title(&title);
 
-    // Start the event loop. This call is diverging (does not return).
-    event_loop.run(move |event, _, control_flow| {
+    // Run the event loop and convert winit's run result into a Box<dyn Error> when needed.
+    let run_result = event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -68,7 +71,6 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
 
             Event::RedrawRequested(_) => {
                 // No GPU rendering yet — placeholder for future draw code.
-                // Keeping this handler so future patches can integrate drawing.
             }
 
             Event::MainEventsCleared => {
@@ -79,4 +81,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     });
+
+    // `event_loop.run` returns `Result<(), EventLoopError>` in the pinned winit version;
+    // convert that into the function's Result type.
+    match run_result {
+        Ok(()) => Ok(()),
+        Err(e) => Err(Box::new(e)),
+    }
 }
