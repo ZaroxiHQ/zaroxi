@@ -26,7 +26,7 @@ use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
     event_loop::{EventLoop, ControlFlow},
-    window,
+    window::{Window, WindowAttributes},
 };
 
 use crate::gui::ShellFrame;
