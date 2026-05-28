@@ -1,22 +1,34 @@
 use std::path::PathBuf;
 use std::fs;
-use tempfile::tempdir;
+use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use zaroxi_application_workspace::WorkspaceExplorer;
 
 #[test]
 fn explorer_load_expand_select_open() -> std::io::Result<()> {
-    // Create temporary workspace layout:
-    // root/
+    // Create temporary workspace layout under OS temp dir:
+    // tmp/<unique>/workspace/
     //   dir_a/
     //     file_a.txt
     //   file_root.txt
-    let tmp = tempdir()?;
-    let root = tmp.path().join("workspace");
+    let base = env::temp_dir();
+    let uniq = format!(
+        "zaroxi_test_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let tmp = base.join(uniq);
+    let root = tmp.join("workspace");
     fs::create_dir_all(root.join("dir_a"))?;
     fs::write(root.join("dir_a").join("file_a.txt"), "hello-a")?;
     fs::write(root.join("file_root.txt"), "hello-root")?;
 
     // Use the application-side explorer surface.
-    let mut explorer = crate::WorkspaceExplorer::new();
+    let mut explorer = WorkspaceExplorer::new();
     explorer.load_workspace(&PathBuf::from(&root))?;
 
     // Root should be present and contain at least the two entries we created.
@@ -71,6 +83,10 @@ fn explorer_load_expand_select_open() -> std::io::Result<()> {
     // Open selected file and verify contents.
     let opened = explorer.open_selected()?;
     assert_eq!(opened, Some("hello-a".to_string()));
+
+    // Cleanup the temporary directory we created. Ignore errors during cleanup
+    // to avoid hiding test failures.
+    let _ = fs::remove_dir_all(&tmp);
 
     Ok(())
 }
