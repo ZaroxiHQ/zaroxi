@@ -57,8 +57,8 @@ async fn request_and_apply_ai_edit_flow() {
     let resp = orch.request_ai_edit(req).await.expect("request ai edit ok");
 
     // We expect a proposal to be returned.
-    assert!(resp.proposal.summary.as_ref().map(|s: &String| s.len()).unwrap_or(0) > 0);
-    assert!(resp.proposal.proposal_text.as_ref().map(|s: &String| s.len()).unwrap_or(0) > 0);
+    assert!(resp.proposal.summary.as_deref().map(|s| s.len()).unwrap_or(0) > 0);
+    assert!(resp.proposal.proposal_text.as_deref().map(|s| s.len()).unwrap_or(0) > 0);
 
     // Apply the proposal (use the returned proposal_text as the authoritative payload).
     let apply_req = ApplyAiEditRequest {
