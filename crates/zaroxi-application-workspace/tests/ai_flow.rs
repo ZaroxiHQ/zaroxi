@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use std::path::PathBuf;
 
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 use zaroxi_application_workspace::ports::{
     WorkspaceBootRequest, OpenBufferRequest, RequestAiEditRequest, ApplyAiEditRequest,
+    WorkspaceService,
 };
 use zaroxi_application_workspace::in_memory_adapters;
 use zaroxi_infrastructure_ai_mock;
@@ -51,6 +51,7 @@ async fn request_and_apply_ai_edit_flow() {
     let req = RequestAiEditRequest {
         session_id: boot_res.session.session_id.clone(),
         buffer_id: open_res.buffer_id.clone(),
+        content: String::new(),
     };
 
     let resp = orch.request_ai_edit(req).await.expect("request ai edit ok");
