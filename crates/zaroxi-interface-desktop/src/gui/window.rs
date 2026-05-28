@@ -25,7 +25,8 @@ use std::error::Error;
 use winit::{
     dpi::PhysicalSize,
     event::{Event, WindowEvent},
-    event_loop::ControlFlow,
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
 };
 
 use crate::gui::ShellFrame;
@@ -36,14 +37,13 @@ use crate::gui::ShellFrame;
 /// not return. It returns Err only if the window cannot be created so callers
 /// may fall back to the transcript output in that case.
 pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
-    // Create the event loop explicitly from the winit path to avoid any local
-    // name resolution ambiguity. EventLoop::new() returns an EventLoop directly,
-    // so construct it here and keep the error path for window building below.
-    let event_loop = winit::event_loop::EventLoop::new();
+    // Create an EventLoop and explicitly type it so the compiler resolves the
+    // correct overload. This also avoids ambiguity if `EventLoop::new()` is
+    // present as a fallible variant on some platforms.
+    let event_loop: EventLoop<()> = EventLoop::new();
 
-    // Build the window using the fully-qualified path to ensure the import
-    // resolution does not conflict with local modules named `window`.
-    let window = winit::window::WindowBuilder::new()
+    // Build the window using the imported WindowBuilder (avoid fully-qualified path).
+    let window = WindowBuilder::new()
         .with_title("Zaroxi - GUI Shell")
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
         .with_resizable(true)
@@ -53,8 +53,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
     window.set_title(&title);
 
-    // Run the event loop and convert winit's run result into a Box<dyn Error> when needed.
-    let run_result = event_loop.run(move |event, _, control_flow| {
+    // Run the event loop. The run closure takes (event, &EventLoopWindowTarget<T>, &mut ControlFlow)
+    // in this winit version.
+    let run_result = event_loop.run(move |event, _window_target, control_flow| {
         *control_flow = ControlFlow::Wait;
 
         match event {
