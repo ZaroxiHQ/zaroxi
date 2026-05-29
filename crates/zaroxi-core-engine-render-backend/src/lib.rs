@@ -50,10 +50,15 @@ struct Vertex {
 /// resolved, theme-fed rects to pass into the backend.
 #[derive(Clone, Copy)]
 pub struct DrawRect {
+    /// X origin in window coordinates (pixels).
     pub x: u32,
+    /// Y origin in window coordinates (pixels).
     pub y: u32,
+    /// Rectangle width in pixels.
     pub width: u32,
+    /// Rectangle height in pixels.
     pub height: u32,
+    /// Fill color as an sRGBA color (wgpu::Color).
     pub color: wgpu::Color,
 }
 
