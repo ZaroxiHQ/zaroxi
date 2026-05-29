@@ -33,7 +33,7 @@ pub struct RenderBackend<'a> {
     /// Chosen texture format for surface presentation.
     pub surface_format: wgpu::TextureFormat,
     /// Simple pipeline used to render solid rectangles for the shell regions.
-    pub pipeline: wgpu::RenderPipeline,
+    pub pipeline: Option<wgpu::RenderPipeline>,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -146,7 +146,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 color: wgpu::Color,
             ) -> Result<(), Box<dyn std::error::Error>> {
                 // Create a temporary backend (async init).
-                let mut backend = Self::new(window).await;
+                let backend = Self::new(window).await;
 
                 // Acquire next surface texture.
                 let surface_texture = match backend.surface.get_current_texture() {
@@ -169,7 +169,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 });
 
                 {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("zaroxi-clear-pass"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &view,
@@ -369,7 +369,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         });
 
         {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("zaroxi-root-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
