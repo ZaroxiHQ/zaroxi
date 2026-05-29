@@ -209,7 +209,6 @@ tempfile = "3.27.0"
 memmap2 = "0.9.10"
 anyhow = "1.0"
 uuid = { version = "1.4", features = ["serde", "v4"] }
-zaroxi-kernel-id = { version = "0.1.0" }
 thiserror = "2.0.18"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
