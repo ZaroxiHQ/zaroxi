@@ -26,13 +26,13 @@ use log::info;
 use std::sync::Mutex;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, RenderPass, RenderPipeline};
 
-pub mod glyphon;
-pub use glyphon::GlyphonTextRenderer;
+pub mod cosmic;
+pub use cosmic::CosmicTextRenderer;
 
 /// Small in-process command representing text to be rendered.
 ///
 /// The renderer core emits these commands per panel title/content. The native
-/// Glyphon renderer consumes them, performs shaping/rasterization in `prepare`
+/// Cosmic renderer consumes them, performs shaping/rasterization in `prepare`
 /// and draws them in `render_pass`.
 #[derive(Debug, Clone)]
 pub struct TextCommand {

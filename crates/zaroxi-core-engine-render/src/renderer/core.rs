@@ -179,12 +179,13 @@ impl<'a> Renderer<'a> {
         let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
             crate::renderer::pipelines::create_pipelines(&device, &config)?;
 
-        // Initialize the text subsystem. Default renderer uses the Glyphon-backed
-        // TextRenderer implementation located in renderer::text. The text subsystem
-        // owns its native glyphon state and manages prepare/viewport/update/prepare/render lifecycle.
+        // Initialize the text subsystem. We now use the Cosmic Text–backed
+        // TextRenderer implementation located in renderer::text::cosmic.rs.
+        // The new CosmicTextRenderer is the single authoritative text renderer
+        // for GUI text; Glyphon is no longer exported by the render text seam.
         let font_size = 14.0f32;
         let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
-            Box::new(crate::renderer::text::GlyphonTextRenderer::new(
+            Box::new(crate::renderer::text::CosmicTextRenderer::new(
                 &device,
                 &queue,
                 config.format,
