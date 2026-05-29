@@ -27,7 +27,7 @@ use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
     event_loop::{EventLoop, ControlFlow},
-    window::{Window, WindowAttributes},
+    window::WindowAttributes,
 };
 
 use crate::gui::ShellFrame;
@@ -129,15 +129,21 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                 eprintln!("GuiApp: resumed -> attempting to create window");
                 match active_loop.create_window(self.window_attributes.clone()) {
                     Ok(w) => {
-                        eprintln!("GuiApp: created window on resumed id={:?}", w.id());
-                        w.set_title(&self.title);
-                        let _ = w.set_visible(true);
-                        let _ = w.pre_present_notify();
-                        let _ = w.request_redraw();
-                        self.maybe_window = Some(w);
+                        // Wrap the freshly created raw winit Window in the engine ZaroxiWindow
+                        // so we have the engine-level helpers (show_and_warmup, size, etc).
+                        let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
+                        let wid = zaroxi_w.window().id();
+                        eprintln!("GuiApp: created engine window on resumed id={:?}", wid);
+                        // Ensure visible + pre-present + redraw to nudge compositor mapping.
+                        let _ = zaroxi_w.window().set_visible(true);
+                        let _ = zaroxi_w.window().pre_present_notify();
+                        let _ = zaroxi_w.window().request_redraw();
+                        // Keep the engine window handle so we can request redraws later.
+                        self.maybe_window = Some(zaroxi_w);
 
-                        active_loop.set_control_flow(ControlFlow::Poll);
-                        eprintln!("GuiApp: set control flow to Poll after resumed creation");
+                        // Mark a single initial-frame request to drive one redraw pass.
+                        self.requested_initial_frame = true;
+                        eprintln!("GuiApp: marked initial frame request after resumed creation");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: resumed failed to create window: {}", e);
