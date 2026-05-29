@@ -372,8 +372,13 @@ fn fs(in: VSOut) -> @location(0) vec4<f32> {
                 cache: Default::default(),
             };
 
-            // Try to create the pipeline; if it errors, return None.
-            match std::panic::catch_unwind(|| device.create_render_pipeline(&pipeline_desc)) {
+            // Try to create the pipeline; if it errors (panic) we catch it using
+            // AssertUnwindSafe and fall back to clear-only mode. `wgpu::Device`
+            // contains interior mutability and is not `UnwindSafe`, so wrap the
+            // closure in `AssertUnwindSafe` before calling `catch_unwind`.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                device.create_render_pipeline(&pipeline_desc)
+            })) {
                 Ok(p) => Some(p),
                 Err(_) => {
                     eprintln!("RenderBackend: pipeline creation panicked; falling back to clear-only mode");
