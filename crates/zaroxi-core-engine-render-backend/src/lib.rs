@@ -263,7 +263,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             surface,
             surface_config,
             surface_format,
-            pipeline: render_pipeline,
+            pipeline: Some(render_pipeline),
             _marker: std::marker::PhantomData,
         }
     }
@@ -369,7 +369,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         });
 
         {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("zaroxi-root-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -387,7 +387,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             });
 
             if let Some(vb) = &vertex_buffer {
-                rpass.set_pipeline(&self.pipeline);
+                let pipeline_ref = self.pipeline.as_ref().expect("pipeline must be initialized");
+                rpass.set_pipeline(pipeline_ref);
                 rpass.set_vertex_buffer(0, vb.slice(..));
                 // draw all vertices
                 let vert_count = vertices.len() as u32;
@@ -610,7 +611,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 timestamp_writes: None,
             });
 
-            rpass.set_pipeline(&self.pipeline);
+            let pipeline_ref = self.pipeline.as_ref().expect("pipeline must be initialized");
+            rpass.set_pipeline(pipeline_ref);
             rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
             let vert_count = vertices.len() as u32;
             if vert_count > 0 {
