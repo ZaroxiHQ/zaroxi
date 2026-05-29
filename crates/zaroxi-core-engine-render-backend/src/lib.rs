@@ -214,10 +214,22 @@ impl<'a> RenderBackend<'a> {
 
                         // If the interface produced layout for "Zaroxi" but the Cosmic prepare
                         // marker has not been observed, we are likely still on the overlay
-                        // rectangle fallback path. In debug builds fail loudly to make this
-                        // visible during developer runs (temporary assertion).
-                        if cfg!(debug_assertions) && layout_present && !cosmic_present {
-                            panic!("GUI_SHELL_ASSERT: Detected interface layout for 'Zaroxi' but Cosmic prepare not observed; overlay rect fallback still in use.");
+                        // rectangle fallback path.
+                        //
+                        // NOTE: Previously this path panicked in debug builds to loudly prove
+                        // the fallback was active. That caused an unwind during GPU resource
+                        // destruction (wgpu / Vulkan) which triggered an abort in the
+                        // destructor. To keep developer feedback but avoid destructor panics,
+                        // return an error from the one-shot clear_present_once call in debug
+                        // builds instead of panicking. This still makes the issue visible to
+                        // the caller but avoids causing a double-panic during cleanup.
+                        if layout_present && !cosmic_present {
+                            if cfg!(debug_assertions) {
+                                eprintln!("GUI_SHELL_ERROR: Detected interface layout for 'Zaroxi' but Cosmic prepare not observed; overlay rect fallback still in use. Returning error (debug) rather than panicking to avoid GPU destructor abort.");
+                                return Err("GUI_SHELL_ASSERT: interface layout present but Cosmic prepare not observed; overlay rect fallback still in use.".into());
+                            } else {
+                                eprintln!("GUI_SHELL_TRACE: layout present but cosmic prepare missing; continuing with overlay rects.");
+                            }
                         }
 
                         // Build vertex list for rects (two triangles per rect).
