@@ -111,13 +111,13 @@ pub fn draw(
             let header_h = 22u32;
             let _group_gap = 12u32;
 
-            // First section header
+            // First section header (softer surface-based backing so labels remain dominant)
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x.saturating_add(8),
                 y: y_off,
                 width: r.width.saturating_sub(16),
                 height: header_h,
-                color: super::theme_adapter::adjust_brightness(theme.border_color, 0.88),
+                color: super::theme_adapter::adjust_brightness(theme.surface, 0.96),
             });
             y_off = y_off.saturating_add(header_h).saturating_add(8);
 
@@ -148,14 +148,14 @@ pub fn draw(
                 }
             }
 
-            // Second section header
+            // Second section header (softer backing)
             if y_off.saturating_add(header_h).saturating_add(8) < r.y.saturating_add(r.height) {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x.saturating_add(8),
                     y: y_off,
                     width: r.width.saturating_sub(16),
                     height: header_h,
-                    color: super::theme_adapter::adjust_brightness(theme.border_color, 0.86),
+                    color: super::theme_adapter::adjust_brightness(theme.surface, 0.96),
                 });
                 y_off = y_off.saturating_add(header_h).saturating_add(8);
             }
@@ -204,8 +204,18 @@ pub fn draw(
         };
         let inset_x = r.x.saturating_add(8);
         let inset_y = r.y.saturating_add(12);
-        let mut text_rects =
-            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(16), r.height.saturating_sub(24), &labels, theme);
+        // Choose a slightly more muted token for sidebar items so they read as lists,
+        // and a stronger primary token for the app rail chrome.
+        let color = if region.id == "app_rail" { theme.text_primary } else { theme.text_secondary };
+        let mut text_rects = super::text_adapter::layout_and_publish_text(
+            inset_x,
+            inset_y,
+            r.width.saturating_sub(16),
+            r.height.saturating_sub(24),
+            &labels,
+            theme,
+            color,
+        );
         rects.append(&mut text_rects);
     }
 

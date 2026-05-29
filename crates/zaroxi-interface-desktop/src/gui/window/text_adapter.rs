@@ -40,6 +40,8 @@ pub fn layout_and_publish_text(
     _height: u32,
     lines: &[String],
     theme: &Theme,
+    // color_hex allows callers to select an appropriate contrast token from Theme.
+    color_hex: &str,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     // Use the bundled monospace font metrics already present in the workspace.
     let font = load_bundled_monospace();
@@ -94,7 +96,8 @@ pub fn layout_and_publish_text(
             y: t.y,
             width: w,
             height: line_h,
-            color: super::theme_adapter::parse_hex_color(theme.border_color),
+            // Use the caller-supplied color token for high-contrast text presentation.
+            color: super::theme_adapter::parse_hex_color(color_hex),
         });
     }
 

@@ -35,12 +35,20 @@ pub struct ShellRegion {
 }
 
 /// Lightweight theme tokens used by the scaffold (informational only).
+///
+/// Extended for GUI-9 readability pass: include minimal semantic text colors so
+/// the window-level glue and text_adapter can select high-contrast colors
+/// without depending on the full theme crate. These tokens are deliberately
+/// small and conservative to avoid creating a second theme system.
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub surface: &'static str,
     pub border_color: &'static str,
     pub border_thickness: u8,
     pub corner_radius: u8,
+    // Minimal text tokens used by GUI-9 for clear contrast and hierarchy.
+    pub text_primary: &'static str,
+    pub text_secondary: &'static str,
 }
 
 impl Default for Theme {
@@ -50,6 +58,10 @@ impl Default for Theme {
             border_color: "#1e6fb3",     // thin luminous border
             border_thickness: 1,
             corner_radius: 10,           // rounded outer shell
+            // Use the workspace semantic values (dark theme defaults tuned for contrast).
+            // These are intentionally chosen to read well against surface/backing colors.
+            text_primary: "#E6EAF2",
+            text_secondary: "#C8CDD6",
         }
     }
 }

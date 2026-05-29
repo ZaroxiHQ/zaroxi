@@ -303,8 +303,16 @@ pub fn draw(
             let tabs = vec!["main.rs".to_string(), "lib.rs".to_string(), "mod.rs".to_string()];
             let inset_x = r.x.saturating_add(12);
             let inset_y = r.y.saturating_add(6);
-            let mut text_rects =
-                super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), r.height.saturating_sub(12), &tabs, theme);
+            // Use primary text color for tab labels; active tab is visually emphasized via tab fill.
+            let mut text_rects = super::text_adapter::layout_and_publish_text(
+                inset_x,
+                inset_y,
+                r.width.saturating_sub(24),
+                r.height.saturating_sub(12),
+                &tabs,
+                theme,
+                theme.text_primary,
+            );
             rects.append(&mut text_rects);
         }
     }

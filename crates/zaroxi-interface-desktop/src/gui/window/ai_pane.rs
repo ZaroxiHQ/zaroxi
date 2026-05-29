@@ -35,7 +35,8 @@ pub fn draw(
             y: r.y.saturating_add(8),
             width: r.width.saturating_sub(16),
             height: header_h,
-            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.88),
+            // soften header backing so header text reads clearly
+            color: super::theme_adapter::adjust_brightness(theme.surface, 0.96),
         });
     }
 
@@ -117,8 +118,16 @@ pub fn draw(
         labels.push("Suggestion: refactor fn".to_string());
         let inset_x = r.x.saturating_add(12);
         let inset_y = r.y.saturating_add(8);
-        let mut text_rects =
-            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), r.height.saturating_sub(24), &labels, theme);
+        // Use primary text for header and card labels so they are readable against card backings.
+        let mut text_rects = super::text_adapter::layout_and_publish_text(
+            inset_x,
+            inset_y,
+            r.width.saturating_sub(24),
+            r.height.saturating_sub(24),
+            &labels,
+            theme,
+            theme.text_primary,
+        );
         rects.append(&mut text_rects);
     }
 
@@ -127,7 +136,16 @@ pub fn draw(
         let input = vec!["Ask anything...".to_string()];
         let fx = r.x.saturating_add(12);
         let fy = r.y.saturating_add(r.height).saturating_sub(36);
-        let mut foot = super::text_adapter::layout_and_publish_text(fx, fy, r.width.saturating_sub(24), 24, &input, theme);
+        // Use a slightly muted token for input placeholder text so it reads as hint.
+        let mut foot = super::text_adapter::layout_and_publish_text(
+            fx,
+            fy,
+            r.width.saturating_sub(24),
+            24,
+            &input,
+            theme,
+            theme.text_secondary,
+        );
         rects.append(&mut foot);
     }
 

@@ -15,13 +15,15 @@ pub fn draw(
     let sep_h: u32 = std::cmp::max(2, bt);
 
     let r = &region.rect;
-    // Full-width chrome band (keeps prior look)
+    // Full-width chrome band: use a surface-derived fill (so labels sit on a
+    // consistent chrome band rather than a heavy border color). This reduces the
+    // impression of the title being another chunky block.
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
         x: r.x,
         y: r.y,
         width: r.width,
         height: r.height,
-        color: super::theme_adapter::parse_hex_color(theme.border_color),
+        color: super::theme_adapter::adjust_brightness(theme.surface, 0.92),
     });
 
     // Subtle bottom separator to anchor the toolbar
@@ -72,10 +74,18 @@ pub fn draw(
     }
 
     // Add real label text (UI chrome) via the shared Cosmic Text layout path.
+    // Use the high-contrast theme.text_primary token so the title reads clearly.
     if r.width > 120 && r.height > 20 {
         let labels = vec!["Zaroxi".to_string(), "Welcome".to_string()];
-        let mut text_rects =
-            super::text_adapter::layout_and_publish_text(r.x.saturating_add(12), r.y.saturating_add(8), r.width, r.height, &labels, theme);
+        let mut text_rects = super::text_adapter::layout_and_publish_text(
+            r.x.saturating_add(12),
+            r.y.saturating_add(8),
+            r.width,
+            r.height,
+            &labels,
+            theme,
+            theme.text_primary,
+        );
         rects.append(&mut text_rects);
     }
 

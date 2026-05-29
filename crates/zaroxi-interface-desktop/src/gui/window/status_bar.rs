@@ -35,8 +35,16 @@ pub fn draw(
     // Small status label via the shared text layout path.
     if r.width > 80 && r.height > 12 {
         let status = vec!["Ready".to_string()];
-        let mut text_rects =
-            super::text_adapter::layout_and_publish_text(r.x.saturating_add(8), r.y.saturating_add(4), r.width.saturating_sub(16), r.height.saturating_sub(8), &status, theme);
+        // Status bar text is small; use the secondary token for subtlety but keep legible.
+        let mut text_rects = super::text_adapter::layout_and_publish_text(
+            r.x.saturating_add(8),
+            r.y.saturating_add(4),
+            r.width.saturating_sub(16),
+            r.height.saturating_sub(8),
+            &status,
+            theme,
+            theme.text_secondary,
+        );
         rects.append(&mut text_rects);
     }
 

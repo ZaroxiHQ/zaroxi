@@ -50,15 +50,17 @@ pub fn draw(
 
         for i in 0..segments {
             let active = i == 0;
+            // Use surface-derived tab fills rather than heavy border color so the
+            // textual tab labels remain the visual focus.
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: sx,
                 y: seg_y,
                 width: seg_w,
                 height: seg_h,
                 color: if active {
-                    super::theme_adapter::adjust_brightness(theme.border_color, 0.92)
+                    super::theme_adapter::adjust_brightness(theme.surface, 1.04)
                 } else {
-                    super::theme_adapter::adjust_brightness(theme.border_color, 0.85)
+                    super::theme_adapter::adjust_brightness(theme.surface, 1.00)
                 },
             });
             sx = sx.saturating_add(seg_w).saturating_add(seg_pad);
@@ -119,8 +121,15 @@ pub fn draw(
         let labels = vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()];
         let inset_x = r.x.saturating_add(12);
         let inset_y = r.y.saturating_add(4);
-        let mut text_rects =
-            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), 32, &labels, theme);
+        let mut text_rects = super::text_adapter::layout_and_publish_text(
+            inset_x,
+            inset_y,
+            r.width.saturating_sub(24),
+            32,
+            &labels,
+            theme,
+            theme.text_primary,
+        );
         rects.append(&mut text_rects);
     }
 
