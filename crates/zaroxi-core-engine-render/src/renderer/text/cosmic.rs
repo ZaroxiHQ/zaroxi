@@ -156,11 +156,19 @@ impl TextRenderer for CosmicTextRenderer {
 
             // Trace: mark that CosmicTextRenderer.prepare observed the canonical label.
             // Write a temp-file marker so other crates (e.g. render-backend) can detect
-            // that the Cosmic prepare path was executed for the known label.
+            // that the Cosmic prepare path was executed for the known label. Include shaping metrics
+            // so downstream stages can correlate glyph_count / atlas_entries.
             {
                 let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                let _ = std::fs::write(&tmp, format!("source={}\n", source));
+                let _ = std::fs::write(
+                    &tmp,
+                    format!(
+                        "source={}\nglyph_count={}\nrasterized_glyph_count={}\natlas_entries={}\n",
+                        source, glyph_count, rasterized_glyph_count, atlas_entries
+                    ),
+                );
                 debug!("GUI_SHELL_TRACE: wrote cosmic prepare marker at {:?}", tmp);
+                info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={}", source, glyph_count, rasterized_glyph_count, atlas_entries);
             }
 
             // 1) Shaping/layout estimate (conservative): codepoint count as glyph_count.
@@ -227,8 +235,10 @@ impl TextRenderer for CosmicTextRenderer {
         let abg_exists = *self.atlas_uploaded.lock().unwrap();
         if abg_exists {
             info!("CosmicTextRenderer.render_pass: debug-atlas marker present (would bind atlas and draw glyph quads)");
+            info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: atlas_uploaded=true (would bind & draw glyph quads)");
         } else {
             info!("CosmicTextRenderer.render_pass: no atlas present; nothing to draw (placeholder)");
+            info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: atlas_uploaded=false (no glyph draw issued)");
         }
         Ok(())
     }

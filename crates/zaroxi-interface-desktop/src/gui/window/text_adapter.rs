@@ -81,6 +81,20 @@ pub fn layout_and_publish_text(
         });
     }
 
+    // Emit an explicit adapter-stage trace so we can prove the interface produced
+    // text intent for known labels (e.g. "Zaroxi") and record the adapter-level
+    // primitive count / bounds. This log uses the requested consistent prefix.
+    let joined_labels = lines.join(" | ");
+    log::info!(
+        "GUI_TEXT_STAGE_1_ADAPTER: labels=[{}] adapter_x={} adapter_y={} color={} font_family=\"{}\" adapter_ops_count={}",
+        joined_labels,
+        x,
+        y,
+        color_hex,
+        font.family,
+        set.texts.len()
+    );
+
     // Publish a minimal ShellSceneModel snapshot derived from the provided lines.
     // This mirrors the pattern used elsewhere in the presenter and enables engine
     // seams to pick up textual content without changing ownership.

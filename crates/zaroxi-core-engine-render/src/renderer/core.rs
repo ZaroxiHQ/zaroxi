@@ -1,6 +1,9 @@
 use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static GUI_TEXT_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
 use wgpu::{
     Backends, BindGroup, BindGroupLayout, Buffer, Color, CommandEncoderDescriptor, Device,
     DeviceDescriptor, Extent3d, Features, Instance, InstanceDescriptor, Limits, Queue,
@@ -705,6 +708,12 @@ impl<'a> Renderer<'a> {
                 hw,
                 hh,
             ));
+            // Emit core queue-stage trace: what the core queued for the text backend.
+            let queued_after = self.text_renderer.queued_len();
+            info!(
+                "GUI_TEXT_STAGE_3_CORE_QUEUE: block_id='{}' title=\"{}\" queued_after={}",
+                block.id, block.title, queued_after
+            );
             // Concise info for queued title (no per-glyph spam).
             debug!("queued title for block='{}'", block.id);
 
@@ -991,7 +1000,13 @@ impl<'a> Renderer<'a> {
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
-                    // Run text pass if either legacy text indices indicate text geometry OR there are queued native Glyphon commands.
+                    // Run text pass if either legacy text indices indicate text geometry OR there are queued native backend commands.
+                    info!(
+                        "GUI_TEXT_STAGE_3_CORE_DECISION: panel_indices_len={} total_indices_len={} queued_len={}",
+                        panel_indices_len,
+                        total_indices_len,
+                        self.text_renderer.queued_len()
+                    );
                     if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0
                     {
                         if DISABLE_TEXT_PASS {
@@ -1048,6 +1063,39 @@ impl<'a> Renderer<'a> {
                         }
                     }
                 }
+
+                // Frame-level summary: gather adapter/backend markers (temp-files) and cosmic prepare markers
+                // so we can see per-frame status for the canonical label. This is diagnostic-only and
+                // intentionally non-fatal: we must not break presentation.
+                let frame_idx = GUI_TEXT_FRAME_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
+                let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                let adapter_present = tmp_layout.exists();
+                let cosmic_present = tmp_cosmic.exists();
+                let mut glyph_count: usize = 0;
+                let mut atlas_entries: usize = 0;
+                if cosmic_present {
+                    if let Ok(s) = std::fs::read_to_string(&tmp_cosmic) {
+                        for line in s.lines() {
+                            if let Some(v) = line.strip_prefix("glyph_count=") {
+                                glyph_count = v.parse::<usize>().unwrap_or(0);
+                            } else if let Some(v) = line.strip_prefix("atlas_entries=") {
+                                atlas_entries = v.parse::<usize>().unwrap_or(0);
+                            }
+                        }
+                    }
+                }
+
+                info!(
+                    "GUI_TEXT_FRAME_SUMMARY: frame={} text_ops_adapter={} text_ops_core={} cosmic_prepare_called={} glyphs={} atlas_entries={} overlay_rects={}",
+                    frame_idx,
+                    if adapter_present {1} else {0},
+                    self.text_renderer.queued_len(),
+                    if cosmic_present { "true" } else { "false" },
+                    glyph_count,
+                    atlas_entries,
+                    total_indices_len.saturating_sub(panel_indices_len)
+                );
 
                 crate::renderer::surface::submit_and_present(&self.queue, encoder, frame);
                 if render_debug_enabled() {

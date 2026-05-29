@@ -15,6 +15,9 @@ Responsibilities:
 use bytemuck;
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_window::ZaroxiWindow;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static GUI_TEXT_FALLBACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Simple render backend that drives a wgpu surface and presents frames.
 ///
@@ -216,20 +219,23 @@ impl<'a> RenderBackend<'a> {
                         // marker has not been observed, we are likely still on the overlay
                         // rectangle fallback path.
                         //
-                        // NOTE: Previously this path panicked in debug builds to loudly prove
-                        // the fallback was active. That caused an unwind during GPU resource
-                        // destruction (wgpu / Vulkan) which triggered an abort in the
-                        // destructor. To keep developer feedback but avoid destructor panics,
-                        // return an error from the one-shot clear_present_once call in debug
-                        // builds instead of panicking. This still makes the issue visible to
-                        // the caller but avoids causing a double-panic during cleanup.
+                        // DO NOT abort startup: instead emit a loud diagnostic and a per-frame
+                        // fallback counter so developers can observe the mismatch without
+                        // killing the process. Also write a small temp marker so other tools
+                        // can correlate the fallback activity.
                         if layout_present && !cosmic_present {
-                            if cfg!(debug_assertions) {
-                                eprintln!("GUI_SHELL_ERROR: Detected interface layout for 'Zaroxi' but Cosmic prepare not observed; overlay rect fallback still in use. Returning error (debug) rather than panicking to avoid GPU destructor abort.");
-                                return Err("GUI_SHELL_ASSERT: interface layout present but Cosmic prepare not observed; overlay rect fallback still in use.".into());
-                            } else {
-                                eprintln!("GUI_SHELL_TRACE: layout present but cosmic prepare missing; continuing with overlay rects.");
-                            }
+                            let cnt = GUI_TEXT_FALLBACK_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
+                            eprintln!(
+                                "GUI_TEXT_STAGE_FALLBACK: detected layout for 'Zaroxi' but no cosmic prepare; fallback_count={} overlay_rects_count={}",
+                                cnt,
+                                rects.len()
+                            );
+                            // write a small marker to temp so other processes/crates can observe fallback counts.
+                            let _ = std::fs::write(
+                                std::env::temp_dir().join("zaroxi_gui_trace_fallback"),
+                                format!("count={}\nrects={}\n", cnt, rects.len()),
+                            );
+                            // Continue with overlay rects; do not return/abort startup so we can observe multiple frames.
                         }
 
                         // Build vertex list for rects (two triangles per rect).
