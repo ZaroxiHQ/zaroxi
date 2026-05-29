@@ -29,6 +29,8 @@ use winit::{
     event_loop::{EventLoop, ControlFlow},
     window::WindowAttributes,
 };
+use pollster;
+use wgpu::Color;
 
 use crate::gui::ShellFrame;
 
@@ -66,6 +68,21 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     // Helpful title showing the shell size; keep this small visual hint.
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
 
+    // Helper: parse hex "#rrggbb" -> wgpu::Color (srgb approx).
+    fn parse_hex_color(s: &str) -> Color {
+        let s = s.trim_start_matches('#');
+        if s.len() == 6 {
+            if let Ok(v) = u32::from_str_radix(s, 16) {
+                let r = ((v >> 16) & 0xFF) as f64 / 255.0;
+                let g = ((v >> 8) & 0xFF) as f64 / 255.0;
+                let b = (v & 0xFF) as f64 / 255.0;
+                return Color { r, g, b, a: 1.0 };
+            }
+        }
+        // fallback dark
+        Color { r: 0.05, g: 0.07, b: 0.1, a: 1.0 }
+    }
+
     // Build a small ApplicationHandler implementation to satisfy winit's run_app
     // API. This avoids passing a closure and matches the ApplicationHandler trait
     // expected by `EventLoop::run_app`.
@@ -74,6 +91,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         window_attributes: WindowAttributes,
         title: String,
         maybe_window: Option<zaroxi_core_engine_window::ZaroxiWindow>,
+        /// Background clear color derived from shell theme (wgpu::Color).
+        bg_color: Color,
         /// Request the initial frame once after window creation to avoid a busy loop.
         requested_initial_frame: bool,
     }
@@ -101,6 +120,23 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         zaroxi_w.show_and_warmup();
                         // Keep the engine window handle so we can request redraws later.
                         self.maybe_window = Some(zaroxi_w);
+
+                        // Perform a one-shot clear+present using the engine render backend
+                        // to ensure the compositor receives a GPU-backed frame and maps the window.
+                        if let Some(z) = self.maybe_window.as_ref() {
+                            eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame");
+                            let res = pollster::block_on(
+                                zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
+                                    z,
+                                    self.bg_color,
+                                ),
+                            );
+                            if let Err(e) = res {
+                                eprintln!("GuiApp: clear_present_once failed: {}", e);
+                            } else {
+                                eprintln!("GuiApp: clear_present_once succeeded");
+                            }
+                        }
 
                         // Ask for a single initial frame; set the loop to Poll so the frame is driven.
                         self.requested_initial_frame = true;
@@ -209,6 +245,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         window_attributes: window_attributes.clone(),
         title,
         maybe_window: None,
+        bg_color: parse_hex_color(shell.theme.surface),
         requested_initial_frame: false,
     };
 

@@ -130,6 +130,71 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 "#;
 
+        // --- One-shot clear+present helper (async) ---
+        // This helper lets interface-desktop request a minimal clear+present for a newly
+        // created window without permanently owning a RenderBackend instance. It's
+        // intentionally conservative and used only for GUI-3 first-frame proof.
+        //
+        // Usage:
+        // pollster::block_on(RenderBackend::clear_present_once(&zaroxi_window, wgpu::Color { r,g,b,a }));
+        impl<'a> RenderBackend<'a> {
+            /// Clear and present a single frame to the supplied window using the
+            /// backend's initialization path. Returns Ok(()) on success or an Err
+            /// with a boxed error on failure.
+            pub async fn clear_present_once(
+                window: &'a crate::zaroxi_core_engine_window::ZaroxiWindow,
+                color: wgpu::Color,
+            ) -> Result<(), Box<dyn std::error::Error>> {
+                // Create a temporary backend (async init).
+                let mut backend = Self::new(window).await;
+
+                // Acquire next surface texture.
+                let surface_texture = match backend.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(tex) => tex,
+                    wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
+                        eprintln!("wgpu surface acquired suboptimal texture; proceeding");
+                        tex
+                    }
+                    other => {
+                        eprintln!("wgpu surface acquisition returned {:?}; aborting clear_present_once", other);
+                        backend.surface.configure(&backend.device, &backend.surface_config);
+                        return Err("surface acquisition failed".into());
+                    }
+                };
+
+                let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                let mut encoder = backend.device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("zaroxi-clear-encoder"),
+                });
+
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("zaroxi-clear-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(color),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        multiview_mask: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    // no draw calls for one-shot clear
+                }
+
+                backend.queue.submit(Some(encoder.finish()));
+                surface_texture.present();
+
+                Ok(())
+            }
+        }
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("solid-rect-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),
