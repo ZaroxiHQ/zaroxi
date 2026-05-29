@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![allow(non_local_definitions)]
 /*!
 Minimal wgpu-based render backend that presents a solid background color
 to a winit window. The API accepts a vello::Scene (phase 2 will wire vello

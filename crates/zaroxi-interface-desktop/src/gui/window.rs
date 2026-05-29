@@ -95,6 +95,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         bg_color: Color,
         /// Request the initial frame once after window creation to avoid a busy loop.
         requested_initial_frame: bool,
+        /// Prevent repeated "already created" logs from flooding the terminal.
+        already_logged_existing: bool,
     }
 
     impl winit::application::ApplicationHandler for GuiApp {
@@ -150,8 +152,11 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                     }
                 }
             } else if self.maybe_window.is_some() {
-                // Already created; noop but log for diagnostics.
-                eprintln!("GuiApp: new_events called but window already created");
+                // Already created; noop but only log once for diagnostics to avoid terminal bloat.
+                if !self.already_logged_existing {
+                    eprintln!("GuiApp: new_events called but window already created");
+                    self.already_logged_existing = true;
+                }
             } else {
                 eprintln!("GuiApp: new_events called with cause={:?} (no creation)", cause);
             }
@@ -247,6 +252,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         maybe_window: None,
         bg_color: parse_hex_color(shell.theme.surface),
         requested_initial_frame: false,
+        already_logged_existing: false,
     };
 
     let run_result = event_loop.run_app(&mut app);
