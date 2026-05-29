@@ -37,8 +37,7 @@ use log::{debug, info};
 use std::sync::{Arc, Mutex};
 use wgpu::{
     BindGroup, Device, Queue, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, Extent3d, ImageDataLayout, ImageCopyTexture,
-    Origin3d, TextureViewDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, Extent3d, Origin3d, TextureViewDescriptor,
 };
 
 /// Concrete Cosmic Text backed renderer.
