@@ -1,5 +1,3 @@
-use std::error::Error;
-
 #[cfg(feature = "gui_window")]
 mod app;
 #[cfg(feature = "gui_window")]

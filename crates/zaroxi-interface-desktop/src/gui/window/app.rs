@@ -4,7 +4,6 @@ This file contains the GuiApp struct and its ApplicationHandler impl
 (moved out of the large `window.rs` to make the module tree clearer).
 */
 
-use std::error::Error;
 use winit::{
     dpi::PhysicalPosition,
     event::{StartCause, WindowEvent},
