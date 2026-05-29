@@ -95,6 +95,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         maybe_window: Option<zaroxi_core_engine_window::ZaroxiWindow>,
         /// Background clear color derived from shell theme (wgpu::Color).
         bg_color: Color,
+        /// Keep a clone of the ShellFrame so we can resolve stable region rects and theme tokens
+        /// at window creation time and pass low-level draw inputs into the backend.
+        shell: ShellFrame,
         /// Request the initial frame once after window creation to avoid a busy loop.
         requested_initial_frame: bool,
         /// Prevent repeated "already created" logs from flooding the terminal.
@@ -129,10 +132,48 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         // to ensure the compositor receives a GPU-backed frame and maps the window.
                         if let Some(z) = self.maybe_window.as_ref() {
                             eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame");
+
+                            // Build a small set of resolved low-level rect draws from the shell regions.
+                            // We only include three canonical bands: toolbar (chrome), editor content, and status bar.
+                            let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+                            for r in &self.shell.regions {
+                                match r.id {
+                                    "toolbar" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.border_color),
+                                        });
+                                    }
+                                    "editor_content" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.surface),
+                                        });
+                                    }
+                                    "status_bar" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.border_color),
+                                        });
+                                    }
+                                    _ => {}
+                                }
+                            }
+
                             let res = pollster::block_on(
                                 zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
                                     z,
                                     self.bg_color,
+                                    Some(&rects),
                                 ),
                             );
                             if let Err(e) = res {
@@ -259,6 +300,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         title,
         maybe_window: None,
         bg_color: parse_hex_color(shell.theme.surface),
+        shell: shell.clone(),
         requested_initial_frame: false,
         already_logged_existing: false,
     };

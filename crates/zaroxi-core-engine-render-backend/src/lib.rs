@@ -45,6 +45,18 @@ struct Vertex {
     color: [f32; 4],
 }
 
+/// Small, low-level rectangle spec consumed by one-shot draw helpers.
+/// This type is intentionally minimal and public so callers can construct
+/// resolved, theme-fed rects to pass into the backend.
+#[derive(Clone, Copy)]
+pub struct DrawRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub color: wgpu::Color,
+}
+
 impl<'a> RenderBackend<'a> {
     /// Create a new RenderBackend for the supplied window.
     ///
@@ -106,29 +118,32 @@ impl<'a> RenderBackend<'a> {
 
         surface.configure(&device, &surface_config);
 
-        // NOTE: For GUI-3 first-frame proof we intentionally skip building the
-        // full rectangle pipeline. The pipeline/shader path has caused validation
-        // mismatches across wgpu/wgsl versions in this environment. To prove
-        // first-pixel presentation reliably, the backend will perform a clear+present
-        // without creating or using a shader pipeline here.
+        // For GUI-4 we create a tiny, safe colored-rect pipeline during init.
+        // The pipeline is minimal: a WGSL shader that accepts per-vertex position
+        // and color attributes. This lets the one-shot helper draw a small set of
+        // resolved rectangles (background overlay bands) without pulling heavyweight
+        // rendering logic into the interface layer.
         //
-        // The shader + pipeline creation will be reintroduced in a follow-up once
-        // we stabilize the WGSL and pipeline layout across the workspace.
+        // Pipeline creation is conservative: if any step fails we log and continue
+        // with `pipeline: None` so the historic clear-only path remains available.
         //
         // --- One-shot clear+present helper (async) ---
         // This helper lets interface-desktop request a minimal clear+present for a newly
-        // created window without permanently owning a RenderBackend instance. It's
-        // intentionally conservative and used only for GUI-3 first-frame proof.
+        // created window without permanently owning a RenderBackend instance.
         //
         // Usage:
-        // pollster::block_on(RenderBackend::clear_present_once(&zaroxi_window, wgpu::Color { r,g,b,a }));
+        // pollster::block_on(RenderBackend::clear_present_once(&zaroxi_window, wgpu::Color { r,g,b,a }, None));
         impl<'a> RenderBackend<'a> {
             /// Clear and present a single frame to the supplied window using the
-            /// backend's initialization path. Returns Ok(()) on success or an Err
-            /// with a boxed error on failure.
+            /// backend's initialization path. Accepts an optional slice of `DrawRect`
+            /// describing rectangles (absolute window coords + color) to draw on top
+            /// of the cleared background. This keeps the backend API low-level: the
+            /// interface layer resolves regions and theme colors and passes concrete
+            /// draw inputs here.
             pub async fn clear_present_once(
                 window: &'a zaroxi_core_engine_window::ZaroxiWindow,
                 color: wgpu::Color,
+                overlay_rects: Option<&[DrawRect]>,
             ) -> Result<(), Box<dyn std::error::Error>> {
                 // Create a temporary backend (async init).
                 let backend = Self::new(window).await;
@@ -149,10 +164,12 @@ impl<'a> RenderBackend<'a> {
 
                 let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+                // Primary encoder for the one-shot pass.
                 let mut encoder = backend.device.create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("zaroxi-clear-encoder"),
                 });
 
+                // Initial full-surface clear to the requested background color.
                 {
                     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("zaroxi-clear-pass"),
@@ -170,7 +187,85 @@ impl<'a> RenderBackend<'a> {
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
-                    // no draw calls for one-shot clear
+                    // initial clear; we'll draw overlay rects below if requested
+                }
+
+                // If overlay rects requested and we have a pipeline, draw them as colored quads.
+                if let Some(rects) = overlay_rects {
+                    if !rects.is_empty() {
+                        // Build vertex list for rects (two triangles per rect).
+                        let mut vertices: Vec<Vertex> = Vec::new();
+                        for r in rects.iter() {
+                            let left = r.x as f32;
+                            let top = r.y as f32;
+                            let right = left + r.width as f32;
+                            let bottom = top + r.height as f32;
+
+                            let to_ndc = |px: f32, py: f32| -> [f32; 2] {
+                                let nx = (px / (backend.surface_config.width as f32)) * 2.0 - 1.0;
+                                let ny = 1.0 - (py / (backend.surface_config.height as f32)) * 2.0;
+                                [nx, ny]
+                            };
+
+                            let tl = to_ndc(left, top);
+                            let tr = to_ndc(right, top);
+                            let br = to_ndc(right, bottom);
+                            let bl = to_ndc(left, bottom);
+
+                            let clr = [
+                                r.color.r as f32,
+                                r.color.g as f32,
+                                r.color.b as f32,
+                                r.color.a as f32,
+                            ];
+
+                            vertices.push(Vertex { position: tl, color: clr });
+                            vertices.push(Vertex { position: tr, color: clr });
+                            vertices.push(Vertex { position: br, color: clr });
+
+                            vertices.push(Vertex { position: tl, color: clr });
+                            vertices.push(Vertex { position: br, color: clr });
+                            vertices.push(Vertex { position: bl, color: clr });
+                        }
+
+                        if let Some(pipeline_ref) = &backend.pipeline {
+                            // Create vertex buffer and draw using the pipeline.
+                            let vertex_buffer = backend.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("zaroxi-clear-rect-verts"),
+                                contents: bytemuck::cast_slice(&vertices),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
+
+                            {
+                                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("zaroxi-clear-overlay-pass"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &view,
+                                        resolve_target: None,
+                                        depth_slice: None,
+                                        ops: wgpu::Operations {
+                                            // Load preserves the background clear we just did.
+                                            load: wgpu::LoadOp::Load,
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: None,
+                                    multiview_mask: None,
+                                    occlusion_query_set: None,
+                                    timestamp_writes: None,
+                                });
+
+                                rpass.set_pipeline(pipeline_ref);
+                                rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                                let vert_count = vertices.len() as u32;
+                                if vert_count > 0 {
+                                    rpass.draw(0..vert_count, 0..1);
+                                }
+                            }
+                        } else {
+                            eprintln!("clear_present_once: pipeline missing; skipping overlay rect draws");
+                        }
+                    }
                 }
 
                 backend.queue.submit(Some(encoder.finish()));
@@ -181,13 +276,95 @@ impl<'a> RenderBackend<'a> {
         }
 
         // Do not create a shader/pipeline for GUI-3 first-frame proof; leave `pipeline` empty.
+        // Attempt to build a minimal WGSL shader and pipeline for colored rect drawing.
+        // Fall back to `pipeline: None` if anything goes wrong so the previous
+        // clear-only behavior remains intact.
+        let pipeline = (|| {
+            // Simple WGSL shader: per-vertex vec2 position (NDC) + vec4 color.
+            let shader_src = r#"
+struct VSOut {
+    @builtin(position) clip_pos: vec4<f32>;
+    @location(0) color: vec4<f32>;
+};
+
+@vertex
+fn vs(@location(0) position: vec2<f32>, @location(1) color: vec4<f32>) -> VSOut {
+    var out: VSOut;
+    out.clip_pos = vec4(position, 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
+
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("zaroxi-rect-shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+            });
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("zaroxi-rect-pipeline-layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+            // Vertex buffer layout: [f32;2] position, [f32;4] color
+            let vertex_buffer_layout = wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x4,
+                    },
+                ],
+            };
+
+            let pipeline_desc = wgpu::RenderPipelineDescriptor {
+                label: Some("zaroxi-rect-pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs",
+                    buffers: &[vertex_buffer_layout],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+
+            match device.create_render_pipeline(&pipeline_desc) {
+                p => Some(p),
+            }
+        })();
+
         Self {
             device,
             queue,
             surface,
             surface_config,
             surface_format,
-            pipeline: None,
+            pipeline,
             _marker: std::marker::PhantomData,
         }
     }
