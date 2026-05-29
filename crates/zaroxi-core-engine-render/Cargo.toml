@@ -46,3 +46,4 @@ full_renderer = [
     "bytemuck",
     "zaroxi-interface-theme",
 ]
+legacy_cosmic = []
