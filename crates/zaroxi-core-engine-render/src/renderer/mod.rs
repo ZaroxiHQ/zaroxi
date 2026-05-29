@@ -1,5 +1,5 @@
 mod backend;
-mod core;
+pub mod core;
 mod debug;
 mod geometry;
 mod pipelines;
