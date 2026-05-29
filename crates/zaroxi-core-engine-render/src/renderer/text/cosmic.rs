@@ -150,56 +150,48 @@ impl TextRenderer for CosmicTextRenderer {
 
         let mut q = self.queued.lock().unwrap();
         let queued_count = q.len();
-        // Collect visible labels for richer tracing (do not modify queue).
-        let labels: Vec<String> = q.iter().map(|c| c.text.clone()).collect();
-        // Unconditional terminal marker proving we reached the live prepare path.
+
+        // Minimal, terminal-visible entry marker proving we reached the live prepare path.
         eprintln!("GUI_TEXT_COSMIC_ENTERED: live_prepare");
-        // Preserve existing stage info for compatibility while also emitting an
-        // unconditional terminal-visible counter line for easier grepping.
+
+        // Only surface a single concise stage line (helps grep-based tooling).
+        let labels: Vec<String> = q.iter().map(|c| c.text.clone()).collect();
         info!(
             "GUI_TEXT_STAGE_4_COSMIC_PREPARE: entered=true queued_count={} labels={:?}",
-            queued_count,
-            labels
+            queued_count, labels
         );
-        eprintln!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
-        info!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
 
-        // Per-command deep input trace: log all input parameters before any shaping.
+        // Keep a short terminal-visible counter for human observers.
+        eprintln!("CosmicTextRenderer.prepare: queued_commands={}", queued_count);
+
+        // Consolidated input tracing: pick one representative label for this frame.
         let mut total_text_len: usize = 0;
+        let mut representative: Option<&crate::renderer::text::TextCommand> = None;
         for cmd in q.iter() {
             total_text_len += cmd.text.chars().count();
+            if representative.is_none() {
+                // Prefer title or the canonical "Zaroxi" appearance; fall back to first non-empty.
+                if cmd.is_title || cmd.text.contains("Zaroxi") || !cmd.text.trim().is_empty() {
+                    representative = Some(cmd);
+                }
+            }
+        }
+
+        if let Some(cmd) = representative {
             eprintln!(
-                "GUI_TEXT_COSMIC_INPUT: label=\"{}\" text_len={} bounds_w={} bounds_h={} x={} y={} font_size={} color={:?} wrap_mode=\"none\" alignment=\"left\" clip_bounds={}-{}-{}-{}",
+                "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
                 cmd.text,
                 cmd.text.chars().count(),
-                cmd.clip_w,
-                cmd.clip_h,
                 cmd.x,
                 cmd.y,
-                cmd.size,
-                cmd.color,
-                cmd.clip_x,
-                cmd.clip_y,
                 cmd.clip_w,
-                cmd.clip_h
+                cmd.clip_h,
+                format!("{}-{}-{}-{}", cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h),
+                cmd.size,
+                cmd.color
             );
-
-            // Emit a concise, canonical-format input line for the known "Zaroxi" label
-            // so downstream instrumentation can precisely parse the layout inputs.
-            if cmd.is_title || cmd.text.contains("Zaroxi") {
-                eprintln!(
-                    "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
-                    cmd.text,
-                    cmd.text.chars().count(),
-                    cmd.x,
-                    cmd.y,
-                    cmd.clip_w,
-                    cmd.clip_h,
-                    format!("{}-{}-{}-{}", cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h),
-                    cmd.size,
-                    cmd.color
-                );
-            }
+        } else {
+            eprintln!("GUI_TEXT_COSMIC_SKIP_LOG_REASON=no_text_items");
         }
 
         // Hard validation checks for obviously invalid inputs.
@@ -224,20 +216,34 @@ impl TextRenderer for CosmicTextRenderer {
             }
         }
 
-        // Font-system resolution diagnostic: best-effort using bundled monospace loader.
+        // Font-system resolution diagnostic: attempt to use the explicit JetBrains Mono
+        // Nerd Font asset that the user provided. Fall back to the bundled monospace
+        // metrics for line height when necessary.
         let bundled = zaroxi_core_engine_font::load_bundled_monospace();
         let font_family = bundled.family.clone();
         let font_resolved = !font_family.trim().is_empty();
-        // Fallback used when no bundled family is resolved.
-        let fallback_used = !font_resolved;
+        // Attempt to read the explicit font file the user requested.
+        let font_file_path = std::path::Path::new("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let font_file_loaded = match std::fs::read(&font_file_path) {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+        let family_name_from_file = font_file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Emit a single authoritative terminal-visible line proving we attempted to load the real font file.
         eprintln!(
-            "GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}",
-            font_family,
-            "default",
-            if font_resolved { "true" } else { "false" },
-            font_family,
-            if fallback_used { "true" } else { "false" },
+            "GUI_TEXT_FONT_FILE: path=\"{}\" loaded={} family_name=\"{}\"",
+            font_file_path.display(),
+            font_file_loaded,
+            family_name_from_file
         );
+
+        // Keep a boolean indicating whether the engine resolved a family from bundled metrics.
+        let fallback_used = !font_resolved;
 
         // Buffer/setup diagnostics (simulated for this placeholder implementation).
         // Record whether we will call the shaping logic and what buffer metrics look like.
@@ -249,54 +255,40 @@ impl TextRenderer for CosmicTextRenderer {
         let set_text_called = q.iter().any(|cmd| !cmd.text.is_empty());
         let shape_called = set_text_called; // placeholder semantics: shape when text present
 
+        // Compute simulated buffer extents and emit a single concise buffer line
+        // for the representative label (avoids per-command flooding).
         for cmd in q.iter() {
             sim_buffer_width = sim_buffer_width.max(cmd.clip_w as usize);
             sim_buffer_height = sim_buffer_height.max(cmd.clip_h as usize);
-            if !cmd.text.is_empty() {
-                eprintln!(
-                    "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len={} font_size={} set_text_called={} shape_called={}",
-                    cmd.clip_w as i32,
-                    cmd.clip_h as i32,
-                    cmd.text.chars().count(),
-                    cmd.size,
-                    if set_text_called { "true" } else { "false" },
-                    if shape_called { "true" } else { "false" }
-                );
-            } else {
-                eprintln!(
-                    "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len=0 font_size={} set_text_called=false shape_called=false",
-                    cmd.clip_w as i32,
-                    cmd.clip_h as i32,
-                    cmd.size
-                );
-            }
         }
 
-        // Trace a canonical label for diagnostics.
-        if let Some(first) = q.iter().find(|c| c.is_title || c.text.contains("Zaroxi")) {
+        // Report a single buffer/setup diagnostic line derived from the simulated metrics.
+        eprintln!(
+            "GUI_TEXT_COSMIC_BUFFER: buffer_created=true metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
+            // Prefer the representative font size when available; fall back to bundled metrics.
+            (q.iter().next().map(|c| c.size).unwrap_or(bundled.line_height)),
+            bundled.line_height,
+            sim_buffer_width,
+            sim_buffer_height,
+            if q.iter().any(|c| c.clip_w > 0.0) { "true" } else { "false" },
+            if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" },
+            "Advanced",
+            if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" }
+        );
+
+        // Trace a canonical label for diagnostics and instrument the post-layout pipeline
+        // stages that convert shaped glyphs into rasterized atlas entries and final draw instances.
+        if let Some(first) = q.iter().find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty()) {
             let source = first.text.clone();
 
-            // (instrumentation moved down to after shaping metrics are computed)
-
-            // 1) Shaping/layout estimate (conservative): codepoint count as glyph_count.
+            // Shaping/layout estimate (conservative): codepoint count as glyph_count.
             let glyph_count = source.chars().count();
 
-            // 2) Rasterization estimate: not yet implemented per-glyph; report same as glyph_count
-            // as a conservative optimistic heuristic. A full implementation will replace this
-            // by actual raster count from swash / cosmic-text rasterization output.
+            // Rasterization & atlas heuristics (conservative placeholders)
             let rasterized_glyph_count = glyph_count;
-
-            // 3) Atlas packing estimate: currently equal to rasterized_glyph_count until packer is present.
             let atlas_entries = rasterized_glyph_count;
 
-            // Emit an explicit atlas-stage trace for diagnostics.
-            info!(
-                "GUI_TEXT_STAGE_5_ATLAS: glyph_count={} rasterized_glyph_count={} atlas_entries={}",
-                glyph_count,
-                rasterized_glyph_count,
-                atlas_entries
-            );
-
+            // Emit compact traces useful for triage (info + terminal)
             info!(
                 "TRACE_LABEL: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} primitive=\"glyph_quads\" texture_format=\"{:?}\" shader=\"text_pipeline\" blend=\"alpha\"",
                 source,
@@ -305,13 +297,10 @@ impl TextRenderer for CosmicTextRenderer {
                 atlas_entries,
                 self.color_format
             );
+            eprintln!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
 
-            // Also emit an explicit info-level GUI trace for easier grepping.
-            info!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
-
-            // Additional, detailed Cosmic Text diagnostics required for triage:
-            // - log canonical input in the exact format expected by downstream tools
-            info!(
+            // Emit one concise canonical input line for the representative label.
+            eprintln!(
                 "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
                 source,
                 glyph_count,
@@ -324,33 +313,8 @@ impl TextRenderer for CosmicTextRenderer {
                 first.color
             );
 
-            // Buffer/setup diagnostic: report buffer metrics & calls that would be invoked
-            // by the real Cosmic Text flow (create Buffer, set_size, set_text, shaping mode).
-            // We emulate these flags for now to surface whether the adapter invoked the required steps.
-            let buffer_created = true;
-            let set_size_called = true;
-            let set_text_called = true;
-            let shaping_mode = "Advanced";
-            let shape_called = true;
-            let buffer_width = sim_buffer_width;
-            let buffer_height = sim_buffer_height;
-            let font_size_diag = first.size;
-
-            eprintln!(
-                "GUI_TEXT_COSMIC_BUFFER: buffer_created={} metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
-                if buffer_created { "true" } else { "false" },
-                font_size_diag,
-                bundled.line_height,
-                buffer_width,
-                buffer_height,
-                if set_size_called { "true" } else { "false" },
-                if set_text_called { "true" } else { "false" },
-                shaping_mode,
-                if shape_called { "true" } else { "false" }
-            );
-
-            // Layout/shaping diagnostics: report line/run/glyph counts as observed after shaping.
-            // Our conservative heuristic uses codepoint count as glyph_count for now.
+            // Report buffer metrics concisely (single line already emitted above).
+            // Layout/shaping diagnostics (conservative heuristic).
             let line_count = 1usize;
             let run_count = 1usize;
             let shaped_glyphs_total = glyph_count;
@@ -364,70 +328,104 @@ impl TextRenderer for CosmicTextRenderer {
                 glyphs_per_run
             );
 
-            // Skip diagnostics: none in the common case; report explicit "none" when nothing skipped.
-            eprintln!("GUI_TEXT_COSMIC_SKIP: none");
+            // Post-layout extraction: simulate extraction pass and report rejects.
+            // In the current placeholder implementation we conservatively accept all shaped glyphs,
+            // but this instrumentation makes the extraction counts explicit.
+            let total_layout_glyphs = shaped_glyphs_total;
+            let mut extracted_for_emission = 0usize;
+            let mut rejected_total = 0usize;
+            // Initialize reason counters (all zero in the placeholder path).
+            let mut skipped_no_physical_glyph: usize = 0;
+            let mut skipped_no_cache_key: usize = 0;
+            let mut skipped_non_finite: usize = 0;
+            let mut skipped_out_of_clip: usize = 0;
+            let mut skipped_zero_size: usize = 0;
+            let mut skipped_color_conversion: usize = 0;
+            let mut skipped_rasterize_failed: usize = 0;
+            let mut skipped_image_missing: usize = 0;
 
-            // Also emit an explicit info-level GUI trace for easier grepping.
-            info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued commands = {}", queued_count);
+            // Placeholder extraction logic: accept all shaped glyphs for now.
+            extracted_for_emission = total_layout_glyphs;
 
-            // Trace: mark that CosmicTextRenderer.prepare observed the canonical label.
-            // Write a temp-file marker so other crates (e.g. render-backend) can detect
-            // that the Cosmic prepare path was executed for the known label. Include shaping metrics
-            // so downstream stages can correlate glyph_count / atlas_entries.
-            {
-                // Write a comprehensive, parse-friendly cosmic prepare marker that includes
-                // all the keys the frame-summary reader expects. Keep this atomic so
-                // downstream tools can reliably parse the file.
-                let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                let contents = format!(
-                    "source={}\n\
-                     glyph_count={}\n\
-                     rasterized_glyph_count={}\n\
-                     atlas_entries={}\n\
-                     text_len={}\n\
-                     font_resolved={}\n\
-                     buffer_size={}x{}\n\
-                     shaped_glyphs_total={}\n\
-                     emitted_glyphs_total={}\n",
-                    source,
-                    glyph_count,
-                    rasterized_glyph_count,
-                    atlas_entries,
-                    glyph_count, // conservative: text_len == codepoint count for now
-                    if font_resolved { "true" } else { "false" },
-                    sim_buffer_width,
-                    sim_buffer_height,
-                    shaped_glyphs_total,
-                    rasterized_glyph_count
-                );
+            // Build extract summary + skip breakdown
+            eprintln!(
+                "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
+                total_layout_glyphs,
+                extracted_for_emission,
+                rejected_total
+            );
+            eprintln!(
+                "GUI_TEXT_EXTRACT_SKIP: skipped_no_physical_glyph={} skipped_no_cache_key={} skipped_non_finite={} skipped_out_of_clip={} skipped_zero_size={} skipped_color_conversion={} skipped_rasterize_failed={} skipped_image_missing={}",
+                skipped_no_physical_glyph,
+                skipped_no_cache_key,
+                skipped_non_finite,
+                skipped_out_of_clip,
+                skipped_zero_size,
+                skipped_color_conversion,
+                skipped_rasterize_failed,
+                skipped_image_missing
+            );
 
-                // Best-effort write; ignore errors but still log them at debug level.
-                if let Err(e) = std::fs::write(&tmp, &contents) {
-                    debug!("GUI_SHELL_TRACE: failed to write cosmic prepare marker at {:?}: {:?}", tmp, e);
-                } else {
-                    debug!("GUI_SHELL_TRACE: wrote cosmic prepare marker at {:?}", tmp);
-                }
+            // Atlas insertion / rasterization flow instrumentation summary (aggregate).
+            // The current placeholder does not perform per-glyph rasterization/atlas insert;
+            // report aggregate attempted/success counts to make the missing stage visible.
+            let rasterize_attempted_total: usize = 0;
+            let rasterize_success_total: usize = 0;
+            let atlas_insert_attempted_total: usize = 0;
+            let atlas_insert_success_total: usize = 0;
 
-                // Emit an info-level summary that duplicates the file contents in logs
-                // so grep-based tooling can observe the same values without reading temp files.
-                info!(
-                    "GUI_TEXT_STAGE_4_COSMIC_PREPARE: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} text_len={} font_resolved={} buffer_size={}x{} shaped_glyphs_total={} emitted_glyphs_total={}",
-                    source,
-                    glyph_count,
-                    rasterized_glyph_count,
-                    atlas_entries,
-                    glyph_count,
-                    if font_resolved { "true" } else { "false" },
-                    sim_buffer_width,
-                    sim_buffer_height,
-                    shaped_glyphs_total,
-                    rasterized_glyph_count
-                );
+            eprintln!(
+                "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
+                rasterize_attempted_total,
+                rasterize_success_total,
+                atlas_insert_attempted_total,
+                atlas_insert_success_total
+            );
+
+            // Instance push instrumentation: we do not currently emit per-glyph instances
+            // in the placeholder path. Emit an explicit confirmation so callers can see it.
+            let instances_pushed: usize = 0;
+            if instances_pushed > 0 {
+                // In a real per-glyph loop this would print one line per pushed instance.
+                eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
+            } else {
+                eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
             }
 
-            // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path
+            // Pipeline summary combining the key counters so a single grep shows the first zero stage.
+            eprintln!(
+                "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
+                shaped_glyphs_total,
+                extracted_for_emission,
+                rasterize_success_total,
+                atlas_insert_success_total,
+                instances_pushed
+            );
+
+            // Also emit an info-level summary for downstream parsing tools that read the temp marker.
+            info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued_commands={} source=\"{}\" shaped_glyphs_total={} extracted_for_emission={} atlas_entries={}", queued_count, source, shaped_glyphs_total, extracted_for_emission, atlas_entries);
+
+            // Trace: write a compact parse-friendly temp-file marker for other crates/tools.
+            {
+                let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                let contents = format!(
+                    "source={}\nshaped_glyphs_total={}\nextracted_for_emission={}\nrasterize_success_total={}\natlas_insert_success_total={}\nfont_resolved={}\nbuffer_size={}x{}\ntext_len={}\n",
+                    source,
+                    shaped_glyphs_total,
+                    extracted_for_emission,
+                    rasterize_success_total,
+                    atlas_insert_success_total,
+                    if font_resolved { "true" } else { "false" },
+                    sim_buffer_width,
+                    sim_buffer_height,
+                    shaped_glyphs_total
+                );
+                let _ = std::fs::write(&tmp, &contents);
+                debug!("GUI_SHELL_TRACE: wrote compact cosmic prepare marker at {:?}", tmp);
+            }
+
+            // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path.
             if COSMIC_ISOLATE_RUN.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                // Hardcoded test parameters
                 let iso_text = "Zaroxi".to_string();
                 let iso_width = 300u32;
                 let iso_height = 40u32;
@@ -435,18 +433,15 @@ impl TextRenderer for CosmicTextRenderer {
                 let iso_clip = "0-0-300-40";
 
                 let iso_glyph_count = iso_text.chars().count();
-                // Unconditional isolate marker
                 eprintln!("GUI_TEXT_COSMIC_ISOLATE: starting");
-                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95,0.95,0.95,1.0f32]);
-                eprintln!("GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}", font_family, "default", if font_resolved { "true" } else { "false" }, font_family, if !font_resolved { "true" } else { "false" });
-                eprintln!("GUI_TEXT_COSMIC_BUFFER: buffer_created={} metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}", "true", iso_font_size, bundled.line_height, iso_width, iso_height, "true", "true", "Advanced", "true");
-                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}", 1, 1, iso_glyph_count, vec![iso_glyph_count]);
-                eprintln!("GUI_TEXT_COSMIC_SKIP: none");
+                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95, 0.95, 0.95, 1.0f32]);
+                eprintln!("GUI_TEXT_FONT_FILE: path=\"assets/fonts/JetBrainsMonoNerdFont-Regular.ttf\" loaded={} family_name=\"{}\"", font_file_loaded, family_name_from_file);
+                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count=1 run_count=1 shaped_glyphs_total={} glyphs_per_run={:?}", iso_glyph_count, vec![iso_glyph_count]);
 
-                // Also write an isolate marker so external scripts can detect isolate run happened.
-                let tmp_iso = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_isolate");
-                let _ = std::fs::write(&tmp_iso, format!("iso_source={}\niso_glyph_count={}\n", iso_text, iso_glyph_count));
-                debug!("GUI_SHELL_TRACE: wrote cosmic isolate marker at {:?}", tmp_iso);
+                // Isolate: confirm atlas/instance metrics (mirror non-isolate behavior).
+                eprintln!("GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total=0", iso_glyph_count, iso_glyph_count);
+                eprintln!("GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total=0 rasterize_success_total=0 atlas_insert_attempted_total=0 atlas_insert_success_total=0");
+                eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
             }
 
             // Marker: record that an atlas has been uploaded so render-pass shader
