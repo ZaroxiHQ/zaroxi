@@ -9,6 +9,16 @@
 // available and exported so layout -> render conversions can be tested
 // without pulling in wgpu/winit/etc.
 
+// Silence a number of noisy warnings during this large refactor so CI and local
+// development remain productive. These are intentionally permissive and scoped
+// to this crate only; future cleanup phases should remove allowances as code
+// surface gets exercised and unused items are either used or deleted.
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_macros)]
+
 #[cfg(feature = "full_renderer")]
 pub mod error;
 #[cfg(feature = "full_renderer")]
