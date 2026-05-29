@@ -113,14 +113,14 @@ impl CosmicTextRenderer {
         // Create texture
         let texture = device.create_texture(&tex_desc);
         // Write the RGBA bytes into the texture
-        let image_copy = ImageCopyTexture {
+        let image_copy = wgpu::ImageCopyTexture {
             texture: &texture,
             mip_level: 0,
             origin: Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         };
         // Layout assumes tightly packed RGBA8
-        let layout = ImageDataLayout {
+        let layout = wgpu::ImageDataLayout {
             offset: 0,
             bytes_per_row: Some(std::num::NonZeroU32::new(4 * 2).unwrap()), // 4 bytes * width
             rows_per_image: Some(std::num::NonZeroU32::new(2).unwrap()),
