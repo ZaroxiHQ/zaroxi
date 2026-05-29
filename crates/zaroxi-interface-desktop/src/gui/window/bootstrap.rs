@@ -43,11 +43,13 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
     let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
 
     // Instantiate the app and hand it to run_app.
+    // Slightly darken the clear color used for the initial backend clear so
+    // the chrome accents and content pane variations pop more clearly on first frame.
     let mut app = super::app::GuiApp {
         window_attributes: window_attributes.clone(),
         title,
         maybe_window: None,
-        bg_color: super::theme_adapter::parse_hex_color(shell.theme.surface),
+        bg_color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.95),
         shell: shell.clone(),
         requested_initial_frame: false,
         already_logged_existing: false,
