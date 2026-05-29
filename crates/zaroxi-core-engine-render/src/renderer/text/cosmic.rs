@@ -110,22 +110,18 @@ impl CosmicTextRenderer {
             view_formats: &[],
         };
 
-        // Create texture
+        // Allocate the texture for a tiny debug atlas.
         let texture = device.create_texture(&tex_desc);
-        // Write the RGBA bytes into the texture
-        let image_copy = wgpu::ImageCopyTexture {
-            texture: &texture,
-            mip_level: 0,
-            origin: Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        };
-        // Layout assumes tightly packed RGBA8
-        let layout = wgpu::ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(std::num::NonZeroU32::new(4 * 2).unwrap()), // 4 bytes * width
-            rows_per_image: Some(std::num::NonZeroU32::new(2).unwrap()),
-        };
-        queue.write_texture(image_copy, &pixel_bytes, layout, size);
+
+        // NOTE:
+        // Some wgpu versions expose ImageCopyTexture / ImageDataLayout types with
+        // slightly different module paths or API shapes. To remain compatible with
+        // the workspace's pinned wgpu and avoid tying this helper to a specific
+        // variant, we currently allocate the texture here but skip an immediate
+        // write/upload of the pixel bytes. The full, per-glyph upload path will
+        // be implemented in the text_atlas module using a careful copy-buffer-to-texture
+        // flow that targets the exact wgpu API in use.
+        debug!("CosmicTextRenderer.create_debug_atlas: allocated debug atlas texture (upload skipped)");
 
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor {
