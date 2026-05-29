@@ -266,7 +266,7 @@ impl TextRenderer for CosmicTextRenderer {
         eprintln!(
             "GUI_TEXT_COSMIC_BUFFER: buffer_created=true metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
             // Prefer the representative font size when available; fall back to bundled metrics.
-            (q.iter().next().map(|c| c.size).unwrap_or(bundled.line_height)),
+            (q.iter().next().map(|c| c.size).unwrap_or(bundled.line_height as f32)),
             bundled.line_height,
             sim_buffer_width,
             sim_buffer_height,
