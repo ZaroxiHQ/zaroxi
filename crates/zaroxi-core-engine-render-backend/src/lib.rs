@@ -275,88 +275,11 @@ impl<'a> RenderBackend<'a> {
             }
         }
 
-        // Do not create a shader/pipeline for GUI-3 first-frame proof; leave `pipeline` empty.
-        // Attempt to build a minimal WGSL shader and pipeline for colored rect drawing.
-        // Fall back to `pipeline: None` if anything goes wrong so the previous
-        // clear-only behavior remains intact.
-        let pipeline = (|| {
-            // Simple WGSL shader: per-vertex vec2 position (NDC) + vec4 color.
-            let shader_src = r#"
-struct VSOut {
-    @builtin(position) clip_pos: vec4<f32>;
-    @location(0) color: vec4<f32>;
-};
-
-@vertex
-fn vs(@location(0) position: vec2<f32>, @location(1) color: vec4<f32>) -> VSOut {
-    var out: VSOut;
-    out.clip_pos = vec4(position, 0.0, 1.0);
-    out.color = color;
-    return out;
-}
-
-@fragment
-fn fs(in: VSOut) -> @location(0) vec4<f32> {
-    return in.color;
-}
-"#;
-
-            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("zaroxi-rect-shader"),
-                source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-            });
-
-            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("zaroxi-rect-pipeline-layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
-
-            // Vertex buffer layout: [f32;2] position, [f32;4] color
-            let vertex_buffer_layout = wgpu::VertexBufferLayout {
-                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &[
-                    wgpu::VertexAttribute {
-                        offset: 0,
-                        shader_location: 0,
-                        format: wgpu::VertexFormat::Float32x2,
-                    },
-                    wgpu::VertexAttribute {
-                        offset: 8,
-                        shader_location: 1,
-                        format: wgpu::VertexFormat::Float32x4,
-                    },
-                ],
-            };
-
-            let pipeline_desc = wgpu::RenderPipelineDescriptor {
-                label: Some("zaroxi-rect-pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: "vs",
-                    buffers: &[vertex_buffer_layout],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-
-            match device.create_render_pipeline(&pipeline_desc) {
-                p => Some(p),
-            }
-        })();
+        // Skip creating a pipeline in this environment; preserve the clear-only fallback.
+        // Pipeline creation caused cross-version wgpu/WGSL validation issues in some hosts.
+        // Keeping `pipeline = None` ensures we remain compatible while retaining the
+        // overlay rect drawing path when a pipeline is available in future patches.
+        let pipeline = None;
 
         Self {
             device,
