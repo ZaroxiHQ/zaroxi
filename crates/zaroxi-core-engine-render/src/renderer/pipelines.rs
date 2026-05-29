@@ -15,26 +15,32 @@ pub(crate) fn create_pipelines(
     RenderError,
 > {
     // Create bind group layout for font atlas (texture + sampler)
+    //
+    // NOTE:
+    // Some platforms and text backends produce atlases that are sampled with
+    // linear filtering. Mark the texture sample_type as filterable and accept a
+    // filtering sampler to ensure the shader can sample the atlas correctly.
+    // Earlier code used a non-filterable sampler which can lead to sampling
+    // mismatches on some drivers and produce uniform/incorrect coverage values.
     let text_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
-            // sampled texture (R8). For single-channel R8Unorm atlases we mark the
-            // texture as non-filterable so platforms that disallow linear filtering
-            // for single-channel formats won't clash with the bind layout.
+            // sampled texture (R8 or Rgba) - allow filterable sampling for robustness.
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Texture {
                     multisampled: false,
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    // Allow filterable sampling so the shader can correctly read atlas texels.
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             },
-            // sampler: use NonFiltering in the bind layout to match the non-filterable texture.
+            // sampler: choose a filtering sampler to match the texture layout expected by text backends.
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
         ],
