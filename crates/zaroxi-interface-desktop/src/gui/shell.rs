@@ -241,6 +241,9 @@ impl ShellFrame {
             ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
             ShellRegion { id: "editor_header", name: "editor_header", rect: editor_header },
             ShellRegion { id: "content_left_sidebar", name: "content_left_sidebar", rect: content_left_sidebar },
+            // Backwards-compatibility: provide an aggregated editor content region id expected by older tests.
+            // This mirrors the center_editor rect so callers that expect "editor_content" continue to pass.
+            ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
             ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
             ShellRegion { id: "center_bottom_panel", name: "center_bottom_panel", rect: center_bottom_panel },
