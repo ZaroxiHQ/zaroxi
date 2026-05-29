@@ -39,7 +39,7 @@ pub fn layout_and_publish_text(
     _width: u32,
     _height: u32,
     lines: &[String],
-    theme: &Theme,
+    _theme: &Theme,
     // color_hex allows callers to select an appropriate contrast token from Theme.
     color_hex: &str,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
