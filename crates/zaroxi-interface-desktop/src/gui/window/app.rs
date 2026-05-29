@@ -351,7 +351,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(z.window(), [0.051, 0.054, 0.062, 1.0])) {
                         Ok(mut renderer) => {
                             // AppState is a zero-sized stub exposed by the renderer crate for compatibility.
-                            let app_state = zaroxi_core_engine_render::renderer::AppState;
+                            // Use the core module path where AppState is declared.
+                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
                             match renderer.render_with_layout(&app_state, &layout, &render_blocks) {
                                 Ok(()) => {
                                     eprintln!("GuiApp: full renderer path executed (render_with_layout succeeded)");
