@@ -179,30 +179,22 @@ impl TextRenderer for CosmicTextRenderer {
                 self.color_format
             );
 
-            // 4) Ensure a tiny debug atlas exists so the shader sampling path is exercised.
-            //    This helps distinguish "no glyphs" vs "atlas/shader sampling" failures.
-            let mut abg = self.atlas_bind_group.lock().unwrap();
-            if abg.is_none() {
+            // Marker: record that an atlas has been uploaded so render-pass shader
+            // sampling can be exercised. We do not yet construct a runtime BindGroup
+            // here because the canonical pipeline's BindGroupLayout is owned by the
+            // renderer.pipeline creation code; this marker helps disambiguate
+            // shaping/raster/atlas failures vs shader sampling/blending failures.
+            let mut uploaded = self.atlas_uploaded.lock().unwrap();
+            if !*uploaded {
+                // Attempt to create and upload a tiny debug atlas to exercise the shader path.
                 if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
-                    // We intentionally DO NOT construct a BindGroup here because the
-                    // authoritative text pipeline's BindGroupLayout is created by
-                    // renderer::pipelines::create_pipelines and the layout instance
-                    // is not available inside this TextRenderer::prepare call.
-                    //
-                    // Instead we leave a placeholder Some(None) state to indicate
-                    // that an atlas has been uploaded (trace-only). The renderer's
-                    // render_pass implementation will log appropriately and can be
-                    // extended to bind an actual bind group when a compatible layout
-                    // instance is passed in or when helper APIs are added.
-                    //
-                    // Store a marker to indicate atlas was created (non-empty).
-                    *abg = Some(None);
-                    debug!("CosmicTextRenderer.prepare: uploaded debug atlas (placeholder bind group)");
+                    *uploaded = true;
+                    debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
                 } else {
                     debug!("CosmicTextRenderer.prepare: debug atlas creation failed (skipping upload)");
                 }
             } else {
-                debug!("CosmicTextRenderer.prepare: debug atlas already present (placeholder)");
+                debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
             }
         } else {
             debug!("CosmicTextRenderer.prepare: no title-like label found to TRACE");
@@ -221,18 +213,12 @@ impl TextRenderer for CosmicTextRenderer {
         _panel_indices_len: u32,
         _total_indices_len: u32,
     ) -> Result<(), RenderError> {
-        // Attempt to draw glyph quads if an atlas was uploaded (placeholder marker).
-        // In the full implementation this method must:
-        // - bind the font atlas bind group (created with the same BindGroupLayout used
-        //   to create the text pipeline),
-        // - set the text pipeline,
-        // - emit per-glyph quads with proper UVs mapped to the atlas entries.
-        //
-        // For now we log the intended action so the diagnostic TRACE may be correlated
-        // with pipeline/shader activity.
-        let abg_marker = self.atlas_bind_group.lock().unwrap().is_some();
-        if abg_marker {
-            info!("CosmicTextRenderer.render_pass: debug-atlas present (would bind atlas and emit glyph quads here)");
+        // Bind atlas (marker) and emit glyph draw calls if an atlas upload marker exists.
+        // In the full implementation this method must bind the actual atlas bind-group
+        // created with the pipeline's BindGroupLayout and emit per-glyph quads with UVs.
+        let abg_exists = *self.atlas_uploaded.lock().unwrap();
+        if abg_exists {
+            info!("CosmicTextRenderer.render_pass: debug-atlas marker present (would bind atlas and draw glyph quads)");
         } else {
             info!("CosmicTextRenderer.render_pass: no atlas present; nothing to draw (placeholder)");
         }
