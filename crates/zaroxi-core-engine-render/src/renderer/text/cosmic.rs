@@ -215,16 +215,16 @@ impl TextRenderer for CosmicTextRenderer {
         // Record whether we will call the shaping logic and what buffer metrics look like.
         let mut sim_buffer_width: usize = 0;
         let mut sim_buffer_height: usize = 0;
-        let mut set_text_called = false;
-        let mut shape_called = false;
+
+        // Derive the indicators from the queued commands to avoid unused-assignment warnings
+        // (we don't need a mutable flip-flop that gets overwritten in the loop).
+        let set_text_called = q.iter().any(|cmd| !cmd.text.is_empty());
+        let shape_called = set_text_called; // placeholder semantics: shape when text present
 
         for cmd in q.iter() {
             sim_buffer_width = sim_buffer_width.max(cmd.clip_w as usize);
             sim_buffer_height = sim_buffer_height.max(cmd.clip_h as usize);
             if !cmd.text.is_empty() {
-                set_text_called = true;
-                // In this placeholder backend we emulate a shaping call by counting chars.
-                shape_called = true;
                 info!(
                     "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len={} font_size={} set_text_called={} shape_called={}",
                     cmd.clip_w as i32,
