@@ -65,6 +65,44 @@ impl winit::application::ApplicationHandler for GuiApp {
                         // Delegate rect construction to the frame module so the code is easier to follow.
                         let rects = super::frame::build_overlay_rects(&self.shell);
 
+                        // Path marker for diagnostics: clear_present_once (first-frame bootstrap).
+                        eprintln!("GUI_TEXT_PATH=clear_present_once");
+                        // Gather adapter/backend markers for a compact per-path summary (non-fatal).
+                        let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let layout_present = tmp_layout.exists();
+                        let cosmic_present = tmp_cosmic.exists();
+                        let mut adapter_text_ops: usize = 0;
+                        if layout_present {
+                            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                                if let Some(rest) = s.strip_prefix("lines=") {
+                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                }
+                            }
+                        }
+                        let backend_text_ops = rects.len();
+                        let fallback_used = layout_present && !cosmic_present;
+
+                        eprintln!(
+                            "GUI_TEXT_FRAME_SUMMARY: path=clear_present_once adapter_text_ops={} backend_text_ops={} core_text_ops=0 cosmic_prepare_called={} glyphs=0 atlas_entries=0 pipeline_render_called=false overlay_rects={} fallback_used={}",
+                            adapter_text_ops,
+                            backend_text_ops,
+                            if cosmic_present { "true" } else { "false" },
+                            backend_text_ops,
+                            if fallback_used { "true" } else { "false" }
+                        );
+
+                        // Hard-checks for broken links (diagnostic only).
+                        if adapter_text_ops > 0 && backend_text_ops == 0 {
+                            eprintln!("GUI_TEXT_BROKEN_LINK: adapter->backend");
+                        }
+                        if backend_text_ops > 0 {
+                            // At this bootstrap path the full renderer/core is not invoked,
+                            // therefore core_text_ops will be zero here: this indicates the
+                            // backend->core link was not exercised for the clear_present_once path.
+                            eprintln!("GUI_TEXT_BROKEN_LINK: backend->core");
+                        }
+
                         let res = pollster::block_on(
                             zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
                                 z,
@@ -130,6 +168,45 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                         // Delegate rect construction to the frame module (same policy as init path).
                         let rects = super::frame::build_overlay_rects(&self.shell);
+
+                        // Path marker for diagnostics: clear_present_once invoked from resumed.
+                        eprintln!("GUI_TEXT_PATH=clear_present_once");
+
+                        // Gather adapter/backend markers for a compact per-path summary (non-fatal).
+                        let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let layout_present = tmp_layout.exists();
+                        let cosmic_present = tmp_cosmic.exists();
+                        let mut adapter_text_ops: usize = 0;
+                        if layout_present {
+                            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                                if let Some(rest) = s.strip_prefix("lines=") {
+                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                }
+                            }
+                        }
+                        let backend_text_ops = rects.len();
+                        let fallback_used = layout_present && !cosmic_present;
+
+                        eprintln!(
+                            "GUI_TEXT_FRAME_SUMMARY: path=clear_present_once adapter_text_ops={} backend_text_ops={} core_text_ops=0 cosmic_prepare_called={} glyphs=0 atlas_entries=0 pipeline_render_called=false overlay_rects={} fallback_used={}",
+                            adapter_text_ops,
+                            backend_text_ops,
+                            if cosmic_present { "true" } else { "false" },
+                            backend_text_ops,
+                            if fallback_used { "true" } else { "false" }
+                        );
+
+                        // Hard-checks for broken links (diagnostic only).
+                        if adapter_text_ops > 0 && backend_text_ops == 0 {
+                            eprintln!("GUI_TEXT_BROKEN_LINK: adapter->backend");
+                        }
+                        if backend_text_ops > 0 {
+                            // At this bootstrap path the full renderer/core is not invoked,
+                            // therefore core_text_ops will be zero here: this indicates the
+                            // backend->core link was not exercised for the clear_present_once path.
+                            eprintln!("GUI_TEXT_BROKEN_LINK: backend->core");
+                        }
 
                         let res = pollster::block_on(
                             zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
