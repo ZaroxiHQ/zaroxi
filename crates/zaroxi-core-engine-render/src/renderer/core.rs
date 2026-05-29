@@ -10,7 +10,14 @@ use wgpu::{
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use zaroxi_interface_app::AppState;
+// AppState is an interface-side type. Provide a minimal local stub here so the
+// render crate can compile without pulling the full interface-app crate and to
+// avoid accidental cyclic dependencies during incremental development.
+// The real AppState lives in the interface/application layer and should be
+// passed by callers when available; the renderer never inspects this stub.
+#[allow(dead_code)]
+pub struct AppState;
+
 use zaroxi_interface_theme::SemanticColors;
 
 use crate::renderer::debug::{
