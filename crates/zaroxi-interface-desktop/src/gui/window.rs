@@ -26,7 +26,7 @@ use std::error::Error;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
-    event_loop::{EventLoop, ControlFlow},
+    event_loop::EventLoop,
     window::WindowAttributes,
 };
 
@@ -158,9 +158,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         fn about_to_wait(&mut self, _active_loop: &winit::event_loop::ActiveEventLoop) {
             // Request the initial frame once to avoid a continuous busy redraw loop.
             if self.requested_initial_frame {
-                if let Some(w) = self.maybe_window.as_ref() {
-                    eprintln!("GuiApp: about_to_wait -> requesting initial redraw");
-                    let _ = w.request_redraw();
+                if let Some(z) = self.maybe_window.as_ref() {
+                    eprintln!("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
+                    let _ = z.window().request_redraw();
                 }
                 self.requested_initial_frame = false;
             }
