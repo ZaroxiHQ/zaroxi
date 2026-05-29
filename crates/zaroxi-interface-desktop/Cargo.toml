@@ -21,6 +21,7 @@ bytemuck = "1.18.0"
 cosmic-text = { workspace = true }
 # Use the workspace font loader crate rather than reading assets directly.
 zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
+zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
 
 # Local workspace crates
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
