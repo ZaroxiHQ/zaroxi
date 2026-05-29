@@ -44,9 +44,16 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }
 
-    // Sample coverage from the atlas (atlas encoded as R8Unorm -> use .r).
+    // Sample coverage from the atlas. Some atlas implementations pack coverage
+    // in the red channel (R8) while others use the alpha channel (RGBA).
+    // To make the shader robust across atlas formats, sample both:
+    // - Prefer red (sampled.r) when present; fall back to alpha (sampled.a) when red is near zero.
     let sampled = textureSample(font_tex, font_sampler, in.uv);
-    let coverage = sampled.r;
+    var coverage: f32 = sampled.r;
+    if coverage < 0.001 {
+        // fall back to alpha channel when red is effectively empty
+        coverage = sampled.a;
+    }
 
     // Diagnostic proof: show coverage as grayscale if enabled.
     if DIAGNOSTIC_SHOW_COVERAGE {
