@@ -343,14 +343,14 @@ fn fs(in: VSOut) -> @location(0) vec4<f32> {
             // Vertex / fragment state (match local wgpu API expectations)
             let vertex_state = wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs",
+                entry_point: Some("vs"),
                 buffers: &[vertex_buffer_layout],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             };
 
             let fragment_state = Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs",
+                entry_point: Some("fs"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
