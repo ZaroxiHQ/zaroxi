@@ -67,10 +67,10 @@ pub struct ShellFrame {
 impl ShellFrame {
     /// Construct a new ShellFrame and compute a canonical layout.
     ///
-    /// GUI-6: subdivide the previous single editor_content into a left
-    /// project rail, central editor canvas, bottom panel (within center),
-    /// and keep the right AI pane. Geometry is explicit and uses simple
-    /// proportional heuristics so resizing remains deterministic.
+    /// GUI-6 (follow-up): refine proportions and ensure visually-distinct
+    /// editor subdivisions: left project rail, center editor, bottom panel,
+    /// and the right AI pane. Geometry is explicit and uses simple proportional
+    /// heuristics so resizing remains deterministic.
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
@@ -78,17 +78,26 @@ impl ShellFrame {
         let outer_padding: u32 = 8;
         let top_toolbar_h: u32 = 40;
         let left_rail_w: u32 = 60;
-        let left_sidebar_w: u32 = 220; // outer sidebar (app/project switcher area)
-        let ai_panel_w: u32 = 320;
-        let bottom_dock_h: u32 = 120;
-        let status_h: u32 = 24;
-        let editor_header_h: u32 = 28;
-        let minimap_w: u32 = 80;
-
+        // Compute sidebars proportionally from available inner width so resizing
+        // preserves relative balance rather than fixed absolute sizes.
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
+
+        // Proportional outer sidebar (~20% of inner width), clamped to sane bounds.
+        let mut left_sidebar_w = (inner_w.saturating_mul(20)) / 100;
+        left_sidebar_w = left_sidebar_w.clamp(140, inner_w.saturating_div(2));
+
+        // Right AI pane (~26% of inner width), clamped.
+        let mut ai_panel_w = (inner_w.saturating_mul(26)) / 100;
+        ai_panel_w = ai_panel_w.clamp(200, inner_w.saturating_div(2));
+
+        // Keep a stable bottom dock and status height
+        let bottom_dock_h: u32 = 120;
+        let status_h: u32 = 24;
+        let editor_header_h: u32 = 28;
+        let minimap_w: u32 = 80;
 
         // Top toolbar / titlebar region (full width)
         let toolbar = Rect {
@@ -98,7 +107,7 @@ impl ShellFrame {
             height: top_toolbar_h,
         };
 
-        // Status bar at bottom
+        // Status bar at bottom (stable anchor)
         let status = Rect {
             x: inner_x,
             y: inner_y + inner_h.saturating_sub(status_h),
@@ -158,24 +167,23 @@ impl ShellFrame {
         let below_header_y = editor_header.y + editor_header.height;
         let below_header_h = columns_h.saturating_sub(editor_header.height);
 
-        // Subdivision heuristics:
-        // - left project rail: ~20% of editor column width (clamped)
+        // Subdivision heuristics (refined for clearer separations):
+        // - left project rail: ~22% of editor column width (clamped)
         // - right-side minimap lane preserved (minimap_w)
         // - center editor: remaining width after left rail & minimap
-        // - bottom panel: ~22% of the center editor height
-        let left_inner_pct: f32 = 0.20;
+        // - bottom panel: ~26% of the center editor height (visually prominent)
+        let left_inner_pct: f32 = 0.22;
         let right_minimap = minimap_w;
         let mut left_inner_w = ((editor_w as f32) * left_inner_pct) as u32;
-        // clamp to reasonable UX bounds
-        left_inner_w = left_inner_w.clamp(120, 360);
+        left_inner_w = left_inner_w.clamp(120, 480);
 
         let center_editor_w = editor_w
             .saturating_sub(left_inner_w)
             .saturating_sub(right_minimap);
 
-        // Center heights
-        let bottom_panel_h = ((below_header_h as f32) * 0.22) as u32;
-        let bottom_panel_h = bottom_panel_h.clamp(48, below_header_h.saturating_sub(24));
+        // Center heights (make the bottom panel a bit taller so it's visually obvious)
+        let mut bottom_panel_h = ((below_header_h as f32) * 0.26) as u32;
+        bottom_panel_h = bottom_panel_h.clamp(56, below_header_h.saturating_sub(24));
         let center_editor_h = below_header_h.saturating_sub(bottom_panel_h);
 
         // Left project rail INSIDE the editor column (distinct from outer sidebar)
@@ -210,7 +218,7 @@ impl ShellFrame {
             height: below_header_h,
         };
 
-        // AI panel header and content split
+        // AI panel header and content split (unchanged)
         let ai_header_h: u32 = 36;
         let ai_panel_header = Rect {
             x: ai_panel.x,
@@ -226,7 +234,7 @@ impl ShellFrame {
         };
 
         // Collect regions with stable ids and presentable names.
-        // GUI-6 adds: content_left_sidebar, center_editor, center_bottom_panel
+        // GUI-6 follow-up: emphasize center and bottom subdivisions visually.
         let regions = vec![
             ShellRegion { id: "toolbar", name: "editor_header_toolbar", rect: toolbar },
             ShellRegion { id: "app_rail", name: "app_rail", rect: app_rail },
