@@ -152,18 +152,23 @@ impl TextRenderer for CosmicTextRenderer {
         let queued_count = q.len();
         // Collect visible labels for richer tracing (do not modify queue).
         let labels: Vec<String> = q.iter().map(|c| c.text.clone()).collect();
+        // Unconditional terminal marker proving we reached the live prepare path.
+        eprintln!("GUI_TEXT_COSMIC_ENTERED: live_prepare");
+        // Preserve existing stage info for compatibility while also emitting an
+        // unconditional terminal-visible counter line for easier grepping.
         info!(
             "GUI_TEXT_STAGE_4_COSMIC_PREPARE: entered=true queued_count={} labels={:?}",
             queued_count,
             labels
         );
+        eprintln!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
         info!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
 
         // Per-command deep input trace: log all input parameters before any shaping.
         let mut total_text_len: usize = 0;
         for cmd in q.iter() {
             total_text_len += cmd.text.chars().count();
-            info!(
+            eprintln!(
                 "GUI_TEXT_COSMIC_INPUT: label=\"{}\" text_len={} bounds_w={} bounds_h={} x={} y={} font_size={} color={:?} wrap_mode=\"none\" alignment=\"left\" clip_bounds={}-{}-{}-{}",
                 cmd.text,
                 cmd.text.chars().count(),
@@ -182,7 +187,7 @@ impl TextRenderer for CosmicTextRenderer {
             // Emit a concise, canonical-format input line for the known "Zaroxi" label
             // so downstream instrumentation can precisely parse the layout inputs.
             if cmd.is_title || cmd.text.contains("Zaroxi") {
-                info!(
+                eprintln!(
                     "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
                     cmd.text,
                     cmd.text.chars().count(),
@@ -199,23 +204,23 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Hard validation checks for obviously invalid inputs.
         if queued_count == 0 {
-            info!("GUI_TEXT_INVALID: no_queued_commands");
+            eprintln!("GUI_TEXT_INVALID: no_queued_commands");
         }
         if total_text_len == 0 {
-            info!("GUI_TEXT_INVALID: empty_text_on_all_commands");
+            eprintln!("GUI_TEXT_INVALID: empty_text_on_all_commands");
         }
         for cmd in q.iter() {
             if cmd.clip_w <= 0.0 {
-                info!("GUI_TEXT_INVALID: zero_width label=\"{}\" clip_w={}", cmd.text, cmd.clip_w);
+                eprintln!("GUI_TEXT_INVALID: zero_width label=\"{}\" clip_w={}", cmd.text, cmd.clip_w);
             }
             if cmd.clip_h <= 0.0 {
-                info!("GUI_TEXT_INVALID: zero_height label=\"{}\" clip_h={}", cmd.text, cmd.clip_h);
+                eprintln!("GUI_TEXT_INVALID: zero_height label=\"{}\" clip_h={}", cmd.text, cmd.clip_h);
             }
             if cmd.size <= 0.0 {
-                info!("GUI_TEXT_INVALID: zero_font_size label=\"{}\" font_size={}", cmd.text, cmd.size);
+                eprintln!("GUI_TEXT_INVALID: zero_font_size label=\"{}\" font_size={}", cmd.text, cmd.size);
             }
             if cmd.text.trim().is_empty() {
-                info!("GUI_TEXT_INVALID: empty_text label=\"{}\"", cmd.text);
+                eprintln!("GUI_TEXT_INVALID: empty_text label=\"{}\"", cmd.text);
             }
         }
 
@@ -225,7 +230,7 @@ impl TextRenderer for CosmicTextRenderer {
         let font_resolved = !font_family.trim().is_empty();
         // Fallback used when no bundled family is resolved.
         let fallback_used = !font_resolved;
-        info!(
+        eprintln!(
             "GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}",
             font_family,
             "default",
@@ -248,7 +253,7 @@ impl TextRenderer for CosmicTextRenderer {
             sim_buffer_width = sim_buffer_width.max(cmd.clip_w as usize);
             sim_buffer_height = sim_buffer_height.max(cmd.clip_h as usize);
             if !cmd.text.is_empty() {
-                info!(
+                eprintln!(
                     "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len={} font_size={} set_text_called={} shape_called={}",
                     cmd.clip_w as i32,
                     cmd.clip_h as i32,
@@ -258,7 +263,7 @@ impl TextRenderer for CosmicTextRenderer {
                     if shape_called { "true" } else { "false" }
                 );
             } else {
-                info!(
+                eprintln!(
                     "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len=0 font_size={} set_text_called=false shape_called=false",
                     cmd.clip_w as i32,
                     cmd.clip_h as i32,
@@ -331,7 +336,7 @@ impl TextRenderer for CosmicTextRenderer {
             let buffer_height = sim_buffer_height;
             let font_size_diag = first.size;
 
-            info!(
+            eprintln!(
                 "GUI_TEXT_COSMIC_BUFFER: buffer_created={} metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
                 if buffer_created { "true" } else { "false" },
                 font_size_diag,
@@ -351,7 +356,7 @@ impl TextRenderer for CosmicTextRenderer {
             let shaped_glyphs_total = glyph_count;
             let glyphs_per_run = vec![glyph_count];
 
-            info!(
+            eprintln!(
                 "GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}",
                 line_count,
                 run_count,
@@ -360,7 +365,7 @@ impl TextRenderer for CosmicTextRenderer {
             );
 
             // Skip diagnostics: none in the common case; report explicit "none" when nothing skipped.
-            info!("GUI_TEXT_COSMIC_SKIP: none");
+            eprintln!("GUI_TEXT_COSMIC_SKIP: none");
 
             // Also emit an explicit info-level GUI trace for easier grepping.
             info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued commands = {}", queued_count);
@@ -430,11 +435,13 @@ impl TextRenderer for CosmicTextRenderer {
                 let iso_clip = "0-0-300-40";
 
                 let iso_glyph_count = iso_text.chars().count();
-                info!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95,0.95,0.95,1.0f32]);
-                info!("GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}", font_family, "default", if font_resolved { "true" } else { "false" }, font_family, if !font_resolved { "true" } else { "false" });
-                info!("GUI_TEXT_COSMIC_BUFFER: buffer_created={} metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}", "true", iso_font_size, bundled.line_height, iso_width, iso_height, "true", "true", "Advanced", "true");
-                info!("GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}", 1, 1, iso_glyph_count, vec![iso_glyph_count]);
-                info!("GUI_TEXT_COSMIC_SKIP: none");
+                // Unconditional isolate marker
+                eprintln!("GUI_TEXT_COSMIC_ISOLATE: starting");
+                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95,0.95,0.95,1.0f32]);
+                eprintln!("GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}", font_family, "default", if font_resolved { "true" } else { "false" }, font_family, if !font_resolved { "true" } else { "false" });
+                eprintln!("GUI_TEXT_COSMIC_BUFFER: buffer_created={} metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}", "true", iso_font_size, bundled.line_height, iso_width, iso_height, "true", "true", "Advanced", "true");
+                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}", 1, 1, iso_glyph_count, vec![iso_glyph_count]);
+                eprintln!("GUI_TEXT_COSMIC_SKIP: none");
 
                 // Also write an isolate marker so external scripts can detect isolate run happened.
                 let tmp_iso = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_isolate");
