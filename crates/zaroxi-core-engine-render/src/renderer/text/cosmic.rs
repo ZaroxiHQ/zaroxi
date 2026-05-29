@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex};
 use wgpu::{
     BindGroup, Device, Queue, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, Extent3d, ImageDataLayout, ImageCopyTexture,
-    ImageCopyTextureBase, Origin3d, TextureViewDescriptor,
+    Origin3d, TextureViewDescriptor,
 };
 
 /// Concrete Cosmic Text backed renderer.
@@ -52,8 +52,8 @@ use wgpu::{
 ///   or shader sampling/blending.
 pub struct CosmicTextRenderer {
     queued: Arc<Mutex<Vec<TextCommand>>>,
-    // Atlas bind group (if created during prepare). None until atlas is uploaded.
-    atlas_bind_group: Arc<Mutex<Option<BindGroup>>>,
+    // Marker flag indicating whether an atlas has been uploaded (placeholder state).
+    atlas_uploaded: Arc<Mutex<bool>>,
     // Keep the configured color format around so debug uploads use the same format.
     color_format: TextureFormat,
 }
@@ -73,7 +73,7 @@ impl CosmicTextRenderer {
         info!("CosmicTextRenderer: initializing (Cosmic Text primary path)");
         Ok(Self {
             queued: Arc::new(Mutex::new(Vec::new())),
-            atlas_bind_group: Arc::new(Mutex::new(None)),
+            atlas_uploaded: Arc::new(Mutex::new(false)),
             color_format,
         })
     }
