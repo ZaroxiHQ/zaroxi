@@ -134,10 +134,17 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                             eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame");
 
                             // Build a small set of resolved low-level rect draws from the shell regions.
-                            // We only include three canonical bands: toolbar (chrome), editor content, and status bar.
+                            // Use the interface-side ShellFrame geometry and theme tokens to produce
+                            // three visible bands: toolbar (chrome), main editor content, and status bar.
+                            // We also emit thin border rects between bands using the shell theme's border token
+                            // so visual separation is driven by the interface theme (no hardcoded product colors).
                             let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+                            let bt: u32 = self.shell.theme.border_thickness as u32;
                             for r in &self.shell.regions {
                                 match r.id {
+                                    // Top chrome / toolbar band: render a filled band (accent) so it's visually distinct.
+                                    // We choose the shell's `border_color` token as the chrome accent to preserve
+                                    // existing theme intent while keeping the implementation phase-scoped.
                                     "toolbar" => {
                                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                                             x: r.rect.x,
@@ -146,7 +153,20 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                                             height: r.rect.height,
                                             color: parse_hex_color(self.shell.theme.border_color),
                                         });
+
+                                        // Emit a thin bottom border under the toolbar to separate it from content.
+                                        if bt > 0 && r.rect.height > bt {
+                                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                                x: r.rect.x,
+                                                y: r.rect.y.saturating_add(r.rect.height.saturating_sub(bt)),
+                                                width: r.rect.width,
+                                                height: bt,
+                                                color: parse_hex_color(self.shell.theme.border_color),
+                                            });
+                                        }
                                     }
+
+                                    // Main editor content: fill with the shell surface color so it reads as the primary canvas.
                                     "editor_content" => {
                                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                                             x: r.rect.x,
@@ -156,6 +176,8 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                                             color: parse_hex_color(self.shell.theme.surface),
                                         });
                                     }
+
+                                    // Bottom status bar: render as a filled band using the border token so it's visually anchored.
                                     "status_bar" => {
                                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                                             x: r.rect.x,
@@ -164,7 +186,20 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                                             height: r.rect.height,
                                             color: parse_hex_color(self.shell.theme.border_color),
                                         });
+
+                                        // Emit a thin top border above the status bar to separate it from content.
+                                        if bt > 0 {
+                                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                                x: r.rect.x,
+                                                y: r.rect.y,
+                                                width: r.rect.width,
+                                                height: bt,
+                                                color: parse_hex_color(self.shell.theme.border_color),
+                                            });
+                                        }
                                     }
+
+                                    // Keep other regions off the one-shot overlay for now.
                                     _ => {}
                                 }
                             }
@@ -226,6 +261,79 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         let _ = zaroxi_w.window().request_redraw();
                         // Keep the engine window handle so we can request redraws later.
                         self.maybe_window = Some(zaroxi_w);
+
+                        // Perform a one-shot clear+present using the engine render backend
+                        // to ensure the compositor receives a GPU-backed frame and maps the window.
+                        if let Some(z) = self.maybe_window.as_ref() {
+                            eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame (resumed)");
+
+                            // Build overlay rects from the ShellFrame regions (same policy as init path).
+                            let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+                            let bt: u32 = self.shell.theme.border_thickness as u32;
+                            for r in &self.shell.regions {
+                                match r.id {
+                                    "toolbar" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.border_color),
+                                        });
+                                        if bt > 0 && r.rect.height > bt {
+                                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                                x: r.rect.x,
+                                                y: r.rect.y.saturating_add(r.rect.height.saturating_sub(bt)),
+                                                width: r.rect.width,
+                                                height: bt,
+                                                color: parse_hex_color(self.shell.theme.border_color),
+                                            });
+                                        }
+                                    }
+                                    "editor_content" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.surface),
+                                        });
+                                    }
+                                    "status_bar" => {
+                                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                            x: r.rect.x,
+                                            y: r.rect.y,
+                                            width: r.rect.width,
+                                            height: r.rect.height,
+                                            color: parse_hex_color(self.shell.theme.border_color),
+                                        });
+                                        if bt > 0 {
+                                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                                                x: r.rect.x,
+                                                y: r.rect.y,
+                                                width: r.rect.width,
+                                                height: bt,
+                                                color: parse_hex_color(self.shell.theme.border_color),
+                                            });
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            let res = pollster::block_on(
+                                zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
+                                    z,
+                                    self.bg_color,
+                                    Some(&rects),
+                                ),
+                            );
+                            if let Err(e) = res {
+                                eprintln!("GuiApp: clear_present_once failed (resumed): {}", e);
+                            } else {
+                                eprintln!("GuiApp: clear_present_once succeeded (resumed)");
+                            }
+                        }
 
                         // Mark a single initial-frame request to drive one redraw pass.
                         self.requested_initial_frame = false;
