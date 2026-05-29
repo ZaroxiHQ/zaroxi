@@ -370,23 +370,54 @@ impl TextRenderer for CosmicTextRenderer {
             // that the Cosmic prepare path was executed for the known label. Include shaping metrics
             // so downstream stages can correlate glyph_count / atlas_entries.
             {
+                // Write a comprehensive, parse-friendly cosmic prepare marker that includes
+                // all the keys the frame-summary reader expects. Keep this atomic so
+                // downstream tools can reliably parse the file.
                 let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                let _ = std::fs::write(
-                    &tmp,
-                    format!(
-                        "source={}\ntext_len={}\nfont_resolved={}\nbuffer_size={}x{}\nshaped_glyphs_total={}\nemitted_glyphs_total={}\natlas_entries={}\n",
-                        source,
-                        glyph_count,
-                        if font_resolved { "true" } else { "false" },
-                        sim_buffer_width,
-                        sim_buffer_height,
-                        shaped_glyphs_total,
-                        rasterized_glyph_count,
-                        atlas_entries
-                    ),
+                let contents = format!(
+                    "source={}\n\
+                     glyph_count={}\n\
+                     rasterized_glyph_count={}\n\
+                     atlas_entries={}\n\
+                     text_len={}\n\
+                     font_resolved={}\n\
+                     buffer_size={}x{}\n\
+                     shaped_glyphs_total={}\n\
+                     emitted_glyphs_total={}\n",
+                    source,
+                    glyph_count,
+                    rasterized_glyph_count,
+                    atlas_entries,
+                    glyph_count, // conservative: text_len == codepoint count for now
+                    if font_resolved { "true" } else { "false" },
+                    sim_buffer_width,
+                    sim_buffer_height,
+                    shaped_glyphs_total,
+                    rasterized_glyph_count
                 );
-                debug!("GUI_SHELL_TRACE: wrote cosmic prepare marker at {:?}", tmp);
-                info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: source=\"{}\" text_len={} font_resolved={} buffer_size={}x{} shaped_glyphs_total={} emitted_glyphs_total={} atlas_entries={}", source, glyph_count, if font_resolved {"true"} else {"false"}, sim_buffer_width, sim_buffer_height, shaped_glyphs_total, rasterized_glyph_count, atlas_entries);
+
+                // Best-effort write; ignore errors but still log them at debug level.
+                if let Err(e) = std::fs::write(&tmp, &contents) {
+                    debug!("GUI_SHELL_TRACE: failed to write cosmic prepare marker at {:?}: {:?}", tmp, e);
+                } else {
+                    debug!("GUI_SHELL_TRACE: wrote cosmic prepare marker at {:?}", tmp);
+                }
+
+                // Emit an info-level summary that duplicates the file contents in logs
+                // so grep-based tooling can observe the same values without reading temp files.
+                info!(
+                    "GUI_TEXT_STAGE_4_COSMIC_PREPARE: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} text_len={} font_resolved={} buffer_size={}x{} shaped_glyphs_total={} emitted_glyphs_total={}",
+                    source,
+                    glyph_count,
+                    rasterized_glyph_count,
+                    atlas_entries,
+                    glyph_count,
+                    if font_resolved { "true" } else { "false" },
+                    sim_buffer_width,
+                    sim_buffer_height,
+                    shaped_glyphs_total,
+                    rasterized_glyph_count
+                );
             }
 
             // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path
