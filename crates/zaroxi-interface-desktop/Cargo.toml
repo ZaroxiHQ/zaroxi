@@ -29,6 +29,8 @@ zaroxi-core-engine-render-backend = { path = "../zaroxi-core-engine-render-backe
 
 # Other local application/domain deps
 serde = { workspace = true }
+# Add log dependency so runtime tracing via `log::info!` works in this crate.
+log = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
