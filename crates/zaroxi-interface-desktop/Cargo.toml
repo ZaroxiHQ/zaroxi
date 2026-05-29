@@ -22,6 +22,9 @@ cosmic-text = { workspace = true }
 # Use the workspace font loader crate rather than reading assets directly.
 zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
 zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
+# Theme crate: expose semantic color tokens to the interface desktop so it can
+# construct RenderLayout colors compatible with the renderer.
+zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
 
 # Local workspace crates
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
