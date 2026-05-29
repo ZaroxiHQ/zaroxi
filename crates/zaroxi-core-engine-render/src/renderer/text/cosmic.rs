@@ -347,7 +347,78 @@ impl TextRenderer for CosmicTextRenderer {
             // Placeholder extraction logic: accept all shaped glyphs for now.
             extracted_for_emission = total_layout_glyphs;
 
-            // Build extract summary + skip breakdown
+            // Post-extract control-flow decision marker: report whether we will enter
+            // the rasterization / atlas insertion stage and why if not.
+            //
+            // Note: CosmicTextRenderer (placeholder) does not currently own a SwashCache
+            // or persistent atlas object; record presence/absence for diagnostics.
+            let swash_cache_present: bool = false; // no swash cache field in this implementation
+            let atlas_present: bool = false; // no persistent atlas field available here
+            let atlas_uploaded_flag: bool = *self.atlas_uploaded.lock().unwrap();
+            let device_present: bool = true; // device param exists in this fn
+            let queue_present: bool = true; // queue param exists in this fn
+
+            // Decision heuristic: raster stage expected only when we have shaped glyphs
+            // and required rasterization primitives (swash cache + device/queue).
+            let entering_raster_stage: bool =
+                extracted_for_emission > 0 && swash_cache_present && device_present && queue_present;
+
+            eprintln!(
+                "GUI_TEXT_POST_EXTRACT: extracted={} entering_raster_stage={}",
+                extracted_for_emission,
+                entering_raster_stage
+            );
+
+            if !entering_raster_stage {
+                // Diagnose the primary reason (first failing prerequisite).
+                let reason = if !swash_cache_present {
+                    "no_swash_cache"
+                } else if !atlas_present {
+                    "no_atlas"
+                } else if !device_present || !queue_present {
+                    "missing_device_or_queue"
+                } else {
+                    "debug_stub_branch"
+                };
+                eprintln!("GUI_TEXT_POST_EXTRACT: reason={}", reason);
+            } else {
+                // Print the concrete prereq values so callers can see why rasterization was attempted.
+                eprintln!(
+                    "GUI_TEXT_RASTER_PREREQS: swash_cache_present={} atlas_present={} atlas_uploaded={} device_present={} queue_present={}",
+                    swash_cache_present,
+                    atlas_present,
+                    atlas_uploaded_flag,
+                    device_present,
+                    queue_present
+                );
+
+                // Enter raster stage marker.
+                eprintln!("GUI_TEXT_RASTER_ENTERED");
+
+                // Attempt atlas creation/upload path (debug atlas) to exercise the atlas branch.
+                // This mirrors the earlier debug-atlas creation helper; presence of a successful
+                // result indicates an atlas insertion path was exercised.
+                if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
+                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                    if !*uploaded {
+                        *uploaded = true;
+                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                    } else {
+                        debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+                    }
+                } else {
+                    eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
+                }
+
+                // Instance push entry point marker: this is the intended location where
+                // per-glyph render instances would be constructed and pushed. Even though
+                // this placeholder implementation does not yet push per-glyph instances,
+                // emit a stable marker so logs show whether the code path was reached.
+                eprintln!("GUI_TEXT_PUSH_ENTERED");
+            }
+
+            // Build extract summary + skip breakdown (concise).
             eprintln!(
                 "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
                 total_layout_glyphs,
@@ -367,8 +438,7 @@ impl TextRenderer for CosmicTextRenderer {
             );
 
             // Atlas insertion / rasterization flow instrumentation summary (aggregate).
-            // The current placeholder does not perform per-glyph rasterization/atlas insert;
-            // report aggregate attempted/success counts to make the missing stage visible.
+            // Preserve the old aggregate counters (still zero in placeholder path).
             let rasterize_attempted_total: usize = 0;
             let rasterize_success_total: usize = 0;
             let atlas_insert_attempted_total: usize = 0;
