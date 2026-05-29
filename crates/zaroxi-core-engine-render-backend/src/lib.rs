@@ -142,7 +142,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             /// backend's initialization path. Returns Ok(()) on success or an Err
             /// with a boxed error on failure.
             pub async fn clear_present_once(
-                window: &'a crate::zaroxi_core_engine_window::ZaroxiWindow,
+                window: &'a zaroxi_core_engine_window::ZaroxiWindow,
                 color: wgpu::Color,
             ) -> Result<(), Box<dyn std::error::Error>> {
                 // Create a temporary backend (async init).
