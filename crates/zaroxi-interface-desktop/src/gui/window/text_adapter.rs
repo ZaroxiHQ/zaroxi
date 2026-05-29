@@ -36,8 +36,8 @@ use crate::gui::Theme;
 pub fn layout_and_publish_text(
     x: u32,
     y: u32,
-    width: u32,
-    height: u32,
+    _width: u32,
+    _height: u32,
     lines: &[String],
     theme: &Theme,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
