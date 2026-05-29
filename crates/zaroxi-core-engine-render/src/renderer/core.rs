@@ -19,6 +19,8 @@ use crate::renderer::debug::{
     render_debug_enabled,
 };
 use crate::renderer::geometry::{Vertex, pixel_to_ndc, push_colored_quad};
+use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_engine_text::plain::layout_plain_lines;
 
 /// Internal context that groups per-frame geometry buffers and screen size.
 /// Introduced to reduce the responsibility surface of core.rs and to provide
