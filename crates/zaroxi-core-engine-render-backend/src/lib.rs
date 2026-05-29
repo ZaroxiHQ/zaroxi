@@ -14,7 +14,6 @@ Responsibilities:
 
 use bytemuck;
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
-use zaroxi_core_engine_font::load_bundled_monospace;
 use zaroxi_core_engine_window::ZaroxiWindow;
 
 /// Simple render backend that drives a wgpu surface and presents frames.
@@ -528,6 +527,13 @@ impl<'a> RenderBackend<'a> {
         // can present readable glyphs.
     }
 
+    /// Render editor primitives.
+    ///
+    /// The minimal backend intentionally no-ops here. Shaped glyph rendering is
+    /// performed by the full renderer (zaroxi-core-engine-render) via the
+    /// canonical text pipeline. Keeping this method as a documented no-op
+    /// satisfies the crate-level `deny(missing_docs)` lint while preserving the
+    /// intended architecture where the full renderer owns glyph rasterization.
     pub fn render_editor_primitives(
         &mut self,
         _primitives: &zaroxi_core_engine_scene::EditorPrimitiveSet,
