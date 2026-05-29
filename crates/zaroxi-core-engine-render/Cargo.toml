@@ -7,31 +7,30 @@ license = "MIT"
 
 # Core internal workspace dependencies
 [dependencies]
-zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
-zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
-zaroxi-core-engine-text = { path = "../zaroxi-core-engine-text" }
-zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
+zaroxi-core-engine-layout = { workspace = true }
+zaroxi-core-engine-scene = { workspace = true }
+zaroxi-core-engine-text = { workspace = true }
+zaroxi-core-engine-font = { workspace = true }
 
 # Native rendering & windowing (workspace pins where available)
-wgpu = { workspace = true }
-winit = { workspace = true }
+wgpu = { workspace = true, optional = true }
+winit = { workspace = true, optional = true }
 
 # Utilities and crates used by the full renderer
-log = { workspace = true }
-thiserror = { workspace = true }
-bytemuck = { workspace = true }
+log = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
 
-# Cosmic Text (primary text/layout backend) - workspace pin
-cosmic-text = { workspace = true }
+# Cosmic Text (primary text/layout backend) - workspace pin (optional for feature gating)
+cosmic-text = { workspace = true, optional = true }
 
-# Glyphon is an optional native backend used by the full renderer implementation.
-# Declared at workspace root to centralize optional heavy native deps.
+# Glyphon optional native backend used by the full renderer implementation.
+glyphon = { workspace = true, optional = true }
 
 # Local workspace crates used by the renderer for app state & theme tokens.
-# These are path dependencies so the crate names declared inside those Cargo.toml
-# files provide the actual import names used in the Rust sources.
-zaroxi-app = { path = "../zaroxi-interface-app" }
-zaroxi-theme = { path = "../zaroxi-interface-theme" }
+# Mark them optional so they can be enabled by the `full_renderer` feature.
+zaroxi-app = { path = "../zaroxi-interface-app", optional = true }
+zaroxi-theme = { path = "../zaroxi-interface-theme", optional = true }
 
 # Feature gate for the heavy renderer/surface modules. By default the crate
 # compiles only the lightweight intent module so tests and CI can run on
