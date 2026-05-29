@@ -144,7 +144,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
 
                         // Ask for a single initial frame: request a redraw once and use Wait for steady-state.
                         self.requested_initial_frame = false;
-                        let _ = zaroxi_w.window().request_redraw();
+                        if let Some(z) = self.maybe_window.as_ref() {
+                            let _ = z.window().request_redraw();
+                        }
                         active_loop.set_control_flow(ControlFlow::Wait);
                         eprintln!("GuiApp: marked initial frame request (engine window) and set Wait");
                     }
@@ -186,7 +188,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
 
                         // Mark a single initial-frame request to drive one redraw pass.
                         self.requested_initial_frame = false;
-                        let _ = zaroxi_w.window().request_redraw();
+                        if let Some(z) = self.maybe_window.as_ref() {
+                            let _ = z.window().request_redraw();
+                        }
                         eprintln!("GuiApp: marked initial frame request after resumed creation");
                     }
                     Err(e) => {
