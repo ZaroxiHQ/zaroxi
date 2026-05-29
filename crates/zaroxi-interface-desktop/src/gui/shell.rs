@@ -66,6 +66,11 @@ pub struct ShellFrame {
 
 impl ShellFrame {
     /// Construct a new ShellFrame and compute a canonical layout.
+    ///
+    /// GUI-6: subdivide the previous single editor_content into a left
+    /// project rail, central editor canvas, bottom panel (within center),
+    /// and keep the right AI pane. Geometry is explicit and uses simple
+    /// proportional heuristics so resizing remains deterministic.
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
@@ -73,7 +78,7 @@ impl ShellFrame {
         let outer_padding: u32 = 8;
         let top_toolbar_h: u32 = 40;
         let left_rail_w: u32 = 60;
-        let left_sidebar_w: u32 = 240;
+        let left_sidebar_w: u32 = 220; // outer sidebar (app/project switcher area)
         let ai_panel_w: u32 = 320;
         let bottom_dock_h: u32 = 120;
         let status_h: u32 = 24;
@@ -121,7 +126,7 @@ impl ShellFrame {
             height: columns_h,
         };
 
-        // Sidebar (to the right of app rail)
+        // Outer sidebar (to the right of app rail)
         let sidebar = Rect {
             x: app_rail.x + app_rail.width,
             y: columns_y,
@@ -149,20 +154,60 @@ impl ShellFrame {
             height: editor_header_h,
         };
 
-        // Editor content area (below header)
-        let editor_content = Rect {
+        // Area below the editor header (available for left project rail, center editor, bottom panel)
+        let below_header_y = editor_header.y + editor_header.height;
+        let below_header_h = columns_h.saturating_sub(editor_header.height);
+
+        // Subdivision heuristics:
+        // - left project rail: ~20% of editor column width (clamped)
+        // - right-side minimap lane preserved (minimap_w)
+        // - center editor: remaining width after left rail & minimap
+        // - bottom panel: ~22% of the center editor height
+        let left_inner_pct: f32 = 0.20;
+        let right_minimap = minimap_w;
+        let mut left_inner_w = ((editor_w as f32) * left_inner_pct) as u32;
+        // clamp to reasonable UX bounds
+        left_inner_w = left_inner_w.clamp(120, 360);
+
+        let center_editor_w = editor_w
+            .saturating_sub(left_inner_w)
+            .saturating_sub(right_minimap);
+
+        // Center heights
+        let bottom_panel_h = ((below_header_h as f32) * 0.22) as u32;
+        let bottom_panel_h = bottom_panel_h.clamp(48, below_header_h.saturating_sub(24));
+        let center_editor_h = below_header_h.saturating_sub(bottom_panel_h);
+
+        // Left project rail INSIDE the editor column (distinct from outer sidebar)
+        let content_left_sidebar = Rect {
             x: editor_x,
-            y: editor_header.y + editor_header.height,
-            width: editor_w.saturating_sub(minimap_w),
-            height: columns_h.saturating_sub(editor_header.height),
+            y: below_header_y,
+            width: left_inner_w,
+            height: below_header_h,
         };
 
-        // Minimap lane (right edge of editor column)
+        // Center editor canvas above the bottom panel
+        let center_editor = Rect {
+            x: content_left_sidebar.x + content_left_sidebar.width,
+            y: below_header_y,
+            width: center_editor_w,
+            height: center_editor_h,
+        };
+
+        // Bottom panel occupying the lower strip of the center editor area
+        let center_bottom_panel = Rect {
+            x: center_editor.x,
+            y: center_editor.y.saturating_add(center_editor.height),
+            width: center_editor.width,
+            height: bottom_panel_h,
+        };
+
+        // Minimap lane to the right of center editor (preserve previous visual hint)
         let minimap_lane = Rect {
-            x: editor_content.x + editor_content.width,
-            y: editor_header.y + editor_header.height,
-            width: minimap_w,
-            height: columns_h.saturating_sub(editor_header.height),
+            x: center_editor.x + center_editor.width,
+            y: below_header_y,
+            width: right_minimap,
+            height: below_header_h,
         };
 
         // AI panel header and content split
@@ -181,13 +226,16 @@ impl ShellFrame {
         };
 
         // Collect regions with stable ids and presentable names.
+        // GUI-6 adds: content_left_sidebar, center_editor, center_bottom_panel
         let regions = vec![
             ShellRegion { id: "toolbar", name: "editor_header_toolbar", rect: toolbar },
             ShellRegion { id: "app_rail", name: "app_rail", rect: app_rail },
             ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
             ShellRegion { id: "editor_header", name: "editor_header", rect: editor_header },
-            ShellRegion { id: "editor_content", name: "editor_content", rect: editor_content },
+            ShellRegion { id: "content_left_sidebar", name: "content_left_sidebar", rect: content_left_sidebar },
+            ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
+            ShellRegion { id: "center_bottom_panel", name: "center_bottom_panel", rect: center_bottom_panel },
             ShellRegion { id: "bottom_dock", name: "bottom_dock", rect: bottom_dock },
             ShellRegion { id: "ai_panel_header", name: "ai_panel_header", rect: ai_panel_header },
             ShellRegion { id: "ai_panel_content", name: "ai_panel_content", rect: ai_panel_content },

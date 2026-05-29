@@ -13,6 +13,14 @@ GUI-5 visual improvements:
 /// Build the small set of overlay rects used for the one-shot clear+present.
 /// This mirrors the logic previously embedded in the big `window.rs` so the
 /// behavior remains identical but the code is easier to navigate.
+///
+/// Extended for GUI-6: render the new subdivided editor regions:
+/// - content_left_sidebar (left project rail inside editor column)
+/// - center_editor (main editor canvas)
+/// - center_bottom_panel (bottom strip/terminal within center)
+/// - minimap_lane (small right lane)
+/// The function relies only on shell.theme tokens and uses the theme_adapter
+/// to derive subtle brightness variants for visual separation.
 pub fn build_overlay_rects(
     shell: &crate::gui::ShellFrame,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
@@ -48,11 +56,31 @@ pub fn build_overlay_rects(
                 }
             }
 
-            // Main editor content: give it a subtle variance from the shell.surface so it
-            // reads as a distinct central pane. Add a thin border on the left/right/top
-            // to separate it from the adjacent rails and toolbar.
-            "editor_content" => {
-                // Slightly lighter surface for the content pane so it reads as the primary canvas.
+            // Left inner project rail (inside the editor column)
+            "content_left_sidebar" => {
+                // Fill with a slightly darker surface so it reads as a rail.
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: r.rect.x,
+                    y: r.rect.y,
+                    width: r.rect.width,
+                    height: r.rect.height,
+                    color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.95),
+                });
+
+                // Right separator between left rail and center editor
+                if r.rect.width > sep_h {
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: r.rect.x.saturating_add(r.rect.width.saturating_sub(sep_h)),
+                        y: r.rect.y,
+                        width: sep_h,
+                        height: r.rect.height,
+                        color: super::theme_adapter::adjust_brightness(shell.theme.border_color, 0.9),
+                    });
+                }
+            }
+
+            // Center editor canvas (primary content area)
+            "center_editor" => {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.rect.x,
                     y: r.rect.y,
@@ -61,7 +89,7 @@ pub fn build_overlay_rects(
                     color: super::theme_adapter::adjust_brightness(shell.theme.surface, 1.06),
                 });
 
-                // Thin top separator (separates from toolbar)
+                // Top separator (separates from editor header)
                 if r.rect.height > sep_h {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: r.rect.x,
@@ -72,9 +100,30 @@ pub fn build_overlay_rects(
                     });
                 }
 
-                // Left and right separators to visually frame the editor pane.
+                // Right separator (before minimap)
                 if r.rect.width > sep_h {
-                    // left
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: r.rect.x.saturating_add(r.rect.width.saturating_sub(sep_h)),
+                        y: r.rect.y,
+                        width: sep_h,
+                        height: r.rect.height,
+                        color: super::theme_adapter::adjust_brightness(shell.theme.border_color, 0.92),
+                    });
+                }
+            }
+
+            // Minimap lane: subtle muted fill, thin left separator
+            "minimap_lane" => {
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: r.rect.x,
+                    y: r.rect.y,
+                    width: r.rect.width,
+                    height: r.rect.height,
+                    color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.98),
+                });
+
+                if r.rect.width > sep_h {
+                    // left separator to separate from center editor
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: r.rect.x,
                         y: r.rect.y,
@@ -82,13 +131,49 @@ pub fn build_overlay_rects(
                         height: r.rect.height,
                         color: super::theme_adapter::adjust_brightness(shell.theme.border_color, 0.92),
                     });
-                    // right
+                }
+            }
+
+            // Bottom panel inside center (terminal / strip)
+            "center_bottom_panel" => {
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: r.rect.x,
+                    y: r.rect.y,
+                    width: r.rect.width,
+                    height: r.rect.height,
+                    color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.94),
+                });
+
+                // Top separator to separate it from the center editor above
+                if r.rect.height > sep_h {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                        x: r.rect.x.saturating_add(r.rect.width.saturating_sub(sep_h)),
+                        x: r.rect.x,
+                        y: r.rect.y,
+                        width: r.rect.width,
+                        height: sep_h,
+                        color: super::theme_adapter::parse_hex_color(shell.theme.border_color),
+                    });
+                }
+            }
+
+            // AI panel content: render as a distinct utility pane with subtle contrast.
+            "ai_panel_content" => {
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: r.rect.x,
+                    y: r.rect.y,
+                    width: r.rect.width,
+                    height: r.rect.height,
+                    color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.96),
+                });
+
+                // Left separator to separate AI pane from editor/minimap
+                if r.rect.width > sep_h {
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: r.rect.x,
                         y: r.rect.y,
                         width: sep_h,
                         height: r.rect.height,
-                        color: super::theme_adapter::adjust_brightness(shell.theme.border_color, 0.92),
+                        color: super::theme_adapter::adjust_brightness(shell.theme.border_color, 0.9),
                     });
                 }
             }
