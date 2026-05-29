@@ -15,7 +15,7 @@ taffy = { workspace = true }
 once_cell = { workspace = true }
 minifb = "0.28.0"
 pollster = "0.3"
-bytemuck = "1.18.0"
+bytemuck = "1.25.0"
 # Text shaping & layout (Cosmic Text) — primary renderer for phase 15.
 # Use workspace-declared cosmic-text via `{ workspace = true }`.
 cosmic-text = { workspace = true }
