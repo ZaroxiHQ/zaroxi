@@ -285,49 +285,9 @@ impl ShellRenderTranscript {
         // frame will observe the presenter's active buffer & caret.
         zaroxi_core_engine_scene::set_current_scene(scene_model);
 
-        // Bridge: queue engine-scene text into the text_renderer so the canonical
-        // Glyphon/Cosmic Text pipeline renders glyphs end-to-end.
-        //
-        // Rationale: GUI panels publish visible lines via the engine scene seam
-        // (zaroxi_core_engine_scene). The renderer must consume that scene and
-        // translate it into TextCommand instances for the text backend. Previously
-        // the minimal backend drew monospace rectangles and consumed the scene;
-        // after wiring the full Glyphon-backed pipeline we must ensure scene text
-        // is queued here so the text backend prepares/uploads glyphs and the text
-        // pass emits textured glyph quads instead of white boxes.
-        {
-            let scene = zaroxi_core_engine_scene::get_current_scene();
-            if !scene.text_lines.is_empty() {
-                let font = load_bundled_monospace();
-                // Heuristic content inset matching presenter expectations.
-                let content_text_x = layout.editor.x + 6.0;
-                let editor_y = layout.editor.y;
-                let line_layout = layout_plain_lines(
-                    &scene.text_lines,
-                    &font,
-                    content_text_x as u32,
-                    editor_y as u32,
-                    None,
-                );
-                let font_size = 14.0f32;
-                for tp in line_layout.primitives.into_iter() {
-                    let max_w = tp.max_width.unwrap_or(layout.editor.w as u32) as f32;
-                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                        &tp.text,
-                        tp.x as f32,
-                        tp.y as f32,
-                        // Use a high-contrast default; the semantic color tokens will be wired later.
-                        [0.95, 0.95, 0.95, 1.0],
-                        font_size,
-                        tp.x as f32,
-                        tp.y as f32,
-                        max_w,
-                        font.line_height as f32,
-                    ));
-                }
-            }
-        }
-
+        // Scene published. The renderer consumes the global engine scene (zaroxi_core_engine_scene)
+        // during its frame work to layout and rasterize glyphs. Presenters must not attempt to
+        // call renderer internals directly to queue glyph uploads; keep this boundary clean.
         let diag_uri = view
             .active_buffer_label
             .as_deref()
