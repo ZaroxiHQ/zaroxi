@@ -3695,6 +3695,7 @@ dependencies = [
  "tracing",
  "uuid",
  "zaroxi-core-editor-buffer",
+ "zaroxi-domain-ai",
  "zaroxi-kernel-types",
 ]
 
@@ -3757,6 +3758,7 @@ dependencies = [
  "zaroxi-application-ai",
  "zaroxi-application-command",
  "zaroxi-core-editor-buffer",
+ "zaroxi-core-workspace-files",
  "zaroxi-domain-buffer",
  "zaroxi-domain-workspace",
  "zaroxi-infrastructure-ai-mock",
@@ -4145,7 +4147,10 @@ version = "0.1.0"
 name = "zaroxi-core-workspace-files"
 version = "0.1.0"
 dependencies = [
+ "memmap2",
  "serde",
+ "thiserror 2.0.18",
+ "zaroxi-core-io",
  "zaroxi-kernel-id",
 ]
 
@@ -4363,15 +4368,20 @@ version = "0.1.0"
 name = "zaroxi-interface-desktop"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "chrono",
  "cosmic-text 0.19.0",
  "minifb",
  "once_cell",
+ "pollster",
  "serde",
+ "taffy",
  "tokio",
  "uuid",
  "vello",
+ "wgpu",
  "winit",
+ "zaroxi-application-ai",
  "zaroxi-application-workspace",
  "zaroxi-core-editor-buffer",
  "zaroxi-core-engine-font",
@@ -4379,7 +4389,9 @@ dependencies = [
  "zaroxi-core-engine-render-backend",
  "zaroxi-core-engine-scene",
  "zaroxi-core-engine-window",
+ "zaroxi-core-platform-lsp",
  "zaroxi-domain-buffer",
+ "zaroxi-domain-workspace",
  "zaroxi-interface-app",
  "zaroxi-kernel-types",
 ]
