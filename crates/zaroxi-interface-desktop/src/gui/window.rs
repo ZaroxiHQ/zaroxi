@@ -5,6 +5,18 @@ mod bootstrap;
 #[cfg(feature = "gui_window")]
 mod frame;
 #[cfg(feature = "gui_window")]
+mod toolbar;
+#[cfg(feature = "gui_window")]
+mod rail;
+#[cfg(feature = "gui_window")]
+mod editor;
+#[cfg(feature = "gui_window")]
+mod bottom_panel;
+#[cfg(feature = "gui_window")]
+mod ai_pane;
+#[cfg(feature = "gui_window")]
+mod status_bar;
+#[cfg(feature = "gui_window")]
 mod theme_adapter;
 #[cfg(feature = "gui_window")]
 mod redraw;
