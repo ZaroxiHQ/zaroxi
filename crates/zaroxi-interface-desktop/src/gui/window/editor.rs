@@ -297,5 +297,17 @@ pub fn draw(
         _ => {}
     }
 
+    // Tab labels (use Cosmic Text layout path) when enough horizontal room exists.
+    if region.id == "center_editor" || region.id == "editor_header" {
+        if r.width > 120 && r.height > 16 {
+            let tabs = vec!["main.rs".to_string(), "lib.rs".to_string(), "mod.rs".to_string()];
+            let inset_x = r.x.saturating_add(12);
+            let inset_y = r.y.saturating_add(6);
+            let mut text_rects =
+                super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), r.height.saturating_sub(12), &tabs, theme);
+            rects.append(&mut text_rects);
+        }
+    }
+
     rects
 }

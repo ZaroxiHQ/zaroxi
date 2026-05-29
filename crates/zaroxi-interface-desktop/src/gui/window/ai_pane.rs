@@ -110,5 +110,26 @@ pub fn draw(
         });
     }
 
+    // Pane header + small card labels using the existing Cosmic Text path.
+    if r.width > 120 && r.height > 40 {
+        let mut labels = vec!["AI Assistant".to_string()];
+        // Add minimal card labels when space allows
+        labels.push("Suggestion: refactor fn".to_string());
+        let inset_x = r.x.saturating_add(12);
+        let inset_y = r.y.saturating_add(8);
+        let mut text_rects =
+            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), r.height.saturating_sub(24), &labels, theme);
+        rects.append(&mut text_rects);
+    }
+
+    // Optional footer input-placeholder
+    if r.height > 80 && r.width > 160 {
+        let input = vec!["Ask anything...".to_string()];
+        let fx = r.x.saturating_add(12);
+        let fy = r.y.saturating_add(r.height).saturating_sub(36);
+        let mut foot = super::text_adapter::layout_and_publish_text(fx, fy, r.width.saturating_sub(24), 24, &input, theme);
+        rects.append(&mut foot);
+    }
+
     rects
 }

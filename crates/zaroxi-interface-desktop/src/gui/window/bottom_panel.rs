@@ -114,5 +114,15 @@ pub fn draw(
         });
     }
 
+    // Segmented header labels (Terminal | Problems | Output) using the shared layout.
+    if r.width > 80 {
+        let labels = vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()];
+        let inset_x = r.x.saturating_add(12);
+        let inset_y = r.y.saturating_add(4);
+        let mut text_rects =
+            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(24), 32, &labels, theme);
+        rects.append(&mut text_rects);
+    }
+
     rects
 }

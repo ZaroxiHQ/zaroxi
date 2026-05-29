@@ -190,5 +190,24 @@ pub fn draw(
         _ => {}
     }
 
+    // Add small section labels / file items using the existing Cosmic Text layout.
+    if r.width > 80 && r.height > 40 {
+        let labels = if region.id == "app_rail" {
+            vec!["Run".to_string(), "Search".to_string()]
+        } else {
+            // sidebar: show a compact project heading + a few file names
+            vec![
+                "Project".to_string(),
+                "src/main.rs".to_string(),
+                "src/lib.rs".to_string(),
+            ]
+        };
+        let inset_x = r.x.saturating_add(8);
+        let inset_y = r.y.saturating_add(12);
+        let mut text_rects =
+            super::text_adapter::layout_and_publish_text(inset_x, inset_y, r.width.saturating_sub(16), r.height.saturating_sub(24), &labels, theme);
+        rects.append(&mut text_rects);
+    }
+
     rects
 }

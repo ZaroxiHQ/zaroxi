@@ -19,6 +19,8 @@ mod status_bar;
 #[cfg(feature = "gui_window")]
 mod theme_adapter;
 #[cfg(feature = "gui_window")]
+mod text_adapter;
+#[cfg(feature = "gui_window")]
 mod redraw;
 
 #[cfg(feature = "gui_window")]

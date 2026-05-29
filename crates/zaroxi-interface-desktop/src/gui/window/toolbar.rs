@@ -71,5 +71,13 @@ pub fn draw(
         }
     }
 
+    // Add real label text (UI chrome) via the shared Cosmic Text layout path.
+    if r.width > 120 && r.height > 20 {
+        let labels = vec!["Zaroxi".to_string(), "Welcome".to_string()];
+        let mut text_rects =
+            super::text_adapter::layout_and_publish_text(r.x.saturating_add(12), r.y.saturating_add(8), r.width, r.height, &labels, theme);
+        rects.append(&mut text_rects);
+    }
+
     rects
 }
