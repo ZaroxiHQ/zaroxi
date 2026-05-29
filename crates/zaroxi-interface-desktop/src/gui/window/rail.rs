@@ -109,7 +109,7 @@ pub fn draw(
 
             let mut y_off = r.y.saturating_add(10);
             let header_h = 22u32;
-            let group_gap = 12u32;
+            let _group_gap = 12u32;
 
             // First section header
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
@@ -122,7 +122,7 @@ pub fn draw(
             y_off = y_off.saturating_add(header_h).saturating_add(8);
 
             // Section rows with indentation rhythm
-            let mut section_rows = 6u32;
+            let section_rows = 6u32;
             let row_h = 18u32;
             for i in 0..section_rows {
                 let indent = if i % 2 == 0 { 10 } else { 20 };

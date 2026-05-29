@@ -40,7 +40,7 @@ pub fn draw(
     }
 
     // stacked cards/messages
-    let min_cards = 2u32;
+    let _min_cards = 2u32;
     let max_cards = 4u32;
     let cards = max_cards;
     let pad: u32 = 10;
