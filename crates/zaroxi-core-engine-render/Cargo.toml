@@ -25,8 +25,7 @@ bytemuck = { workspace = true }
 cosmic-text = { workspace = true }
 
 # Glyphon is an optional native backend used by the full renderer implementation.
-# Keep a concrete version here; it is only required when `full_renderer` is enabled.
-glyphon = "0.11.0"
+# Declared at workspace root to centralize optional heavy native deps.
 
 # Local workspace crates used by the renderer for app state & theme tokens.
 # These are path dependencies so the crate names declared inside those Cargo.toml
