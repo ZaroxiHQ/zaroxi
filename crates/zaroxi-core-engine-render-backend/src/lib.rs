@@ -289,25 +289,9 @@ impl<'a> RenderBackend<'a> {
         // historic clear-only fallback.
         let pipeline = (|| {
             // WGSL: per-vertex position in NDC and color
-            let shader_src = r#"
-struct VSOut {
-    @builtin(position) clip_pos: vec4<f32>;
-    @location(0) color: vec4<f32>;
-};
-
-@vertex
-fn vs(@location(0) position: vec2<f32>, @location(1) color: vec4<f32>) -> VSOut {
-    var out: VSOut;
-    out.clip_pos = vec4(position, 0.0, 1.0);
-    out.color = color;
-    return out;
-}
-
-@fragment
-fn fs(in: VSOut) -> @location(0) vec4<f32> {
-    return in.color;
-}
-"#;
+            // Load WGSL shader from a dedicated file to keep the Rust source concise.
+            // The shader lives at `src/shaders/rect.wgsl` relative to this file.
+            let shader_src = include_str!("shaders/rect.wgsl");
 
             // Create shader module
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
