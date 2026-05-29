@@ -1099,8 +1099,16 @@ impl<'a> Renderer<'a> {
                 let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
                 let adapter_present = tmp_layout.exists();
                 let cosmic_present = tmp_cosmic.exists();
+
+                // Extended cosmic marker parsing: shaped_glyphs_total, emitted_glyphs_total, font_resolved, buffer_size, text_len, glyph_count, atlas_entries
                 let mut glyph_count: usize = 0;
                 let mut atlas_entries: usize = 0;
+                let mut shaped_glyphs_total: usize = 0;
+                let mut emitted_glyphs_total: usize = 0;
+                let mut font_resolved: bool = false;
+                let mut buffer_size: String = "0x0".to_string();
+                let mut text_len: usize = 0;
+
                 if cosmic_present {
                     if let Ok(s) = std::fs::read_to_string(&tmp_cosmic) {
                         for line in s.lines() {
@@ -1108,6 +1116,16 @@ impl<'a> Renderer<'a> {
                                 glyph_count = v.parse::<usize>().unwrap_or(0);
                             } else if let Some(v) = line.strip_prefix("atlas_entries=") {
                                 atlas_entries = v.parse::<usize>().unwrap_or(0);
+                            } else if let Some(v) = line.strip_prefix("shaped_glyphs_total=") {
+                                shaped_glyphs_total = v.parse::<usize>().unwrap_or(0);
+                            } else if let Some(v) = line.strip_prefix("emitted_glyphs_total=") {
+                                emitted_glyphs_total = v.parse::<usize>().unwrap_or(0);
+                            } else if let Some(v) = line.strip_prefix("font_resolved=") {
+                                font_resolved = v.trim() == "true";
+                            } else if let Some(v) = line.strip_prefix("buffer_size=") {
+                                buffer_size = v.to_string();
+                            } else if let Some(v) = line.strip_prefix("text_len=") {
+                                text_len = v.parse::<usize>().unwrap_or(0);
                             }
                         }
                     }
@@ -1134,14 +1152,19 @@ impl<'a> Renderer<'a> {
                 let fallback_used = fallback_marker.exists() || (adapter_text_ops > 0 && !cosmic_prepare_called);
 
                 info!(
-                    "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} glyphs={} atlas_entries={} pipeline_render_called={} overlay_rects={} fallback_used={}",
+                    "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} shaped_glyphs_total={} emitted_glyphs_total={} glyphs={} atlas_entries={} font_resolved={} buffer_size={} text_len={} pipeline_render_called={} overlay_rects={} fallback_used={}",
                     frame_idx,
                     adapter_text_ops,
                     backend_text_ops,
                     core_text_ops,
                     if cosmic_prepare_called { "true" } else { "false" },
+                    shaped_glyphs_total,
+                    emitted_glyphs_total,
                     glyph_count,
                     atlas_entries,
+                    if font_resolved { "true" } else { "false" },
+                    buffer_size,
+                    text_len,
                     if pipeline_render_called { "true" } else { "false" },
                     backend_text_ops,
                     if fallback_used { "true" } else { "false" }

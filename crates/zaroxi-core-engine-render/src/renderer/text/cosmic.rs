@@ -157,6 +157,93 @@ impl TextRenderer for CosmicTextRenderer {
         );
         info!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
 
+        // Per-command deep input trace: log all input parameters before any shaping.
+        let mut total_text_len: usize = 0;
+        for cmd in q.iter() {
+            total_text_len += cmd.text.chars().count();
+            info!(
+                "GUI_TEXT_COSMIC_INPUT: label=\"{}\" text_len={} bounds_w={} bounds_h={} x={} y={} font_size={} color={:?} wrap_mode=\"none\" alignment=\"left\" clip_bounds={}-{}-{}-{}",
+                cmd.text,
+                cmd.text.chars().count(),
+                cmd.clip_w,
+                cmd.clip_h,
+                cmd.x,
+                cmd.y,
+                cmd.size,
+                cmd.color,
+                cmd.clip_x,
+                cmd.clip_y,
+                cmd.clip_w,
+                cmd.clip_h
+            );
+        }
+
+        // Hard validation checks for obviously invalid inputs.
+        if queued_count == 0 {
+            info!("GUI_TEXT_INVALID: no_queued_commands");
+        }
+        if total_text_len == 0 {
+            info!("GUI_TEXT_INVALID: empty_text_on_all_commands");
+        }
+        for cmd in q.iter() {
+            if cmd.clip_w <= 0.0 {
+                info!("GUI_TEXT_INVALID: zero_width label=\"{}\" clip_w={}", cmd.text, cmd.clip_w);
+            }
+            if cmd.clip_h <= 0.0 {
+                info!("GUI_TEXT_INVALID: zero_height label=\"{}\" clip_h={}", cmd.text, cmd.clip_h);
+            }
+            if cmd.size <= 0.0 {
+                info!("GUI_TEXT_INVALID: zero_font_size label=\"{}\" font_size={}", cmd.text, cmd.size);
+            }
+            if cmd.text.trim().is_empty() {
+                info!("GUI_TEXT_INVALID: empty_text label=\"{}\"", cmd.text);
+            }
+        }
+
+        // Font-system resolution diagnostic: best-effort using bundled monospace loader.
+        let bundled = zaroxi_core_engine_font::load_bundled_monospace();
+        let font_family = bundled.family.clone();
+        let font_resolved = !font_family.trim().is_empty();
+        info!(
+            "GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" resolved_family=\"{}\" resolved={}",
+            font_family,
+            font_family,
+            if font_resolved { "true" } else { "false" }
+        );
+
+        // Buffer/setup diagnostics (simulated for this placeholder implementation).
+        // Record whether we will call the shaping logic and what buffer metrics look like.
+        let mut sim_buffer_width: usize = 0;
+        let mut sim_buffer_height: usize = 0;
+        let mut set_text_called = false;
+        let mut shape_called = false;
+
+        for cmd in q.iter() {
+            sim_buffer_width = sim_buffer_width.max(cmd.clip_w as usize);
+            sim_buffer_height = sim_buffer_height.max(cmd.clip_h as usize);
+            if !cmd.text.is_empty() {
+                set_text_called = true;
+                // In this placeholder backend we emulate a shaping call by counting chars.
+                shape_called = true;
+                info!(
+                    "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len={} font_size={} set_text_called={} shape_called={}",
+                    cmd.clip_w as i32,
+                    cmd.clip_h as i32,
+                    cmd.text.chars().count(),
+                    cmd.size,
+                    if set_text_called { "true" } else { "false" },
+                    if shape_called { "true" } else { "false" }
+                );
+            } else {
+                info!(
+                    "GUI_TEXT_COSMIC_BUFFER: buffer_created=true buffer_width={} buffer_height={} text_len=0 font_size={} set_text_called=false shape_called=false",
+                    cmd.clip_w as i32,
+                    cmd.clip_h as i32,
+                    cmd.size
+                );
+            }
+        }
+
         // Trace a canonical label for diagnostics.
         if let Some(first) = q.iter().find(|c| c.is_title || c.text.contains("Zaroxi")) {
             let source = first.text.clone();

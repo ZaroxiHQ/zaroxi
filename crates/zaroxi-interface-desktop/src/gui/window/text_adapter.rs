@@ -134,7 +134,9 @@ pub fn layout_and_publish_text(
     }
 
     // Per-label adapter logging for tracing the handoff into the backend.
-    // Log one line per laid-out label and then a compact summary.
+    // Log one line per laid-out label and then a compact summary. Also emit a
+    // richer "full" line including adapter-reported bounds, font family and
+    // conservative wrap/alignment/clip semantics so downstream stages can verify.
     {
         let labels_count = lines.len();
         let text_ops = set.texts.len();
@@ -142,7 +144,21 @@ pub fn layout_and_publish_text(
 
         for t in &set.texts {
             log::info!(
-                "GUI_TEXT_STAGE_1_ADAPTER: label=\"{}\" bounds=x={} y={} w={} h={} font_size={} color={} emitted_text_ops={} emitted_fallback_rects={}",
+                "GUI_TEXT_STAGE_1_ADAPTER: label=\"{}\" adapter_x={} adapter_y={} requested_max_w={} requested_line_h={} font_family=\"{}\" color_token={} adapter_ops_count={} emitted_fallback_rects={}",
+                t.text,
+                x,
+                t.y,
+                t.max_width.unwrap_or(0),
+                line_h,
+                font.family,
+                color_hex,
+                text_ops,
+                fallback_rects
+            );
+
+            // Extra verbose per-label diagnostics: explicit bounds, font size and inferred semantics.
+            log::info!(
+                "GUI_TEXT_STAGE_1_ADAPTER_FULL: label=\"{}\" bounds_x={} bounds_y={} bounds_w={} bounds_h={} font_size={} color={} wrap_mode=\"none\" alignment=\"left\" clip_x={} clip_y={} clip_w={} clip_h={} emitted_text_ops={}",
                 t.text,
                 x,
                 t.y,
@@ -150,8 +166,11 @@ pub fn layout_and_publish_text(
                 line_h,
                 font.line_height,
                 color_hex,
-                text_ops,
-                fallback_rects
+                x,
+                t.y,
+                t.max_width.unwrap_or(0),
+                line_h,
+                text_ops
             );
         }
 
