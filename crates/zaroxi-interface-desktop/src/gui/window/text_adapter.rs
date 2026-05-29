@@ -133,5 +133,35 @@ pub fn layout_and_publish_text(
         });
     }
 
+    // Per-label adapter logging for tracing the handoff into the backend.
+    // Log one line per laid-out label and then a compact summary.
+    {
+        let labels_count = lines.len();
+        let text_ops = set.texts.len();
+        let fallback_rects = rects.len();
+
+        for t in &set.texts {
+            log::info!(
+                "GUI_TEXT_STAGE_1_ADAPTER: label=\"{}\" bounds=x={} y={} w={} h={} font_size={} color={} emitted_text_ops={} emitted_fallback_rects={}",
+                t.text,
+                x,
+                t.y,
+                t.max_width.unwrap_or(0),
+                line_h,
+                font.line_height,
+                color_hex,
+                text_ops,
+                fallback_rects
+            );
+        }
+
+        log::info!(
+            "GUI_TEXT_STAGE_1_SUMMARY: labels={} text_ops={} fallback_rects={}",
+            labels_count,
+            text_ops,
+            fallback_rects
+        );
+    }
+
     rects
 }

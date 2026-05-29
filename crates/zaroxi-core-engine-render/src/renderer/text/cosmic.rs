@@ -148,6 +148,13 @@ impl TextRenderer for CosmicTextRenderer {
 
         let mut q = self.queued.lock().unwrap();
         let queued_count = q.len();
+        // Collect visible labels for richer tracing (do not modify queue).
+        let labels: Vec<String> = q.iter().map(|c| c.text.clone()).collect();
+        info!(
+            "GUI_TEXT_STAGE_4_COSMIC_PREPARE: entered=true queued_count={} labels={:?}",
+            queued_count,
+            labels
+        );
         info!("CosmicTextRenderer.prepare: queued commands = {}", queued_count);
 
         // Trace a canonical label for diagnostics.
@@ -166,6 +173,14 @@ impl TextRenderer for CosmicTextRenderer {
 
             // 3) Atlas packing estimate: currently equal to rasterized_glyph_count until packer is present.
             let atlas_entries = rasterized_glyph_count;
+
+            // Emit an explicit atlas-stage trace for diagnostics.
+            info!(
+                "GUI_TEXT_STAGE_5_ATLAS: glyph_count={} rasterized_glyph_count={} atlas_entries={}",
+                glyph_count,
+                rasterized_glyph_count,
+                atlas_entries
+            );
 
             // Log the required, single-line TRACE with expanded details to help triage.
             info!(

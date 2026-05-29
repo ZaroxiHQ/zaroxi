@@ -215,6 +215,25 @@ impl<'a> RenderBackend<'a> {
                             cosmic_present
                         );
 
+                        // Additional backend-level adapter tracing: try to extract adapter-side label count
+                        // from the adapter marker file written by the interface (if present).
+                        let mut adapter_text_ops: usize = 0;
+                        if layout_present {
+                            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                                if let Some(rest) = s.strip_prefix("lines=") {
+                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                }
+                            }
+                        }
+                        let overlay_rects_count = rects.len();
+                        let forwarded = layout_present && overlay_rects_count > 0;
+                        eprintln!(
+                            "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} overlay_rects={} forwarded={}",
+                            adapter_text_ops,
+                            overlay_rects_count,
+                            forwarded
+                        );
+
                         // If the interface produced layout for "Zaroxi" but the Cosmic prepare
                         // marker has not been observed, we are likely still on the overlay
                         // rectangle fallback path.
@@ -473,6 +492,25 @@ impl<'a> RenderBackend<'a> {
         let width = self.surface_config.width;
         let height = self.surface_config.height;
         let ui_rects = zaroxi_core_engine_ui::composer::build_shell_ui(width, height);
+
+        // Trace what the backend observes on each frame (adapter marker => adapter_text_ops).
+        let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+        let mut adapter_text_ops: usize = 0;
+        if tmp_layout.exists() {
+            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                if let Some(rest) = s.strip_prefix("lines=") {
+                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                }
+            }
+        }
+        let backend_text_ops = ui_rects.len();
+        let forwarded = adapter_text_ops > 0 && backend_text_ops > 0;
+        eprintln!(
+            "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} backend_text_ops={} forwarded={}",
+            adapter_text_ops,
+            backend_text_ops,
+            forwarded
+        );
 
         // Helper to convert rect coordinates -> two triangles (6 vertices)
         let mut vertices: Vec<Vertex> = Vec::new();

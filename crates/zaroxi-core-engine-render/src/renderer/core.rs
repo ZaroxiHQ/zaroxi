@@ -1001,11 +1001,26 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
                     // Run text pass if either legacy text indices indicate text geometry OR there are queued native backend commands.
+                    // Enriched core-side tracing: compute adapter marker count (if present)
+                    // and backend-text index count (derived from index splits).
+                    let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                    let mut adapter_text_ops: u32 = 0;
+                    if tmp_layout.exists() {
+                        if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                            if let Some(rest) = s.strip_prefix("lines=") {
+                                adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count() as u32;
+                            }
+                        }
+                    }
+                    let queued_len = self.text_renderer.queued_len();
+                    let backend_text_ops = total_indices_len.saturating_sub(panel_indices_len);
                     info!(
-                        "GUI_TEXT_STAGE_3_CORE_DECISION: panel_indices_len={} total_indices_len={} queued_len={}",
+                        "GUI_TEXT_STAGE_3_CORE_QUEUE: panel_indices_len={} total_indices_len={} queued_len={} adapter_text_ops={} backend_text_ops={}",
                         panel_indices_len,
                         total_indices_len,
-                        self.text_renderer.queued_len()
+                        queued_len,
+                        adapter_text_ops,
+                        backend_text_ops
                     );
                     if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0
                     {
@@ -1038,15 +1053,23 @@ impl<'a> Renderer<'a> {
                             let queued_count = self.text_renderer.queued_len();
                             info!("Glyphon: queued commands before prepare: {}", queued_count);
 
+                            // Record intent to call the backend prepare and capture queued size immediately prior.
+                            let queued_before_prepare = self.text_renderer.queued_len();
+                            info!("GUI_TEXT_STAGE_3_BRANCH: prepare_invoking queued_before_prepare={}", queued_before_prepare);
                             info!("Glyphon prepare called");
                             match self.text_renderer.prepare(&self.device, &mut self.queue) {
-                                Ok(()) => info!("Glyphon prepare succeeded"),
+                                Ok(()) => {
+                                    info!("Glyphon prepare succeeded");
+                                    info!("GUI_TEXT_STAGE_3_BRANCH: prepare_called=true");
+                                }
                                 Err(e) => {
                                     info!("Glyphon prepare failed: {:?}", e);
+                                    info!("GUI_TEXT_STAGE_3_BRANCH: prepare_called=false error={:?}", e);
                                     return Err(e);
                                 }
                             }
 
+                            info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: render_invoking panel_indices_len={} total_indices_len={}", panel_indices_len, total_indices_len);
                             info!("Glyphon render called");
                             match self.text_renderer.render_pass(
                                 &mut rpass,
@@ -1054,9 +1077,13 @@ impl<'a> Renderer<'a> {
                                 panel_indices_len,
                                 total_indices_len,
                             ) {
-                                Ok(()) => info!("Glyphon render succeeded"),
+                                Ok(()) => {
+                                    info!("Glyphon render succeeded");
+                                    info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=true");
+                                }
                                 Err(e) => {
                                     info!("Glyphon render failed: {:?}", e);
+                                    info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=false error={:?}", e);
                                     return Err(e);
                                 }
                             }
@@ -1086,16 +1113,56 @@ impl<'a> Renderer<'a> {
                     }
                 }
 
+                // Build a compact frame summary combining adapter/backend/core/cosmic status.
+                let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                let mut adapter_text_ops: usize = 0;
+                if tmp_layout.exists() {
+                    if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                        if let Some(rest) = s.strip_prefix("lines=") {
+                            adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                        }
+                    }
+                }
+                let backend_text_ops = total_indices_len.saturating_sub(panel_indices_len) as usize;
+                let core_text_ops = self.text_renderer.queued_len();
+                // cosmic_present computed earlier
+                let cosmic_prepare_called = cosmic_present;
+                // pipeline_render_called: infer from whether we attempted a text pass (backend_text_ops>0 or core_text_ops>0) and DISABLE_TEXT_PASS flag
+                let pipeline_render_called = (!DISABLE_TEXT_PASS) && (backend_text_ops > 0 || core_text_ops > 0) && cosmic_prepare_called;
+                // overlay rects marker: read fallback marker if present
+                let fallback_marker = std::env::temp_dir().join("zaroxi_gui_trace_fallback");
+                let fallback_used = fallback_marker.exists() || (adapter_text_ops > 0 && !cosmic_prepare_called);
+
                 info!(
-                    "GUI_TEXT_FRAME_SUMMARY: frame={} text_ops_adapter={} text_ops_core={} cosmic_prepare_called={} glyphs={} atlas_entries={} overlay_rects={}",
+                    "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} glyphs={} atlas_entries={} pipeline_render_called={} overlay_rects={} fallback_used={}",
                     frame_idx,
-                    if adapter_present {1} else {0},
-                    self.text_renderer.queued_len(),
-                    if cosmic_present { "true" } else { "false" },
+                    adapter_text_ops,
+                    backend_text_ops,
+                    core_text_ops,
+                    if cosmic_prepare_called { "true" } else { "false" },
                     glyph_count,
                     atlas_entries,
-                    total_indices_len.saturating_sub(panel_indices_len)
+                    if pipeline_render_called { "true" } else { "false" },
+                    backend_text_ops,
+                    if fallback_used { "true" } else { "false" }
                 );
+
+                // Hard-checks: diagnose broken links between stages.
+                if adapter_text_ops > 0 && backend_text_ops == 0 {
+                    info!("GUI_TEXT_BROKEN_LINK: adapter->backend");
+                }
+                if backend_text_ops > 0 && core_text_ops == 0 {
+                    info!("GUI_TEXT_BROKEN_LINK: backend->core");
+                }
+                if core_text_ops > 0 && !cosmic_prepare_called {
+                    info!("GUI_TEXT_BROKEN_LINK: core->cosmic_prepare");
+                }
+                if cosmic_prepare_called && glyph_count == 0 {
+                    info!("GUI_TEXT_BROKEN_LINK: prepare->glyphs");
+                }
+                if glyph_count > 0 && !pipeline_render_called {
+                    info!("GUI_TEXT_BROKEN_LINK: glyphs->pipeline_render");
+                }
 
                 crate::renderer::surface::submit_and_present(&self.queue, encoder, frame);
                 if render_debug_enabled() {
