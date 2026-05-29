@@ -366,6 +366,12 @@ impl<'a> Renderer<'a> {
             render_blocks.len()
         );
 
+        // Runtime trace: emit the concrete type name of the text_renderer trait
+        // object so we can prove at runtime whether CosmicTextRenderer is selected.
+        // `type_name_of_val` on the trait object will yield the concrete type name.
+        let tr_type = std::any::type_name_of_val(&*self.text_renderer);
+        info!("GUI_SHELL_TRACE: selected_text_renderer = {}", tr_type);
+
         // Log received render panels for traceability (debug only).
         if RENDER_DEBUG {
             for p in render_blocks.iter() {

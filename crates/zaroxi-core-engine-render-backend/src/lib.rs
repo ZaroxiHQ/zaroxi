@@ -197,6 +197,29 @@ impl<'a> RenderBackend<'a> {
                 // If overlay rects requested and we have a pipeline, draw them as colored quads.
                 if let Some(rects) = overlay_rects {
                     if !rects.is_empty() {
+                        // Runtime trace: detect whether the interface layer recorded a text layout
+                        // marker for the canonical label ("Zaroxi") and whether the Cosmic prepare
+                        // marker exists. We use temp-file markers created by the interface and
+                        // renderer crates to avoid introducing cross-crate type dependencies.
+                        let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let layout_present = tmp_layout.exists();
+                        let cosmic_present = tmp_cosmic.exists();
+                        eprintln!(
+                            "GUI_SHELL_TRACE: clear_present_once overlay_rects_count={} layout_present={} cosmic_prepare_present={}",
+                            rects.len(),
+                            layout_present,
+                            cosmic_present
+                        );
+
+                        // If the interface produced layout for "Zaroxi" but the Cosmic prepare
+                        // marker has not been observed, we are likely still on the overlay
+                        // rectangle fallback path. In debug builds fail loudly to make this
+                        // visible during developer runs (temporary assertion).
+                        if cfg!(debug_assertions) && layout_present && !cosmic_present {
+                            panic!("GUI_SHELL_ASSERT: Detected interface layout for 'Zaroxi' but Cosmic prepare not observed; overlay rect fallback still in use.");
+                        }
+
                         // Build vertex list for rects (two triangles per rect).
                         let mut vertices: Vec<Vertex> = Vec::new();
                         for r in rects.iter() {

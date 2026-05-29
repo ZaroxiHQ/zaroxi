@@ -154,6 +154,15 @@ impl TextRenderer for CosmicTextRenderer {
         if let Some(first) = q.iter().find(|c| c.is_title || c.text.contains("Zaroxi")) {
             let source = first.text.clone();
 
+            // Trace: mark that CosmicTextRenderer.prepare observed the canonical label.
+            // Write a temp-file marker so other crates (e.g. render-backend) can detect
+            // that the Cosmic prepare path was executed for the known label.
+            {
+                let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                let _ = std::fs::write(&tmp, format!("source={}\n", source));
+                debug!("GUI_SHELL_TRACE: wrote cosmic prepare marker at {:?}", tmp);
+            }
+
             // 1) Shaping/layout estimate (conservative): codepoint count as glyph_count.
             let glyph_count = source.chars().count();
 
@@ -174,6 +183,9 @@ impl TextRenderer for CosmicTextRenderer {
                 atlas_entries,
                 self.color_format
             );
+
+            // Also emit an explicit info-level GUI trace for easier grepping.
+            info!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
 
             // Marker: record that an atlas has been uploaded so render-pass shader
             // sampling can be exercised. We do not yet construct a runtime BindGroup

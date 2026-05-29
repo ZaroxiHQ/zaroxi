@@ -46,6 +46,24 @@ pub fn layout_and_publish_text(
     // Use the bundled monospace font metrics already present in the workspace.
     let font = load_bundled_monospace();
 
+    // Trace: record that layout_and_publish_text was invoked and what lines were laid out.
+    // This helps determine whether the GUI shell is still using the placeholder/rect path.
+    {
+        // Log the lines we're asked to layout so runtime traces contain the label
+        // strings (e.g. "Zaroxi") for later correlation with the renderer logs.
+        let joined = lines.join(" | ");
+        log::info!("GUI_SHELL_TRACE: layout_and_publish_text called x={} y={} lines=[{}]", x, y, joined);
+
+        // If a canonical label "Zaroxi" is present, create a small temp-file marker
+        // so lower-level backends (which can't depend on this crate) can detect
+        // that the interface layer produced text layout for that label.
+        if lines.iter().any(|l| l.contains("Zaroxi")) {
+            let tmp = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+            let _ = std::fs::write(&tmp, format!("lines={}\n", joined));
+            log::info!("GUI_SHELL_TRACE: marked layout presence at {:?}", tmp);
+        }
+    }
+
     // Use the existing Cosmic Text / engine text layout helper to produce
     // stable TextPrimitive positions. This is the existing integration path.
     let line_layout = layout_plain_lines(lines, &font, x, y, None);
