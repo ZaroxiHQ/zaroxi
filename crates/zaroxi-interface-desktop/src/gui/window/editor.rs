@@ -1,14 +1,11 @@
 /*!
 Center editor area drawing logic.
 
-Handles:
-- editor_header
-- content_left_sidebar
-- center_editor (tabs + canvas)
-- minimap_lane
-- center_bottom_panel
-
-Receives a ShellRegion and Theme and returns DrawRect overlays for that region.
+GUI-8 refinements:
+- Tab strip with one active tab + a few inactive tabs
+- Inner split: gutter zone + editor content zone
+- Repeated code-line placeholder bars in the editor body with varied lengths
+- Geometry-only placeholders (no glyphs / text)
 */
 
 pub fn draw(
@@ -23,6 +20,7 @@ pub fn draw(
 
     match region.id {
         "editor_header" => {
+            // Slightly brighter header surface
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -30,6 +28,8 @@ pub fn draw(
                 height: r.height,
                 color: super::theme_adapter::adjust_brightness(theme.surface, 1.02),
             });
+
+            // thin bottom separator
             if r.height > sep_h {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
@@ -42,6 +42,7 @@ pub fn draw(
         }
 
         "content_left_sidebar" => {
+            // keep the left inner rail simple but slightly varied
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -62,6 +63,7 @@ pub fn draw(
         }
 
         "center_editor" => {
+            // Base canvas
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -72,6 +74,7 @@ pub fn draw(
 
             let top_sep_h = cmp::min(sep_h, r.height);
             if r.height > sep_h {
+                // top thin separator
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
                     y: r.y,
@@ -81,35 +84,37 @@ pub fn draw(
                 });
             }
 
-            // Tab-strip placeholders
-            let tab_strip_h: u32 = cmp::min(28, r.height / 8);
-            if tab_strip_h > 0 && r.width > 16 {
-                let tabs: u32 = 5;
-                let tab_padding: u32 = 8;
-                let total_padding = tab_padding.saturating_mul(tabs + 1);
-                let tab_w = if r.width > total_padding {
-                    (r.width.saturating_sub(total_padding)) / tabs
-                } else {
-                    r.width / tabs
-                };
+            // Tab strip: one active, 2-3 inactive tabs
+            let tab_strip_h: u32 = cmp::min(34, r.height / 10);
+            if tab_strip_h > 0 && r.width > 40 {
+                let tab_padding: u32 = 10;
+                let tabs_total = 4u32;
+                // compute a base width for tabs and allow active tab to be wider
+                let base_tab_w = (r.width.saturating_sub(tab_padding * (tabs_total + 1))) / tabs_total;
+                let active_extra = base_tab_w / 3;
                 let mut tx = r.x.saturating_add(tab_padding);
                 let tab_y = r.y.saturating_add(top_sep_h);
-                for i in 0..tabs {
+
+                for i in 0..tabs_total {
                     let is_active = i == 0;
+                    let w = if is_active { base_tab_w.saturating_add(active_extra) } else { base_tab_w };
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: tx,
                         y: tab_y,
-                        width: tab_w,
+                        width: w,
                         height: tab_strip_h,
                         color: if is_active {
-                            super::theme_adapter::adjust_brightness(theme.surface, 1.16)
+                            super::theme_adapter::adjust_brightness(theme.surface, 1.20)
                         } else {
-                            super::theme_adapter::adjust_brightness(theme.surface, 1.06)
+                            super::theme_adapter::adjust_brightness(theme.surface, 1.08)
                         },
                     });
-                    tx = tx.saturating_add(tab_w).saturating_add(tab_padding);
+
+                    // small separation between tabs
+                    tx = tx.saturating_add(w).saturating_add(tab_padding);
                 }
 
+                // separator under tabs
                 if tab_strip_h > top_sep_h {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: r.x,
@@ -121,6 +126,79 @@ pub fn draw(
                 }
             }
 
+            // Inner split: gutter zone + editor content zone
+            let gutter_w: u32 = 48;
+            let content_x = r.x.saturating_add(gutter_w);
+            let content_w = if r.width > gutter_w { r.width.saturating_sub(gutter_w) } else { 0 };
+            let body_y = r.y.saturating_add(tab_strip_h.saturating_add(top_sep_h));
+            let body_h = if r.height > (tab_strip_h.saturating_add(top_sep_h)) {
+                r.height.saturating_sub(tab_strip_h.saturating_add(top_sep_h))
+            } else {
+                0
+            };
+
+            // gutter background
+            if gutter_w > 0 && body_h > 0 {
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: r.x,
+                    y: body_y,
+                    width: gutter_w,
+                    height: body_h,
+                    color: super::theme_adapter::adjust_brightness(theme.surface, 0.98),
+                });
+
+                // divider line between gutter and content
+                if gutter_w > sep_h {
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: content_x.saturating_sub(sep_h),
+                        y: body_y,
+                        width: sep_h,
+                        height: body_h,
+                        color: super::theme_adapter::parse_hex_color(theme.border_color),
+                    });
+                }
+            }
+
+            // editor body: repeated code-line placeholder bars with varied lengths
+            if content_w > 0 && body_h > 0 {
+                // line metrics (deterministic)
+                let line_h: u32 = 18;
+                let lines = (body_h / (line_h + 6)).max(1);
+                let mut ly = body_y.saturating_add(8);
+                for i in 0..lines {
+                    // vary width to imply code structure: alternate shorter/longer
+                    let length_factor = match i % 5 {
+                        0 => 0.92,
+                        1 => 0.60,
+                        2 => 0.78,
+                        3 => 0.44,
+                        _ => 0.70,
+                    };
+                    let bar_w = ((content_w as f64) * length_factor) as u32;
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: content_x.saturating_add(12),
+                        y: ly,
+                        width: bar_w.saturating_sub(12),
+                        height: line_h,
+                        color: super::theme_adapter::adjust_brightness(theme.surface, 1.04 - (i as f64 * 0.002)),
+                    });
+
+                    ly = ly.saturating_add(line_h).saturating_add(6);
+                    // subtle thin divider every few lines
+                    if i > 0 && i % 6 == 0 && ly.saturating_add(sep_h) < r.y.saturating_add(r.height) {
+                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                            x: content_x,
+                            y: ly,
+                            width: content_w,
+                            height: sep_h,
+                            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.86),
+                        });
+                        ly = ly.saturating_add(sep_h).saturating_add(4);
+                    }
+                }
+            }
+
+            // right gutter/separator (visual balance)
             if r.width > sep_h {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x.saturating_add(r.width).saturating_sub(sep_h),
@@ -153,6 +231,7 @@ pub fn draw(
         }
 
         "center_bottom_panel" => {
+            // keep bottom panel visuals but they will be enhanced in bottom_panel module
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,

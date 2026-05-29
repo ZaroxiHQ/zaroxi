@@ -1,7 +1,9 @@
 /*!
 Top toolbar / chrome band drawing logic.
-This module receives a single ShellRegion and a Theme reference and returns
-the low-level DrawRect overlay rects for that region.
+
+GUI-8 refinements:
+- Keep the top chrome stable.
+- Add subtle control-group placeholders (small blocks) for visual balance.
 */
 
 pub fn draw(
@@ -13,6 +15,7 @@ pub fn draw(
     let sep_h: u32 = std::cmp::max(2, bt);
 
     let r = &region.rect;
+    // Full-width chrome band (keeps prior look)
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
         x: r.x,
         y: r.y,
@@ -21,6 +24,7 @@ pub fn draw(
         color: super::theme_adapter::parse_hex_color(theme.border_color),
     });
 
+    // Subtle bottom separator to anchor the toolbar
     if r.height > sep_h {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
@@ -29,6 +33,42 @@ pub fn draw(
             height: sep_h,
             color: super::theme_adapter::adjust_brightness(theme.border_color, 0.80),
         });
+    }
+
+    // Control group placeholders (left side)
+    let ctrl_h = std::cmp::min(26, r.height.saturating_sub(sep_h).saturating_sub(4));
+    if ctrl_h > 0 && r.width > 120 {
+        let mut cx = r.x.saturating_add(12);
+        let cy = r.y.saturating_add(6);
+        for i in 0..3 {
+            let w = 28u32;
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: cx,
+                y: cy,
+                width: w,
+                height: ctrl_h,
+                color: super::theme_adapter::adjust_brightness(theme.surface, 1.10 - (i as f64 * 0.03)),
+            });
+            cx = cx.saturating_add(w).saturating_add(8);
+        }
+    }
+
+    // Control group placeholders (right side)
+    if ctrl_h > 0 && r.width > 200 {
+        let mut rx = r.x.saturating_add(r.width).saturating_sub(12);
+        let cy = r.y.saturating_add(6);
+        for i in 0..2 {
+            let w = 32u32;
+            rx = rx.saturating_sub(w);
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: rx,
+                y: cy,
+                width: w,
+                height: ctrl_h,
+                color: super::theme_adapter::adjust_brightness(theme.surface, 1.06 - (i as f64 * 0.02)),
+            });
+            rx = rx.saturating_sub(8);
+        }
     }
 
     rects
