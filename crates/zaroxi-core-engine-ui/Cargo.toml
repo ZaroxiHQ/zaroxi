@@ -9,5 +9,5 @@ license = "MIT"
 taffy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
+zaroxi-core-engine-layout = { workspace = true }
 # Keep this crate small and engine-owned; no interface/application deps.

@@ -6,6 +6,6 @@ description = "Layout algorithms for the Zaroxi engine."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
-zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
-zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
+# Engine-internal workspace deps — the workspace root is the single source of truth.
+zaroxi-core-engine-scene = { workspace = true }
+zaroxi-kernel-math = { workspace = true }
