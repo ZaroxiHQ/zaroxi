@@ -204,6 +204,45 @@ impl winit::application::ApplicationHandler for GuiApp {
                 if let Some(z) = self.maybe_window.as_ref() {
                     eprintln!("GuiApp: performing present-related nudges (engine window)");
                     let _ = z.window().pre_present_notify();
+
+                    // Diagnostic: produce a compact per-redraw summary so we can compare
+                    // the clear_present_once bootstrap path with the normal redraw path.
+                    eprintln!("GUI_TEXT_PATH=redraw_requested");
+                    let rects = super::frame::build_overlay_rects(&self.shell);
+                    let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                    let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                    let layout_present = tmp_layout.exists();
+                    let cosmic_present = tmp_cosmic.exists();
+                    let mut adapter_text_ops: usize = 0;
+                    if layout_present {
+                        if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
+                            if let Some(rest) = s.strip_prefix("lines=") {
+                                adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                            }
+                        }
+                    }
+                    let backend_text_ops = rects.len();
+                    let core_text_ops: usize = 0; // full renderer not invoked here in this simplified path
+                    let fallback_used = layout_present && !cosmic_present;
+
+                    eprintln!(
+                        "GUI_TEXT_FRAME_SUMMARY: path=redraw_requested adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} glyphs=0 atlas_entries=0 pipeline_render_called=false overlay_rects={} fallback_used={}",
+                        adapter_text_ops,
+                        backend_text_ops,
+                        core_text_ops,
+                        if cosmic_present { "true" } else { "false" },
+                        backend_text_ops,
+                        if fallback_used { "true" } else { "false" }
+                    );
+
+                    // Hard-checks for broken links (diagnostic only).
+                    if adapter_text_ops > 0 && backend_text_ops == 0 {
+                        eprintln!("GUI_TEXT_BROKEN_LINK: adapter->backend");
+                    }
+                    if backend_text_ops > 0 && core_text_ops == 0 {
+                        eprintln!("GUI_TEXT_BROKEN_LINK: backend->core");
+                    }
+
                     // If we later add a wgpu clear/present path we will call it here.
                 }
             }
