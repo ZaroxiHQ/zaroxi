@@ -332,7 +332,7 @@ impl TextRenderer for CosmicTextRenderer {
             // In the current placeholder implementation we conservatively accept all shaped glyphs,
             // but this instrumentation makes the extraction counts explicit.
             let total_layout_glyphs = shaped_glyphs_total;
-            let mut extracted_for_emission = 0usize;
+            let mut extracted_for_emission: usize;
             let mut rejected_total = 0usize;
             // Initialize reason counters (all zero in the placeholder path).
             let mut skipped_no_physical_glyph: usize = 0;
