@@ -26,7 +26,7 @@ use std::error::Error;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{StartCause, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{EventLoop, ControlFlow},
     window::WindowAttributes,
 };
 
@@ -90,7 +90,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                 match active_loop.create_window(self.window_attributes.clone()) {
                     Ok(w) => {
                         // Convert the raw winit Window into the engine wrapper and warm it up.
-                        let mut zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
+                        let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                         let wid = zaroxi_w.window().id();
                         eprintln!("GuiApp: created engine window id={:?}", wid);
                         // Ensure a visible title is set (small visual hint).
@@ -102,11 +102,10 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         // Keep the engine window handle so we can request redraws later.
                         self.maybe_window = Some(zaroxi_w);
 
-                        // Ask for a single initial frame via about_to_wait rather than switching
-                        // to Poll (which can result in busy redraw loops). The initial frame
-                        // will be requested once and the flag cleared.
+                        // Ask for a single initial frame; set the loop to Poll so the frame is driven.
                         self.requested_initial_frame = true;
-                        eprintln!("GuiApp: marked initial frame request (engine window)");
+                        active_loop.set_control_flow(ControlFlow::Poll);
+                        eprintln!("GuiApp: marked initial frame request (engine window) and set Poll");
                     }
                     Err(e) => {
                         eprintln!("GuiApp: failed to create window: {}", e);
@@ -155,7 +154,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        fn about_to_wait(&mut self, _active_loop: &winit::event_loop::ActiveEventLoop) {
+        fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
             // Request the initial frame once to avoid a continuous busy redraw loop.
             if self.requested_initial_frame {
                 if let Some(z) = self.maybe_window.as_ref() {
@@ -163,6 +162,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                     let _ = z.window().request_redraw();
                 }
                 self.requested_initial_frame = false;
+                // After requesting the single initial frame, stop polling to avoid busy-looping.
+                active_loop.set_control_flow(ControlFlow::Wait);
+                eprintln!("GuiApp: about_to_wait -> switched control flow back to Wait");
             }
             // Otherwise remain idle (Wait) and let the platform wake us for real events.
         }
