@@ -29,7 +29,6 @@ glyphon = { workspace = true, optional = true }
 
 # Local workspace crates used by the renderer for app state & theme tokens.
 # Mark them optional so they can be enabled by the `full_renderer` feature.
-zaroxi-interface-app = { workspace = true, optional = true }
 zaroxi-interface-theme = { workspace = true, optional = true }
 
 # Feature gate for the heavy renderer/surface modules. By default the crate
@@ -45,6 +44,5 @@ full_renderer = [
     "log",
     "thiserror",
     "bytemuck",
-    "zaroxi-interface-app",
     "zaroxi-interface-theme",
 ]
