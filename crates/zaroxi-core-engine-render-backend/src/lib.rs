@@ -280,11 +280,108 @@ impl<'a> RenderBackend<'a> {
             }
         }
 
-        // Skip creating a pipeline in this environment; preserve the clear-only fallback.
-        // Pipeline creation caused cross-version wgpu/WGSL validation issues in some hosts.
-        // Keeping `pipeline = None` ensures we remain compatible while retaining the
-        // overlay rect drawing path when a pipeline is available in future patches.
-        let pipeline = None;
+        // Attempt to create a minimal colored-rect pipeline compatible with the
+        // workspace wgpu version. This is intentionally small: a single WGSL shader
+        // with a vertex stage that accepts position/color and a fragment stage that
+        // outputs the interpolated color.
+        //
+        // Creation is wrapped so any failure yields `None` and preserves the
+        // historic clear-only fallback.
+        let pipeline = (|| {
+            // WGSL: per-vertex position in NDC and color
+            let shader_src = r#"
+struct VSOut {
+    @builtin(position) clip_pos: vec4<f32>;
+    @location(0) color: vec4<f32>;
+};
+
+@vertex
+fn vs(@location(0) position: vec2<f32>, @location(1) color: vec4<f32>) -> VSOut {
+    var out: VSOut;
+    out.clip_pos = vec4(position, 0.0, 1.0);
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs(in: VSOut) -> @location(0) vec4<f32> {
+    return in.color;
+}
+"#;
+
+            // Create shader module
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("zaroxi-rect-shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+                ..Default::default()
+            });
+
+            // Pipeline layout: no bind groups for this minimal pipeline
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("zaroxi-rect-pipeline-layout"),
+                bind_group_layouts: &[],
+                ..Default::default()
+            });
+
+            // Vertex buffer layout: [f32;2] position, [f32;4] color
+            let vertex_buffer_layout = wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x4,
+                    },
+                ],
+            };
+
+            // Vertex / fragment state (match local wgpu API expectations)
+            let vertex_state = wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                buffers: &[vertex_buffer_layout],
+                compilation_options: None,
+            };
+
+            let fragment_state = Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: None,
+            });
+
+            // Render pipeline descriptor
+            let pipeline_desc = wgpu::RenderPipelineDescriptor {
+                label: Some("zaroxi-rect-pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: vertex_state,
+                fragment: fragment_state,
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: Default::default(),
+            };
+
+            // Try to create the pipeline; if it errors, return None.
+            match std::panic::catch_unwind(|| device.create_render_pipeline(&pipeline_desc)) {
+                Ok(p) => Some(p),
+                Err(_) => {
+                    eprintln!("RenderBackend: pipeline creation panicked; falling back to clear-only mode");
+                    None
+                }
+            }
+        })();
 
         Self {
             device,
