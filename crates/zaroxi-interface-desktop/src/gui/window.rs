@@ -31,7 +31,6 @@ use winit::{
 };
 use pollster;
 use wgpu::Color;
-use log::{debug, warn};
 
 use crate::gui::ShellFrame;
 
@@ -82,7 +81,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         }
         // fallback: use a neutral, non-branded technical default to avoid
         // hardcoding product colors in window glue.
-        debug!("parse_hex_color: invalid hex '{}', falling back to neutral black", s);
+        eprintln!("GuiApp: parse_hex_color: invalid hex '{}', falling back to neutral black", s);
         Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
     }
 
@@ -129,7 +128,7 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         // Perform a one-shot clear+present using the engine render backend
                         // to ensure the compositor receives a GPU-backed frame and maps the window.
                         if let Some(z) = self.maybe_window.as_ref() {
-                            debug!("GuiApp: invoking clear_present_once to produce first GPU frame");
+                            eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame");
                             let res = pollster::block_on(
                                 zaroxi_core_engine_render_backend::RenderBackend::clear_present_once(
                                     z,
@@ -137,9 +136,9 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                                 ),
                             );
                             if let Err(e) = res {
-                                warn!("GuiApp: clear_present_once failed: {}", e);
+                                eprintln!("GuiApp: clear_present_once failed: {}", e);
                             } else {
-                                debug!("GuiApp: clear_present_once succeeded");
+                                eprintln!("GuiApp: clear_present_once succeeded");
                             }
                         }
 
@@ -147,10 +146,10 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         self.requested_initial_frame = false;
                         let _ = zaroxi_w.window().request_redraw();
                         active_loop.set_control_flow(ControlFlow::Wait);
-                        debug!("GuiApp: marked initial frame request (engine window) and set Wait");
+                        eprintln!("GuiApp: marked initial frame request (engine window) and set Wait");
                     }
                     Err(e) => {
-                        warn!("GuiApp: failed to create window: {}", e);
+                        eprintln!("GuiApp: failed to create window: {}", e);
                         // Ask the event loop to exit; caller will fall back to transcript.
                         active_loop.exit();
                     }
@@ -204,13 +203,13 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             // Request the initial frame once to avoid a continuous busy redraw loop.
             if self.requested_initial_frame {
                 if let Some(z) = self.maybe_window.as_ref() {
-                    debug!("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
+                    eprintln!("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
                     let _ = z.window().request_redraw();
                 }
                 self.requested_initial_frame = false;
                 // After requesting the single initial frame, stop polling to avoid busy-looping.
                 active_loop.set_control_flow(ControlFlow::Wait);
-                debug!("GuiApp: about_to_wait -> switched control flow back to Wait");
+                eprintln!("GuiApp: about_to_wait -> switched control flow back to Wait");
             }
             // Otherwise remain idle (Wait) and let the platform wake us for real events.
         }
@@ -227,20 +226,20 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                 }
                 WindowEvent::Resized(_size) => {
                     if let Some(z) = self.maybe_window.as_ref() {
-                        debug!("GuiApp: Resized -> requesting redraw (engine window)");
+                        eprintln!("GuiApp: Resized -> requesting redraw (engine window)");
                         let _ = z.window().request_redraw();
                     }
                 }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     if let Some(z) = self.maybe_window.as_ref() {
-                        debug!("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
+                        eprintln!("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
                         let _ = z.window().request_redraw();
                     }
                 }
                 WindowEvent::RedrawRequested => {
-                    debug!("GuiApp: RedrawRequested received");
+                    eprintln!("GuiApp: RedrawRequested received");
                     if let Some(z) = self.maybe_window.as_ref() {
-                        debug!("GuiApp: performing present-related nudges (engine window)");
+                        eprintln!("GuiApp: performing present-related nudges (engine window)");
                         let _ = z.window().pre_present_notify();
                         // If we later add a wgpu clear/present path we will call it here.
                     }
