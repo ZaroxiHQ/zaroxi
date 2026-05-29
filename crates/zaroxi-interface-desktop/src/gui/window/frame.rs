@@ -70,10 +70,10 @@ pub fn build_overlay_rects(
                     let row_h = if available_h > 0 { available_h / rows } else { 0 };
                     let mut y_off = r.rect.y.saturating_add(padding);
                     for i in 0..rows {
-                        let inset = if i == 0 { 6 } else { 10 };
+                        let inset: u32 = if i == 0 { 6 } else { 10 };
                         let row_w = r.rect.width.saturating_sub(inset.saturating_add(padding));
                         // Slight brightness variation per row so the list reads as grouped lines.
-                        let factor = 1.02_f64.saturating_sub((i as f64) * 0.01);
+                        let factor = (1.02_f64 - (i as f64) * 0.01).clamp(0.0, 2.0);
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                             x: r.rect.x.saturating_add(inset),
                             y: y_off,
