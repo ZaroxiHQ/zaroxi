@@ -35,6 +35,8 @@ use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+static COSMIC_ISOLATE_RUN: AtomicBool = AtomicBool::new(false);
 use wgpu::{
     BindGroup, Device, Queue, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, Extent3d, Origin3d, TextureViewDescriptor,
@@ -176,6 +178,23 @@ impl TextRenderer for CosmicTextRenderer {
                 cmd.clip_w,
                 cmd.clip_h
             );
+
+            // Emit a concise, canonical-format input line for the known "Zaroxi" label
+            // so downstream instrumentation can precisely parse the layout inputs.
+            if cmd.is_title || cmd.text.contains("Zaroxi") {
+                info!(
+                    "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
+                    cmd.text,
+                    cmd.text.chars().count(),
+                    cmd.x,
+                    cmd.y,
+                    cmd.clip_w,
+                    cmd.clip_h,
+                    format!("{}-{}-{}-{}", cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h),
+                    cmd.size,
+                    cmd.color
+                );
+            }
         }
 
         // Hard validation checks for obviously invalid inputs.
@@ -204,11 +223,15 @@ impl TextRenderer for CosmicTextRenderer {
         let bundled = zaroxi_core_engine_font::load_bundled_monospace();
         let font_family = bundled.family.clone();
         let font_resolved = !font_family.trim().is_empty();
+        // Fallback used when no bundled family is resolved.
+        let fallback_used = !font_resolved;
         info!(
-            "GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" resolved_family=\"{}\" resolved={}",
+            "GUI_TEXT_COSMIC_FONT: requested_family=\"{}\" attrs=\"{}\" resolved={} resolved_name=\"{}\" fallback_used={}",
             font_family,
+            "default",
+            if font_resolved { "true" } else { "false" },
             font_family,
-            if font_resolved { "true" } else { "false" }
+            if fallback_used { "true" } else { "false" },
         );
 
         // Buffer/setup diagnostics (simulated for this placeholder implementation).
