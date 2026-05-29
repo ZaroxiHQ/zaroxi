@@ -10,8 +10,8 @@ use wgpu::{
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use zaroxi_app::AppState;
-use zaroxi_theme::SemanticColors;
+use zaroxi_interface_app::AppState;
+use zaroxi_interface_theme::SemanticColors;
 
 use crate::renderer::debug::{
     DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,

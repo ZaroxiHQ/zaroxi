@@ -7,7 +7,7 @@ use crate::renderer::geometry::{Vertex, color_to_rgba, push_colored_quad};
 use log::{debug, info};
 use std::sync::atomic::Ordering;
 use wgpu;
-use zaroxi_theme::SemanticColors;
+use zaroxi_interface_theme::SemanticColors;
 
 /// Shape helpers: build panel/background quads and submit the shape pass.
 ///

@@ -48,7 +48,7 @@ impl Vertex {
 }
 
 /// Convert theme Color -> renderer [f32;4]
-pub(crate) fn color_to_rgba(c: &zaroxi_theme::Color) -> [f32; 4] {
+pub(crate) fn color_to_rgba(c: &zaroxi_interface_theme::Color) -> [f32; 4] {
     [c.r, c.g, c.b, c.a]
 }
 

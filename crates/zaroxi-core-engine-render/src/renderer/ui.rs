@@ -1,5 +1,5 @@
 use crate::Rect;
-use zaroxi_theme::Color;
+use zaroxi_interface_theme::Color;
 
 /// Generic UI block visual description passed into the renderer.
 ///
