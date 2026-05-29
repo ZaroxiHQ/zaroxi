@@ -169,14 +169,14 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
             // Some Wayland compositors deliver readiness after `resumed`, not Init.
             // Attempt window creation here as a fallback when new_events didn't create it.
             if self.maybe_window.is_none() {
-                debug!("GuiApp: resumed -> attempting to create window");
+                eprintln!("GuiApp: resumed -> attempting to create window");
                 match active_loop.create_window(self.window_attributes.clone()) {
                     Ok(w) => {
                         // Wrap the freshly created raw winit Window in the engine ZaroxiWindow
                         // so we have the engine-level helpers (show_and_warmup, size, etc).
                         let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                         let wid = zaroxi_w.window().id();
-                        debug!("GuiApp: created engine window on resumed id={:?}", wid);
+                        eprintln!("GuiApp: created engine window on resumed id={:?}", wid);
                         // Ensure visible + pre-present + redraw to nudge compositor mapping.
                         let _ = zaroxi_w.window().set_visible(true);
                         let _ = zaroxi_w.window().pre_present_notify();
@@ -187,15 +187,15 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
                         // Mark a single initial-frame request to drive one redraw pass.
                         self.requested_initial_frame = false;
                         let _ = zaroxi_w.window().request_redraw();
-                        debug!("GuiApp: marked initial frame request after resumed creation");
+                        eprintln!("GuiApp: marked initial frame request after resumed creation");
                     }
                     Err(e) => {
-                        warn!("GuiApp: resumed failed to create window: {}", e);
+                        eprintln!("GuiApp: resumed failed to create window: {}", e);
                         active_loop.exit();
                     }
                 }
             } else {
-                debug!("GuiApp: resumed called but window already created");
+                eprintln!("GuiApp: resumed called but window already created");
             }
         }
 
