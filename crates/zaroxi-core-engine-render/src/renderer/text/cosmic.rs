@@ -516,6 +516,18 @@ impl TextRenderer for CosmicTextRenderer {
                         g.font_weight,
                         g.cache_key_flags,
                     );
+                    // Log the exact CacheKey::new(...) arguments for auditability.
+                    eprintln!(
+                        "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
+                        g.font_id,
+                        g.glyph_id,
+                        g.font_size * scale,
+                        layout_x,
+                        layout_y,
+                        g.font_weight,
+                        g.cache_key_flags,
+                        cache_key
+                    );
                     physicals.push((g.clone(), layout_x, layout_y, cache_key));
                 }
             }
@@ -546,12 +558,14 @@ impl TextRenderer for CosmicTextRenderer {
                         // Diagnostic: log small stats for the first few glyph bitmaps so we
                         // can verify whether the raster contains real coverage values or
                         // is just a solid block.
-                        if glyphs_logged < 3 {
+                        // Expanded diagnostics: log the first few bitmaps or any suspiciously small glyphs.
+                        if glyphs_logged < 3 || glyph.width <= 2 || glyph.height <= 2 {
                             let data = &glyph.data;
                             if !data.is_empty() {
                                 let mut minv: u8 = 255;
                                 let mut maxv: u8 = 0;
                                 let mut count_255: usize = 0;
+                                let mut nonzero: usize = 0;
                                 for &b in data.iter() {
                                     if b < minv {
                                         minv = b;
@@ -562,16 +576,43 @@ impl TextRenderer for CosmicTextRenderer {
                                     if b == 255 {
                                         count_255 += 1;
                                     }
+                                    if b != 0 {
+                                        nonzero += 1;
+                                    }
                                 }
                                 let all_same = data.iter().all(|&v| v == data[0]);
                                 let pct_255 = (count_255 as f32) / (data.len() as f32) * 100.0;
+                                let pct_nonzero = (nonzero as f32) / (data.len() as f32) * 100.0;
+                                // Infer bytes-per-pixel (1=mask, 4=RGBA)
+                                let computed_bpp = if glyph.width > 0
+                                    && glyph.height > 0
+                                    && (data.len() as u32) == glyph.width * glyph.height
+                                {
+                                    1u32
+                                } else if glyph.width > 0
+                                    && glyph.height > 0
+                                    && (data.len() as u32) == glyph.width * glyph.height * 4
+                                {
+                                    4u32
+                                } else {
+                                    1u32
+                                };
                                 eprintln!(
-                                    "GUI_TEXT_GLYPH_RASTER: key={:?} w={} h={} min={} max={} all_same={} pct_255={:.1}%",
+                                    "GUI_TEXT_GLYPH_RASTER: key={:?} glyph_id={} font_id={:?} font_size={} placement_left={} placement_top={} w={} h={} data_len={} bpp={} min={} max={} nonzero={} pct_nonzero={:.1}% all_same={} pct_255={:.1}%",
                                     cache_key,
+                                    layout_g.glyph_id,
+                                    layout_g.font_id,
+                                    layout_g.font_size,
+                                    img.placement.left,
+                                    img.placement.top,
                                     glyph.width,
                                     glyph.height,
+                                    data.len(),
+                                    computed_bpp,
                                     minv,
                                     maxv,
+                                    nonzero,
+                                    pct_nonzero,
                                     all_same,
                                     pct_255
                                 );
@@ -597,10 +638,12 @@ impl TextRenderer for CosmicTextRenderer {
                                     .take(layout_g.end - layout_g.start)
                                     .collect();
                                 eprintln!(
-                                    "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={}",
+                                    "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}",
                                     cmd.text,
                                     cluster_text,
                                     layout_g.glyph_id,
+                                    layout_g.font_id,
+                                    layout_g.font_size,
                                     layout_g.start,
                                     layout_g.end,
                                     layout_x,
@@ -612,7 +655,8 @@ impl TextRenderer for CosmicTextRenderer {
                                     x0,
                                     y0,
                                     glyph.width,
-                                    glyph.height
+                                    glyph.height,
+                                    cache_key
                                 );
 
                                 // Record instance sample for logging and later instance buffer
@@ -625,6 +669,42 @@ impl TextRenderer for CosmicTextRenderer {
                                     uv1: (entry.u1, entry.v1),
                                     color: cmd.color,
                                 });
+
+                                // If this glyph is suspiciously small, dump the atlas region bytes for verification.
+                                if glyph.width <= 2 || glyph.height <= 2 {
+                                    let region_bytes = self.shared_atlas.dump_region(&entry);
+                                    let mut minv: u8 = 255;
+                                    let mut maxv: u8 = 0;
+                                    let mut nonzero: usize = 0;
+                                    for &b in region_bytes.iter() {
+                                        if b < minv {
+                                            minv = b;
+                                        }
+                                        if b > maxv {
+                                            maxv = b;
+                                        }
+                                        if b != 0 {
+                                            nonzero += 1;
+                                        }
+                                    }
+                                    let sample_bytes: Vec<u8> =
+                                        region_bytes.iter().cloned().take(32).collect();
+                                    eprintln!(
+                                        "GUI_TEXT_ATLAS_DUMP: gid={} key={:?} atlas_rect=({}, {}) {}x{} region_bytes_len={} min={} max={} nonzero={} sample_firstN={:?}",
+                                        layout_g.glyph_id,
+                                        cache_key,
+                                        entry.x,
+                                        entry.y,
+                                        entry.width,
+                                        entry.height,
+                                        region_bytes.len(),
+                                        minv,
+                                        maxv,
+                                        nonzero,
+                                        sample_bytes
+                                    );
+                                }
+
                                 instances_total += 1;
                             }
                             None => {

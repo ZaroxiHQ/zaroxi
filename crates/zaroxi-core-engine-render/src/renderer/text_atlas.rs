@@ -257,4 +257,19 @@ impl SharedAtlas {
         let a = self.0.lock().unwrap();
         a.dimensions()
     }
+
+    /// Debug helper: return a copy of the raw R8 bytes for the given atlas entry rect.
+    /// This is intended for diagnostic dumps only and should not be used in performance-sensitive paths.
+    pub fn dump_region(&self, entry: &AtlasEntry) -> Vec<u8> {
+        let a = self.0.lock().unwrap();
+        let mut out: Vec<u8> = Vec::with_capacity((entry.width * entry.height) as usize);
+        let stride = a.width as usize;
+        for row in 0..entry.height {
+            let y = (entry.y + row) as usize;
+            let start = y.checked_mul(stride).unwrap().checked_add(entry.x as usize).unwrap();
+            let end = start + entry.width as usize;
+            out.extend_from_slice(&a.buffer[start..end]);
+        }
+        out
+    }
 }
