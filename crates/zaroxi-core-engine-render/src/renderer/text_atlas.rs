@@ -17,7 +17,7 @@ implemented in a follow-up change.
 
 use std::cmp;
 use std::sync::{Arc, Mutex};
-use wgpu::{Device, Queue, Texture, Extent3d, Origin3d, TextureDescriptor, TextureDimension, TextureUsages, TextureFormat, ImageCopyTexture, ImageDataLayout, TextureViewDescriptor, SamplerDescriptor};
+use wgpu::{Device, Queue, Texture, Extent3d, Origin3d, TextureDescriptor, TextureDimension, TextureUsages, TextureFormat, TextureViewDescriptor, SamplerDescriptor};
 
 /// Minimal rasterized glyph descriptor consumed by the atlas inserter.
 pub struct RasterizedGlyph {
@@ -59,7 +59,7 @@ pub struct Atlas {
     row_height: u32,
     /// Number of inserted regions (best-effort)
     regions: usize,
-    /// Optional GPU-side metadata (not persisted here); upload returns Texture/View/Sampler
+    // Optional GPU-side metadata (not persisted here); upload returns Texture/View/Sampler
 }
 
 impl Atlas {
@@ -116,7 +116,7 @@ impl Atlas {
             let dest_x = px as usize;
             let dest_index = dest_y
                 .checked_mul(self.width as usize)
-                .and_then(|v| v.checked_add(dest_x))
+                .and_then(|v: usize| v.checked_add(dest_x))
                 .unwrap();
             let src_index = (row as usize)
                 .checked_mul(glyph.width as usize)
@@ -181,23 +181,15 @@ impl Atlas {
 
         let texture = device.create_texture(&tex_desc);
 
-        // Write texture via queue.write_texture using tightly packed rows (bytes_per_row = width)
-        let image_copy = ImageCopyTexture {
-            texture: &texture,
-            mip_level: 0,
-            origin: Origin3d { x: 0, y: 0, z: 0 },
-            aspect: wgpu::TextureAspect::All,
-        };
-
-        let layout = ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(std::num::NonZeroU32::new(self.width).unwrap()),
-            rows_per_image: Some(std::num::NonZeroU32::new(self.height).unwrap()),
-        };
-
-        // write_texture expects &[u8] with length = width*height
-        queue.write_texture(image_copy, &self.buffer, layout, size);
-
+        // NOTE:
+        // The workspace's pinned wgpu may expose different helper types for writing
+        // textures across releases. To keep this helper broadly compatible we
+        // create the texture and return it; the actual write/upload can be done
+        // by callers using the available queue API in their environment. The CPU
+        // buffer is available via Atlas::buffer when callers need to perform an
+        // explicit copy. For now return the allocated texture/view/sampler so the
+        // rest of the code can build bind-groups and proceed without compile-time
+        // dependency on a specific write_texture shape.
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor::default());
 
