@@ -994,9 +994,11 @@ impl TextRenderer for CosmicTextRenderer {
         } else {
             "sample_bbox=none".to_string()
         };
+        // Report both the recorded viewport and the effective target dims chosen
+        // for the render pass so operators can see where the scissor values originate.
         eprintln!(
-            "GUI_TEXT_SCISSOR_INPUT: viewport={}x{} target=unknown clip={}",
-            vw, vh, clip_desc
+            "GUI_TEXT_SCISSOR_INPUT: recorded_viewport={}x{} effective_target={}x{} clip={}",
+            vw_recorded, vh_recorded, target_w, target_h, clip_desc
         );
 
         // Test override: allow forcing a full-viewport scissor to validate that
@@ -1010,21 +1012,21 @@ impl TextRenderer for CosmicTextRenderer {
         // that can violate the render-target limits. If we don't know the viewport/target
         // size we will skip calling set_scissor_rect to avoid validation errors.
         let scissor_opt: Option<(u32, u32, u32, u32)> = if force_full {
-            if vw > 0 && vh > 0 {
-                eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override=true using {}x{}", vw, vh);
-                Some((0u32, 0u32, vw, vh))
+            if target_w > 0 && target_h > 0 {
+                eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override=true using {}x{}", target_w, target_h);
+                Some((0u32, 0u32, target_w, target_h))
             } else {
                 // Cannot safely force full scissor without a known viewport/target.
                 eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override requested but viewport unknown -> skipping scissor set");
                 None
             }
-        } else if vw > 0 && vh > 0 {
+        } else if target_w > 0 && target_h > 0 {
             if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
-                // Intersect sample bbox with viewport.
+                // Intersect sample bbox with target viewport.
                 let ix0 = minx.max(0.0);
                 let iy0 = miny.max(0.0);
-                let ix1 = maxx.min(vw as f32);
-                let iy1 = maxy.min(vh as f32);
+                let ix1 = maxx.min(target_w as f32);
+                let iy1 = maxy.min(target_h as f32);
                 let iw = (ix1 - ix0).max(0.0);
                 let ih = (iy1 - iy0).max(0.0);
 
@@ -1042,12 +1044,12 @@ impl TextRenderer for CosmicTextRenderer {
                 } else {
                     // Collapsed intersection -> prefer full viewport to avoid accidental clipping.
                     eprintln!("GUI_TEXT_SCISSOR_INTERSECT: collapsed_intersection -> using full viewport instead");
-                    Some((0u32, 0u32, vw, vh))
+                    Some((0u32, 0u32, target_w, target_h))
                 }
             } else {
                 // No clip/sample bbox -> use full viewport.
                 eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_clip -> using full viewport");
-                Some((0u32, 0u32, vw, vh))
+                Some((0u32, 0u32, target_w, target_h))
             }
         } else if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
             // No viewport available; fall back to sample bounding box (clamped and sized).
