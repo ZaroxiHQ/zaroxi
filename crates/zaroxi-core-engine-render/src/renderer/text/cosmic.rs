@@ -425,15 +425,17 @@ impl TextRenderer for CosmicTextRenderer {
     fn prepare(&self, device: &Device, queue: &mut Queue) -> Result<(), RenderError> {
         let mut q = self.queued.lock().unwrap();
         let queued_count = q.len();
-        info!("CosmicTextRenderer.prepare: queued_count={}", queued_count);
+        if text_debug_enabled() {
+            info!("CosmicTextRenderer.prepare: queued_count={}", queued_count);
+        }
 
-        // Pick a representative label for diagnostics if present.
-        let representative = q
-            .iter()
-            .find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty())
-            .cloned();
-        if let Some(rep) = representative {
-            if text_debug_enabled() {
+        // Representative debug label (debug only)
+        if text_debug_enabled() {
+            let representative = q
+                .iter()
+                .find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty())
+                .cloned();
+            if let Some(rep) = representative {
                 eprintln!(
                     "GUI_TEXT_COSMIC_INPUT: representative='{}' len={} pos=({}, {}) clip={}x{} font_size={} color={:?}",
                     rep.text,
@@ -446,6 +448,204 @@ impl TextRenderer for CosmicTextRenderer {
                     rep.color
                 );
             }
+        }
+
+        use crate::renderer::text_atlas::RasterizedGlyph;
+
+        // Counters and samples
+        let mut shaped_total: usize = 0;
+        let mut rasterized_total: usize = 0;
+        let mut atlas_inserted_total: usize = 0;
+        let mut instances_total: usize = 0;
+        let mut samples: Vec<InstanceSample> = Vec::new();
+        let mut glyphs_logged: usize = 0;
+
+        if queued_count == 0 {
+            let mut s = self.last_frame_summary.lock().unwrap();
+            *s = Some(FrameSummary {
+                shaped_glyphs_total: 0,
+                extracted_for_emission: 0,
+                rasterize_success_total: 0,
+                atlas_insert_success_total: 0,
+                instances_pushed: 0,
+                fallback_used: false,
+            });
+            let mut ss = self.last_frame_samples.lock().unwrap();
+            ss.clear();
+            return Ok(());
+        }
+
+        let mut fs = self.font_system.lock().unwrap();
+        let mut swash = self.swash_cache.lock().unwrap();
+
+        // Per-frame local cache mapping cache_key -> optional atlas entry.
+        use std::collections::HashMap as StdHashMap;
+        let mut local_cache: StdHashMap<cosmic_text::CacheKey, Option<(crate::renderer::text_atlas::AtlasEntry, i32, i32, u32, u32)>> = StdHashMap::new();
+
+        for cmd in q.iter() {
+            let metrics = Metrics::new(cmd.size, cmd.size * 1.2);
+            let mut buf = CosmicBuffer::new(&mut *fs, metrics);
+            let mut attrs = Attrs::new();
+            buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
+
+            let mut borrowed = buf.borrow_with(&mut *fs);
+            let mut physicals: Vec<(cosmic_text::LayoutGlyph, f32, f32, cosmic_text::CacheKey)> = Vec::new();
+            for run in borrowed.layout_runs() {
+                for g in run.glyphs.iter() {
+                    shaped_total += 1;
+                    let scale: f32 = 1.0;
+                    let x_offset = g.font_size * g.x_offset;
+                    let y_offset = g.font_size * g.y_offset;
+                    let layout_x = (g.x + x_offset) * scale + cmd.x;
+                    let layout_y = (g.y - y_offset) * scale + (cmd.y + run.line_y);
+                    let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
+                        g.font_id,
+                        g.glyph_id,
+                        g.font_size * scale,
+                        (layout_x, layout_y),
+                        g.font_weight,
+                        g.cache_key_flags,
+                    );
+                    if text_debug_enabled() {
+                        eprintln!(
+                            "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
+                            g.font_id,
+                            g.glyph_id,
+                            g.font_size * scale,
+                            layout_x,
+                            layout_y,
+                            g.font_weight,
+                            g.cache_key_flags,
+                            cache_key
+                        );
+                    }
+                    physicals.push((g.clone(), layout_x, layout_y, cache_key));
+                }
+            }
+            drop(borrowed);
+
+            for (_i, tuple) in physicals.into_iter().enumerate() {
+                let (layout_g, layout_x, layout_y, cache_key) = tuple;
+
+                // Reuse per-frame cache when available
+                if let Some(cached_opt) = local_cache.get(&cache_key) {
+                    if let Some((entry, xoff, yoff, w, h)) = cached_opt.clone() {
+                        let x0 = layout_x + (xoff as f32);
+                        let y0 = layout_y + (yoff as f32);
+                        samples.push(InstanceSample { x: x0, y: y0, width: w as f32, height: h as f32, uv0: (entry.u0, entry.v0), uv1: (entry.u1, entry.v1), color: cmd.color });
+                        instances_total += 1;
+                        continue;
+                    } else {
+                        // known non-drawable
+                        continue;
+                    }
+                }
+
+                // Rasterize via swash cache (may be cached internally in swash)
+                match swash.get_image(&mut *fs, cache_key) {
+                    Some(img) => {
+                        rasterized_total += 1;
+                        let glyph = RasterizedGlyph { width: img.placement.width, height: img.placement.height, data: img.data.clone(), offset_x: img.placement.left as i32, offset_y: -img.placement.top as i32 };
+
+                        // Skip inkless rasters (advance-only like spaces)
+                        let nonzero = glyph.data.iter().filter(|&&b| b != 0).count();
+                        if nonzero == 0 || glyph.width == 0 || glyph.height == 0 {
+                            local_cache.insert(cache_key, None);
+                            if text_debug_enabled() {
+                                eprintln!("GUI_TEXT_SKIP_INKLESS: cache_key={:?} gid={} font_id={:?} w={} h={} nonzero={}", cache_key, layout_g.glyph_id, layout_g.font_id, glyph.width, glyph.height, nonzero);
+                            }
+                            continue;
+                        }
+
+                        if text_debug_enabled() && (glyphs_logged < 3 || glyph.width <= 2 || glyph.height <= 2) {
+                            let data = &glyph.data;
+                            let mut minv: u8 = 255; let mut maxv: u8 = 0; let mut count_255: usize = 0;
+                            for &b in data.iter() { if b < minv { minv = b } if b > maxv { maxv = b } if b == 255 { count_255 += 1 } }
+                            let all_same = data.iter().all(|&v| v == data[0]);
+                            let pct_255 = (count_255 as f32) / (data.len() as f32) * 100.0;
+                            eprintln!("GUI_TEXT_GLYPH_RASTER: key={:?} glyph_id={} font_id={:?} font_size={} placement_left={} placement_top={} w={} h={} data_len={} min={} max={} nonzero={} pct_255={:.1}% all_same={}", cache_key, layout_g.glyph_id, layout_g.font_id, layout_g.font_size, img.placement.left, img.placement.top, glyph.width, glyph.height, data.len(), minv, maxv, nonzero, pct_255, all_same);
+                            glyphs_logged += 1;
+                        }
+
+                        match self.shared_atlas.insert(&glyph) {
+                            Some(entry) => {
+                                atlas_inserted_total += 1;
+                                local_cache.insert(cache_key, Some((entry.clone(), glyph.offset_x, glyph.offset_y, glyph.width, glyph.height)));
+                                let x0 = layout_x + glyph.offset_x as f32; let y0 = layout_y + glyph.offset_y as f32;
+                                if text_debug_enabled() {
+                                    let cluster_text: String = cmd.text.chars().skip(layout_g.start).take(layout_g.end - layout_g.start).collect();
+                                    eprintln!("GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}", cmd.text, cluster_text, layout_g.glyph_id, layout_g.font_id, layout_g.font_size, layout_g.start, layout_g.end, layout_x, layout_y, glyph.offset_x, glyph.offset_y, layout_g.w, 0.0, x0, y0, glyph.width, glyph.height, cache_key);
+                                }
+                                samples.push(InstanceSample { x: x0, y: y0, width: glyph.width as f32, height: glyph.height as f32, uv0: (entry.u0, entry.v0), uv1: (entry.u1, entry.v1), color: cmd.color });
+                                if text_debug_enabled() && (glyph.width <= 2 || glyph.height <= 2) {
+                                    let region_bytes = self.shared_atlas.dump_region(&entry);
+                                    let mut minv: u8 = 255; let mut maxv: u8 = 0; let mut nonzero2: usize = 0;
+                                    for &b in region_bytes.iter() { if b < minv { minv = b } if b > maxv { maxv = b } if b != 0 { nonzero2 += 1 } }
+                                    let sample_bytes: Vec<u8> = region_bytes.iter().cloned().take(32).collect();
+                                    eprintln!("GUI_TEXT_ATLAS_DUMP: gid={} key={:?} atlas_rect=({}, {}) {}x{} region_bytes_len={} min={} max={} nonzero={} sample_firstN={:?}", layout_g.glyph_id, cache_key, entry.x, entry.y, entry.width, entry.height, region_bytes.len(), minv, maxv, nonzero2, sample_bytes);
+                                }
+                                instances_total += 1;
+                            }
+                            None => {
+                                if text_debug_enabled() { eprintln!("GUI_TEXT_ATLAS_INSERT_FAILED: key={:?} glyph_size={}x{}", cache_key, glyph.width, glyph.height); }
+                                local_cache.insert(cache_key, None);
+                            }
+                        }
+                    }
+                    None => {
+                        if text_debug_enabled() { eprintln!("GUI_TEXT_RASTER_MISS: key={:?}", cache_key); }
+                        local_cache.insert(cache_key, None);
+                    }
+                }
+            }
+        }
+
+        // Upload atlas if any regions inserted
+        let regions = self.shared_atlas.regions();
+        if regions > 0 {
+            if let Some((tex, view, sampler)) = self.shared_atlas.upload_to_gpu(device, queue) {
+                let bg = text_pipeline::build_atlas_bind_group(device, &*self.text_bind_layout, &view, &sampler);
+                let mut bg_guard = self.atlas_bind_group.lock().unwrap();
+                *bg_guard = Some(bg);
+                let (aw, ah) = self.shared_atlas.dims();
+                let mut meta = self.atlas_meta.lock().unwrap();
+                *meta = Some(AtlasMeta { width: aw, height: ah, bytes: (aw as usize) * (ah as usize), regions: regions, format: format!("{:?}", wgpu::TextureFormat::R8Unorm) });
+                let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                *uploaded = true;
+                if text_debug_enabled() { eprintln!("GUI_TEXT_ATLAS_UPLOADED: regions={} size={}x{}", regions, aw, ah); }
+            } else {
+                if text_debug_enabled() { eprintln!("GUI_TEXT_ATLAS_UPLOAD_FAILED: no_texture_returned"); }
+            }
+        }
+
+        // Store concise frame summary (always printed)
+        let summary = FrameSummary { shaped_glyphs_total: shaped_total, extracted_for_emission: 0, rasterize_success_total: rasterized_total, atlas_insert_success_total: atlas_inserted_total, instances_pushed: instances_total, fallback_used: false };
+        { let mut s = self.last_frame_summary.lock().unwrap(); *s = Some(summary.clone()); }
+        { let mut ss = self.last_frame_samples.lock().unwrap(); *ss = samples.clone(); }
+
+        // Build instance buffer if we have samples
+        if !samples.is_empty() {
+            let (vw, vh) = *self.viewport.lock().unwrap();
+            let screen_w = if vw > 0 { vw as f32 } else { 1.0 };
+            let screen_h = if vh > 0 { vh as f32 } else { 1.0 };
+            let mut insts: Vec<InstanceRaw> = Vec::with_capacity(samples.len());
+            for s in samples.iter() {
+                let a = crate::renderer::geometry::pixel_to_ndc(s.x, s.y, screen_w, screen_h);
+                let b = crate::renderer::geometry::pixel_to_ndc(s.x + s.width, s.y + s.height, screen_w, screen_h);
+                let size_ndc = [b[0] - a[0], b[1] - a[1]];
+                insts.push(InstanceRaw { pos_ndc: [a[0], a[1]], size_ndc, uv0: [s.uv0.0, s.uv0.1], uv1: [s.uv1.0, s.uv1.1], color: s.color });
+            }
+            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("text_instance_buffer"), contents: bytemuck::cast_slice(&insts), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST });
+            let mut ib = self.instance_buffer.lock().unwrap(); *ib = Some(buf);
+            if text_debug_enabled() { eprintln!("GUI_TEXT_INSTANCE_BUFFER_UPLOADED: count={} stride=48", insts.len()); }
+        }
+
+        // Concise summary (one line)
+        eprintln!("GUITEXT summary shaped={} visible={} rasterized={} atlas={} instances={}", summary.shaped_glyphs_total, summary.shaped_glyphs_total - (summary.shaped_glyphs_total - summary.instances_pushed), summary.rasterize_success_total, summary.atlas_insert_success_total, summary.instances_pushed);
+
+        q.clear();
+        Ok(())
+    }
         }
 
         // Real pipeline: shape, rasterize via swash cache, insert into shared atlas, upload.
@@ -480,10 +680,13 @@ impl TextRenderer for CosmicTextRenderer {
         let mut fs = self.font_system.lock().unwrap();
         let mut swash = self.swash_cache.lock().unwrap();
 
-        // Track seen keys to avoid duplicate insert attempts within this prepare.
-        let mut seen_keys: HashSet<cosmic_text::CacheKey> = HashSet::new();
+        // Per-frame local cache mapping cache_key -> optional atlas entry.
+        // We store `None` for glyphs that are advance-only or inkless so subsequent
+        // occurrences in the same frame are recognized and not treated as missing.
+        use std::collections::HashMap as StdHashMap;
+        let mut local_cache: StdHashMap<cosmic_text::CacheKey, Option<(crate::renderer::text_atlas::AtlasEntry, i32, i32, u32, u32)>> = StdHashMap::new();
 
-        // Iterate queued commands and perform shaping/rasterization.
+        // Iterate queued commands and perform shaping/rasterization in layout order.
         for cmd in q.iter() {
             // Build metrics & buffer
             let metrics = Metrics::new(cmd.size, cmd.size * 1.2);
@@ -516,20 +719,233 @@ impl TextRenderer for CosmicTextRenderer {
                         g.font_weight,
                         g.cache_key_flags,
                     );
-                    // Log the exact CacheKey::new(...) arguments for auditability.
-                    eprintln!(
-                        "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
-                        g.font_id,
-                        g.glyph_id,
-                        g.font_size * scale,
-                        layout_x,
-                        layout_y,
-                        g.font_weight,
-                        g.cache_key_flags,
-                        cache_key
-                    );
+                    if text_debug_enabled() {
+                        eprintln!(
+                            "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
+                            g.font_id,
+                            g.glyph_id,
+                            g.font_size * scale,
+                            layout_x,
+                            layout_y,
+                            g.font_weight,
+                            g.cache_key_flags,
+                            cache_key
+                        );
+                    }
                     physicals.push((g.clone(), layout_x, layout_y, cache_key));
                 }
+            }
+            drop(borrowed);
+
+            // Process each physical glyph in layout order and ensure visible glyphs are emitted.
+            for (_i, tuple) in physicals.into_iter().enumerate() {
+                let (layout_g, layout_x, layout_y, cache_key) = tuple;
+
+                // If we've already observed this cache key this frame, reuse its recorded result
+                // (either Some(AtlasEntry..) if drawable, or None if non-drawable/advance-only).
+                if let Some(cached_opt) = local_cache.get(&cache_key) {
+                    if let Some((entry, xoff, yoff, w, h)) = cached_opt.clone() {
+                        // reuse recorded atlas entry and offsets
+                        let x0 = layout_x + (xoff as f32);
+                        let y0 = layout_y + (yoff as f32);
+                        samples.push(InstanceSample {
+                            x: x0,
+                            y: y0,
+                            width: w as f32,
+                            height: h as f32,
+                            uv0: (entry.u0, entry.v0),
+                            uv1: (entry.u1, entry.v1),
+                            color: cmd.color,
+                        });
+                        instances_total += 1;
+                        continue;
+                    } else {
+                        // cached None => known non-drawable glyph for this key; skip producing instance.
+                        continue;
+                    }
+                }
+
+                // Request raster image from swash cache
+                match swash.get_image(&mut *fs, cache_key) {
+                    Some(img) => {
+                        rasterized_total += 1;
+                        // Build RasterizedGlyph from swash image
+                        let glyph = RasterizedGlyph {
+                            width: img.placement.width,
+                            height: img.placement.height,
+                            data: img.data.clone(),
+                            offset_x: img.placement.left as i32,
+                            offset_y: -img.placement.top as i32,
+                        };
+
+                        // Compute nonzero pixel count to identify inkless glyphs (spaces, zero-ink shapes).
+                        let mut nonzero: usize = 0;
+                        for &b in glyph.data.iter() {
+                            if b != 0 { nonzero += 1; }
+                        }
+
+                        // If the raster contains no visible ink, treat as advance-only: record in cache
+                        // as non-drawable and do not insert into atlas or produce an instance.
+                        if nonzero == 0 || glyph.width == 0 || glyph.height == 0 {
+                            local_cache.insert(cache_key, None);
+                            // debug log only
+                            if text_debug_enabled() {
+                                eprintln!(
+                                    "GUI_TEXT_SKIP_INKLESS: cache_key={:?} gid={} font_id={:?} w={} h={} nonzero={}",
+                                    cache_key,
+                                    layout_g.glyph_id,
+                                    layout_g.font_id,
+                                    glyph.width,
+                                    glyph.height,
+                                    nonzero
+                                );
+                            }
+                            continue;
+                        }
+
+                        // Diagnostic: log small stats for the first few glyph bitmaps so we
+                        // can verify whether the raster contains real coverage values or
+                        // is just a solid block. Only in debug mode.
+                        if text_debug_enabled() && (glyphs_logged < 3 || glyph.width <= 2 || glyph.height <= 2) {
+                            let data = &glyph.data;
+                            if !data.is_empty() {
+                                let mut minv: u8 = 255;
+                                let mut maxv: u8 = 0;
+                                let mut count_255: usize = 0;
+                                for &b in data.iter() {
+                                    if b < minv { minv = b; }
+                                    if b > maxv { maxv = b; }
+                                    if b == 255 { count_255 += 1; }
+                                }
+                                let all_same = data.iter().all(|&v| v == data[0]);
+                                let pct_255 = (count_255 as f32) / (data.len() as f32) * 100.0;
+                                eprintln!(
+                                    "GUI_TEXT_GLYPH_RASTER: key={:?} glyph_id={} font_id={:?} font_size={} placement_left={} placement_top={} w={} h={} data_len={} min={} max={} nonzero={} pct_255={:.1}% all_same={}",
+                                    cache_key,
+                                    layout_g.glyph_id,
+                                    layout_g.font_id,
+                                    layout_g.font_size,
+                                    img.placement.left,
+                                    img.placement.top,
+                                    glyph.width,
+                                    glyph.height,
+                                    data.len(),
+                                    minv,
+                                    maxv,
+                                    nonzero,
+                                    pct_255,
+                                    all_same
+                                );
+                                glyphs_logged += 1;
+                            }
+                        }
+
+                        // Attempt atlas insertion
+                        match self.shared_atlas.insert(&glyph) {
+                            Some(entry) => {
+                                atlas_inserted_total += 1;
+
+                                // Record in local_cache for reuse in this frame: store atlas entry + offsets + size
+                                local_cache.insert(cache_key, Some((entry.clone(), glyph.offset_x, glyph.offset_y, glyph.width, glyph.height)));
+
+                                // Compute final top-left of glyph quad using precise float layout origin
+                                let x0 = layout_x + glyph.offset_x as f32;
+                                let y0 = layout_y + glyph.offset_y as f32;
+
+                                // Debug placement info only when enabled
+                                if text_debug_enabled() {
+                                    let cluster_text: String = cmd
+                                        .text
+                                        .chars()
+                                        .skip(layout_g.start)
+                                        .take(layout_g.end - layout_g.start)
+                                        .collect();
+                                    eprintln!(
+                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}",
+                                        cmd.text,
+                                        cluster_text,
+                                        layout_g.glyph_id,
+                                        layout_g.font_id,
+                                        layout_g.font_size,
+                                        layout_g.start,
+                                        layout_g.end,
+                                        layout_x,
+                                        layout_y,
+                                        glyph.offset_x,
+                                        glyph.offset_y,
+                                        layout_g.w,
+                                        0.0,
+                                        x0,
+                                        y0,
+                                        glyph.width,
+                                        glyph.height,
+                                        cache_key
+                                    );
+                                }
+
+                                // Record instance sample for logging and later instance buffer
+                                samples.push(InstanceSample {
+                                    x: x0,
+                                    y: y0,
+                                    width: glyph.width as f32,
+                                    height: glyph.height as f32,
+                                    uv0: (entry.u0, entry.v0),
+                                    uv1: (entry.u1, entry.v1),
+                                    color: cmd.color,
+                                });
+
+                                // If this glyph is suspiciously small, dump the atlas region bytes for verification.
+                                if text_debug_enabled() && (glyph.width <= 2 || glyph.height <= 2) {
+                                    let region_bytes = self.shared_atlas.dump_region(&entry);
+                                    let mut minv: u8 = 255;
+                                    let mut maxv: u8 = 0;
+                                    let mut nonzero2: usize = 0;
+                                    for &b in region_bytes.iter() {
+                                        if b < minv { minv = b; }
+                                        if b > maxv { maxv = b; }
+                                        if b != 0 { nonzero2 += 1; }
+                                    }
+                                    let sample_bytes: Vec<u8> = region_bytes.iter().cloned().take(32).collect();
+                                    eprintln!(
+                                        "GUI_TEXT_ATLAS_DUMP: gid={} key={:?} atlas_rect=({}, {}) {}x{} region_bytes_len={} min={} max={} nonzero={} sample_firstN={:?}",
+                                        layout_g.glyph_id,
+                                        cache_key,
+                                        entry.x,
+                                        entry.y,
+                                        entry.width,
+                                        entry.height,
+                                        region_bytes.len(),
+                                        minv,
+                                        maxv,
+                                        nonzero2,
+                                        sample_bytes
+                                    );
+                                }
+
+                                instances_total += 1;
+                            }
+                            None => {
+                                if text_debug_enabled() {
+                                    eprintln!(
+                                        "GUI_TEXT_ATLAS_INSERT_FAILED: key={:?} glyph_size={}x{}",
+                                        cache_key, glyph.width, glyph.height
+                                    );
+                                }
+                                // Record as non-drawable to avoid repeated retries this frame
+                                local_cache.insert(cache_key, None);
+                            }
+                        }
+                    }
+                    None => {
+                        if text_debug_enabled() {
+                            eprintln!("GUI_TEXT_RASTER_MISS: key={:?}", cache_key);
+                        }
+                        // Treat missing raster as non-drawable for this frame
+                        local_cache.insert(cache_key, None);
+                    }
+                }
+            }
+        }
             }
             drop(borrowed);
 
