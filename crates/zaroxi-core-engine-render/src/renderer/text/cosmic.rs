@@ -730,9 +730,6 @@ impl TextRenderer for CosmicTextRenderer {
             atlas_insert_success_total,
             instances_pushed
         );
-        } else {
-            debug!("CosmicTextRenderer.prepare: no title-like label found to TRACE");
-        }
 
         // Clear queued commands after emulating shaping/rasterization for this pass.
         q.clear();
