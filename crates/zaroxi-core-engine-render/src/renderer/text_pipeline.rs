@@ -48,16 +48,16 @@ pub fn build_atlas_bind_group(
 ///
 /// Instance layout (per-instance, step mode = Instance):
 /// - location(0) pos:   Float32x2  offset 0
-/// - location(1) uv_min:Float32x2  offset 8
-/// - location(2) uv_max:Float32x2  offset 16
+/// - location(1) uv:    Float32x2  offset 8
+/// - location(2) color: Float32x4  offset 16
 ///
-/// stride = 24 bytes
+/// stride = 32 bytes
 pub fn instance_buffer_layout() -> VertexBufferLayout<'static> {
     // Leak a small static slice for the attribute descriptors; repeated calls are cheap.
     let attrs: &'static [VertexAttribute] = Box::leak(Box::new([
         VertexAttribute { offset: 0, shader_location: 0, format: VertexFormat::Float32x2 },
         VertexAttribute { offset: 8, shader_location: 1, format: VertexFormat::Float32x2 },
-        VertexAttribute { offset: 16, shader_location: 2, format: VertexFormat::Float32x2 },
+        VertexAttribute { offset: 16, shader_location: 2, format: VertexFormat::Float32x4 },
     ]));
-    VertexBufferLayout { array_stride: 24, step_mode: VertexStepMode::Instance, attributes: attrs }
+    VertexBufferLayout { array_stride: 32, step_mode: VertexStepMode::Instance, attributes: attrs }
 }

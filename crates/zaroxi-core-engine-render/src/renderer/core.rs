@@ -204,11 +204,18 @@ impl<'a> Renderer<'a> {
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
         // This helps prove whether the shader file edited during debugging is the
         // one actually used at runtime.
-        let shader_src = include_str!("../text_shader.wgsl");
+        let mut shader_src = include_str!("../text_shader.wgsl").to_string();
         debug!(
             "TEXT PIPELINE BUILD: shader=crates/zaroxi-engine-render/src/text_shader.wgsl len={} bytes",
             shader_src.len()
         );
+        if std::env::var("ZAROXI_TEXT_SOLID_QUADS").map(|v| v == "1").unwrap_or(false) {
+            shader_src = shader_src.replace(
+                "const DIAGNOSTIC_MAGENTA: bool = false;",
+                "const DIAGNOSTIC_MAGENTA: bool = true;",
+            );
+            info!("TEXT SHADER: DIAGNOSTIC_MAGENTA forced ON via ZAROXI_TEXT_SOLID_QUADS");
+        }
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("text-shader"),
             source: wgpu::ShaderSource::Wgsl(shader_src.into()),

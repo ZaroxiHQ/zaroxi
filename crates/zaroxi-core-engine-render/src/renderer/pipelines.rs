@@ -48,9 +48,18 @@ pub(crate) fn create_pipelines(
     });
 
     // Create a simple shader for textured text (WGSL).
+    // Allow runtime gating of the DIAGNOSTIC_MAGENTA flag via env var for quick debugging.
+    let mut shader_src = include_str!("../text_shader.wgsl").to_string();
+    if std::env::var("ZAROXI_TEXT_SOLID_QUADS").map(|v| v == "1").unwrap_or(false) {
+        shader_src = shader_src.replace(
+            "const DIAGNOSTIC_MAGENTA: bool = false;",
+            "const DIAGNOSTIC_MAGENTA: bool = true;",
+        );
+        log::info!("TEXT SHADER: DIAGNOSTIC_MAGENTA forced ON via ZAROXI_TEXT_SOLID_QUADS");
+    }
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("text-shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../text_shader.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(shader_src.into()),
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -88,6 +97,13 @@ pub(crate) fn create_pipelines(
     });
 
     info!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
+    // Log the instance buffer layout expected by text pipeline for triage.
+    let inst_layout = crate::renderer::text_pipeline::instance_buffer_layout();
+    log::debug!(
+        "text pipeline instance layout: array_stride={} step_mode={:?}",
+        inst_layout.array_stride,
+        inst_layout.step_mode
+    );
 
     // Create a minimal solid-color pipeline for debug-only draws.
     // This pipeline does not sample any textures or use bind groups.

@@ -8,7 +8,7 @@ var font_sampler: sampler;
 // Set DIAGNOSTIC_MAGENTA or DIAGNOSTIC_SOLID to true for temporary rendering checks.
 // These are compile-time constants; toggle them during investigation and revert to
 // false for normal rendering.
-const DIAGNOSTIC_MAGENTA: bool = true;
+const DIAGNOSTIC_MAGENTA: bool = false;
 const DIAGNOSTIC_SOLID: bool = false;
 // Proof mode: when set to true render sampled glyph coverage as grayscale.
 // Useful to verify atlas content/sampling without applying vertex colors.
@@ -41,11 +41,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }
 
+    // Robust coverage extraction: take the max of all sampled channels.
+    // Atlas textures may be R8 (coverage in .r) or RGBA (coverage in .a or any channel).
     let sampled = textureSample(font_tex, font_sampler, in.uv);
-    var coverage: f32 = sampled.r;
-    if coverage < 0.001 {
-        coverage = sampled.a;
-    }
+    let coverage = max(max(sampled.r, sampled.g), max(sampled.b, sampled.a));
 
     if DIAGNOSTIC_SHOW_COVERAGE {
         return vec4<f32>(coverage, coverage, coverage, 1.0);
