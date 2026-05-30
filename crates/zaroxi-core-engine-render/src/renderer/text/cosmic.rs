@@ -869,18 +869,18 @@ impl TextRenderer for CosmicTextRenderer {
             .map(|v| v == "1")
             .unwrap_or(false);
 
-        // Compute final scissor rect using the following rules:
-        // - If force_full -> use full viewport if available, else a large safe fallback.
-        // - If we have a non-zero viewport and a sample bbox -> intersect sample bbox with viewport.
-        //   - If intersection collapses to zero, fall back to full viewport (prefer non-zero scissor).
-        // - If we have a non-zero viewport but no sample bbox -> use full viewport.
-        // - If we have no viewport but we have samples -> use sample bbox (clamped + min size).
-        // - Final width/height are clamped to at least 1 to avoid a zero-sized scissor.
-        let (final_x, final_y, final_w, final_h) = if force_full {
-            let fw = if vw > 0 { vw } else { 65535u32 };
-            let fh = if vh > 0 { vh } else { 65535u32 };
-            eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override=true using {}x{}", fw, fh);
-            (0u32, 0u32, fw, fh)
+        // Compute final scissor rect using the following rules but avoid unbounded fallbacks
+        // that can violate the render-target limits. If we don't know the viewport/target
+        // size we will skip calling set_scissor_rect to avoid validation errors.
+        let scissor_opt: Option<(u32, u32, u32, u32)> = if force_full {
+            if vw > 0 && vh > 0 {
+                eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override=true using {}x{}", vw, vh);
+                Some((0u32, 0u32, vw, vh))
+            } else {
+                // Cannot safely force full scissor without a known viewport/target.
+                eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override requested but viewport unknown -> skipping scissor set");
+                None
+            }
         } else if vw > 0 && vh > 0 {
             if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
                 // Intersect sample bbox with viewport.
@@ -901,16 +901,16 @@ impl TextRenderer for CosmicTextRenderer {
                     let fy = iy0.round().max(0.0) as u32;
                     let fw = (iw.round() as u32).max(1u32);
                     let fh = (ih.round() as u32).max(1u32);
-                    (fx, fy, fw, fh)
+                    Some((fx, fy, fw, fh))
                 } else {
                     // Collapsed intersection -> prefer full viewport to avoid accidental clipping.
                     eprintln!("GUI_TEXT_SCISSOR_INTERSECT: collapsed_intersection -> using full viewport instead");
-                    (0u32, 0u32, vw, vh)
+                    Some((0u32, 0u32, vw, vh))
                 }
             } else {
                 // No clip/sample bbox -> use full viewport.
                 eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_clip -> using full viewport");
-                (0u32, 0u32, vw, vh)
+                Some((0u32, 0u32, vw, vh))
             }
         } else if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
             // No viewport available; fall back to sample bounding box (clamped and sized).
@@ -919,19 +919,26 @@ impl TextRenderer for CosmicTextRenderer {
             let sw = ((maxx - minx).round() as u32).max(1u32);
             let sh = ((maxy - miny).round() as u32).max(1u32);
             eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_viewport -> using sample_bbox fallback");
-            (sx, sy, sw, sh)
+            Some((sx, sy, sw, sh))
         } else {
-            // Last resort: use a reasonable default to avoid zero-sized scissor.
-            eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_viewport_no_clip -> using default 800x600 fallback");
-            (0u32, 0u32, 800u32, 600u32)
+            // No reliable viewport or sample bbox; do not set a scissor to avoid
+            // issuing an out-of-bounds scissor rect against the current render target.
+            eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_viewport_no_clip -> skipping scissor set (avoids OOB)");
+            None
         };
 
-        // Apply the computed scissor rect and emit the final values for triage.
-        rpass.set_scissor_rect(final_x, final_y, final_w, final_h);
-        eprintln!(
-            "GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}",
-            final_x, final_y, final_w, final_h
-        );
+        // Apply the computed scissor rect only when safe and emit the final values for triage.
+        if let Some((fx, fy, fw, fh)) = scissor_opt {
+            // It's the caller's responsibility to ensure the scissor is inside the render target.
+            // We avoid guessing large defaults that may exceed the surface; prefer skipping instead.
+            rpass.set_scissor_rect(fx, fy, fw, fh);
+            eprintln!(
+                "GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}",
+                fx, fy, fw, fh
+            );
+        } else {
+            eprintln!("GUI_TEXT_SCISSOR_FINAL: skipped (unknown target or unsafe to set scissor)");
+        }
 
         // Bind the pipeline (we do this even in the placeholder path so any draw
         // diagnostics are provable).
