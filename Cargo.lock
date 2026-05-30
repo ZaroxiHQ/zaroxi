@@ -3922,6 +3922,7 @@ dependencies = [
  "log",
  "thiserror 2.0.18",
  "wgpu",
+ "wgpu-types",
  "winit",
  "zaroxi-core-engine-font",
  "zaroxi-core-engine-layout",

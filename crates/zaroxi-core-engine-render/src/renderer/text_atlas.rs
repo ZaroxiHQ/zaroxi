@@ -188,14 +188,25 @@ impl Atlas {
 
         let texture = device.create_texture(&tex_desc);
 
-        // NOTE: the wgpu texture upload API surface varies between versions.
-        // Historically we used `queue.write_texture` to upload the CPU-side atlas
-        // buffer into the GPU texture. Some pinned wgpu versions in our workspace
-        // do not expose the same `ImageDataLayout`/`ImageCopyTexture` types here,
-        // so for now we create the texture and return it alongside a view and
-        // sampler. The CPU-side atlas buffer is still retained in `self.buffer`.
-        // A subsequent change can add a robust upload path once the exact
-        // wgpu API surface is harmonized across our workspace.
+        // Perform host -> GPU upload of the tight R8 buffer into the created texture.
+        // We write the entire texture at mip level 0, origin (0,0,0). The atlas buffer
+        // is tightly packed row-major with stride == width bytes (1 byte per pixel).
+        // `bytes_per_row` and `rows_per_image` are specified using `NonZeroU32` as
+        // required by the `wgpu` API.
+        let size = size; // reuse from above
+        // `Queue::write_texture` in wgpu v29 expects `TexelCopyTextureInfo` and `TexelCopyBufferLayout`.
+        let data_layout = wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(self.width),
+            rows_per_image: Some(self.height),
+        };
+        let image_copy_texture = wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        };
+        queue.write_texture(image_copy_texture, &self.buffer, data_layout, size);
 
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor::default());

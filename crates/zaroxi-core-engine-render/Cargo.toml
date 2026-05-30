@@ -14,6 +14,7 @@ zaroxi-core-engine-font = { workspace = true }
 
 # Native rendering & windowing (workspace pins where available)
 wgpu = { workspace = true, optional = true }
+wgpu-types = { version = "29.0.3", optional = true }
 winit = { workspace = true, optional = true }
 
 # Utilities and crates used by the full renderer
@@ -45,5 +46,6 @@ full_renderer = [
     "thiserror",
     "bytemuck",
     "zaroxi-interface-theme",
+    "wgpu-types",
 ]
 legacy_cosmic = []
