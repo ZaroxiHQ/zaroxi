@@ -35,8 +35,10 @@ use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
-static COSMIC_ISOLATE_RUN: AtomicBool = AtomicBool::new(false);
+
+fn text_debug_enabled() -> bool {
+    std::env::var("ZAROXI_TEXT_DEBUG").map(|v| v == "1").unwrap_or(false)
+}
 // SwashCache is required by the live Cosmic renderer prepare/raster stages.
 // Wire a persistent SwashCache into the CosmicTextRenderer so rasterization
 // can occur across frames rather than creating a transient cache that is dropped.
@@ -188,41 +190,47 @@ impl CosmicTextRenderer {
             let atlas_entries = rasterized_glyph_count;
 
             // Emit compact traces useful for triage (info + terminal)
-            info!(
-                "TRACE_LABEL: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} primitive=\"glyph_quads\" texture_format=\"{:?}\" shader=\"text_pipeline\" blend=\"alpha\"",
-                source,
-                glyph_count,
-                rasterized_glyph_count,
-                atlas_entries,
-                self.color_format
-            );
-            eprintln!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
+            if text_debug_enabled() {
+                info!(
+                    "TRACE_LABEL: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} primitive=\"glyph_quads\" texture_format=\"{:?}\" shader=\"text_pipeline\" blend=\"alpha\"",
+                    source,
+                    glyph_count,
+                    rasterized_glyph_count,
+                    atlas_entries,
+                    self.color_format
+                );
+                eprintln!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
+            }
 
-            eprintln!(
-                "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
-                source,
-                glyph_count,
-                first.x,
-                first.y,
-                first.clip_w,
-                first.clip_h,
-                format!("{}-{}-{}-{}", first.clip_x, first.clip_y, first.clip_w, first.clip_h),
-                first.size,
-                first.color
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
+                    source,
+                    glyph_count,
+                    first.x,
+                    first.y,
+                    first.clip_w,
+                    first.clip_h,
+                    format!("{}-{}-{}-{}", first.clip_x, first.clip_y, first.clip_w, first.clip_h),
+                    first.size,
+                    first.color
+                );
+            }
 
             let line_count = 1usize;
             let run_count = 1usize;
             let shaped_glyphs_total = glyph_count;
             let glyphs_per_run = vec![glyph_count];
 
-            eprintln!(
-                "GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}",
-                line_count,
-                run_count,
-                shaped_glyphs_total,
-                glyphs_per_run
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}",
+                    line_count,
+                    run_count,
+                    shaped_glyphs_total,
+                    glyphs_per_run
+                );
+            }
 
             // Post-layout extraction: simulate extraction pass and report rejects.
             let total_layout_glyphs = shaped_glyphs_total;
@@ -340,8 +348,12 @@ impl CosmicTextRenderer {
             let mut atlas_insert_attempted_total: usize = 0;
             let mut atlas_insert_success_total: usize = 0;
 
-            eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_extracted_vec len={}", extracted_for_emission);
-            eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", extracted_for_emission);
+            if text_debug_enabled() {
+                eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_extracted_vec len={}", extracted_for_emission);
+            }
+            if text_debug_enabled() {
+                eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", extracted_for_emission);
+            }
 
             if extracted_for_emission == 0 {
                 eprintln!("GUI_TEXT_EARLY_EXIT: stage=rasterization reason=empty_extracted_vec");
@@ -351,7 +363,9 @@ impl CosmicTextRenderer {
             for idx in 0..extracted_for_emission {
                 let glyph_key = format!("glyph_{}", idx);
                 // Keep per-glyph iter markers but avoid flooding; emit representative subset if needed.
-                eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
+                if text_debug_enabled() {
+                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
+                }
 
                 let has_cache_key = true;
                 let has_physical_glyph = true;
@@ -373,7 +387,9 @@ impl CosmicTextRenderer {
                     continue;
                 }
 
-                eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
+                if text_debug_enabled() {
+                    eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
+                }
                 rasterize_attempted_total += 1;
                 let raster_ok = true;
                 if raster_ok {
@@ -384,7 +400,9 @@ impl CosmicTextRenderer {
                     continue;
                 }
 
-                eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
+                if text_debug_enabled() {
+                    eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
+                }
                 atlas_insert_attempted_total += 1;
                 let atlas_ok = true;
                 if atlas_ok {
@@ -395,7 +413,9 @@ impl CosmicTextRenderer {
                     continue;
                 }
 
-                eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
+                if text_debug_enabled() {
+                    eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
+                }
                 instances_pushed += 1;
             }
 
@@ -414,14 +434,16 @@ impl CosmicTextRenderer {
             }
 
             // Pipeline summary combining the key counters so a single grep shows the first zero stage.
-            eprintln!(
-                "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
-                shaped_glyphs_total,
-                extracted_for_emission,
-                rasterize_success_total,
-                atlas_insert_success_total,
-                instances_pushed
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
+                    shaped_glyphs_total,
+                    extracted_for_emission,
+                    rasterize_success_total,
+                    atlas_insert_success_total,
+                    instances_pushed
+                );
+            }
 
             // Also emit an info-level summary for downstream parsing tools that read the temp marker.
             info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued_commands={} source=\"{}\" shaped_glyphs_total={} extracted_for_emission={} atlas_entries={}", queued_count, source, shaped_glyphs_total, extracted_for_emission, atlas_entries);
@@ -446,98 +468,6 @@ impl CosmicTextRenderer {
             }
 
             // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path.
-            if COSMIC_ISOLATE_RUN.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                let iso_text = "Zaroxi".to_string();
-                let iso_width = 300u32;
-                let iso_height = 40u32;
-                let iso_font_size = 18.0f32;
-                let iso_clip = "0-0-300-40";
-
-                let iso_glyph_count = iso_text.chars().count();
-                eprintln!("GUI_TEXT_COSMIC_ISOLATE: starting");
-                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95, 0.95, 0.95, 1.0f32]);
-                eprintln!("GUI_TEXT_FONT_FILE: path=\"assets/fonts/JetBrainsMonoNerdFont-Regular.ttf\" loaded={} family_name=\"{}\"", font_file_loaded, family_name_from_file);
-                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count=1 run_count=1 shaped_glyphs_total={} glyphs_per_run={:?}", iso_glyph_count, vec![iso_glyph_count]);
-
-                eprintln!("GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total=0", iso_glyph_count, iso_glyph_count);
-
-                eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_iso_extracted_vec len={}", iso_glyph_count);
-                eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", iso_glyph_count);
-
-                if iso_glyph_count == 0 {
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_rasterization reason=empty_extracted_vec");
-                }
-
-                let mut iso_rasterize_attempted_total: usize = 0;
-                let mut iso_rasterize_success_total: usize = 0;
-                let mut iso_atlas_insert_attempted_total: usize = 0;
-                let mut iso_atlas_insert_success_total: usize = 0;
-                let mut iso_instances_pushed: usize = 0;
-
-                for idx in 0..iso_glyph_count {
-                    let glyph_key = format!("iso_glyph_{}", idx);
-                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
-
-                    let has_cache_key = true;
-                    let has_physical_glyph = true;
-                    let has_swash_image = self.swash_cache.lock().is_ok();
-
-                    if !has_cache_key {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_cache_key idx={}", idx);
-                        continue;
-                    }
-                    if !has_physical_glyph {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_physical_glyph idx={}", idx);
-                        continue;
-                    }
-                    if !has_swash_image {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_swash_image idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
-                    iso_rasterize_attempted_total += 1;
-                    let raster_ok = true;
-                    if raster_ok {
-                        iso_rasterize_success_total += 1;
-                    } else {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_raster reason=raster_failed idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
-                    iso_atlas_insert_attempted_total += 1;
-                    let atlas_ok = true;
-                    if atlas_ok {
-                        iso_atlas_insert_success_total += 1;
-                    } else {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_atlas reason=atlas_failed idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
-                    iso_instances_pushed += 1;
-                }
-
-                eprintln!(
-                    "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
-                    iso_rasterize_attempted_total,
-                    iso_rasterize_success_total,
-                    iso_atlas_insert_attempted_total,
-                    iso_atlas_insert_success_total
-                );
-
-                if iso_instances_pushed > 0 {
-                    eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", iso_instances_pushed);
-                } else {
-                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
-                }
-            }
 
             // Marker: record that an atlas has been uploaded so render-pass shader
             // sampling can be exercised. We do not yet construct a runtime BindGroup
@@ -611,19 +541,22 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         if let Some(cmd) = representative {
-            eprintln!(
-                "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
-                cmd.text,
-                cmd.text.chars().count(),
-                cmd.x,
-                cmd.y,
-                cmd.clip_w,
-                cmd.clip_h,
-                format!("{}-{}-{}-{}", cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h),
-                cmd.size,
-                cmd.color
-            );
-        } else {
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
+                    cmd.text,
+                    cmd.text.chars().count(),
+                    cmd.x,
+                    cmd.y,
+                    cmd.clip_w,
+                    cmd.clip_h,
+                    format!("{}-{}-{}-{}", cmd.clip_x, cmd.clip_y, cmd.clip_w, cmd.clip_h),
+                    cmd.size,
+                    cmd.color
+                );
+            }
+        } else if queued_count == 0 {
+            // Only emit a skip reason when it's an actual error (no queued commands).
             eprintln!("GUI_TEXT_COSMIC_SKIP_LOG_REASON=no_text_items");
         }
 
@@ -668,12 +601,14 @@ impl TextRenderer for CosmicTextRenderer {
             .to_string();
 
         // Emit a single authoritative terminal-visible line proving we attempted to load the real font file.
-        eprintln!(
-            "GUI_TEXT_FONT_FILE: path=\"{}\" loaded={} family_name=\"{}\"",
-            font_file_path.display(),
-            font_file_loaded,
-            family_name_from_file
-        );
+        if !font_resolved {
+            eprintln!(
+                "GUI_TEXT_FONT_FILE: path=\"{}\" loaded={} family_name=\"{}\"",
+                font_file_path.display(),
+                font_file_loaded,
+                family_name_from_file
+            );
+        }
 
         // Keep a boolean indicating whether the engine resolved a family from bundled metrics.
         let fallback_used = !font_resolved;
@@ -696,22 +631,23 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         // Report a single buffer/setup diagnostic line derived from the simulated metrics.
-        eprintln!(
-            "GUI_TEXT_COSMIC_BUFFER: buffer_created=true metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
-            // Prefer the representative font size when available; fall back to bundled metrics.
-            (q.iter().next().map(|c| c.size).unwrap_or(bundled.line_height as f32)),
-            bundled.line_height,
-            sim_buffer_width,
-            sim_buffer_height,
-            if q.iter().any(|c| c.clip_w > 0.0) { "true" } else { "false" },
-            if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" },
-            "Advanced",
-            if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" }
-        );
+        if text_debug_enabled() {
+            eprintln!(
+                "GUI_TEXT_COSMIC_BUFFER: buffer_created=true metrics_font_size={} metrics_line_height={} buffer_width={} buffer_height={} set_size_called={} set_text_called={} shaping_mode={} shape_called={}",
+                // Prefer the representative font size when available; fall back to bundled metrics.
+                (q.iter().next().map(|c| c.size).unwrap_or(bundled.line_height as f32)),
+                bundled.line_height,
+                sim_buffer_width,
+                sim_buffer_height,
+                if q.iter().any(|c| c.clip_w > 0.0) { "true" } else { "false" },
+                if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" },
+                "Advanced",
+                if q.iter().any(|c| !c.text.is_empty()) { "true" } else { "false" }
+            );
+        }
 
         // Trace a canonical label for diagnostics and instrument the post-layout pipeline
         // stages that convert shaped glyphs into rasterized atlas entries and final draw instances.
-        eprintln!("GUI_TEXT_PATH=redraw_requested");
         let (shaped_glyphs_total, extracted_for_emission, rasterize_success_total, atlas_insert_success_total, instances_pushed) =
             match self.run_text_pipeline(device, queue, &q, queued_count, "redraw_requested") {
                 Ok(t) => t,
@@ -723,12 +659,13 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Pipeline summary combining the key counters so a single grep shows the first zero stage.
         eprintln!(
-            "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
+            "GUI_TEXT_FRAME_SUMMARY: path=redraw_requested shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={} fallback_used={}",
             shaped_glyphs_total,
             extracted_for_emission,
             rasterize_success_total,
             atlas_insert_success_total,
-            instances_pushed
+            instances_pushed,
+            if !font_resolved { "true" } else { "false" }
         );
 
         // Clear queued commands after emulating shaping/rasterization for this pass.
