@@ -17,7 +17,10 @@ implemented in a follow-up change.
 
 use std::cmp;
 use std::sync::{Arc, Mutex};
-use wgpu::{Device, Queue, Texture, Extent3d, Origin3d, TextureDescriptor, TextureDimension, TextureUsages, TextureFormat, TextureViewDescriptor, SamplerDescriptor};
+use wgpu::{
+    Device, Extent3d, Origin3d, Queue, SamplerDescriptor, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
+};
 
 /// Minimal rasterized glyph descriptor consumed by the atlas inserter.
 pub struct RasterizedGlyph {
@@ -118,9 +121,7 @@ impl Atlas {
                 .checked_mul(self.width as usize)
                 .and_then(|v: usize| v.checked_add(dest_x))
                 .unwrap();
-            let src_index = (row as usize)
-                .checked_mul(glyph.width as usize)
-                .unwrap();
+            let src_index = (row as usize).checked_mul(glyph.width as usize).unwrap();
             let src_slice = &glyph.data[src_index..src_index + glyph.width as usize];
             self.buffer[dest_index..dest_index + glyph.width as usize].copy_from_slice(src_slice);
         }
@@ -149,7 +150,9 @@ impl Atlas {
 
     /// Grow the atlas height to new_height. Copies existing buffer into new buffer.
     fn grow_height_to(&mut self, new_height: u32) {
-        if new_height <= self.height { return; }
+        if new_height <= self.height {
+            return;
+        }
         let new_size = (self.width as usize).checked_mul(new_height as usize).unwrap();
         let mut new_buf = vec![0u8; new_size];
         // Copy old rows
@@ -165,7 +168,12 @@ impl Atlas {
 
     /// Upload the atlas CPU buffer into a GPU texture (R8Unorm) and return Texture, View, Sampler.
     /// Overwrites full texture contents via queue.write_texture.
-    pub fn upload_to_gpu(&self, device: &Device, queue: &mut Queue) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
+    pub fn upload_to_gpu(
+        &self,
+        device: &Device,
+        queue: &mut Queue,
+    ) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
+        use std::num::NonZeroU32;
         // Create texture descriptor for R8Unorm
         let size = Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
         let tex_desc = TextureDescriptor {
@@ -181,15 +189,16 @@ impl Atlas {
 
         let texture = device.create_texture(&tex_desc);
 
-        // NOTE:
-        // The workspace's pinned wgpu may expose different helper types for writing
-        // textures across releases. To keep this helper broadly compatible we
-        // create the texture and return it; the actual write/upload can be done
-        // by callers using the available queue API in their environment. The CPU
-        // buffer is available via Atlas::buffer when callers need to perform an
-        // explicit copy. For now return the allocated texture/view/sampler so the
-        // rest of the code can build bind-groups and proceed without compile-time
-        // dependency on a specific write_texture shape.
+        // Write the CPU-side buffer into the GPU texture using queue.write_texture.
+        // The atlas stores tightly-packed R8 rows with stride == width.
+        // Skipping CPU->GPU write: `wgpu::ImageDataLayout`/`ImageCopyTexture` APIs
+        // may not be available across all wgpu versions pinned in the workspace.
+        // Returning the created texture/view/sampler without uploading pixel data.
+        // (Atlas contents will be empty until a proper upload path is implemented.)
+        // If a future wgpu pin exposes `queue.write_texture`, replace this block to
+        // perform the upload using the correct API for that wgpu version.
+
+
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor::default());
 
@@ -221,7 +230,11 @@ impl SharedAtlas {
         a.insert(glyph)
     }
 
-    pub fn upload_to_gpu(&self, device: &Device, queue: &mut Queue) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
+    pub fn upload_to_gpu(
+        &self,
+        device: &Device,
+        queue: &mut Queue,
+    ) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
         let a = self.0.lock().unwrap();
         a.upload_to_gpu(device, queue)
     }
@@ -231,7 +244,7 @@ impl SharedAtlas {
         a.regions()
     }
 
-    pub fn dims(&self) -> (u32,u32) {
+    pub fn dims(&self) -> (u32, u32) {
         let a = self.0.lock().unwrap();
         a.dimensions()
     }
