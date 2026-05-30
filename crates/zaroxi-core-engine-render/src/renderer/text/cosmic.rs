@@ -491,23 +491,38 @@ impl TextRenderer for CosmicTextRenderer {
             let mut attrs = Attrs::new();
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
 
-            // Borrow buffer for layout runs. Extract owned `physical` records while the
-            // borrow is active, then drop it before calling into `swash` which needs
-            // mutable access to the font system.
+            // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
+            // borrow is active, compute precise float layout positions (avoid integer truncation),
+            // and record CacheKey for rasterization. Drop the borrow before calling into `swash`.
             let mut borrowed = buf.borrow_with(&mut *fs);
-            let mut physicals: Vec<_> = Vec::new();
+            // We'll collect tuples of (layout_glyph, layout_x_f32, layout_y_f32, cache_key)
+            let mut physicals: Vec<(cosmic_text::LayoutGlyph, f32, f32, cosmic_text::CacheKey)> =
+                Vec::new();
             for run in borrowed.layout_runs() {
                 for g in run.glyphs.iter() {
                     shaped_total += 1;
-                    // Compute absolute physical coords (include command x/y + run offset)
-                    let physical = g.physical((cmd.x, cmd.y + run.line_y), 1.0);
-                    physicals.push(physical);
+                    // compute float layout origin using the same math as LayoutGlyph::physical
+                    let scale: f32 = 1.0;
+                    let x_offset = g.font_size * g.x_offset;
+                    let y_offset = g.font_size * g.y_offset;
+                    let layout_x = (g.x + x_offset) * scale + cmd.x;
+                    let layout_y = (g.y - y_offset) * scale + (cmd.y + run.line_y);
+                    // Build cache key for rasterization (we only need the key here)
+                    let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
+                        g.font_id,
+                        g.glyph_id,
+                        g.font_size * scale,
+                        (layout_x, layout_y),
+                        g.font_weight,
+                        g.cache_key_flags,
+                    );
+                    physicals.push((g.clone(), layout_x, layout_y, cache_key));
                 }
             }
             drop(borrowed);
 
-            for physical in physicals.into_iter() {
-                let cache_key = physical.cache_key;
+            for (i, tuple) in physicals.into_iter().enumerate() {
+                let (layout_g, layout_x, layout_y, cache_key) = tuple;
 
                 // Avoid duplicate rasterization attempt for the same cache key in this pass
                 if seen_keys.contains(&cache_key) {
@@ -516,7 +531,7 @@ impl TextRenderer for CosmicTextRenderer {
                 seen_keys.insert(cache_key);
 
                 // Request raster image from swash cache
-                match swash.get_image(&mut *fs, physical.cache_key) {
+                match swash.get_image(&mut *fs, cache_key) {
                     Some(img) => {
                         rasterized_total += 1;
                         // Build RasterizedGlyph from swash image
@@ -568,9 +583,39 @@ impl TextRenderer for CosmicTextRenderer {
                         match self.shared_atlas.insert(&glyph) {
                             Some(entry) => {
                                 atlas_inserted_total += 1;
-                                // Record instance sample for logging
-                                let x0 = physical.x as f32 + glyph.offset_x as f32;
-                                let y0 = physical.y as f32 + glyph.offset_y as f32;
+
+                                // Compute final top-left of glyph quad using precise float layout origin
+                                let x0 = layout_x + glyph.offset_x as f32;
+                                let y0 = layout_y + glyph.offset_y as f32;
+
+                                // Log detailed placement info for triage
+                                // Extract the character cluster string from the original command text
+                                let cluster_text: String = cmd
+                                    .text
+                                    .chars()
+                                    .skip(layout_g.start)
+                                    .take(layout_g.end - layout_g.start)
+                                    .collect();
+                                eprintln!(
+                                    "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={}",
+                                    cmd.text,
+                                    cluster_text,
+                                    layout_g.glyph_id,
+                                    layout_g.start,
+                                    layout_g.end,
+                                    layout_x,
+                                    layout_y,
+                                    glyph.offset_x,
+                                    glyph.offset_y,
+                                    layout_g.w,
+                                    0.0,
+                                    x0,
+                                    y0,
+                                    glyph.width,
+                                    glyph.height
+                                );
+
+                                // Record instance sample for logging and later instance buffer
                                 samples.push(InstanceSample {
                                     x: x0,
                                     y: y0,
