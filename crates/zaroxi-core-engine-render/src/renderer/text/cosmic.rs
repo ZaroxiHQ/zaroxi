@@ -689,6 +689,41 @@ impl TextRenderer for CosmicTextRenderer {
         let mut q = self.queued.lock().unwrap();
         let queued_count = q.len();
 
+        // Instrument backend->core forwarding. Upstream may publish the total backend
+        // op count via the BACKEND_TEXT_OPS env var; if absent, assume received == queued.
+        let received_backend_ops = std::env::var("BACKEND_TEXT_OPS").ok().and_then(|s| s.parse::<usize>().ok());
+        let received = received_backend_ops.unwrap_or(queued_count);
+        let forwarded = queued_count;
+        let dropped = received.saturating_sub(forwarded);
+        eprintln!("FORWARD_TEXT_OPS: received={} forwarded={} dropped={}", received, forwarded, dropped);
+        if dropped > 0 {
+            // We cannot determine precise upstream drop reasons here without editing the backend;
+            // report a single unknown bucket so operators can correlate timestamps.
+            eprintln!("DROP_REASON[unknown]={}", dropped);
+        }
+
+        // Per-command trace for backend->core transition. This shows the payload
+        // the core renderer actually received in this frame.
+        for cmd in q.iter() {
+            eprintln!(
+                "BACKEND_TEXT_ITEM: text=\"{}\" is_title={} clip={}x{} pos=({}, {}) size={}",
+                cmd.text,
+                cmd.is_title,
+                cmd.clip_w,
+                cmd.clip_h,
+                cmd.x,
+                cmd.y,
+                cmd.size
+            );
+            // In this phase the command is present in the core queue -> we mark it forwarded.
+            eprintln!("BACKEND_TO_CORE: text=\"{}\" action=forward reason=present_in_queue", cmd.text);
+
+            // If this is our canonical label, emit an explicit trace across stages.
+            if cmd.text.contains("Zaroxi") {
+                eprintln!("TRACED_LABEL: adapter=\"Zaroxi\" backend=\"{}\" core_forwarded=true", cmd.text);
+            }
+        }
+
         // Minimal, terminal-visible entry marker proving we reached the live prepare path.
         if text_debug_enabled() {
             eprintln!("GUI_TEXT_COSMIC_ENTERED: live_prepare");
