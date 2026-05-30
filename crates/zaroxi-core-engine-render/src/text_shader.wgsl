@@ -15,9 +15,15 @@ const DIAGNOSTIC_SOLID: bool = false;
 const DIAGNOSTIC_SHOW_COVERAGE: bool = false;
 
 struct VertexInput {
-    @location(0) pos: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) color: vec4<f32>,
+    // Per-instance packed instance data: pos + uv_min + uv_max
+    @location(0) pos: vec2<f32>,        // instance origin / position
+    @location(1) uv_min: vec2<f32>,     // normalized atlas uv minimum
+    @location(2) uv_max: vec2<f32>,     // normalized atlas uv maximum
+    // Per-vertex local uv used to interpolate between uv_min and uv_max.
+    // This is typically provided by the unit-quad vertex buffer (0..1 range).
+    @location(3) local_uv: vec2<f32>,   // per-vertex local uv
+    // Optional per-vertex color (kept for backward compatibility if provided).
+    @location(4) color: vec4<f32>,
 }
 
 struct VSOut {
@@ -29,9 +35,18 @@ struct VSOut {
 @vertex
 fn vs_main(in: VertexInput) -> VSOut {
     var out: VSOut;
+    // The per-vertex position is expected to already be in clip-space or pre-transformed
+    // by the caller. For diagnostic purposes we pass it through directly.
     out.position = vec4<f32>(in.pos, 0.0, 1.0);
-    out.uv = in.uv;
+
+    // Compute the final uv by interpolating between uv_min and uv_max using the
+    // per-vertex (local) uv coordinates. This produces a distinct uv per corner.
+    out.uv = mix(in.uv_min, in.uv_max, in.local_uv);
+
+    // Preserve color (if provided).
     out.color = in.color;
+
+    // For UV pipeline debugging, optionally output UV as color in the fragment shader.
     return out;
 }
 

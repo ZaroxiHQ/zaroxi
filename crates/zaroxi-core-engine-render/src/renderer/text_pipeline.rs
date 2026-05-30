@@ -8,7 +8,7 @@ available. Keeping this logic here avoids scattering sampler creation across
 the renderer codebase.
 */
 
-use wgpu::{Device, BindGroupLayout, BindGroup, TextureView, SamplerDescriptor, BindGroupEntry, BindGroupDescriptor, BindingResource};
+use wgpu::{Device, BindGroupLayout, BindGroup, TextureView, SamplerDescriptor, BindGroupEntry, BindGroupDescriptor, BindingResource, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
 
 /// Create a default filtering sampler for text atlas sampling.
 pub fn create_default_text_sampler(device: &Device) -> wgpu::Sampler {
@@ -44,4 +44,26 @@ pub fn build_atlas_bind_group(
         layout,
         entries,
     })
+}
+
+/// Return the instance vertex buffer layout expected by the text pipeline.
+///
+/// Instance layout (per-instance, step mode = Instance):
+/// - location(0) pos:   Float32x2  offset 0
+/// - location(1) uv_min:Float32x2  offset 8
+/// - location(2) uv_max:Float32x2  offset 16
+///
+/// stride = 24 bytes
+pub fn instance_buffer_layout() -> VertexBufferLayout<'static> {
+    // Leak a small static slice for the attribute descriptors; repeated calls are cheap.
+    let attrs: &'static [VertexAttribute] = Box::leak(Box::new([
+        VertexAttribute { offset: 0, shader_location: 0, format: VertexFormat::Float32x2 },
+        VertexAttribute { offset: 8, shader_location: 1, format: VertexFormat::Float32x2 },
+        VertexAttribute { offset: 16, shader_location: 2, format: VertexFormat::Float32x2 },
+    ]));
+    VertexBufferLayout {
+        array_stride: 24,
+        step_mode: VertexStepMode::Instance,
+        attributes: attrs,
+    }
 }
