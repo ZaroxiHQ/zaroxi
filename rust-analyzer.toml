@@ -1,0 +1,8 @@
+[cargo]
+allFeatures = false
+
+[lru]
+capacity = 128
+
+[checkOnSave]
+enable = false
