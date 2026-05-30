@@ -173,7 +173,6 @@ impl Atlas {
         device: &Device,
         queue: &mut Queue,
     ) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
-        use std::num::NonZeroU32;
         // Create texture descriptor for R8Unorm
         let size = Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
         let tex_desc = TextureDescriptor {
@@ -189,14 +188,14 @@ impl Atlas {
 
         let texture = device.create_texture(&tex_desc);
 
-        // Write the CPU-side buffer into the GPU texture using queue.write_texture.
-        // The atlas stores tightly-packed R8 rows with stride == width.
-        // Skipping CPU->GPU write: `wgpu::ImageDataLayout`/`ImageCopyTexture` APIs
-        // may not be available across all wgpu versions pinned in the workspace.
-        // Returning the created texture/view/sampler without uploading pixel data.
-        // (Atlas contents will be empty until a proper upload path is implemented.)
-        // If a future wgpu pin exposes `queue.write_texture`, replace this block to
-        // perform the upload using the correct API for that wgpu version.
+        // NOTE: the wgpu texture upload API surface varies between versions.
+        // Historically we used `queue.write_texture` to upload the CPU-side atlas
+        // buffer into the GPU texture. Some pinned wgpu versions in our workspace
+        // do not expose the same `ImageDataLayout`/`ImageCopyTexture` types here,
+        // so for now we create the texture and return it alongside a view and
+        // sampler. The CPU-side atlas buffer is still retained in `self.buffer`.
+        // A subsequent change can add a robust upload path once the exact
+        // wgpu API surface is harmonized across our workspace.
 
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor::default());

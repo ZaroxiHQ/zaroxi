@@ -432,6 +432,8 @@ impl TextRenderer for CosmicTextRenderer {
         let mut atlas_inserted_total: usize = 0;
         let mut instances_total: usize = 0;
         let mut samples: Vec<InstanceSample> = Vec::new();
+        // Log up to the first few rasterized glyphs for diagnostics.
+        let mut glyphs_logged: usize = 0;
 
         if queued_count == 0 {
             // Nothing queued: clear previous frame info and exit early.
@@ -501,6 +503,42 @@ impl TextRenderer for CosmicTextRenderer {
                             offset_y: -img.placement.top as i32,
                         };
 
+                        // Diagnostic: log small stats for the first few glyph bitmaps so we
+                        // can verify whether the raster contains real coverage values or
+                        // is just a solid block.
+                        if glyphs_logged < 3 {
+                            let data = &glyph.data;
+                            if !data.is_empty() {
+                                let mut minv: u8 = 255;
+                                let mut maxv: u8 = 0;
+                                let mut count_255: usize = 0;
+                                for &b in data.iter() {
+                                    if b < minv {
+                                        minv = b;
+                                    }
+                                    if b > maxv {
+                                        maxv = b;
+                                    }
+                                    if b == 255 {
+                                        count_255 += 1;
+                                    }
+                                }
+                                let all_same = data.iter().all(|&v| v == data[0]);
+                                let pct_255 = (count_255 as f32) / (data.len() as f32) * 100.0;
+                                eprintln!(
+                                    "GUI_TEXT_GLYPH_RASTER: key={:?} w={} h={} min={} max={} all_same={} pct_255={:.1}%",
+                                    cache_key,
+                                    glyph.width,
+                                    glyph.height,
+                                    minv,
+                                    maxv,
+                                    all_same,
+                                    pct_255
+                                );
+                                glyphs_logged += 1;
+                            }
+                        }
+
                         // Attempt atlas insertion
                         match self.shared_atlas.insert(&glyph) {
                             Some(entry) => {
@@ -555,7 +593,7 @@ impl TextRenderer for CosmicTextRenderer {
                     height: ah,
                     bytes: (aw as usize) * (ah as usize),
                     regions: regions,
-                    format: format!("{:?}", self.color_format),
+                    format: format!("{:?}", wgpu::TextureFormat::R8Unorm),
                 });
                 let mut uploaded = self.atlas_uploaded.lock().unwrap();
                 *uploaded = true;

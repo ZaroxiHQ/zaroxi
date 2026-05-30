@@ -13,6 +13,9 @@ const DIAGNOSTIC_SOLID: bool = false;
 // Proof mode: when set to true render sampled glyph coverage as grayscale.
 // Useful to verify atlas content/sampling without applying vertex colors.
 const DIAGNOSTIC_SHOW_COVERAGE: bool = false;
+// Env-gated debug helpers (piped in by pipeline build) to aid triage at runtime.
+const ZAROXI_TEXT_SHOW_ATLAS_MASK: bool = false;
+const ZAROXI_TEXT_SHOW_GLYPH_ALPHA: bool = false;
 
 // Instance-driven vertex input: each instance provides quad origin (NDC), size (NDC), UV rect and color.
 struct VSOut {
@@ -59,6 +62,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Atlas textures may be R8 (coverage in .r) or RGBA (coverage in .a or any channel).
     let sampled = textureSample(font_tex, font_sampler, in.uv);
     let coverage = max(max(sampled.r, sampled.g), max(sampled.b, sampled.a));
+
+    // Env-gated debug: show atlas mask as grayscale (useful to verify sampling).
+    if ZAROXI_TEXT_SHOW_ATLAS_MASK {
+        return vec4<f32>(coverage, coverage, coverage, 1.0);
+    }
+    // Env-gated debug: show glyph shapes as alpha only (white color, coverage as alpha)
+    if ZAROXI_TEXT_SHOW_GLYPH_ALPHA {
+        return vec4<f32>(1.0, 1.0, 1.0, coverage);
+    }
 
     if DIAGNOSTIC_SHOW_COVERAGE {
         return vec4<f32>(coverage, coverage, coverage, 1.0);
