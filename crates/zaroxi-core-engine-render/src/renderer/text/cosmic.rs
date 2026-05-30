@@ -839,16 +839,112 @@ impl TextRenderer for CosmicTextRenderer {
             self.color_format
         );
 
-        // Ensure scissor is explicitly set to the viewport so we can detect clipping problems.
+        // Gather inputs used to compute the scissor rect so we can triage why it
+        // might collapse to zero-size. We capture:
+        // - current recorded viewport (may be zero if not propagated)
+        // - a "clip" derived from the first-frame instance samples (if present)
+        // - an optional operator override to force a full-viewport scissor for testing
         let (vw, vh) = *self.viewport.lock().unwrap();
-        if vw == 0 || vh == 0 {
-            eprintln!("GUI_TEXT_SCISSOR: x=0 y=0 w=0 h=0");
+        let samples = self.last_frame_samples.lock().unwrap().clone();
+
+        // Compute a simple bounding-box over the sampled instances (if any).
+        let sample_bbox_opt = if !samples.is_empty() {
+            let mut minx = std::f32::INFINITY;
+            let mut miny = std::f32::INFINITY;
+            let mut maxx = std::f32::NEG_INFINITY;
+            let mut maxy = std::f32::NEG_INFINITY;
+            for s in &samples {
+                minx = minx.min(s.x);
+                miny = miny.min(s.y);
+                maxx = maxx.max(s.x + s.width);
+                maxy = maxy.max(s.y + s.height);
+            }
+            Some((minx, miny, maxx, maxy))
         } else {
-            // Set the scissor to the full viewport (this both documents the effective
-            // scissor used and prevents accidental scissor clipping hiding text).
-            rpass.set_scissor_rect(0, 0, vw, vh);
-            eprintln!("GUI_TEXT_SCISSOR: x=0 y=0 w={} h={}", vw, vh);
-        }
+            None
+        };
+
+        // Emit the raw inputs used when computing the scissor rect.
+        let clip_desc = if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
+            format!("sample_bbox={{minx={} miny={} maxx={} maxy={}}}", minx, miny, maxx, maxy)
+        } else {
+            "sample_bbox=none".to_string()
+        };
+        eprintln!(
+            "GUI_TEXT_SCISSOR_INPUT: viewport={}x{} target=unknown clip={}",
+            vw, vh, clip_desc
+        );
+
+        // Test override: allow forcing a full-viewport scissor to validate that
+        // scissor collapse is the cause of invisible text. Set env:
+        // ZAROXI_TEXT_FORCE_FULL_SCISSOR=1
+        let force_full = std::env::var("ZAROXI_TEXT_FORCE_FULL_SCISSOR")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+
+        // Compute final scissor rect using the following rules:
+        // - If force_full -> use full viewport if available, else a large safe fallback.
+        // - If we have a non-zero viewport and a sample bbox -> intersect sample bbox with viewport.
+        //   - If intersection collapses to zero, fall back to full viewport (prefer non-zero scissor).
+        // - If we have a non-zero viewport but no sample bbox -> use full viewport.
+        // - If we have no viewport but we have samples -> use sample bbox (clamped + min size).
+        // - Final width/height are clamped to at least 1 to avoid a zero-sized scissor.
+        let (final_x, final_y, final_w, final_h) = if force_full {
+            let fw = if vw > 0 { vw } else { 65535u32 };
+            let fh = if vh > 0 { vh } else { 65535u32 };
+            eprintln!("GUI_TEXT_SCISSOR_INTERVENE: force_full_override=true using {}x{}", fw, fh);
+            (0u32, 0u32, fw, fh)
+        } else if vw > 0 && vh > 0 {
+            if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
+                // Intersect sample bbox with viewport.
+                let ix0 = minx.max(0.0);
+                let iy0 = miny.max(0.0);
+                let ix1 = maxx.min(vw as f32);
+                let iy1 = maxy.min(vh as f32);
+                let iw = (ix1 - ix0).max(0.0);
+                let ih = (iy1 - iy0).max(0.0);
+
+                eprintln!(
+                    "GUI_TEXT_SCISSOR_INTERSECT: intersect_bbox={{ix0={} iy0={} ix1={} iy1={} iw={} ih={}}}",
+                    ix0, iy0, ix1, iy1, iw, ih
+                );
+
+                if iw >= 1.0 && ih >= 1.0 {
+                    let fx = ix0.round().max(0.0) as u32;
+                    let fy = iy0.round().max(0.0) as u32;
+                    let fw = (iw.round() as u32).max(1u32);
+                    let fh = (ih.round() as u32).max(1u32);
+                    (fx, fy, fw, fh)
+                } else {
+                    // Collapsed intersection -> prefer full viewport to avoid accidental clipping.
+                    eprintln!("GUI_TEXT_SCISSOR_INTERSECT: collapsed_intersection -> using full viewport instead");
+                    (0u32, 0u32, vw, vh)
+                }
+            } else {
+                // No clip/sample bbox -> use full viewport.
+                eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_clip -> using full viewport");
+                (0u32, 0u32, vw, vh)
+            }
+        } else if let Some((minx, miny, maxx, maxy)) = sample_bbox_opt {
+            // No viewport available; fall back to sample bounding box (clamped and sized).
+            let sx = minx.round().max(0.0) as u32;
+            let sy = miny.round().max(0.0) as u32;
+            let sw = ((maxx - minx).round() as u32).max(1u32);
+            let sh = ((maxy - miny).round() as u32).max(1u32);
+            eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_viewport -> using sample_bbox fallback");
+            (sx, sy, sw, sh)
+        } else {
+            // Last resort: use a reasonable default to avoid zero-sized scissor.
+            eprintln!("GUI_TEXT_SCISSOR_INTERSECT: no_viewport_no_clip -> using default 800x600 fallback");
+            (0u32, 0u32, 800u32, 600u32)
+        };
+
+        // Apply the computed scissor rect and emit the final values for triage.
+        rpass.set_scissor_rect(final_x, final_y, final_w, final_h);
+        eprintln!(
+            "GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}",
+            final_x, final_y, final_w, final_h
+        );
 
         // Bind the pipeline (we do this even in the placeholder path so any draw
         // diagnostics are provable).
@@ -918,6 +1014,12 @@ impl TextRenderer for CosmicTextRenderer {
         let mut vp = self.viewport.lock().unwrap();
         *vp = (width, height);
         info!("CosmicTextRenderer: viewport resize requested ({}x{})", width, height);
+
+        // Publish a concise viewport update marker for scissor diagnosis. This tells
+        // the investigator whether the renderer is receiving non-zero viewport
+        // values from the compositor/upper layer.
+        eprintln!("GUI_TEXT_VIEWPORT_UPDATED: viewport_width={} viewport_height={}", width, height);
+
         Ok(())
     }
 }
