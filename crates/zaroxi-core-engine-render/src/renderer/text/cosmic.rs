@@ -35,6 +35,7 @@ use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
 use log::{debug, info};
 use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
 
 fn text_debug_enabled() -> bool {
     std::env::var("ZAROXI_TEXT_DEBUG").map(|v| v == "1").unwrap_or(false)
@@ -781,13 +782,26 @@ impl TextRenderer for CosmicTextRenderer {
                     let y = cmd.y;
                     let width = 8.0;
                     let height = cmd.size.max(1.0);
+
+                    // Assign per-instance UV rectangles so diagnostics can show whether
+                    // instances map to distinct atlas regions or all share a full-tex UV.
+                    // Compute a simple square grid based on the total number of extracted instances.
+                    let instance_count = extracted_for_emission.max(1);
+                    let cols_f = (instance_count as f32).sqrt().ceil();
+                    let cols = if cols_f < 1.0 { 1u32 } else { cols_f as u32 };
+                    let cell = 1.0f32 / (cols as f32);
+                    let col = (i as u32) % cols;
+                    let row = (i as u32) / cols;
+                    let uv0 = (col as f32 * cell, row as f32 * cell);
+                    let uv1 = (((col + 1) as f32) * cell, ((row + 1) as f32) * cell);
+
                     samples_lock.push(InstanceSample {
                         x,
                         y,
                         width,
                         height,
-                        uv0: (0.0, 0.0),
-                        uv1: (1.0, 1.0),
+                        uv0,
+                        uv1,
                         color: cmd.color,
                     });
                 }
@@ -986,7 +1000,18 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         // Atlas upload verification marker (trusted metadata saved at upload time).
+        // Additionally dump atlas meta + first few per-instance atlas rects so we can
+        // determine whether distinct UVs are being used or everything points to the
+        // full texture (placeholder).
         if atlas_w > 0 {
+            // Number of unique uv rectangles observed among sampled instances.
+            let samples_for_uv = self.last_frame_samples.lock().unwrap().clone();
+            let mut unique_uvs: HashSet<((f32, f32), (f32, f32))> = HashSet::new();
+            for s in &samples_for_uv {
+                unique_uvs.insert((s.uv0, s.uv1));
+            }
+            let unique_uv_count = unique_uvs.len();
+
             eprintln!(
                 "GUI_TEXT_ATLAS_UPLOAD: uploaded=true width={} height={} bytes={} regions={} format={}",
                 atlas_w,
@@ -995,6 +1020,37 @@ impl TextRenderer for CosmicTextRenderer {
                 atlas_regions,
                 atlas_format
             );
+
+            eprintln!(
+                "GUI_TEXT_ATLAS_META: width={} height={} entries_estimated={} unique_uvs={}",
+                atlas_w,
+                atlas_h,
+                atlas_regions,
+                unique_uv_count
+            );
+
+            // Emit first up-to-3 atlas entries derived from instance UVs so operators can see
+            // whether UVs are distinct and what pixel rects they map to.
+            for (i, s) in samples_for_uv.iter().enumerate().take(3) {
+                let px_x0 = (s.uv0.0 * atlas_w as f32).round() as i32;
+                let px_y0 = (s.uv0.1 * atlas_h as f32).round() as i32;
+                let px_x1 = (s.uv1.0 * atlas_w as f32).round() as i32;
+                let px_y1 = (s.uv1.1 * atlas_h as f32).round() as i32;
+                let px_w = (px_x1 - px_x0).max(0);
+                let px_h = (px_y1 - px_y0).max(0);
+                eprintln!(
+                    "GUI_TEXT_ATLAS_ENTRY: idx={} uv0=({}, {}) uv1=({}, {}) px_rect=x={} y={} w={} h={}",
+                    i,
+                    s.uv0.0,
+                    s.uv0.1,
+                    s.uv1.0,
+                    s.uv1.1,
+                    px_x0,
+                    px_y0,
+                    px_w,
+                    px_h
+                );
+            }
         } else {
             eprintln!("GUI_TEXT_ATLAS_UPLOAD: uploaded=false");
         }
