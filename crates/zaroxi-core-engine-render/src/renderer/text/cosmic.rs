@@ -27,8 +27,9 @@ use cosmic_text::{Attrs, Buffer as CosmicBuffer, Metrics, Shaping};
 use log::{debug, info};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, BindGroupLayout, CommandEncoder, Device, Extent3d, Queue, RenderPass,
+    BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Extent3d, Queue, RenderPass,
     RenderPipeline, SamplerDescriptor, TextureDescriptor, TextureDimension, TextureFormat,
     TextureUsages, TextureView, TextureViewDescriptor,
 };
@@ -70,6 +71,17 @@ struct InstanceSample {
     color: [f32; 4],
 }
 
+// GPU instance layout matching WGSL instance attributes (NDC positions/sizes + UV rect + color)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct InstanceRaw {
+    pos_ndc: [f32; 2],
+    size_ndc: [f32; 2],
+    uv0: [f32; 2],
+    uv1: [f32; 2],
+    color: [f32; 4],
+}
+
 pub struct CosmicTextRenderer {
     queued: Arc<Mutex<Vec<TextCommand>>>,
     atlas_uploaded: Arc<Mutex<bool>>,
@@ -78,6 +90,8 @@ pub struct CosmicTextRenderer {
     shared_atlas: SharedAtlas,
     atlas_bind_group: Arc<Mutex<Option<BindGroup>>>,
     text_bind_layout: Arc<BindGroupLayout>,
+    // GPU-side instance buffer created during prepare() if glyphs are available.
+    instance_buffer: Arc<Mutex<Option<Buffer>>>,
     font_system: Arc<Mutex<cosmic_text::FontSystem>>,
     color_format: TextureFormat,
     last_frame_summary: Arc<Mutex<Option<FrameSummary>>>,
@@ -109,6 +123,7 @@ impl CosmicTextRenderer {
             last_frame_summary: Arc::new(Mutex::new(None)),
             last_frame_samples: Arc::new(Mutex::new(Vec::new())),
             viewport: Arc::new(Mutex::new((0u32, 0u32))),
+            instance_buffer: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -303,6 +318,19 @@ impl CosmicTextRenderer {
             "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} atlas_bound={}",
             vertex_count, instance_count, pipeline_bound, atlas_bound
         );
+
+        // If we have instance data uploaded, perform an instanced non-indexed draw using
+        // a small 6-vertex quad generated in the vertex shader via vertex_index.
+        if instance_count > 0 {
+            let ib_guard = self.instance_buffer.lock().unwrap();
+            if let Some(ref inst_buf) = *ib_guard {
+                rpass.set_vertex_buffer(0, inst_buf.slice(..));
+                rpass.draw(0..6, 0..(instance_count as u32));
+                eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: instances={}", instance_count);
+            } else {
+                eprintln!("GUI_TEXT_NO_INSTANCE_BUFFER_PRESENT: instances={}", instance_count);
+            }
+        }
 
         // Dump up to first few samples for triage.
         for (i, s) in samples.iter().enumerate().take(8) {
@@ -553,6 +581,41 @@ impl TextRenderer for CosmicTextRenderer {
         {
             let mut ss = self.last_frame_samples.lock().unwrap();
             *ss = samples.clone();
+        }
+
+        // Build & upload GPU instance buffer for the shader if we have samples.
+        if !samples.is_empty() {
+            // Use recorded viewport (fallback to 0 if unknown). Prepare() runs on the main thread so lock is fine.
+            let (vw, vh) = *self.viewport.lock().unwrap();
+            let screen_w = if vw > 0 { vw as f32 } else { 1.0 };
+            let screen_h = if vh > 0 { vh as f32 } else { 1.0 };
+            let mut insts: Vec<InstanceRaw> = Vec::with_capacity(samples.len());
+            for s in samples.iter() {
+                let a = crate::renderer::geometry::pixel_to_ndc(s.x, s.y, screen_w, screen_h);
+                let b = crate::renderer::geometry::pixel_to_ndc(
+                    s.x + s.width,
+                    s.y + s.height,
+                    screen_w,
+                    screen_h,
+                );
+                let size_ndc = [b[0] - a[0], b[1] - a[1]];
+                let ir = InstanceRaw {
+                    pos_ndc: [a[0], a[1]],
+                    size_ndc,
+                    uv0: [s.uv0.0, s.uv0.1],
+                    uv1: [s.uv1.0, s.uv1.1],
+                    color: s.color,
+                };
+                insts.push(ir);
+            }
+            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("text_instance_buffer"),
+                contents: bytemuck::cast_slice(&insts),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+            let mut ib = self.instance_buffer.lock().unwrap();
+            *ib = Some(buf);
+            eprintln!("GUI_TEXT_INSTANCE_BUFFER_UPLOADED: count={} stride=48", insts.len());
         }
 
         // Honest terminal-visible summary.

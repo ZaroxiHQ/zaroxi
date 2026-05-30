@@ -14,12 +14,7 @@ const DIAGNOSTIC_SOLID: bool = false;
 // Useful to verify atlas content/sampling without applying vertex colors.
 const DIAGNOSTIC_SHOW_COVERAGE: bool = false;
 
-struct VertexInput {
-    @location(0) pos: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) color: vec4<f32>,
-}
-
+// Instance-driven vertex input: each instance provides quad origin (NDC), size (NDC), UV rect and color.
 struct VSOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -27,11 +22,30 @@ struct VSOut {
 }
 
 @vertex
-fn vs_main(in: VertexInput) -> VSOut {
+fn vs_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
+    @location(0) i_pos: vec2<f32>,
+    @location(1) i_size: vec2<f32>,
+    @location(2) i_uv0: vec2<f32>,
+    @location(3) i_uv1: vec2<f32>,
+    @location(4) i_color: vec4<f32>,
+) -> VSOut {
     var out: VSOut;
-    out.position = vec4<f32>(in.pos, 0.0, 1.0);
-    out.uv = in.uv;
-    out.color = in.color;
+    // Triangle-list corners for two triangles forming a quad (0..5)
+    let corners: array<vec2<f32>, 6> = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+    );
+    let corner = corners[vertex_index];
+    let pos_ndc = i_pos + corner * i_size;
+    out.position = vec4<f32>(pos_ndc, 0.0, 1.0);
+    out.uv = mix(i_uv0, i_uv1, corner);
+    out.color = i_color;
     return out;
 }
 
