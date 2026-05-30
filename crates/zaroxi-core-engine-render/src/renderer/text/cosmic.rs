@@ -856,14 +856,22 @@ impl TextRenderer for CosmicTextRenderer {
                                 if let Some(next_x) = next_layout_x_opt {
                                     let expected_by_advance = layout_x + layout_g.w;
                                     let expected_by_quad = snapped_x0 + (glyph.width as f32);
+                                    // Allow a small tolerance because command-level snapping or
+                                    // integer rounding of physical positions can legitimately push the
+                                    // quad edge to equal the next glyph's position. Compute an allowed
+                                    // tolerance in physical pixels proportional to device_scale.
                                     let eps = 0.01f32;
+                                    let tolerance = (0.75f32).max(0.25f32 * device_scale);
                                     if (next_x - expected_by_quad).abs() < eps
-                                        && (next_x - expected_by_advance).abs() > eps
+                                        && (next_x - expected_by_advance).abs() > tolerance
                                     {
                                         debug_assert!(
                                             false,
-                                            "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
-                                            next_x, expected_by_quad, expected_by_advance
+                                            "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={} tolerance={}",
+                                            next_x,
+                                            expected_by_quad,
+                                            expected_by_advance,
+                                            tolerance
                                         );
                                     }
                                 }
