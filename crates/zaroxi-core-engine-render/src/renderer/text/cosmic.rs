@@ -547,19 +547,15 @@ impl TextRenderer for CosmicTextRenderer {
                     shaped_total += 1;
                     // compute float layout origin using the device pixel scale so cache keys
                     // and subpixel bins reflect physical rasterization size.
-                    let scale: f32 = device_scale;
-                    let x_offset = g.font_size * g.x_offset;
-                    let y_offset = g.font_size * g.y_offset;
-                    // Apply device-scale to both layout coordinates and command offsets so
-                    // the CacheKey uses physical pixel positions.
-                    let layout_x = (g.x + x_offset) * scale + snapped_cmd_x;
-                    let layout_y =
-                        (g.y - y_offset) * scale + (snapped_cmd_y + run.line_y * device_scale);
-                    // Build cache key for rasterization using physical font size and position
+                    // Use shaped glyph positions directly. `g.x` and `g.y` are already in
+                    // physical pixels because we created the buffer with physical metrics.
+                    let layout_x = g.x + snapped_cmd_x;
+                    let layout_y = g.y + snapped_cmd_y + run.line_y * device_scale;
+                    // Build cache key for rasterization using the physical font size and layout origin.
                     let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
                         g.font_id,
                         g.glyph_id,
-                        g.font_size * scale,
+                        font_size_physical,
                         (layout_x, layout_y),
                         g.font_weight,
                         g.cache_key_flags,
@@ -596,9 +592,9 @@ impl TextRenderer for CosmicTextRenderer {
                     {
                         // Debug assertion: ensure cached raster matches current physical font size & scale
                         if text_debug_enabled() {
-                            if (cached_fsize - font_size_physical).abs() > 0.01
-                                || (cached_dev_scale - device_scale).abs() > 0.001
-                            {
+                            let fsize_diff = (cached_fsize - font_size_physical).abs();
+                            let scale_diff = (cached_dev_scale - device_scale).abs();
+                            if fsize_diff > 0.01 || scale_diff > 0.001 {
                                 eprintln!(
                                     "GUI_TEXT_CACHE_MISMATCH: reused cache_key={:?} cached_fsize={} current_fsize={} cached_scale={} current_scale={}",
                                     cache_key,
@@ -746,7 +742,7 @@ impl TextRenderer for CosmicTextRenderer {
                                         .take(layout_g.end - layout_g.start)
                                         .collect();
                                     eprintln!(
-                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} snapped_x={} snapped_y={} quad_w={} quad_h={} cache_key={:?}",
+                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} shaped_x={} shaped_advance={} offset_x={} offset_y={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}",
                                         cmd.text,
                                         cluster_text,
                                         layout_g.glyph_id,
@@ -754,16 +750,12 @@ impl TextRenderer for CosmicTextRenderer {
                                         layout_g.font_size,
                                         layout_g.start,
                                         layout_g.end,
-                                        layout_x,
-                                        layout_y,
+                                        layout_g.x,
+                                        layout_g.w,
                                         glyph.offset_x,
                                         glyph.offset_y,
-                                        layout_g.w,
-                                        0.0,
                                         x0,
                                         y0,
-                                        snapped_x0,
-                                        snapped_y0,
                                         glyph.width,
                                         glyph.height,
                                         cache_key
