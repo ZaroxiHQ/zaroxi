@@ -13,9 +13,9 @@ const DIAGNOSTIC_SOLID: bool = false;
 // Proof mode: when set to true render sampled glyph coverage as grayscale.
 // Useful to verify atlas content/sampling without applying vertex colors.
 const DIAGNOSTIC_SHOW_COVERAGE: bool = false;
-// Env-gated debug helpers (piped in by pipeline build) to aid triage at runtime.
-const ZAROXI_TEXT_SHOW_ATLAS_MASK: bool = false;
-const ZAROXI_TEXT_SHOW_GLYPH_ALPHA: bool = false;
+// Env-gated debug helper (piped in by pipeline build) to aid triage at runtime.
+// Set `ZAROXI_TEXT_SHOW_MASK=1` to render atlas.r as a grayscale mask.
+const ZAROXI_TEXT_SHOW_MASK: bool = false;
 
 // Instance-driven vertex input: each instance provides quad origin (NDC), size (NDC), UV rect and color.
 struct VSOut {
@@ -58,28 +58,23 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         return vec4<f32>(1.0, 0.0, 1.0, 1.0);
     }
 
-    // Robust coverage extraction: take the max of all sampled channels.
-    // Atlas textures may be R8 (coverage in .r) or RGBA (coverage in .a or any channel).
+    // Strict R8 mask sampling path: read the red channel only.
     let sampled = textureSample(font_tex, font_sampler, in.uv);
-    let coverage = max(max(sampled.r, sampled.g), max(sampled.b, sampled.a));
+    let mask = sampled.r;
 
     // Env-gated debug: show atlas mask as grayscale (useful to verify sampling).
-    if ZAROXI_TEXT_SHOW_ATLAS_MASK {
-        return vec4<f32>(coverage, coverage, coverage, 1.0);
-    }
-    // Env-gated debug: show glyph shapes as alpha only (white color, coverage as alpha)
-    if ZAROXI_TEXT_SHOW_GLYPH_ALPHA {
-        return vec4<f32>(1.0, 1.0, 1.0, coverage);
+    if ZAROXI_TEXT_SHOW_MASK {
+        return vec4<f32>(mask, mask, mask, 1.0);
     }
 
     if DIAGNOSTIC_SHOW_COVERAGE {
-        return vec4<f32>(coverage, coverage, coverage, 1.0);
+        return vec4<f32>(mask, mask, mask, 1.0);
     }
 
     if DIAGNOSTIC_SOLID {
         return vec4<f32>(in.color.rgb, 1.0);
     }
 
-    let alpha = in.color.a * coverage;
+    let alpha = in.color.a * mask;
     return vec4<f32>(in.color.rgb, alpha);
 }

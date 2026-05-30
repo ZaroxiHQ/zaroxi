@@ -58,20 +58,12 @@ pub(crate) fn create_pipelines(
         log::info!("TEXT SHADER: DIAGNOSTIC_MAGENTA forced ON via ZAROXI_TEXT_SOLID_QUADS");
     }
 
-    if std::env::var("ZAROXI_TEXT_SHOW_ATLAS_MASK").map(|v| v == "1").unwrap_or(false) {
+    if std::env::var("ZAROXI_TEXT_SHOW_MASK").map(|v| v == "1").unwrap_or(false) {
         shader_src = shader_src.replace(
-            "const ZAROXI_TEXT_SHOW_ATLAS_MASK: bool = false;",
-            "const ZAROXI_TEXT_SHOW_ATLAS_MASK: bool = true;",
+            "const ZAROXI_TEXT_SHOW_MASK: bool = false;",
+            "const ZAROXI_TEXT_SHOW_MASK: bool = true;",
         );
-        log::info!("TEXT SHADER: ZAROXI_TEXT_SHOW_ATLAS_MASK forced ON");
-    }
-
-    if std::env::var("ZAROXI_TEXT_SHOW_GLYPH_ALPHA").map(|v| v == "1").unwrap_or(false) {
-        shader_src = shader_src.replace(
-            "const ZAROXI_TEXT_SHOW_GLYPH_ALPHA: bool = false;",
-            "const ZAROXI_TEXT_SHOW_GLYPH_ALPHA: bool = true;",
-        );
-        log::info!("TEXT SHADER: ZAROXI_TEXT_SHOW_GLYPH_ALPHA forced ON");
+        log::info!("TEXT SHADER: ZAROXI_TEXT_SHOW_MASK forced ON");
     }
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("text-shader"),

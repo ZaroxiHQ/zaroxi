@@ -301,22 +301,32 @@ impl CosmicTextRenderer {
             eprintln!("GUI_TEXT_SCISSOR_FINAL: skipped (unknown target)");
         }
 
-        // Bind the pipeline and emit a draw diagnostic. We do not attempt to build
-        // or bind a real atlas bind-group here if one is not available.
+        // Bind the pipeline and emit a draw diagnostic.
         rpass.set_pipeline(pipeline);
         let pipeline_bound = true;
-        let atlas_bound = *self.atlas_uploaded.lock().unwrap();
-        // Attempt to bind the atlas bind group if uploaded
+        // Inspect the live bind group rather than relying on a boolean only.
         let bg_guard = self.atlas_bind_group.lock().unwrap();
-        if atlas_bound {
-            if let Some(ref bg) = *bg_guard {
-                rpass.set_bind_group(0, bg, &[]);
-            }
+        let bind_group_live = bg_guard.is_some();
+        // Examine recorded atlas metadata to classify source and format.
+        let meta_guard = self.atlas_meta.lock().unwrap();
+        let atlas_format =
+            meta_guard.as_ref().map(|m| m.format.clone()).unwrap_or("none".to_string());
+        let bind_source = if bind_group_live && atlas_format.contains("R8") {
+            "uploaded_r8_atlas"
+        } else if bind_group_live {
+            "debug_placeholder"
+        } else {
+            "none"
+        };
+        eprintln!("GUI_TEXT_BIND_GROUP_LIVE: {}", bind_group_live);
+        eprintln!("GUI_TEXT_BIND_GROUP_SOURCE: {}", bind_source);
+        if let Some(ref bg) = *bg_guard {
+            rpass.set_bind_group(0, bg, &[]);
         }
         let vertex_count = 6usize * instance_count; // 6 verts per quad approximation
         eprintln!(
-            "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} atlas_bound={}",
-            vertex_count, instance_count, pipeline_bound, atlas_bound
+            "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
+            vertex_count, instance_count, pipeline_bound, bind_group_live
         );
 
         // If we have instance data uploaded, perform an instanced non-indexed draw using
@@ -349,6 +359,21 @@ impl CosmicTextRenderer {
         } else {
             eprintln!("GUI_TEXT_ATLAS_UPLOAD: uploaded=false");
         }
+
+        // Final per-frame truth line: confirm the authoritative path used for text rendering.
+        let shader_mode =
+            if std::env::var("ZAROXI_TEXT_SHOW_MASK").map(|v| v == "1").unwrap_or(false) {
+                "mask"
+            } else {
+                "normal_mask"
+            };
+        let bind_group_state = if bind_group_live { "live" } else { "none" };
+        let sampler_state = if bind_group_live { "real" } else { "none" };
+        let texture_view_state = if bind_group_live { "real" } else { "none" };
+        eprintln!(
+            "GUI_TEXT_FINAL_PATH: atlas_format={} bind_group={} shader_mode={} sampler={} texture_view={}",
+            atlas_format, bind_group_state, shader_mode, sampler_state, texture_view_state
+        );
 
         // If there are text indices to draw, issue an indexed draw for the text portion.
         let panel = panel_indices_len;
