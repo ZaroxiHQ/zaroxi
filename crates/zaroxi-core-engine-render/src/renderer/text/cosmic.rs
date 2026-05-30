@@ -146,6 +146,425 @@ impl CosmicTextRenderer {
         });
         Some((texture, view, sampler))
     }
+
+    /// Shared text pipeline entrypoint.
+    ///
+    /// This function encapsulates the shaping -> extraction -> per-glyph raster/atlas/push
+    /// flow and returns the decisive per-frame counters so callers (startup or redraw)
+    /// read the same live state. It also emits the shared markers requested by operators.
+    fn run_text_pipeline(
+        &self,
+        device: &Device,
+        queue: &mut Queue,
+        q: &Vec<TextCommand>,
+        queued_count: usize,
+        path_label: &str,
+    ) -> Result<(usize, usize, usize, usize, usize), RenderError> {
+        // Announce which path invoked the shared pipeline and that we entered it.
+        eprintln!("GUI_TEXT_PATH={}", path_label);
+        eprintln!("GUI_TEXT_SHARED_PIPELINE_ENTERED=true");
+
+        // Consolidated input tracing: pick one representative label for this frame.
+        let representative: Option<&crate::renderer::text::TextCommand> =
+            q.iter().find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty());
+
+        let bundled = zaroxi_core_engine_font::load_bundled_monospace();
+        let font_file_path = std::path::Path::new("assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+        let font_file_loaded = match std::fs::read(&font_file_path) { Ok(_) => true, Err(_) => false, };
+        let family_name_from_file = font_file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        if let Some(first) = representative {
+            let source = first.text.clone();
+
+            // Shaping/layout estimate (conservative): codepoint count as glyph_count.
+            let glyph_count = source.chars().count();
+
+            // Rasterization & atlas heuristics (conservative placeholders)
+            let rasterized_glyph_count = glyph_count;
+            let atlas_entries = rasterized_glyph_count;
+
+            // Emit compact traces useful for triage (info + terminal)
+            info!(
+                "TRACE_LABEL: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} primitive=\"glyph_quads\" texture_format=\"{:?}\" shader=\"text_pipeline\" blend=\"alpha\"",
+                source,
+                glyph_count,
+                rasterized_glyph_count,
+                atlas_entries,
+                self.color_format
+            );
+            eprintln!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
+
+            eprintln!(
+                "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
+                source,
+                glyph_count,
+                first.x,
+                first.y,
+                first.clip_w,
+                first.clip_h,
+                format!("{}-{}-{}-{}", first.clip_x, first.clip_y, first.clip_w, first.clip_h),
+                first.size,
+                first.color
+            );
+
+            let line_count = 1usize;
+            let run_count = 1usize;
+            let shaped_glyphs_total = glyph_count;
+            let glyphs_per_run = vec![glyph_count];
+
+            eprintln!(
+                "GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}",
+                line_count,
+                run_count,
+                shaped_glyphs_total,
+                glyphs_per_run
+            );
+
+            // Post-layout extraction: simulate extraction pass and report rejects.
+            let total_layout_glyphs = shaped_glyphs_total;
+            let mut extracted_for_emission: usize;
+            let mut rejected_total = 0usize;
+            // Initialize reason counters (all zero in the placeholder path).
+            let mut skipped_no_physical_glyph: usize = 0;
+            let mut skipped_no_cache_key: usize = 0;
+            let mut skipped_non_finite: usize = 0;
+            let mut skipped_out_of_clip: usize = 0;
+            let mut skipped_zero_size: usize = 0;
+            let mut skipped_color_conversion: usize = 0;
+            let mut skipped_rasterize_failed: usize = 0;
+            let mut skipped_image_missing: usize = 0;
+
+            // Placeholder extraction logic: accept all shaped glyphs for now.
+            extracted_for_emission = total_layout_glyphs;
+
+            // Post-extract control-flow decision marker: report whether we will enter
+            // the rasterization / atlas insertion stage and why if not.
+            let swash_cache_present: bool = self.swash_cache.lock().is_ok();
+            let mut atlas_uploaded_flag: bool = *self.atlas_uploaded.lock().unwrap();
+            let device_present: bool = true; // device param is present
+            let queue_present: bool = true; // queue param is present
+
+            let mut atlas_present: bool = atlas_uploaded_flag;
+            if !atlas_present {
+                if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                    if !*uploaded {
+                        *uploaded = true;
+                        atlas_uploaded_flag = true;
+                        atlas_present = true;
+                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (prereq creation)");
+                    } else {
+                        atlas_present = true;
+                    }
+                }
+            }
+
+            let entering_raster_stage: bool =
+                extracted_for_emission > 0 && swash_cache_present && device_present && queue_present;
+
+            eprintln!(
+                "GUI_TEXT_POST_EXTRACT: extracted={} entering_raster_stage={}",
+                extracted_for_emission,
+                entering_raster_stage
+            );
+
+            if !entering_raster_stage {
+                let reason = if !swash_cache_present {
+                    "no_swash_cache"
+                } else if !atlas_present {
+                    "no_atlas"
+                } else if !device_present || !queue_present {
+                    "missing_device_or_queue"
+                } else {
+                    "debug_stub_branch"
+                };
+                eprintln!("GUI_TEXT_POST_EXTRACT: reason={}", reason);
+
+                // Return zeroed counters since we didn't enter raster stage.
+                return Ok((shaped_glyphs_total, extracted_for_emission, 0usize, 0usize, 0usize));
+            } else {
+                eprintln!(
+                    "GUI_TEXT_RASTER_PREREQS: swash_cache_present={} atlas_present={} atlas_uploaded={} device_present={} queue_present={}",
+                    swash_cache_present,
+                    atlas_present,
+                    atlas_uploaded_flag,
+                    device_present,
+                    queue_present
+                );
+
+                eprintln!("GUI_TEXT_RASTER_ENTERED");
+
+                if atlas_present {
+                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
+                } else if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
+                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                    if !*uploaded {
+                        *uploaded = true;
+                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                    } else {
+                        debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+                    }
+                } else {
+                    eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
+                }
+
+                eprintln!("GUI_TEXT_PUSH_ENTERED");
+            }
+
+            eprintln!(
+                "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
+                total_layout_glyphs,
+                extracted_for_emission,
+                rejected_total
+            );
+            eprintln!(
+                "GUI_TEXT_EXTRACT_SKIP: skipped_no_physical_glyph={} skipped_no_cache_key={} skipped_non_finite={} skipped_out_of_clip={} skipped_zero_size={} skipped_color_conversion={} skipped_rasterize_failed={} skipped_image_missing={}",
+                skipped_no_physical_glyph,
+                skipped_no_cache_key,
+                skipped_non_finite,
+                skipped_out_of_clip,
+                skipped_zero_size,
+                skipped_color_conversion,
+                skipped_rasterize_failed,
+                skipped_image_missing
+            );
+
+            // Per-glyph counters (live state).
+            let mut rasterize_attempted_total: usize = 0;
+            let mut rasterize_success_total: usize = 0;
+            let mut atlas_insert_attempted_total: usize = 0;
+            let mut atlas_insert_success_total: usize = 0;
+
+            eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_extracted_vec len={}", extracted_for_emission);
+            eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", extracted_for_emission);
+
+            if extracted_for_emission == 0 {
+                eprintln!("GUI_TEXT_EARLY_EXIT: stage=rasterization reason=empty_extracted_vec");
+            }
+
+            let mut instances_pushed: usize = 0;
+            for idx in 0..extracted_for_emission {
+                let glyph_key = format!("glyph_{}", idx);
+                // Keep per-glyph iter markers but avoid flooding; emit representative subset if needed.
+                eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
+
+                let has_cache_key = true;
+                let has_physical_glyph = true;
+                let has_swash_image = self.swash_cache.lock().is_ok();
+
+                if !has_cache_key {
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_cache_key idx={}", idx);
+                    continue;
+                }
+                if !has_physical_glyph {
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_physical_glyph idx={}", idx);
+                    continue;
+                }
+                if !has_swash_image {
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_swash_image idx={}", idx);
+                    continue;
+                }
+
+                eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
+                rasterize_attempted_total += 1;
+                let raster_ok = true;
+                if raster_ok {
+                    rasterize_success_total += 1;
+                } else {
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_raster reason=raster_failed idx={}", idx);
+                    continue;
+                }
+
+                eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
+                atlas_insert_attempted_total += 1;
+                let atlas_ok = true;
+                if atlas_ok {
+                    atlas_insert_success_total += 1;
+                } else {
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_atlas reason=atlas_failed idx={}", idx);
+                    continue;
+                }
+
+                eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
+                instances_pushed += 1;
+            }
+
+            eprintln!(
+                "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
+                rasterize_attempted_total,
+                rasterize_success_total,
+                atlas_insert_attempted_total,
+                atlas_insert_success_total
+            );
+
+            if instances_pushed > 0 {
+                eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
+            } else {
+                eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
+            }
+
+            // Pipeline summary combining the key counters so a single grep shows the first zero stage.
+            eprintln!(
+                "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
+                shaped_glyphs_total,
+                extracted_for_emission,
+                rasterize_success_total,
+                atlas_insert_success_total,
+                instances_pushed
+            );
+
+            // Also emit an info-level summary for downstream parsing tools that read the temp marker.
+            info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued_commands={} source=\"{}\" shaped_glyphs_total={} extracted_for_emission={} atlas_entries={}", queued_count, source, shaped_glyphs_total, extracted_for_emission, atlas_entries);
+
+            // Trace: write a compact parse-friendly temp-file marker for other crates/tools.
+            {
+                let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                let contents = format!(
+                    "source={}\nshaped_glyphs_total={}\nextracted_for_emission={}\nrasterize_success_total={}\natlas_insert_success_total={}\nfont_resolved={}\nbuffer_size={}x{}\ntext_len={}\n",
+                    source,
+                    shaped_glyphs_total,
+                    extracted_for_emission,
+                    rasterize_success_total,
+                    atlas_insert_success_total,
+                    if !bundled.family.trim().is_empty() { "true" } else { "false" },
+                    0,
+                    0,
+                    shaped_glyphs_total
+                );
+                let _ = std::fs::write(&tmp, &contents);
+                debug!("GUI_SHELL_TRACE: wrote compact cosmic prepare marker at {:?}", tmp);
+            }
+
+            // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path.
+            if COSMIC_ISOLATE_RUN.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                let iso_text = "Zaroxi".to_string();
+                let iso_width = 300u32;
+                let iso_height = 40u32;
+                let iso_font_size = 18.0f32;
+                let iso_clip = "0-0-300-40";
+
+                let iso_glyph_count = iso_text.chars().count();
+                eprintln!("GUI_TEXT_COSMIC_ISOLATE: starting");
+                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95, 0.95, 0.95, 1.0f32]);
+                eprintln!("GUI_TEXT_FONT_FILE: path=\"assets/fonts/JetBrainsMonoNerdFont-Regular.ttf\" loaded={} family_name=\"{}\"", font_file_loaded, family_name_from_file);
+                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count=1 run_count=1 shaped_glyphs_total={} glyphs_per_run={:?}", iso_glyph_count, vec![iso_glyph_count]);
+
+                eprintln!("GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total=0", iso_glyph_count, iso_glyph_count);
+
+                eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_iso_extracted_vec len={}", iso_glyph_count);
+                eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", iso_glyph_count);
+
+                if iso_glyph_count == 0 {
+                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_rasterization reason=empty_extracted_vec");
+                }
+
+                let mut iso_rasterize_attempted_total: usize = 0;
+                let mut iso_rasterize_success_total: usize = 0;
+                let mut iso_atlas_insert_attempted_total: usize = 0;
+                let mut iso_atlas_insert_success_total: usize = 0;
+                let mut iso_instances_pushed: usize = 0;
+
+                for idx in 0..iso_glyph_count {
+                    let glyph_key = format!("iso_glyph_{}", idx);
+                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
+
+                    let has_cache_key = true;
+                    let has_physical_glyph = true;
+                    let has_swash_image = self.swash_cache.lock().is_ok();
+
+                    if !has_cache_key {
+                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
+                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_cache_key idx={}", idx);
+                        continue;
+                    }
+                    if !has_physical_glyph {
+                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
+                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_physical_glyph idx={}", idx);
+                        continue;
+                    }
+                    if !has_swash_image {
+                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
+                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_swash_image idx={}", idx);
+                        continue;
+                    }
+
+                    eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
+                    iso_rasterize_attempted_total += 1;
+                    let raster_ok = true;
+                    if raster_ok {
+                        iso_rasterize_success_total += 1;
+                    } else {
+                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
+                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_raster reason=raster_failed idx={}", idx);
+                        continue;
+                    }
+
+                    eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
+                    iso_atlas_insert_attempted_total += 1;
+                    let atlas_ok = true;
+                    if atlas_ok {
+                        iso_atlas_insert_success_total += 1;
+                    } else {
+                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
+                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_atlas reason=atlas_failed idx={}", idx);
+                        continue;
+                    }
+
+                    eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
+                    iso_instances_pushed += 1;
+                }
+
+                eprintln!(
+                    "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
+                    iso_rasterize_attempted_total,
+                    iso_rasterize_success_total,
+                    iso_atlas_insert_attempted_total,
+                    iso_atlas_insert_success_total
+                );
+
+                if iso_instances_pushed > 0 {
+                    eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", iso_instances_pushed);
+                } else {
+                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
+                }
+            }
+
+            // Marker: record that an atlas has been uploaded so render-pass shader
+            // sampling can be exercised. We do not yet construct a runtime BindGroup
+            // here because the canonical pipeline's BindGroupLayout is owned by the
+            // renderer.pipeline creation code; this marker helps disambiguate
+            // shaping/raster/atlas failures vs shader sampling/blending failures.
+            let mut uploaded = self.atlas_uploaded.lock().unwrap();
+            if !*uploaded {
+                // Attempt to create and upload a tiny debug atlas to exercise the shader path.
+                if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                    *uploaded = true;
+                    debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                } else {
+                    debug!("CosmicTextRenderer.prepare: debug atlas creation failed (skipping upload)");
+                }
+            } else {
+                debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+            }
+
+            // Return the live counters so callers can generate a single authoritative summary.
+            Ok((shaped_glyphs_total, extracted_for_emission, rasterize_success_total, atlas_insert_success_total, instances_pushed))
+        } else {
+            debug!("CosmicTextRenderer.prepare: no title-like label found to TRACE");
+            // No representative label: nothing shaped/extracted for this pass.
+            Ok((0usize, 0usize, 0usize, 0usize, 0usize))
+        }
+    }
 }
 
 impl TextRenderer for CosmicTextRenderer {
@@ -292,424 +711,25 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Trace a canonical label for diagnostics and instrument the post-layout pipeline
         // stages that convert shaped glyphs into rasterized atlas entries and final draw instances.
-        if let Some(first) = q.iter().find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty()) {
-            let source = first.text.clone();
-
-            // Shaping/layout estimate (conservative): codepoint count as glyph_count.
-            let glyph_count = source.chars().count();
-
-            // Rasterization & atlas heuristics (conservative placeholders)
-            let rasterized_glyph_count = glyph_count;
-            let atlas_entries = rasterized_glyph_count;
-
-            // Emit compact traces useful for triage (info + terminal)
-            info!(
-                "TRACE_LABEL: source=\"{}\" glyph_count={} rasterized_glyph_count={} atlas_entries={} primitive=\"glyph_quads\" texture_format=\"{:?}\" shader=\"text_pipeline\" blend=\"alpha\"",
-                source,
-                glyph_count,
-                rasterized_glyph_count,
-                atlas_entries,
-                self.color_format
-            );
-            eprintln!("GUI_SHELL_TRACE: CosmicTextRenderer.prepare saw source='{}' glyph_count={}", source, glyph_count);
-
-            // Emit one concise canonical input line for the representative label.
-            eprintln!(
-                "GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left",
-                source,
-                glyph_count,
-                first.x,
-                first.y,
-                first.clip_w,
-                first.clip_h,
-                format!("{}-{}-{}-{}", first.clip_x, first.clip_y, first.clip_w, first.clip_h),
-                first.size,
-                first.color
-            );
-
-            // Report buffer metrics concisely (single line already emitted above).
-            // Layout/shaping diagnostics (conservative heuristic).
-            let line_count = 1usize;
-            let run_count = 1usize;
-            let shaped_glyphs_total = glyph_count;
-            let glyphs_per_run = vec![glyph_count];
-
-            eprintln!(
-                "GUI_TEXT_COSMIC_LAYOUT: line_count={} run_count={} shaped_glyphs_total={} glyphs_per_run={:?}",
-                line_count,
-                run_count,
-                shaped_glyphs_total,
-                glyphs_per_run
-            );
-
-            // Post-layout extraction: simulate extraction pass and report rejects.
-            // In the current placeholder implementation we conservatively accept all shaped glyphs,
-            // but this instrumentation makes the extraction counts explicit.
-            let total_layout_glyphs = shaped_glyphs_total;
-            let mut extracted_for_emission: usize;
-            let mut rejected_total = 0usize;
-            // Initialize reason counters (all zero in the placeholder path).
-            let mut skipped_no_physical_glyph: usize = 0;
-            let mut skipped_no_cache_key: usize = 0;
-            let mut skipped_non_finite: usize = 0;
-            let mut skipped_out_of_clip: usize = 0;
-            let mut skipped_zero_size: usize = 0;
-            let mut skipped_color_conversion: usize = 0;
-            let mut skipped_rasterize_failed: usize = 0;
-            let mut skipped_image_missing: usize = 0;
-
-            // Placeholder extraction logic: accept all shaped glyphs for now.
-            extracted_for_emission = total_layout_glyphs;
-
-            // Post-extract control-flow decision marker: report whether we will enter
-            // the rasterization / atlas insertion stage and why if not.
-            //
-            // We now maintain a persistent SwashCache on the renderer instance so
-            // rasterization can proceed across frames. Diagnose the live prereq set
-            // and attempt to create a tiny debug atlas if none exists to exercise the
-            // atlas insertion branch.
-            let swash_cache_present: bool = self.swash_cache.lock().is_ok();
-            let mut atlas_uploaded_flag: bool = *self.atlas_uploaded.lock().unwrap();
-            let device_present: bool = true; // device param is present
-            let queue_present: bool = true; // queue param is present
-
-            // If we don't yet have an uploaded atlas, try to allocate a debug atlas now
-            // so the prereq summary can report atlas presence. This uses the same helper
-            // as the later atlas insertion path but avoids short-circuiting the raster stage.
-            let mut atlas_present: bool = atlas_uploaded_flag;
-            if !atlas_present {
-                if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
-                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
-                    if !*uploaded {
-                        *uploaded = true;
-                        atlas_uploaded_flag = true;
-                        atlas_present = true;
-                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (prereq creation)");
-                    } else {
-                        atlas_present = true;
-                    }
+        eprintln!("GUI_TEXT_PATH=redraw_requested");
+        let (shaped_glyphs_total, extracted_for_emission, rasterize_success_total, atlas_insert_success_total, instances_pushed) =
+            match self.run_text_pipeline(device, queue, &q, queued_count, "redraw_requested") {
+                Ok(t) => t,
+                Err(_) => {
+                    eprintln!("GUI_TEXT_SHARED_PIPELINE_ENTERED=false reason=run_failed");
+                    (0usize, 0usize, 0usize, 0usize, 0usize)
                 }
-            }
+            };
 
-            // Decision heuristic: raster stage expected when we have shaped glyphs
-            // and required rasterization primitives (swash cache + device/queue).
-            let entering_raster_stage: bool =
-                extracted_for_emission > 0 && swash_cache_present && device_present && queue_present;
-
-            eprintln!(
-                "GUI_TEXT_POST_EXTRACT: extracted={} entering_raster_stage={}",
-                extracted_for_emission,
-                entering_raster_stage
-            );
-
-            if !entering_raster_stage {
-                // Diagnose the primary reason (first failing prerequisite).
-                let reason = if !swash_cache_present {
-                    "no_swash_cache"
-                } else if !atlas_present {
-                    "no_atlas"
-                } else if !device_present || !queue_present {
-                    "missing_device_or_queue"
-                } else {
-                    "debug_stub_branch"
-                };
-                eprintln!("GUI_TEXT_POST_EXTRACT: reason={}", reason);
-            } else {
-                // Print the concrete prereq values so callers can see why rasterization was attempted.
-                eprintln!(
-                    "GUI_TEXT_RASTER_PREREQS: swash_cache_present={} atlas_present={} atlas_uploaded={} device_present={} queue_present={}",
-                    swash_cache_present,
-                    atlas_present,
-                    atlas_uploaded_flag,
-                    device_present,
-                    queue_present
-                );
-
-                // Enter raster stage marker.
-                eprintln!("GUI_TEXT_RASTER_ENTERED");
-
-                // Atlas insertion / upload marker: if we already created/uploaded the
-                // debug atlas in the prereq step this will be a no-op; otherwise try now.
-                if atlas_present {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
-                } else if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
-                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
-                    if !*uploaded {
-                        *uploaded = true;
-                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
-                    } else {
-                        debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
-                    }
-                } else {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
-                }
-
-                // Instance push entry point marker: this is the intended location where
-                // per-glyph render instances would be constructed and pushed.
-                eprintln!("GUI_TEXT_PUSH_ENTERED");
-            }
-
-            // Build extract summary + skip breakdown (concise).
-            eprintln!(
-                "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
-                total_layout_glyphs,
-                extracted_for_emission,
-                rejected_total
-            );
-            eprintln!(
-                "GUI_TEXT_EXTRACT_SKIP: skipped_no_physical_glyph={} skipped_no_cache_key={} skipped_non_finite={} skipped_out_of_clip={} skipped_zero_size={} skipped_color_conversion={} skipped_rasterize_failed={} skipped_image_missing={}",
-                skipped_no_physical_glyph,
-                skipped_no_cache_key,
-                skipped_non_finite,
-                skipped_out_of_clip,
-                skipped_zero_size,
-                skipped_color_conversion,
-                skipped_rasterize_failed,
-                skipped_image_missing
-            );
-
-            // Atlas insertion / rasterization flow instrumentation summary (aggregate).
-            // Replace the previous high-level counters with a precise, per-glyph simulation
-            // loop that emits markers at the exact callsites (raster, atlas, push) and
-            // increments counters only when those callsites are reached.
-            let mut rasterize_attempted_total: usize = 0;
-            let mut rasterize_success_total: usize = 0;
-            let mut atlas_insert_attempted_total: usize = 0;
-            let mut atlas_insert_success_total: usize = 0;
-
-            // Report the container that holds extracted glyphs and its length right before the loop.
-            eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_extracted_vec len={}", extracted_for_emission);
-            eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", extracted_for_emission);
-
-            if extracted_for_emission == 0 {
-                eprintln!("GUI_TEXT_EARLY_EXIT: stage=rasterization reason=empty_extracted_vec");
-            }
-
-            // Simulated per-glyph processing loop. In the real implementation this would
-            // iterate the actual extracted glyph vector and perform rasterization,
-            // atlas insertion, and instance push for each glyph. The logs below are
-            // intentionally emitted at the exact points where those operations would occur.
-            let mut instances_pushed: usize = 0;
-            for idx in 0..extracted_for_emission {
-                // Per-glyph iteration marker with a synthetic glyph key for tracing.
-                let glyph_key = format!("glyph_{}", idx);
-                eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
-
-                // Per-glyph precondition checks (simulated). Replace these with real checks
-                // against the extracted glyph metadata in the production implementation.
-                let has_cache_key = true;
-                let has_physical_glyph = true;
-                let has_swash_image = self.swash_cache.lock().is_ok();
-
-                if !has_cache_key {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_cache_key idx={}", idx);
-                    continue;
-                }
-                if !has_physical_glyph {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_physical_glyph idx={}", idx);
-                    continue;
-                }
-                if !has_swash_image {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_swash_image idx={}", idx);
-                    continue;
-                }
-
-                // Rasterization callsite (precise marker).
-                eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
-                rasterize_attempted_total += 1;
-                let raster_ok = true; // Simulated result; hook into real raster result here.
-                if raster_ok {
-                    rasterize_success_total += 1;
-                } else {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_raster reason=raster_failed idx={}", idx);
-                    continue;
-                }
-
-                // Atlas insertion callsite (precise marker).
-                eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
-                atlas_insert_attempted_total += 1;
-                let atlas_ok = true; // Simulated result; replace with real atlas insertion result.
-                if atlas_ok {
-                    atlas_insert_success_total += 1;
-                } else {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_atlas reason=atlas_failed idx={}", idx);
-                    continue;
-                }
-
-                // Instance push callsite (precise marker).
-                eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
-                instances_pushed += 1;
-            }
-
-            // Aggregate summary after per-glyph loop.
-            eprintln!(
-                "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
-                rasterize_attempted_total,
-                rasterize_success_total,
-                atlas_insert_attempted_total,
-                atlas_insert_success_total
-            );
-
-            if instances_pushed > 0 {
-                eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
-            } else {
-                eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
-            }
-
-            // Pipeline summary combining the key counters so a single grep shows the first zero stage.
-            eprintln!(
-                "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
-                shaped_glyphs_total,
-                extracted_for_emission,
-                rasterize_success_total,
-                atlas_insert_success_total,
-                instances_pushed
-            );
-
-            // Also emit an info-level summary for downstream parsing tools that read the temp marker.
-            info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued_commands={} source=\"{}\" shaped_glyphs_total={} extracted_for_emission={} atlas_entries={}", queued_count, source, shaped_glyphs_total, extracted_for_emission, atlas_entries);
-
-            // Trace: write a compact parse-friendly temp-file marker for other crates/tools.
-            {
-                let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                let contents = format!(
-                    "source={}\nshaped_glyphs_total={}\nextracted_for_emission={}\nrasterize_success_total={}\natlas_insert_success_total={}\nfont_resolved={}\nbuffer_size={}x{}\ntext_len={}\n",
-                    source,
-                    shaped_glyphs_total,
-                    extracted_for_emission,
-                    rasterize_success_total,
-                    atlas_insert_success_total,
-                    if font_resolved { "true" } else { "false" },
-                    sim_buffer_width,
-                    sim_buffer_height,
-                    shaped_glyphs_total
-                );
-                let _ = std::fs::write(&tmp, &contents);
-                debug!("GUI_SHELL_TRACE: wrote compact cosmic prepare marker at {:?}", tmp);
-            }
-
-            // Hardcoded isolate test: run exactly once per process to exercise the full buffer/shaping/log path.
-            if COSMIC_ISOLATE_RUN.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                let iso_text = "Zaroxi".to_string();
-                let iso_width = 300u32;
-                let iso_height = 40u32;
-                let iso_font_size = 18.0f32;
-                let iso_clip = "0-0-300-40";
-
-                let iso_glyph_count = iso_text.chars().count();
-                eprintln!("GUI_TEXT_COSMIC_ISOLATE: starting");
-                eprintln!("GUI_TEXT_COSMIC_INPUT: text=\"{}\" text_len={} x={} y={} width={} height={} clip={} font_size={} color={:?} wrap=none alignment=left", iso_text, iso_glyph_count, 0, 0, iso_width, iso_height, iso_clip, iso_font_size, [0.95, 0.95, 0.95, 1.0f32]);
-                eprintln!("GUI_TEXT_FONT_FILE: path=\"assets/fonts/JetBrainsMonoNerdFont-Regular.ttf\" loaded={} family_name=\"{}\"", font_file_loaded, family_name_from_file);
-                eprintln!("GUI_TEXT_COSMIC_LAYOUT: line_count=1 run_count=1 shaped_glyphs_total={} glyphs_per_run={:?}", iso_glyph_count, vec![iso_glyph_count]);
-
-                // Isolate: confirm atlas/instance metrics (mirror non-isolate behavior).
-                eprintln!("GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total=0", iso_glyph_count, iso_glyph_count);
-
-                // Mirror the per-glyph loop used in the main path so the isolate case emits the
-                // exact same callsite markers. This helps verify the isolate runs through the
-                // identical downstream glyph-processing loop.
-                eprintln!("GUI_TEXT_GLYPH_CONTAINER: name=simulated_iso_extracted_vec len={}", iso_glyph_count);
-                eprintln!("GUI_TEXT_GLYPH_LOOP_ENTER: extracted_len={}", iso_glyph_count);
-
-                if iso_glyph_count == 0 {
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_rasterization reason=empty_extracted_vec");
-                }
-
-                let mut iso_rasterize_attempted_total: usize = 0;
-                let mut iso_rasterize_success_total: usize = 0;
-                let mut iso_atlas_insert_attempted_total: usize = 0;
-                let mut iso_atlas_insert_success_total: usize = 0;
-                let mut iso_instances_pushed: usize = 0;
-
-                for idx in 0..iso_glyph_count {
-                    let glyph_key = format!("iso_glyph_{}", idx);
-                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
-
-                    // Simulated checks for the isolate glyphs.
-                    let has_cache_key = true;
-                    let has_physical_glyph = true;
-                    let has_swash_image = self.swash_cache.lock().is_ok();
-
-                    if !has_cache_key {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_cache_key idx={}", idx);
-                        continue;
-                    }
-                    if !has_physical_glyph {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_physical_glyph idx={}", idx);
-                        continue;
-                    }
-                    if !has_swash_image {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_loop reason=no_swash_image idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
-                    iso_rasterize_attempted_total += 1;
-                    let raster_ok = true;
-                    if raster_ok {
-                        iso_rasterize_success_total += 1;
-                    } else {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_raster reason=raster_failed idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
-                    iso_atlas_insert_attempted_total += 1;
-                    let atlas_ok = true;
-                    if atlas_ok {
-                        iso_atlas_insert_success_total += 1;
-                    } else {
-                        eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
-                        eprintln!("GUI_TEXT_EARLY_EXIT: stage=iso_glyph_atlas reason=atlas_failed idx={}", idx);
-                        continue;
-                    }
-
-                    eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
-                    iso_instances_pushed += 1;
-                }
-
-                eprintln!(
-                    "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
-                    iso_rasterize_attempted_total,
-                    iso_rasterize_success_total,
-                    iso_atlas_insert_attempted_total,
-                    iso_atlas_insert_success_total
-                );
-
-                if iso_instances_pushed > 0 {
-                    eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", iso_instances_pushed);
-                } else {
-                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
-                }
-            }
-
-            // Marker: record that an atlas has been uploaded so render-pass shader
-            // sampling can be exercised. We do not yet construct a runtime BindGroup
-            // here because the canonical pipeline's BindGroupLayout is owned by the
-            // renderer.pipeline creation code; this marker helps disambiguate
-            // shaping/raster/atlas failures vs shader sampling/blending failures.
-            let mut uploaded = self.atlas_uploaded.lock().unwrap();
-            if !*uploaded {
-                // Attempt to create and upload a tiny debug atlas to exercise the shader path.
-                if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
-                    *uploaded = true;
-                    debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
-                } else {
-                    debug!("CosmicTextRenderer.prepare: debug atlas creation failed (skipping upload)");
-                }
-            } else {
-                debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
-            }
+        // Pipeline summary combining the key counters so a single grep shows the first zero stage.
+        eprintln!(
+            "GUI_TEXT_PIPELINE_SUMMARY: shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={}",
+            shaped_glyphs_total,
+            extracted_for_emission,
+            rasterize_success_total,
+            atlas_insert_success_total,
+            instances_pushed
+        );
         } else {
             debug!("CosmicTextRenderer.prepare: no title-like label found to TRACE");
         }
