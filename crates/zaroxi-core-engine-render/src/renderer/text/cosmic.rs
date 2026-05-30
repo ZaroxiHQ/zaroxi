@@ -513,13 +513,37 @@ impl CosmicTextRenderer {
                         // Record a pushed instance sample for diagnostics & rendering.
                         instances_pushed += 1;
                         let mut samples_lock = self.last_frame_samples.lock().unwrap();
+                        // Normalize UVs from atlas pixel rect -> [0,1] range using actual atlas dims.
+                        let (aw, ah) = self.shared_atlas.dims();
+                        let awf = (aw.max(1)) as f32;
+                        let ahf = (ah.max(1)) as f32;
+                        let u0 = (entry.x as f32) / awf;
+                        let v0 = (entry.y as f32) / ahf;
+                        let u1 = ((entry.x + entry.width) as f32) / awf;
+                        let v1 = ((entry.y + entry.height) as f32) / ahf;
+                        let uv_area = (u1 - u0).max(0.0) * (v1 - v0).max(0.0);
+
+                        eprintln!(
+                            "UV DEBUG: idx={} atlas_px=(x={} y={} w={} h={}) uv=(u0={} v0={} u1={} v1={}) uv_area={}",
+                            idx,
+                            entry.x,
+                            entry.y,
+                            entry.width,
+                            entry.height,
+                            u0,
+                            v0,
+                            u1,
+                            v1,
+                            uv_area
+                        );
+
                         samples_lock.push(InstanceSample {
                             x: (idx as f32) * 8.0,
                             y: 0.0,
                             width: entry.width as f32,
                             height: entry.height as f32,
-                            uv0: (entry.u0, entry.v0),
-                            uv1: (entry.u1, entry.v1),
+                            uv0: (u0, v0),
+                            uv1: (u1, v1),
                             color: [1.0, 1.0, 1.0, 1.0],
                         });
 
