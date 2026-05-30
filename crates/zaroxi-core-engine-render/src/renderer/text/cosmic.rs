@@ -830,7 +830,7 @@ impl TextRenderer for CosmicTextRenderer {
         // If atlas gained content, perform GPU upload and create bind group.
         let regions = self.shared_atlas.regions();
         if regions > 0 {
-            let prefer_nearest = (max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05);
+            let prefer_nearest = max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05;
             if let Some((tex, view, sampler)) =
                 self.shared_atlas.upload_to_gpu(device, queue, prefer_nearest)
             {
