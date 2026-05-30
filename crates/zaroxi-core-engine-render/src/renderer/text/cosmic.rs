@@ -530,10 +530,11 @@ impl TextRenderer for CosmicTextRenderer {
                 std::env::var("ZAROXI_TEXT_SNAP").ok().map(|v| v == "1").unwrap_or(true);
             let cmd_origin_x_phys = cmd.x * device_scale;
             let cmd_origin_y_phys = cmd.y * device_scale;
-            let snapped_cmd_x =
-                if snap_enabled { cmd_origin_x_phys.round() } else { cmd_origin_x_phys };
-            let snapped_cmd_y =
-                if snap_enabled { cmd_origin_y_phys.round() } else { cmd_origin_y_phys };
+            // Preserve float command origins; avoid early integer snapping which alters shaped positions.
+            // Snapping remains an observable diagnostic flag (`snap_enabled`) but quantization is
+            // deferred until/if the GPU or atlas need integer coordinates.
+            let snapped_cmd_x = cmd_origin_x_phys;
+            let snapped_cmd_y = cmd_origin_y_phys;
 
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
             // borrow is active, compute precise float layout positions (avoid integer truncation),
@@ -663,11 +664,50 @@ impl TextRenderer for CosmicTextRenderer {
                             if (next_x - expected_by_quad).abs() < eps
                                 && (next_x - expected_by_advance).abs() > eps
                             {
-                                debug_assert!(
-                                    false,
-                                    "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
-                                    next_x, expected_by_quad, expected_by_advance
-                                );
+                                {
+                                    // Detailed diagnostic dump for failing glyph pair (non-destructive).
+                                    let cluster_text: String = cmd
+                                        .text
+                                        .chars()
+                                        .skip(layout_g.start)
+                                        .take(layout_g.end - layout_g.start)
+                                        .collect();
+                                    let next_cluster_text = if idx + 1 < plen {
+                                        let (n_g, _, _, _) = physicals[idx + 1].clone();
+                                        cmd.text
+                                            .chars()
+                                            .skip(n_g.start)
+                                            .take(n_g.end - n_g.start)
+                                            .collect::<String>()
+                                    } else {
+                                        "<none>".to_string()
+                                    };
+                                    let quad_x0 = x0;
+                                    let quad_x1 = x0 + (w as f32);
+                                    eprintln!(
+                                        "GLYPH_PLACEMENT_ALERT: current='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} quad_x0={} quad_x1={} next_shaped_x={} snap_enabled={} cmd_origin_x_phys={} snapped_cmd_x={}",
+                                        cluster_text,
+                                        layout_g.glyph_id,
+                                        layout_g.x,
+                                        layout_g.w,
+                                        xoff,
+                                        yoff,
+                                        w,
+                                        h,
+                                        quad_x0,
+                                        quad_x1,
+                                        next_x,
+                                        snap_enabled,
+                                        cmd_origin_x_phys,
+                                        snapped_cmd_x
+                                    );
+                                    if cfg!(debug_assertions) {
+                                        return Err(RenderError::Other(format!(
+                                            "Glyph placement driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
+                                            next_x, expected_by_quad, expected_by_advance
+                                        )));
+                                    }
+                                }
                             }
                         }
 
@@ -865,14 +905,53 @@ impl TextRenderer for CosmicTextRenderer {
                                     if (next_x - expected_by_quad).abs() < eps
                                         && (next_x - expected_by_advance).abs() > tolerance
                                     {
-                                        debug_assert!(
-                                            false,
-                                            "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={} tolerance={}",
-                                            next_x,
-                                            expected_by_quad,
-                                            expected_by_advance,
-                                            tolerance
-                                        );
+                                        {
+                                            // Detailed diagnostic dump for failing glyph pair (non-destructive).
+                                            let cluster_text: String = cmd
+                                                .text
+                                                .chars()
+                                                .skip(layout_g.start)
+                                                .take(layout_g.end - layout_g.start)
+                                                .collect();
+                                            let next_cluster_text = if idx + 1 < plen {
+                                                let (n_g, _, _, _) = physicals[idx + 1].clone();
+                                                cmd.text
+                                                    .chars()
+                                                    .skip(n_g.start)
+                                                    .take(n_g.end - n_g.start)
+                                                    .collect::<String>()
+                                            } else {
+                                                "<none>".to_string()
+                                            };
+                                            let quad_x0 = snapped_x0;
+                                            let quad_x1 = snapped_x0 + (glyph.width as f32);
+                                            eprintln!(
+                                                "GLYPH_PLACEMENT_ALERT: current='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} quad_x0={} quad_x1={} next_shaped_x={} snap_enabled={} cmd_origin_x_phys={} snapped_cmd_x={}",
+                                                cluster_text,
+                                                layout_g.glyph_id,
+                                                layout_g.x,
+                                                layout_g.w,
+                                                glyph.offset_x,
+                                                glyph.offset_y,
+                                                glyph.width,
+                                                glyph.height,
+                                                quad_x0,
+                                                quad_x1,
+                                                next_x,
+                                                snap_enabled,
+                                                cmd_origin_x_phys,
+                                                snapped_cmd_x
+                                            );
+                                            if cfg!(debug_assertions) {
+                                                return Err(RenderError::Other(format!(
+                                                    "Glyph placement driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={} tolerance={}",
+                                                    next_x,
+                                                    expected_by_quad,
+                                                    expected_by_advance,
+                                                    tolerance
+                                                )));
+                                            }
+                                        }
                                     }
                                 }
 
