@@ -172,6 +172,7 @@ impl Atlas {
         &self,
         device: &Device,
         queue: &mut Queue,
+        prefer_nearest_sampler: bool,
     ) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
         // Create texture descriptor for R8Unorm
         let size = Extent3d { width: self.width, height: self.height, depth_or_array_layers: 1 };
@@ -209,17 +210,31 @@ impl Atlas {
         queue.write_texture(image_copy_texture, &self.buffer, data_layout, size);
 
         let view = texture.create_view(&TextureViewDescriptor::default());
-        // Create a sampler configured for text atlases: linear filtering for smooth edges
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            label: Some("text_atlas_sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
+        // Create a sampler configured for text atlases: choose nearest if exact-size rendering,
+        // otherwise use linear for smoother scaling.
+        let sampler = if prefer_nearest_sampler {
+            device.create_sampler(&SamplerDescriptor {
+                label: Some("text_atlas_sampler_nearest"),
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                ..Default::default()
+            })
+        } else {
+            device.create_sampler(&SamplerDescriptor {
+                label: Some("text_atlas_sampler_linear"),
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                ..Default::default()
+            })
+        };
 
         Some((texture, view, sampler))
     }
@@ -253,9 +268,10 @@ impl SharedAtlas {
         &self,
         device: &Device,
         queue: &mut Queue,
+        prefer_nearest_sampler: bool,
     ) -> Option<(Texture, wgpu::TextureView, wgpu::Sampler)> {
         let a = self.0.lock().unwrap();
-        a.upload_to_gpu(device, queue)
+        a.upload_to_gpu(device, queue, prefer_nearest_sampler)
     }
 
     pub fn regions(&self) -> usize {

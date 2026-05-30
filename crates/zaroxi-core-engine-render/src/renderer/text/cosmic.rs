@@ -506,8 +506,11 @@ impl TextRenderer for CosmicTextRenderer {
         use std::collections::HashMap as StdHashMap;
         let mut local_cache: StdHashMap<
             cosmic_text::CacheKey,
-            Option<(crate::renderer::text_atlas::AtlasEntry, i32, i32, u32, u32)>,
+            Option<(crate::renderer::text_atlas::AtlasEntry, i32, i32, u32, u32, f32, f32)>,
         > = StdHashMap::new();
+
+        // Track maximum pixel scale ratio (onscreen_size / atlas_pixel_size) across samples.
+        let mut max_scale_ratio: f32 = 0.0;
 
         // Iterate queued commands and perform shaping/rasterization.
         for cmd in q.iter() {
@@ -577,7 +580,28 @@ impl TextRenderer for CosmicTextRenderer {
                 if let Some(cached_opt) = local_cache.get(&cache_key) {
                     // Per-frame cache hit (either drawable or recorded non-drawable)
                     cache_hits_total += 1;
-                    if let Some((entry, xoff, yoff, w, h)) = cached_opt.clone() {
+                    if let Some((entry, xoff, yoff, w, h, cached_fsize, cached_dev_scale)) =
+                        cached_opt.clone()
+                    {
+                        // Debug assertion: ensure cached raster matches current physical font size & scale
+                        if text_debug_enabled() {
+                            if (cached_fsize - font_size_physical).abs() > 0.01
+                                || (cached_dev_scale - device_scale).abs() > 0.001
+                            {
+                                eprintln!(
+                                    "GUI_TEXT_CACHE_MISMATCH: reused cache_key={:?} cached_fsize={} current_fsize={} cached_scale={} current_scale={}",
+                                    cache_key,
+                                    cached_fsize,
+                                    font_size_physical,
+                                    cached_dev_scale,
+                                    device_scale
+                                );
+                                debug_assert!(
+                                    false,
+                                    "Cached glyph raster metadata mismatch: possible wrong reuse"
+                                );
+                            }
+                        }
                         let x0 = layout_x + (xoff as f32);
                         let y0 = layout_y + (yoff as f32);
                         samples.push(InstanceSample {
@@ -589,6 +613,10 @@ impl TextRenderer for CosmicTextRenderer {
                             uv1: (entry.u1, entry.v1),
                             color: cmd.color,
                         });
+                        // update scale ratio tracking: onscreen (w) vs atlas (entry.width)
+                        let ratio_w = (w as f32) / (entry.width as f32);
+                        let ratio_h = (h as f32) / (entry.height as f32);
+                        max_scale_ratio = max_scale_ratio.max(ratio_w.max(ratio_h));
                         instances_total += 1;
                         continue;
                     } else {
@@ -685,6 +713,8 @@ impl TextRenderer for CosmicTextRenderer {
                                         glyph.offset_y,
                                         glyph.width,
                                         glyph.height,
+                                        font_size_physical,
+                                        device_scale,
                                     )),
                                 );
 
@@ -733,6 +763,11 @@ impl TextRenderer for CosmicTextRenderer {
                                     uv1: (entry.u1, entry.v1),
                                     color: cmd.color,
                                 });
+
+                                // update scale ratio tracking: onscreen (glyph.width) vs atlas (entry.width)
+                                let ratio_w = (glyph.width as f32) / (entry.width as f32);
+                                let ratio_h = (glyph.height as f32) / (entry.height as f32);
+                                max_scale_ratio = max_scale_ratio.max(ratio_w.max(ratio_h));
 
                                 // Debug atlas dump when enabled and suspiciously small
                                 if text_debug_enabled() && (glyph.width <= 2 || glyph.height <= 2) {
@@ -795,7 +830,10 @@ impl TextRenderer for CosmicTextRenderer {
         // If atlas gained content, perform GPU upload and create bind group.
         let regions = self.shared_atlas.regions();
         if regions > 0 {
-            if let Some((tex, view, sampler)) = self.shared_atlas.upload_to_gpu(device, queue) {
+            let prefer_nearest = (max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05);
+            if let Some((tex, view, sampler)) =
+                self.shared_atlas.upload_to_gpu(device, queue, prefer_nearest)
+            {
                 // Build bind group using pipeline layout
                 let bg = text_pipeline::build_atlas_bind_group(
                     device,
