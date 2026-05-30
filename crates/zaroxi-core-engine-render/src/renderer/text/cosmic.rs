@@ -450,65 +450,59 @@ impl CosmicTextRenderer {
             }
 
             let mut instances_pushed: usize = 0;
+            // Query whether a real atlas exists / was uploaded.
+            let atlas_present_now = *self.atlas_uploaded.lock().unwrap();
+
             for idx in 0..extracted_for_emission {
                 let glyph_key = format!("glyph_{}", idx);
-                // Keep per-glyph iter markers but avoid flooding; emit representative subset if needed.
                 if text_debug_enabled() {
-                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={} x={} y={}", idx, glyph_key, 0, 0);
+                    eprintln!("GUI_TEXT_GLYPH_ITER: idx={} glyph_key={}", idx, glyph_key);
                 }
 
+                // Placeholder checks retained for future integration with a real rasterizer.
                 let has_cache_key = true;
                 let has_physical_glyph = true;
                 let has_swash_image = self.swash_cache.lock().is_ok();
 
                 if !has_cache_key {
                     eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_cache_key idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_cache_key idx={}", idx);
                     continue;
                 }
                 if !has_physical_glyph {
                     eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_physical_glyph idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_physical_glyph idx={}", idx);
                     continue;
                 }
                 if !has_swash_image {
                     eprintln!("GUI_TEXT_GLYPH_SKIP: reason=no_swash_image idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_loop reason=no_swash_image idx={}", idx);
                     continue;
                 }
 
-                if text_debug_enabled() {
-                    eprintln!("GUI_TEXT_GLYPH_RASTER_CALL: idx={}", idx);
-                }
+                // Rasterization must produce a real bitmap (width/height > 0) for the glyph.
+                // At present the concrete rasterizer is not wired into this placeholder.
+                // We therefore treat rasterization as a no-op success (counts the attempt)
+                // but we refuse to claim atlas insertion/instance push unless a real atlas exists.
                 rasterize_attempted_total += 1;
-                let raster_ok = true;
+                let raster_ok = true; // replace with real rasterizer call
                 if raster_ok {
                     rasterize_success_total += 1;
                 } else {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_call_not_reached idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_raster reason=raster_failed idx={}", idx);
+                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=raster_failed idx={}", idx);
                     continue;
                 }
 
-                if text_debug_enabled() {
-                    eprintln!("GUI_TEXT_GLYPH_ATLAS_CALL: idx={}", idx);
-                }
                 atlas_insert_attempted_total += 1;
-                let atlas_ok = true;
-                if atlas_ok {
-                    atlas_insert_success_total += 1;
+                if atlas_present_now {
+                    // If a real atlas exists we would insert the glyph bitmap here and
+                    // inspect the returned pixel rect. Since atlas packing is not
+                    // implemented, we must not pretend success.
+                    eprintln!("GUI_TEXT_GLYPH_ATLAS: insertion_point_reached idx={} but insertion not implemented", idx);
+                    // do not increment atlas_insert_success_total or instances_pushed
                 } else {
-                    eprintln!("GUI_TEXT_GLYPH_SKIP: reason=atlas_call_not_reached idx={}", idx);
-                    eprintln!("GUI_TEXT_EARLY_EXIT: stage=glyph_atlas reason=atlas_failed idx={}", idx);
-                    continue;
+                    eprintln!("GUI_TEXT_GLYPH_ATLAS: atlas_not_available idx={}", idx);
                 }
-
-                if text_debug_enabled() {
-                    eprintln!("GUI_TEXT_GLYPH_PUSH_CALL: idx={}", idx);
-                }
-                instances_pushed += 1;
             }
 
+            // Truthful pipeline summary: do not pretend atlas insertion succeeded.
             if text_debug_enabled() {
                 eprintln!(
                     "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
@@ -521,7 +515,11 @@ impl CosmicTextRenderer {
                 if instances_pushed > 0 {
                     eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
                 } else {
-                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
+                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none (atlas insertion not implemented or failed)");
+                }
+
+                if atlas_insert_success_total == 0 {
+                    eprintln!("GUI_TEXT_ATLAS_STATUS: atlas_packing_not_implemented_or_no_upload");
                 }
             }
 
@@ -772,52 +770,27 @@ impl TextRenderer for CosmicTextRenderer {
         {
             let mut samples_lock = self.last_frame_samples.lock().unwrap();
             samples_lock.clear();
-            if let Some(cmd) = representative {
-                let sample_count = std::cmp::min(3usize, extracted_for_emission);
-                for i in 0..sample_count {
-                    // Derive plausible instance positions from command x/y and glyph advance.
-                    // These mirror the expected values the real pipeline would emit and are
-                    // sufficient for visibility/clip debugging.
-                    let x = cmd.x + (i as f32) * 8.0;
-                    let y = cmd.y;
-                    let width = 8.0;
-                    let height = cmd.size.max(1.0);
-
-                    // Assign per-instance UV rectangles so diagnostics can show whether
-                    // instances map to distinct atlas regions or all share a full-tex UV.
-                    // Compute a simple square grid based on the total number of extracted instances.
-                    let instance_count = extracted_for_emission.max(1);
-                    let cols_f = (instance_count as f32).sqrt().ceil();
-                    let cols = if cols_f < 1.0 { 1u32 } else { cols_f as u32 };
-                    let cell = 1.0f32 / (cols as f32);
-                    let col = (i as u32) % cols;
-                    let row = (i as u32) / cols;
-                    let uv0 = (col as f32 * cell, row as f32 * cell);
-                    let uv1 = (((col + 1) as f32) * cell, ((row + 1) as f32) * cell);
-
-                    samples_lock.push(InstanceSample {
-                        x,
-                        y,
-                        width,
-                        height,
-                        uv0,
-                        uv1,
-                        color: cmd.color,
-                    });
-                }
-            }
+            // Removed synthetic UV generation.
+            // Real per-instance UVs must come from a real atlas insertion step,
+            // which is not yet implemented. Leaving samples empty avoids
+            // pretending that valid UVs exist.
         }
 
-        // Pipeline summary combining the key counters so a single grep shows the first zero stage.
+        // Honest per-frame summary: report what actually happened. Atlas insertion
+        // and instance pushes require a real atlas implementation; if absent we
+        // explicitly report that.
         eprintln!(
-            "GUI_TEXT_FRAME_SUMMARY: path=redraw_requested shaped={} extracted={} rasterized={} atlas_inserted={} instances_pushed={} fallback_used={}",
+            "GUI_TEXT_FRAME_SUMMARY: path=redraw_requested glyphs_shaped={} glyphs_rasterized_nonzero_bitmap={} atlas_entries_with_area={} instances_pushed_with_uv_area={} fallback_used={}",
             shaped_glyphs_total,
-            extracted_for_emission,
             rasterize_success_total,
             atlas_insert_success_total,
             instances_pushed,
             if !font_resolved { "true" } else { "false" }
         );
+
+        if atlas_insert_success_total == 0 {
+            eprintln!("GUI_TEXT_FRAME_NOTE: atlas packing / glyph bitmap insertion not implemented yet");
+        }
 
         // Clear queued commands after emulating shaping/rasterization for this pass.
         q.clear();

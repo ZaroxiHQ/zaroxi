@@ -15,45 +15,24 @@ Full glyph packing, eviction, and multi-page atlas support will be
 implemented in a follow-up change.
 */
 
-use wgpu::{Device, Queue, Extent3d, Origin3d, TextureDescriptor, TextureDimension, TextureUsages, TextureFormat, TextureViewDescriptor, SamplerDescriptor, Texture};
+use wgpu::{Device, Queue, Texture};
 
-/// Create a tiny 2x2 RGBA debug atlas and upload the provided bytes.
+/// NOTE: Atlas packing/upload is intentionally NOT implemented in this helper.
 ///
-/// Returns the created texture (so callers can create bind-groups as needed).
-pub fn create_debug_atlas(device: &Device, queue: &mut Queue, format: TextureFormat) -> Option<Texture> {
-    let pixel_bytes: [u8; 16] = [
-        255, 255, 255, 255, // opaque white
-        0, 0, 0, 0,         // transparent
-        0, 0, 0, 0,         // transparent
-        255, 255, 255, 255, // opaque white
-    ];
-
-    let size = Extent3d { width: 2, height: 2, depth_or_array_layers: 1 };
-
-    let tex_desc = TextureDescriptor {
-        label: Some("debug_text_atlas"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
-    };
-
-    let texture = device.create_texture(&tex_desc);
-
-    // NOTE:
-    // Different wgpu releases expose slightly different typed helpers for
-    // texture write operations (ImageCopyTexture / ImageDataLayout, etc).
-    // To avoid depending on a specific wgpu struct layout in this diagnostic
-    // helper, we only allocate the texture here. The actual upload will be
-    // implemented using the workspace's wgpu API in the full atlas implementation.
-    //
-    // Keeping the allocation lets callers create bind-groups using the
-    // returned texture view while we iterate on a robust, version-agnostic
-    // upload path in a follow-up change.
-    //
-    // (No pixel data upload performed here.)
-    Some(texture)
+/// The project previously used a tiny 2x2 placeholder atlas which masked the
+/// real problem: glyph bitmaps were never packed/uploaded, producing zero-area
+/// atlas entries and invisible text. Until a real atlas packer and upload
+/// pipeline is implemented this function returns None to make the lack of a
+/// real atlas explicit and to avoid pretending success.
+///
+/// Implementing a production atlas requires:
+/// - a packing strategy (skyline/bin-pack, shelf, or shelf+eviction),
+/// - a staging buffer -> copy_buffer_to_texture upload path,
+/// - growth/resize semantics (repack or multi-page atlases),
+/// - correct TextureFormat selection (R8Unorm for single-channel glyph coverage).
+///
+/// See the renderer's TODOs and the issue tracker for follow-ups.
+pub fn create_debug_atlas(_device: &Device, _queue: &mut Queue, _format: wgpu::TextureFormat) -> Option<Texture> {
+    // Deliberately return None to signal "atlas packing not implemented yet".
+    None
 }
