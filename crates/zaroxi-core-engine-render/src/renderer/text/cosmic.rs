@@ -525,6 +525,16 @@ impl TextRenderer for CosmicTextRenderer {
             let mut attrs = Attrs::new();
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
 
+            // Compute command-level physical origin and apply snapping consistently per command.
+            let snap_enabled =
+                std::env::var("ZAROXI_TEXT_SNAP").ok().map(|v| v == "1").unwrap_or(true);
+            let cmd_origin_x_phys = cmd.x * device_scale;
+            let cmd_origin_y_phys = cmd.y * device_scale;
+            let snapped_cmd_x =
+                if snap_enabled { cmd_origin_x_phys.round() } else { cmd_origin_x_phys };
+            let snapped_cmd_y =
+                if snap_enabled { cmd_origin_y_phys.round() } else { cmd_origin_y_phys };
+
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
             // borrow is active, compute precise float layout positions (avoid integer truncation),
             // and record CacheKey for rasterization. Drop the borrow before calling into `swash`.
@@ -542,8 +552,9 @@ impl TextRenderer for CosmicTextRenderer {
                     let y_offset = g.font_size * g.y_offset;
                     // Apply device-scale to both layout coordinates and command offsets so
                     // the CacheKey uses physical pixel positions.
-                    let layout_x = (g.x + x_offset) * scale + (cmd.x * device_scale);
-                    let layout_y = (g.y - y_offset) * scale + ((cmd.y + run.line_y) * device_scale);
+                    let layout_x = (g.x + x_offset) * scale + snapped_cmd_x;
+                    let layout_y =
+                        (g.y - y_offset) * scale + (snapped_cmd_y + run.line_y * device_scale);
                     // Build cache key for rasterization using physical font size and position
                     let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
                         g.font_id,
@@ -722,13 +733,9 @@ impl TextRenderer for CosmicTextRenderer {
                                 let x0 = layout_x + glyph.offset_x as f32;
                                 let y0 = layout_y + glyph.offset_y as f32;
 
-                                // Pixel-snapping policy
-                                let snap_enabled = std::env::var("ZAROXI_TEXT_SNAP")
-                                    .ok()
-                                    .map(|v| v == "1")
-                                    .unwrap_or(true);
-                                let snapped_x0 = if snap_enabled { x0.round() } else { x0 };
-                                let snapped_y0 = if snap_enabled { y0.round() } else { y0 };
+                                // Use command-level snapping; x0/y0 already computed using snapped_cmd_x/y.
+                                let snapped_x0 = x0;
+                                let snapped_y0 = y0;
 
                                 // Debug placement info only when enabled
                                 if text_debug_enabled() {
@@ -784,12 +791,13 @@ impl TextRenderer for CosmicTextRenderer {
                                     let is_rep = cmd.text.to_lowercase().contains("editor")
                                         || cmd.text.to_lowercase().contains("header");
                                     if is_rep {
-                                        let sampler_mode =
-                                            if max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05 {
-                                                "nearest"
-                                            } else {
-                                                "linear"
-                                            };
+                                        let sampler_mode = if (max_scale_ratio >= 0.95
+                                            && max_scale_ratio <= 1.05)
+                                        {
+                                            "nearest"
+                                        } else {
+                                            "linear"
+                                        };
                                         eprintln!(
                                             "GUI_TEXT_EDGE_DIAG: label=\"{}\" scale={} atlas_px={}x{} quad_px={}x{} scale_ratio={:.3} snapped={} sampler={}",
                                             cmd.text,
