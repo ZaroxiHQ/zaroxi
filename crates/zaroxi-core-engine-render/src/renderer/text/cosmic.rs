@@ -938,12 +938,30 @@ impl TextRenderer for CosmicTextRenderer {
         };
 
         // Emit a concise render-pass entry marker (terminal-visible).
+        // Also attempt to set the render viewport from available sources so the GPU
+        // receives a valid, non-zero viewport. Sources (in order):
+        //  - runtime viewport recorded via resize_viewport()
+        //  - env vars ZAROXI_SURFACE_WIDTH / ZAROXI_SURFACE_HEIGHT (upper layer may set these)
+        // If neither is available we skip setting the viewport to avoid OOB validation.
+        let (vw_recorded, vh_recorded) = *self.viewport.lock().unwrap();
+
+        // Try env-provided surface dims as a fallback diagnostic mechanism.
+        let env_w = std::env::var("ZAROXI_SURFACE_WIDTH").ok().and_then(|s| s.parse::<u32>().ok());
+        let env_h = std::env::var("ZAROXI_SURFACE_HEIGHT").ok().and_then(|s| s.parse::<u32>().ok());
+
+        // Select effective target dims: prefer recorded viewport, fall back to env.
+        let mut target_w = if vw_recorded > 0 { vw_recorded } else { env_w.unwrap_or(0) };
+        let mut target_h = if vh_recorded > 0 { vh_recorded } else { env_h.unwrap_or(0) };
+
         eprintln!(
-            "GUI_TEXT_RENDER_PASS_ENTERED=true instance_count={} atlas_texture_size={}x{} surface_format={:?} target_view_present=true",
+            "GUI_TEXT_RENDER_PASS_ENTERED=true instance_count={} atlas_texture_size={}x{} surface_format={:?} target_view_present={} target_dim={}x{}",
             instance_count,
             atlas_w,
             atlas_h,
-            self.color_format
+            self.color_format,
+            if target_w > 0 && target_h > 0 { "true" } else { "false" },
+            target_w,
+            target_h
         );
 
         // Gather inputs used to compute the scissor rect so we can triage why it
@@ -951,7 +969,6 @@ impl TextRenderer for CosmicTextRenderer {
         // - current recorded viewport (may be zero if not propagated)
         // - a "clip" derived from the first-frame instance samples (if present)
         // - an optional operator override to force a full-viewport scissor for testing
-        let (vw, vh) = *self.viewport.lock().unwrap();
         let samples = self.last_frame_samples.lock().unwrap().clone();
 
         // Compute a simple bounding-box over the sampled instances (if any).
