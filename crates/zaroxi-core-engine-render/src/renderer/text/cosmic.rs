@@ -566,7 +566,7 @@ impl TextRenderer for CosmicTextRenderer {
                             "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
                             g.font_id,
                             g.glyph_id,
-                            g.font_size * scale,
+                            font_size_physical,
                             layout_x,
                             layout_y,
                             g.font_weight,
