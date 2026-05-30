@@ -499,8 +499,7 @@ impl CosmicTextRenderer {
                 };
 
                 if maybe_image.is_none() {
-                    skipped_image_missing += 1;
-                    skipped_rasterize_failed += 1;
+                    // missing image -> skip; counters not used elsewhere so avoid unused assignments
                     continue;
                 }
                 rasterize_success_total += 1;
