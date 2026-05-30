@@ -47,8 +47,9 @@ use glyphon::SwashCache;
 use crate::renderer::text_atlas::{SharedAtlas, RasterizedGlyph, AtlasEntry};
 use crate::renderer::text_pipeline;
 use wgpu::{
-    BindGroup, Device, Queue, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
+    BindGroup, Device, Queue, CommandEncoder, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, Extent3d, Origin3d, TextureViewDescriptor,
+    RenderPassColorAttachment, LoadOp, Operations,
 };
 
 /// Small metadata describing a created debug atlas (kept separately from the
@@ -918,12 +919,15 @@ impl TextRenderer for CosmicTextRenderer {
         Ok(())
     }
 
-    fn render_pass<'a>(
+    // Shared implementation that performs the actual render-pass work against a live RenderPass.
+    fn perform_render_pass<'a>(
         &self,
         rpass: &mut RenderPass<'a>,
         pipeline: &RenderPipeline,
         _panel_indices_len: u32,
         _total_indices_len: u32,
+        target_w: u32,
+        target_h: u32,
     ) -> Result<(), RenderError> {
         // Read the authoritative per-frame summary populated during prepare().
         let summary_opt = self.last_frame_summary.lock().unwrap().clone();
@@ -937,38 +941,18 @@ impl TextRenderer for CosmicTextRenderer {
             (0u32, 0u32, 0usize, 0usize, "unknown".to_string())
         };
 
-        // Emit a concise render-pass entry marker (terminal-visible).
-        // Also attempt to set the render viewport from available sources so the GPU
-        // receives a valid, non-zero viewport. Sources (in order):
-        //  - runtime viewport recorded via resize_viewport()
-        //  - env vars ZAROXI_SURFACE_WIDTH / ZAROXI_SURFACE_HEIGHT (upper layer may set these)
-        // If neither is available we skip setting the viewport to avoid OOB validation.
-        let (vw_recorded, vh_recorded) = *self.viewport.lock().unwrap();
-
-        // Try env-provided surface dims as a fallback diagnostic mechanism.
-        let env_w = std::env::var("ZAROXI_SURFACE_WIDTH").ok().and_then(|s| s.parse::<u32>().ok());
-        let env_h = std::env::var("ZAROXI_SURFACE_HEIGHT").ok().and_then(|s| s.parse::<u32>().ok());
-
-        // Select effective target dims: prefer recorded viewport, fall back to env.
-        let mut target_w = if vw_recorded > 0 { vw_recorded } else { env_w.unwrap_or(0) };
-        let mut target_h = if vh_recorded > 0 { vh_recorded } else { env_h.unwrap_or(0) };
-
         eprintln!(
-            "GUI_TEXT_RENDER_PASS_ENTERED=true instance_count={} atlas_texture_size={}x{} surface_format={:?} target_view_present={} target_dim={}x{}",
+            "GUI_TEXT_RENDER_PASS_ACTIVE: instance_count={} atlas_texture_size={}x{} surface_format={:?} target_dim={}x{}",
             instance_count,
             atlas_w,
             atlas_h,
             self.color_format,
-            if target_w > 0 && target_h > 0 { "true" } else { "false" },
             target_w,
             target_h
         );
 
         // Gather inputs used to compute the scissor rect so we can triage why it
-        // might collapse to zero-size. We capture:
-        // - current recorded viewport (may be zero if not propagated)
-        // - a "clip" derived from the first-frame instance samples (if present)
-        // - an optional operator override to force a full-viewport scissor for testing
+        // might collapse to zero-size.
         let samples = self.last_frame_samples.lock().unwrap().clone();
 
         // Compute a simple bounding-box over the sampled instances (if any).
@@ -994,11 +978,9 @@ impl TextRenderer for CosmicTextRenderer {
         } else {
             "sample_bbox=none".to_string()
         };
-        // Report both the recorded viewport and the effective target dims chosen
-        // for the render pass so operators can see where the scissor values originate.
         eprintln!(
-            "GUI_TEXT_SCISSOR_INPUT: recorded_viewport={}x{} effective_target={}x{} clip={}",
-            vw_recorded, vh_recorded, target_w, target_h, clip_desc
+            "GUI_TEXT_SCISSOR_INPUT: effective_target={}x{} clip={}",
+            target_w, target_h, clip_desc
         );
 
         // Test override: allow forcing a full-viewport scissor to validate that
@@ -1181,6 +1163,64 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         Ok(())
+    }
+
+    fn render_pass<'a>(
+        &self,
+        rpass: &mut RenderPass<'a>,
+        pipeline: &RenderPipeline,
+        _panel_indices_len: u32,
+        _total_indices_len: u32,
+    ) -> Result<(), RenderError> {
+        // Determine target dims from recorded viewport (best-effort) so we can avoid OOB scissor sets.
+        let (vw_recorded, vh_recorded) = *self.viewport.lock().unwrap();
+        let env_w = std::env::var("ZAROXI_SURFACE_WIDTH").ok().and_then(|s| s.parse::<u32>().ok());
+        let env_h = std::env::var("ZAROXI_SURFACE_HEIGHT").ok().and_then(|s| s.parse::<u32>().ok());
+        let target_w = if vw_recorded > 0 { vw_recorded } else { env_w.unwrap_or(0) };
+        let target_h = if vh_recorded > 0 { vh_recorded } else { env_h.unwrap_or(0) };
+
+        self.perform_render_pass(rpass, pipeline, _panel_indices_len, _total_indices_len, target_w, target_h)
+    }
+
+    /// Render into an explicit texture view. This is the preferred codepath for
+    /// callers that have a live swapchain texture. It will create a render pass,
+    /// set viewport + scissor to the supplied target dimensions, and then invoke
+    /// the shared rendering implementation.
+    pub fn render_to_view(
+        &self,
+        encoder: &mut CommandEncoder,
+        pipeline: &RenderPipeline,
+        target_view: &wgpu::TextureView,
+        target_width: u32,
+        target_height: u32,
+    ) -> Result<(), RenderError> {
+        assert!(target_width > 0 && target_height > 0, "Text render target is zero-sized!");
+
+        // Debug log showing the concrete target the caller provided.
+        eprintln!("TEXT_RENDER_INPUT: target_view_present=true target_width={} target_height={}", target_width, target_height);
+
+        let color_attachment = RenderPassColorAttachment {
+            view: target_view,
+            resolve_target: None,
+            ops: Operations {
+                load: LoadOp::Load,
+                store: true,
+            },
+        };
+
+        let desc = wgpu::RenderPassDescriptor {
+            label: Some("zaroxi_text_render_pass"),
+            color_attachments: &[Some(color_attachment)],
+            depth_stencil_attachment: None,
+        };
+
+        // Begin the render pass and set the viewport to the provided target dims.
+        let mut rpass = encoder.begin_render_pass(&desc);
+        rpass.set_viewport(0.0, 0.0, target_width as f32, target_height as f32, 0.0, 1.0);
+        // Delegate to the shared implementation.
+        let res = self.perform_render_pass(&mut rpass, pipeline, 0, 0, target_width, target_height);
+        drop(rpass); // end the render pass before returning
+        res
     }
 
     fn atlas_bind_group(&self) -> Option<&BindGroup> {
