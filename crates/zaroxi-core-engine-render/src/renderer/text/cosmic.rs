@@ -791,13 +791,12 @@ impl TextRenderer for CosmicTextRenderer {
                                     let is_rep = cmd.text.to_lowercase().contains("editor")
                                         || cmd.text.to_lowercase().contains("header");
                                     if is_rep {
-                                        let sampler_mode = if (max_scale_ratio >= 0.95
-                                            && max_scale_ratio <= 1.05)
-                                        {
-                                            "nearest"
-                                        } else {
-                                            "linear"
-                                        };
+                                        let sampler_mode =
+                                            if max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05 {
+                                                "nearest"
+                                            } else {
+                                                "linear"
+                                            };
                                         eprintln!(
                                             "GUI_TEXT_EDGE_DIAG: label=\"{}\" scale={} atlas_px={}x{} quad_px={}x{} scale_ratio={:.3} snapped={} sampler={}",
                                             cmd.text,
