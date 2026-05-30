@@ -274,11 +274,13 @@ impl CosmicTextRenderer {
             let entering_raster_stage: bool =
                 extracted_for_emission > 0 && swash_cache_present && device_present && queue_present;
 
-            eprintln!(
-                "GUI_TEXT_POST_EXTRACT: extracted={} entering_raster_stage={}",
-                extracted_for_emission,
-                entering_raster_stage
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_POST_EXTRACT: extracted={} entering_raster_stage={}",
+                    extracted_for_emission,
+                    entering_raster_stage
+                );
+            }
 
             if !entering_raster_stage {
                 let reason = if !swash_cache_present {
@@ -295,52 +297,75 @@ impl CosmicTextRenderer {
                 // Return zeroed counters since we didn't enter raster stage.
                 return Ok((shaped_glyphs_total, extracted_for_emission, 0usize, 0usize, 0usize));
             } else {
-                eprintln!(
-                    "GUI_TEXT_RASTER_PREREQS: swash_cache_present={} atlas_present={} atlas_uploaded={} device_present={} queue_present={}",
-                    swash_cache_present,
-                    atlas_present,
-                    atlas_uploaded_flag,
-                    device_present,
-                    queue_present
-                );
+                // Detailed raster-stage markers are gated behind the debug flag.
+                if text_debug_enabled() {
+                    eprintln!(
+                        "GUI_TEXT_RASTER_PREREQS: swash_cache_present={} atlas_present={} atlas_uploaded={} device_present={} queue_present={}",
+                        swash_cache_present,
+                        atlas_present,
+                        atlas_uploaded_flag,
+                        device_present,
+                        queue_present
+                    );
 
-                eprintln!("GUI_TEXT_RASTER_ENTERED");
+                    eprintln!("GUI_TEXT_RASTER_ENTERED");
 
-                if atlas_present {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
-                } else if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED");
-                    let mut uploaded = self.atlas_uploaded.lock().unwrap();
-                    if !*uploaded {
-                        *uploaded = true;
-                        debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                    if atlas_present {
+                        eprintln!("GUI_TEXT_ATLAS_ENTERED");
+                    } else if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                        eprintln!("GUI_TEXT_ATLAS_ENTERED");
+                        let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                        if !*uploaded {
+                            *uploaded = true;
+                            debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                        } else {
+                            debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+                        }
                     } else {
-                        debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+                        // Report failed atlas creation even in debug mode for triage.
+                        eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
                     }
-                } else {
-                    eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
-                }
 
-                eprintln!("GUI_TEXT_PUSH_ENTERED");
+                    eprintln!("GUI_TEXT_PUSH_ENTERED");
+                } else {
+                    // In non-debug mode we still attempt to ensure an atlas exists so the
+                    // render-pass can exercise shader sampling, but avoid noisy terminal logs.
+                    if !atlas_present {
+                        if let Some((_tex, _view, _sampler)) = self.create_debug_atlas(device, queue) {
+                            let mut uploaded = self.atlas_uploaded.lock().unwrap();
+                            if !*uploaded {
+                                *uploaded = true;
+                                debug!("CosmicTextRenderer.prepare: uploaded debug atlas (marker set)");
+                            } else {
+                                debug!("CosmicTextRenderer.prepare: debug atlas already present (marker)");
+                            }
+                        } else {
+                            // Only emit a terminal-visible line when atlas creation actually failed.
+                            eprintln!("GUI_TEXT_ATLAS_ENTERED: failed");
+                        }
+                    }
+                }
             }
 
-            eprintln!(
-                "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
-                total_layout_glyphs,
-                extracted_for_emission,
-                rejected_total
-            );
-            eprintln!(
-                "GUI_TEXT_EXTRACT_SKIP: skipped_no_physical_glyph={} skipped_no_cache_key={} skipped_non_finite={} skipped_out_of_clip={} skipped_zero_size={} skipped_color_conversion={} skipped_rasterize_failed={} skipped_image_missing={}",
-                skipped_no_physical_glyph,
-                skipped_no_cache_key,
-                skipped_non_finite,
-                skipped_out_of_clip,
-                skipped_zero_size,
-                skipped_color_conversion,
-                skipped_rasterize_failed,
-                skipped_image_missing
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_EXTRACT_SUMMARY: total_layout_glyphs={} extracted_for_emission={} rejected_total={}",
+                    total_layout_glyphs,
+                    extracted_for_emission,
+                    rejected_total
+                );
+                eprintln!(
+                    "GUI_TEXT_EXTRACT_SKIP: skipped_no_physical_glyph={} skipped_no_cache_key={} skipped_non_finite={} skipped_out_of_clip={} skipped_zero_size={} skipped_color_conversion={} skipped_rasterize_failed={} skipped_image_missing={}",
+                    skipped_no_physical_glyph,
+                    skipped_no_cache_key,
+                    skipped_non_finite,
+                    skipped_out_of_clip,
+                    skipped_zero_size,
+                    skipped_color_conversion,
+                    skipped_rasterize_failed,
+                    skipped_image_missing
+                );
+            }
 
             // Per-glyph counters (live state).
             let mut rasterize_attempted_total: usize = 0;
@@ -419,18 +444,20 @@ impl CosmicTextRenderer {
                 instances_pushed += 1;
             }
 
-            eprintln!(
-                "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
-                rasterize_attempted_total,
-                rasterize_success_total,
-                atlas_insert_attempted_total,
-                atlas_insert_success_total
-            );
+            if text_debug_enabled() {
+                eprintln!(
+                    "GUI_TEXT_ATLAS_FLOW: rasterize_attempted_total={} rasterize_success_total={} atlas_insert_attempted_total={} atlas_insert_success_total={}",
+                    rasterize_attempted_total,
+                    rasterize_success_total,
+                    atlas_insert_attempted_total,
+                    atlas_insert_success_total
+                );
 
-            if instances_pushed > 0 {
-                eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
-            } else {
-                eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
+                if instances_pushed > 0 {
+                    eprintln!("GUI_TEXT_INSTANCE_PUSH: pushed_count={}", instances_pushed);
+                } else {
+                    eprintln!("GUI_TEXT_INSTANCE_PUSH: none");
+                }
             }
 
             // Pipeline summary combining the key counters so a single grep shows the first zero stage.
@@ -449,7 +476,7 @@ impl CosmicTextRenderer {
             info!("GUI_TEXT_STAGE_4_COSMIC_PREPARE: queued_commands={} source=\"{}\" shaped_glyphs_total={} extracted_for_emission={} atlas_entries={}", queued_count, source, shaped_glyphs_total, extracted_for_emission, atlas_entries);
 
             // Trace: write a compact parse-friendly temp-file marker for other crates/tools.
-            {
+            if text_debug_enabled() {
                 let tmp = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
                 let contents = format!(
                     "source={}\nshaped_glyphs_total={}\nextracted_for_emission={}\nrasterize_success_total={}\natlas_insert_success_total={}\nfont_resolved={}\nbuffer_size={}x{}\ntext_len={}\n",
@@ -515,7 +542,9 @@ impl TextRenderer for CosmicTextRenderer {
         let queued_count = q.len();
 
         // Minimal, terminal-visible entry marker proving we reached the live prepare path.
-        eprintln!("GUI_TEXT_COSMIC_ENTERED: live_prepare");
+        if text_debug_enabled() {
+            eprintln!("GUI_TEXT_COSMIC_ENTERED: live_prepare");
+        }
 
         // Only surface a single concise stage line (helps grep-based tooling).
         let labels: Vec<String> = q.iter().map(|c| c.text.clone()).collect();
@@ -524,8 +553,10 @@ impl TextRenderer for CosmicTextRenderer {
             queued_count, labels
         );
 
-        // Keep a short terminal-visible counter for human observers.
-        eprintln!("CosmicTextRenderer.prepare: queued_commands={}", queued_count);
+        // Keep a short terminal-visible counter for human observers (debug).
+        if text_debug_enabled() {
+            eprintln!("CosmicTextRenderer.prepare: queued_commands={}", queued_count);
+        }
 
         // Consolidated input tracing: pick one representative label for this frame.
         let mut total_text_len: usize = 0;
@@ -567,18 +598,20 @@ impl TextRenderer for CosmicTextRenderer {
         if total_text_len == 0 {
             eprintln!("GUI_TEXT_INVALID: empty_text_on_all_commands");
         }
-        for cmd in q.iter() {
-            if cmd.clip_w <= 0.0 {
-                eprintln!("GUI_TEXT_INVALID: zero_width label=\"{}\" clip_w={}", cmd.text, cmd.clip_w);
-            }
-            if cmd.clip_h <= 0.0 {
-                eprintln!("GUI_TEXT_INVALID: zero_height label=\"{}\" clip_h={}", cmd.text, cmd.clip_h);
-            }
-            if cmd.size <= 0.0 {
-                eprintln!("GUI_TEXT_INVALID: zero_font_size label=\"{}\" font_size={}", cmd.text, cmd.size);
-            }
-            if cmd.text.trim().is_empty() {
-                eprintln!("GUI_TEXT_INVALID: empty_text label=\"{}\"", cmd.text);
+        if text_debug_enabled() {
+            for cmd in q.iter() {
+                if cmd.clip_w <= 0.0 {
+                    eprintln!("GUI_TEXT_INVALID: zero_width label=\"{}\" clip_w={}", cmd.text, cmd.clip_w);
+                }
+                if cmd.clip_h <= 0.0 {
+                    eprintln!("GUI_TEXT_INVALID: zero_height label=\"{}\" clip_h={}", cmd.text, cmd.clip_h);
+                }
+                if cmd.size <= 0.0 {
+                    eprintln!("GUI_TEXT_INVALID: zero_font_size label=\"{}\" font_size={}", cmd.text, cmd.size);
+                }
+                if cmd.text.trim().is_empty() {
+                    eprintln!("GUI_TEXT_INVALID: empty_text label=\"{}\"", cmd.text);
+                }
             }
         }
 
