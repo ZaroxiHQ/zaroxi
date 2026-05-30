@@ -6,6 +6,8 @@ mod pipelines;
 mod shapes;
 mod surface;
 mod text;
+mod text_atlas;
+mod text_pipeline;
 mod ui;
 
 /// Public facade for the renderer module.
