@@ -722,6 +722,14 @@ impl TextRenderer for CosmicTextRenderer {
                                 let x0 = layout_x + glyph.offset_x as f32;
                                 let y0 = layout_y + glyph.offset_y as f32;
 
+                                // Pixel-snapping policy
+                                let snap_enabled = std::env::var("ZAROXI_TEXT_SNAP")
+                                    .ok()
+                                    .map(|v| v == "1")
+                                    .unwrap_or(true);
+                                let snapped_x0 = if snap_enabled { x0.round() } else { x0 };
+                                let snapped_y0 = if snap_enabled { y0.round() } else { y0 };
+
                                 // Debug placement info only when enabled
                                 if text_debug_enabled() {
                                     let cluster_text: String = cmd
@@ -731,7 +739,7 @@ impl TextRenderer for CosmicTextRenderer {
                                         .take(layout_g.end - layout_g.start)
                                         .collect();
                                     eprintln!(
-                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}",
+                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} layout_x={} layout_y={} offset_x={} offset_y={} hitbox_w={} hitbox_h={} final_x={} final_y={} snapped_x={} snapped_y={} quad_w={} quad_h={} cache_key={:?}",
                                         cmd.text,
                                         cluster_text,
                                         layout_g.glyph_id,
@@ -747,6 +755,8 @@ impl TextRenderer for CosmicTextRenderer {
                                         0.0,
                                         x0,
                                         y0,
+                                        snapped_x0,
+                                        snapped_y0,
                                         glyph.width,
                                         glyph.height,
                                         cache_key
@@ -755,8 +765,8 @@ impl TextRenderer for CosmicTextRenderer {
 
                                 // Record instance sample for logging and later instance buffer
                                 samples.push(InstanceSample {
-                                    x: x0,
-                                    y: y0,
+                                    x: snapped_x0,
+                                    y: snapped_y0,
                                     width: glyph.width as f32,
                                     height: glyph.height as f32,
                                     uv0: (entry.u0, entry.v0),
@@ -768,6 +778,33 @@ impl TextRenderer for CosmicTextRenderer {
                                 let ratio_w = (glyph.width as f32) / (entry.width as f32);
                                 let ratio_h = (glyph.height as f32) / (entry.height as f32);
                                 max_scale_ratio = max_scale_ratio.max(ratio_w.max(ratio_h));
+
+                                // If this is a representative label (e.g., editor header), emit one-line edge diagnostic
+                                if text_debug_enabled() {
+                                    let is_rep = cmd.text.to_lowercase().contains("editor")
+                                        || cmd.text.to_lowercase().contains("header");
+                                    if is_rep {
+                                        let sampler_mode = if (max_scale_ratio >= 0.95
+                                            && max_scale_ratio <= 1.05)
+                                        {
+                                            "nearest"
+                                        } else {
+                                            "linear"
+                                        };
+                                        eprintln!(
+                                            "GUI_TEXT_EDGE_DIAG: label=\"{}\" scale={} atlas_px={}x{} quad_px={}x{} scale_ratio={:.3} snapped={} sampler={}",
+                                            cmd.text,
+                                            device_scale,
+                                            entry.width,
+                                            entry.height,
+                                            glyph.width,
+                                            glyph.height,
+                                            max_scale_ratio,
+                                            snap_enabled,
+                                            sampler_mode
+                                        );
+                                    }
+                                }
 
                                 // Debug atlas dump when enabled and suspiciously small
                                 if text_debug_enabled() && (glyph.width <= 2 || glyph.height <= 2) {
