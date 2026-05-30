@@ -545,12 +545,16 @@ impl TextRenderer for CosmicTextRenderer {
             for run in borrowed.layout_runs() {
                 for g in run.glyphs.iter() {
                     shaped_total += 1;
-                    // compute float layout origin using the device pixel scale so cache keys
-                    // and subpixel bins reflect physical rasterization size.
-                    // Use shaped glyph positions directly. `g.x` and `g.y` are already in
-                    // physical pixels because we created the buffer with physical metrics.
-                    let layout_x = g.x + snapped_cmd_x;
-                    let layout_y = g.y + snapped_cmd_y + run.line_y * device_scale;
+                    // Compute the glyph physical coordinates using the LayoutGlyph::physical helper.
+                    // This ensures we preserve cosmic-text's shaped pen positions, baseline and offsets
+                    // exactly as intended (rather than reconstructing from g.x/g.y and run.line_y).
+                    // Provide the snapped command origin plus the run's line_y so the returned
+                    // physical coordinates are in the same device pixel space we use for raster/cache.
+                    let phys =
+                        g.physical((snapped_cmd_x, snapped_cmd_y + run.line_y * device_scale), 1.0);
+                    let layout_x = phys.x as f32;
+                    let layout_y = phys.y as f32;
+
                     // Build cache key for rasterization using the physical font size and layout origin.
                     let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
                         g.font_id,
@@ -560,6 +564,7 @@ impl TextRenderer for CosmicTextRenderer {
                         g.font_weight,
                         g.cache_key_flags,
                     );
+
                     // Debug-only: log cache key args when debugging is enabled
                     if text_debug_enabled() {
                         eprintln!(
@@ -574,13 +579,21 @@ impl TextRenderer for CosmicTextRenderer {
                             cache_key
                         );
                     }
+
+                    // Preserve the original LayoutGlyph record and the exact physical positions.
                     physicals.push((g.clone(), layout_x, layout_y, cache_key));
                 }
             }
             drop(borrowed);
 
-            for (i, tuple) in physicals.into_iter().enumerate() {
-                let (layout_g, layout_x, layout_y, cache_key) = tuple;
+            // Process each physical glyph in-order. Use index-based iteration so we can
+            // look ahead to the next glyph's shaped position for validation checks.
+            let plen = physicals.len();
+            let mut rep_dumped: usize = 0;
+            for idx in 0..plen {
+                let (layout_g, layout_x, layout_y, cache_key) = physicals[idx].clone();
+                let next_layout_x_opt =
+                    if idx + 1 < plen { Some(physicals[idx + 1].1) } else { None };
 
                 // If we already have a cached result for this cache_key in this frame,
                 // reuse it: emit an instance if drawable, otherwise skip.
@@ -611,6 +624,53 @@ impl TextRenderer for CosmicTextRenderer {
                         }
                         let x0 = layout_x + (xoff as f32);
                         let y0 = layout_y + (yoff as f32);
+
+                        // Representative dump for label like "editor_content"
+                        if cmd.text.contains("editor_content") && rep_dumped < 12 {
+                            let cluster_text: String = cmd
+                                .text
+                                .chars()
+                                .skip(layout_g.start)
+                                .take(layout_g.end - layout_g.start)
+                                .collect();
+                            let next_x = next_layout_x_opt.unwrap_or(f32::NAN);
+                            eprintln!(
+                                "EDITOR_DUMP: char='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} final_x={} final_y={} next_shaped_x={} scale={}",
+                                cluster_text,
+                                layout_g.glyph_id,
+                                layout_g.x,
+                                layout_g.w,
+                                xoff,
+                                yoff,
+                                w,
+                                h,
+                                x0,
+                                y0,
+                                next_x,
+                                device_scale
+                            );
+                            rep_dumped += 1;
+                        }
+
+                        // If the next glyph appears to be placed at the current glyph's quad-right
+                        // (i.e., driven by bitmap width) rather than the shaped pen advance, assert
+                        // in debug builds to catch regressions. Only do this check when a next
+                        // shaped position exists.
+                        if let Some(next_x) = next_layout_x_opt {
+                            let expected_by_advance = layout_x + layout_g.w;
+                            let expected_by_quad = x0 + (w as f32);
+                            let eps = 0.01f32;
+                            if (next_x - expected_by_quad).abs() < eps
+                                && (next_x - expected_by_advance).abs() > eps
+                            {
+                                debug_assert!(
+                                    false,
+                                    "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
+                                    next_x, expected_by_quad, expected_by_advance
+                                );
+                            }
+                        }
+
                         samples.push(InstanceSample {
                             x: x0,
                             y: y0,
@@ -760,6 +820,52 @@ impl TextRenderer for CosmicTextRenderer {
                                         glyph.height,
                                         cache_key
                                     );
+                                }
+
+                                // Representative dump for label like "editor_content"
+                                if cmd.text.contains("editor_content") && rep_dumped < 12 {
+                                    let cluster_text: String = cmd
+                                        .text
+                                        .chars()
+                                        .skip(layout_g.start)
+                                        .take(layout_g.end - layout_g.start)
+                                        .collect();
+                                    let next_x = next_layout_x_opt.unwrap_or(f32::NAN);
+                                    eprintln!(
+                                        "EDITOR_DUMP: char='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} final_x={} final_y={} next_shaped_x={} scale={}",
+                                        cluster_text,
+                                        layout_g.glyph_id,
+                                        layout_g.x,
+                                        layout_g.w,
+                                        glyph.offset_x,
+                                        glyph.offset_y,
+                                        glyph.width,
+                                        glyph.height,
+                                        snapped_x0,
+                                        snapped_y0,
+                                        next_x,
+                                        device_scale
+                                    );
+                                    rep_dumped += 1;
+                                }
+
+                                // If the next glyph appears to be placed at the current glyph's quad-right
+                                // (i.e., driven by bitmap width) rather than the shaped pen advance, assert
+                                // in debug builds to catch regressions. Only do this check when a next
+                                // shaped position exists.
+                                if let Some(next_x) = next_layout_x_opt {
+                                    let expected_by_advance = layout_x + layout_g.w;
+                                    let expected_by_quad = snapped_x0 + (glyph.width as f32);
+                                    let eps = 0.01f32;
+                                    if (next_x - expected_by_quad).abs() < eps
+                                        && (next_x - expected_by_advance).abs() > eps
+                                    {
+                                        debug_assert!(
+                                            false,
+                                            "Glyph placement appears driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
+                                            next_x, expected_by_quad, expected_by_advance
+                                        );
+                                    }
                                 }
 
                                 // Record instance sample for logging and later instance buffer
