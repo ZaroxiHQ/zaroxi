@@ -1005,10 +1005,16 @@ impl TextRenderer for CosmicTextRenderer {
         // full texture (placeholder).
         if atlas_w > 0 {
             // Number of unique uv rectangles observed among sampled instances.
+            // f32 does not implement Hash/Eq, so convert sampled UV rects to
+            // integer pixel rects before deduping for reliable hashing/comparison.
             let samples_for_uv = self.last_frame_samples.lock().unwrap().clone();
-            let mut unique_uvs: HashSet<((f32, f32), (f32, f32))> = HashSet::new();
+            let mut unique_uvs: HashSet<(i32, i32, i32, i32)> = HashSet::new();
             for s in &samples_for_uv {
-                unique_uvs.insert((s.uv0, s.uv1));
+                let px_x0 = (s.uv0.0 * atlas_w as f32).round() as i32;
+                let px_y0 = (s.uv0.1 * atlas_h as f32).round() as i32;
+                let px_x1 = (s.uv1.0 * atlas_w as f32).round() as i32;
+                let px_y1 = (s.uv1.1 * atlas_h as f32).round() as i32;
+                unique_uvs.insert((px_x0, px_y0, px_x1, px_y1));
             }
             let unique_uv_count = unique_uvs.len();
 
