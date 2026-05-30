@@ -46,7 +46,6 @@ use glyphon::SwashCache;
 use wgpu::{
     BindGroup, Device, Queue, RenderPass, RenderPipeline, SamplerDescriptor, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, Extent3d, Origin3d, TextureViewDescriptor,
-    ImageCopyTexture, ImageDataLayout,
 };
 
 /// Small metadata describing a created debug atlas (kept separately from the
@@ -118,8 +117,8 @@ pub struct CosmicTextRenderer {
     last_frame_samples: Arc<Mutex<Vec<InstanceSample>>>,
 
     // Current viewport used for scissor/visibility checks (updated by resize_viewport()).
-    viewport_width: u32,
-    viewport_height: u32,
+    // Stored in a mutex so resize_viewport (which takes &self) can update it safely.
+    viewport: Arc<Mutex<(u32, u32)>>,
 }
 
 impl CosmicTextRenderer {
@@ -144,8 +143,12 @@ impl CosmicTextRenderer {
         Ok(Self {
             queued: Arc::new(Mutex::new(Vec::new())),
             atlas_uploaded: Arc::new(Mutex::new(false)),
+            atlas_meta: Arc::new(Mutex::new(None)),
             swash_cache: Arc::new(Mutex::new(swash)),
             color_format,
+            last_frame_summary: Arc::new(Mutex::new(None)),
+            last_frame_samples: Arc::new(Mutex::new(Vec::new())),
+            viewport: Arc::new(Mutex::new((0u32, 0u32))),
         })
     }
 
@@ -185,33 +188,12 @@ impl CosmicTextRenderer {
         // Allocate the texture for a tiny debug atlas.
         let texture = device.create_texture(&tex_desc);
 
-        // Perform a direct write to the texture so we can prove bytes reached the GPU.
-        // This uses the queue.write_texture helper which exists across wgpu releases.
-        let image_copy = ImageCopyTexture {
-            texture: &texture,
-            mip_level: 0,
-            origin: Origin3d { x: 0, y: 0, z: 0 },
-            aspect: wgpu::TextureAspect::All,
-        };
-
-        // Layout for a tightly packed RGBA8 texture.
-        let data_layout = ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(std::num::NonZeroU32::new(4 * 2).unwrap()),
-            rows_per_image: Some(std::num::NonZeroU32::new(2).unwrap()),
-        };
-
-        // Perform the write; if the underlying wgpu supports this API the bytes will be uploaded.
-        // If this call fails to compile for a pinned wgpu version, remove this write and rely on
-        // the atlas_meta bookkeeping instead — but prefer the real write where available.
-        queue.write_texture(
-            image_copy,
-            &pixel_bytes,
-            data_layout,
-            size,
-        );
-
-        // Record atlas metadata for logging/diagnostics.
+        // We avoid a brittle dependency on a single write_texture API shape across
+        // the pinned wgpu versions used in different environments. For portability
+        // we allocate the texture here and record metadata for diagnostics. If the
+        // workspace's wgpu exposes a compatible write_texture API in the future we
+        // can add an actual upload path; for now this is enough to exercise bind
+        // group creation and shader sampling logic while keeping the code compiling.
         let mut meta_lock = self.atlas_meta.lock().unwrap();
         *meta_lock = Some(AtlasMeta {
             width: size.width,
@@ -221,7 +203,7 @@ impl CosmicTextRenderer {
             format: format!("{:?}", self.color_format),
         });
 
-        debug!("CosmicTextRenderer.create_debug_atlas: allocated and uploaded debug atlas texture");
+        debug!("CosmicTextRenderer.create_debug_atlas: allocated debug atlas texture (upload deferred)");
 
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor {
@@ -858,13 +840,14 @@ impl TextRenderer for CosmicTextRenderer {
         );
 
         // Ensure scissor is explicitly set to the viewport so we can detect clipping problems.
-        if self.viewport_width == 0 || self.viewport_height == 0 {
+        let (vw, vh) = *self.viewport.lock().unwrap();
+        if vw == 0 || vh == 0 {
             eprintln!("GUI_TEXT_SCISSOR: x=0 y=0 w=0 h=0");
         } else {
             // Set the scissor to the full viewport (this both documents the effective
             // scissor used and prevents accidental scissor clipping hiding text).
-            rpass.set_scissor_rect(0, 0, self.viewport_width, self.viewport_height);
-            eprintln!("GUI_TEXT_SCISSOR: x=0 y=0 w={} h={}", self.viewport_width, self.viewport_height);
+            rpass.set_scissor_rect(0, 0, vw, vh);
+            eprintln!("GUI_TEXT_SCISSOR: x=0 y=0 w={} h={}", vw, vh);
         }
 
         // Bind the pipeline (we do this even in the placeholder path so any draw
@@ -932,8 +915,8 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {
         // Record viewport so render_pass can set/inspect scissor for diagnostics.
-        self.viewport_width = width;
-        self.viewport_height = height;
+        let mut vp = self.viewport.lock().unwrap();
+        *vp = (width, height);
         info!("CosmicTextRenderer: viewport resize requested ({}x{})", width, height);
         Ok(())
     }
