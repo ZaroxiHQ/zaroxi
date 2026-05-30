@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
-pub mod cosmic_text_renderer;
+pub use zaroxi_core_engine_render::renderer::desktop_shim as cosmic_text_renderer;
 
 /// Global, shared cosmic renderer holder.
 ///

@@ -6,6 +6,7 @@ mod pipelines;
 mod shapes;
 mod surface;
 mod text;
+pub use text::desktop_shim;
 mod text_atlas;
 mod text_pipeline;
 mod ui;

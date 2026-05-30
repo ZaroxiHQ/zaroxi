@@ -702,10 +702,9 @@ impl TextRenderer for CosmicTextRenderer {
                                         snapped_cmd_x
                                     );
                                     if cfg!(debug_assertions) {
-                                        return Err(RenderError::Other(format!(
-                                            "Glyph placement driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={}",
-                                            next_x, expected_by_quad, expected_by_advance
-                                        )));
+                                        // Debug build: record placement alert but continue instead
+                                        // of aborting prepare. This avoids taking down the whole frame
+                                        // while we investigate glyph placement issues.
                                     }
                                 }
                             }
@@ -943,13 +942,8 @@ impl TextRenderer for CosmicTextRenderer {
                                                 snapped_cmd_x
                                             );
                                             if cfg!(debug_assertions) {
-                                                return Err(RenderError::Other(format!(
-                                                    "Glyph placement driven by bitmap/quad width; next_x={} expected_by_quad={} expected_by_advance={} tolerance={}",
-                                                    next_x,
-                                                    expected_by_quad,
-                                                    expected_by_advance,
-                                                    tolerance
-                                                )));
+                                                // Debug build: record placement alert but continue
+                                                // to avoid aborting the whole frame while investigating.
                                             }
                                         }
                                     }

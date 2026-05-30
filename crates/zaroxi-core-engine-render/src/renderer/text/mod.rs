@@ -27,6 +27,7 @@ use std::sync::Mutex;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, RenderPass, RenderPipeline};
 
 pub mod cosmic;
+pub mod desktop_shim;
 pub use cosmic::CosmicTextRenderer;
 
 /// Small in-process command representing text to be rendered.
