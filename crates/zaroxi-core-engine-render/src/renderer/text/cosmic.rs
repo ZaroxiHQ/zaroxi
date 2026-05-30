@@ -22,8 +22,8 @@ use crate::error::RenderError;
 use crate::renderer::text::{TextCommand, TextRenderer};
 use crate::renderer::text_atlas::{RasterizedGlyph, SharedAtlas};
 use crate::renderer::text_pipeline;
-use cosmic_text::{Attrs, Buffer as CosmicBuffer, Metrics, Shaping};
 use cosmic_text::SwashCache;
+use cosmic_text::{Attrs, Buffer as CosmicBuffer, Metrics, Shaping};
 use log::{debug, info};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -436,24 +436,33 @@ impl TextRenderer for CosmicTextRenderer {
             let mut attrs = Attrs::new();
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
 
-            // Borrow buffer for layout runs
+            // Borrow buffer for layout runs. We extract owned `physical` records
+            // while the borrow is active, then drop the borrow before calling into
+            // `swash` which needs its own mutable access to the font system.
             let mut borrowed = buf.borrow_with(&mut *fs);
-            let runs: Vec<_> = borrowed.layout_runs().collect();
-            for run in runs.iter() {
+            let mut physicals: Vec<_> = Vec::new();
+            for run in borrowed.layout_runs() {
                 for g in run.glyphs.iter() {
                     shaped_total += 1;
                     // Compute absolute physical coords (include command x/y + run offset)
                     let physical = g.physical((cmd.x, cmd.y + run.line_y), 1.0);
-                    let cache_key = physical.cache_key;
+                    physicals.push(physical);
+                }
+            }
+            // Release the borrowed font-system reference before calling back into `swash`.
+            drop(borrowed);
 
-                    // Avoid duplicate rasterization attempt for the same cache key in this pass
-                    if seen_keys.contains(&cache_key) {
-                        continue;
-                    }
-                    seen_keys.insert(cache_key);
+            for physical in physicals.into_iter() {
+                let cache_key = physical.cache_key;
 
-                    // Request raster image from swash cache
-                    match swash.get_image(&mut *fs, physical.cache_key) {
+                // Avoid duplicate rasterization attempt for the same cache key in this pass
+                if seen_keys.contains(&cache_key) {
+                    continue;
+                }
+                seen_keys.insert(cache_key);
+
+                // Request raster image from swash cache
+                match swash.get_image(&mut *fs, physical.cache_key) {
                         Some(img) => {
                             rasterized_total += 1;
                             // Build RasterizedGlyph from swash image
