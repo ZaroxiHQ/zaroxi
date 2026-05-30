@@ -296,8 +296,15 @@ mod tests {
         }
 
         // Phase 10: application-level AI orchestration API (test mock implementations).
-        fn request_ai_edit(&self, req: crate::ports::RequestAiEditRequest) -> crate::BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, crate::ports::UseCaseError>> {
-            let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+        fn request_ai_edit(
+            &self,
+            req: crate::ports::RequestAiEditRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::RequestAiEditResponse, crate::ports::UseCaseError>,
+        > {
+            let proposal =
+                format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
             let resp = crate::ports::RequestAiEditResponse {
                 proposal: crate::ports::AiProposal {
                     target_buffer: req.buffer_id.clone(),
@@ -308,14 +315,26 @@ mod tests {
             Box::pin(async move { Ok(resp) })
         }
 
-        fn apply_ai_edit(&self, req: crate::ports::ApplyAiEditRequest) -> crate::BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>> {
+        fn apply_ai_edit(
+            &self,
+            req: crate::ports::ApplyAiEditRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::ApplyAiEditResponse, crate::ports::UseCaseError>,
+        > {
             // Record the applied content similarly to update_buffer for test observation.
             let mut guard = self.last_update.lock().unwrap();
             *guard = Some(req.proposal_text.clone());
             Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
         }
 
-        fn cancel_ai_edit(&self, _req: crate::ports::CancelAiEditRequest) -> crate::BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, crate::ports::UseCaseError>> {
+        fn cancel_ai_edit(
+            &self,
+            _req: crate::ports::CancelAiEditRequest,
+        ) -> crate::BoxFuture<
+            'static,
+            Result<crate::ports::CancelAiEditResponse, crate::ports::UseCaseError>,
+        > {
             Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
         }
 

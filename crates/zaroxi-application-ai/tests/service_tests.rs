@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use zaroxi_domain_ai::types::AiEditRequest;
+use zaroxi_application_ai::ports::{AiClient, AiError, AiRequest, AiResponseDTO, BoxFuture};
 use zaroxi_application_ai::service::AiService;
-use zaroxi_application_ai::ports::{AiClient, AiRequest, AiResponseDTO, AiError, BoxFuture};
+use zaroxi_domain_ai::types::AiEditRequest;
 
 struct FakeClient;
 

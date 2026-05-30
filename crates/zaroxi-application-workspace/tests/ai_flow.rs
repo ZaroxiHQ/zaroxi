@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
+use zaroxi_application_workspace::in_memory_adapters;
 use zaroxi_application_workspace::ports::{
-    WorkspaceBootRequest, OpenBufferRequest, RequestAiEditRequest, ApplyAiEditRequest,
+    ApplyAiEditRequest, OpenBufferRequest, RequestAiEditRequest, WorkspaceBootRequest,
     WorkspaceService,
 };
-use zaroxi_application_workspace::in_memory_adapters;
+use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
 use zaroxi_infrastructure_ai_mock;
 
 #[tokio::test]

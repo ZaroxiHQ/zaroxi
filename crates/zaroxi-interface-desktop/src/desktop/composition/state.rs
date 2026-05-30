@@ -572,7 +572,9 @@ impl DesktopComposition {
         crate::desktop::snapshot::latest_shell_snapshot(self)
     }
 
-    pub fn latest_consistency_report(&self) -> crate::desktop::consistency::DesktopConsistencyReport {
+    pub fn latest_consistency_report(
+        &self,
+    ) -> crate::desktop::consistency::DesktopConsistencyReport {
         crate::desktop::consistency::latest_consistency_report(self)
     }
 }

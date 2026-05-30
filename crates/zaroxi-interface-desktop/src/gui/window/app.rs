@@ -4,13 +4,13 @@ This file contains the GuiApp struct and its ApplicationHandler impl
 (moved out of the large `window.rs` to make the module tree clearer).
 */
 
+use pollster;
 use winit::{
     dpi::PhysicalPosition,
     event::{StartCause, WindowEvent},
-    event_loop::{ControlFlow},
+    event_loop::ControlFlow,
     window::WindowAttributes,
 };
-use pollster;
 
 use crate::gui::ShellFrame;
 
@@ -33,11 +33,7 @@ pub struct GuiApp {
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
-    fn new_events(
-        &mut self,
-        active_loop: &winit::event_loop::ActiveEventLoop,
-        cause: StartCause,
-    ) {
+    fn new_events(&mut self, active_loop: &winit::event_loop::ActiveEventLoop, cause: StartCause) {
         // Create the window once on Init (or when resumed on some platforms).
         if self.maybe_window.is_none() && matches!(cause, StartCause::Init) {
             eprintln!("GuiApp: attempting to create window (StartCause::Init)");
@@ -69,14 +65,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                         eprintln!("GUI_TEXT_PATH=clear_present_once");
                         // Gather adapter/backend markers for a compact per-path summary (non-fatal).
                         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
-                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let tmp_cosmic =
+                            std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
                         let layout_present = tmp_layout.exists();
                         let cosmic_present = tmp_cosmic.exists();
                         let mut adapter_text_ops: usize = 0;
                         if layout_present {
                             if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
                                 if let Some(rest) = s.strip_prefix("lines=") {
-                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                    adapter_text_ops =
+                                        rest.split(" | ").filter(|p| !p.is_empty()).count();
                                 }
                             }
                         }
@@ -164,7 +162,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // Perform a one-shot clear+present using the engine render backend
                     // to ensure the compositor receives a GPU-backed frame and maps the window.
                     if let Some(z) = self.maybe_window.as_ref() {
-                        eprintln!("GuiApp: invoking clear_present_once to produce first GPU frame (resumed)");
+                        eprintln!(
+                            "GuiApp: invoking clear_present_once to produce first GPU frame (resumed)"
+                        );
 
                         // Delegate rect construction to the frame module (same policy as init path).
                         let rects = super::frame::build_overlay_rects(&self.shell);
@@ -174,14 +174,16 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                         // Gather adapter/backend markers for a compact per-path summary (non-fatal).
                         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
-                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let tmp_cosmic =
+                            std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
                         let layout_present = tmp_layout.exists();
                         let cosmic_present = tmp_cosmic.exists();
                         let mut adapter_text_ops: usize = 0;
                         if layout_present {
                             if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
                                 if let Some(rest) = s.strip_prefix("lines=") {
-                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                    adapter_text_ops =
+                                        rest.split(" | ").filter(|p| !p.is_empty()).count();
                                 }
                             }
                         }
@@ -294,7 +296,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if layout_present {
                         if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
                             if let Some(rest) = s.strip_prefix("lines=") {
-                                adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                adapter_text_ops =
+                                    rest.split(" | ").filter(|p| !p.is_empty()).count();
                             }
                         }
                     }
@@ -348,17 +351,25 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     // Create renderer (blocking for now) and invoke the full render_with_layout path.
-                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(z.window(), [0.051, 0.054, 0.062, 1.0])) {
+                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
+                        z.window(),
+                        [0.051, 0.054, 0.062, 1.0],
+                    )) {
                         Ok(mut renderer) => {
                             // AppState is a zero-sized stub exposed by the renderer crate for compatibility.
                             // Use the core module path where AppState is declared.
                             let app_state = zaroxi_core_engine_render::renderer::core::AppState;
                             match renderer.render_with_layout(&app_state, &layout, &render_blocks) {
                                 Ok(()) => {
-                                    eprintln!("GuiApp: full renderer path executed (render_with_layout succeeded)");
+                                    eprintln!(
+                                        "GuiApp: full renderer path executed (render_with_layout succeeded)"
+                                    );
                                 }
                                 Err(e) => {
-                                    eprintln!("GuiApp: renderer.render_with_layout failed: {:?}", e);
+                                    eprintln!(
+                                        "GuiApp: renderer.render_with_layout failed: {:?}",
+                                        e
+                                    );
                                 }
                             }
                         }

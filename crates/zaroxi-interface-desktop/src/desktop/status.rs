@@ -23,10 +23,7 @@ pub(crate) fn latest_status_bar_line(
     if let Some(m) = comp.metadata.as_ref() {
         if let Some(ref last) = m.last_command_line {
             let text = last.clone();
-            return Some(super::StatusBarLine {
-                text,
-                sticky: Some("status-message".to_string()),
-            });
+            return Some(super::StatusBarLine { text, sticky: Some("status-message".to_string()) });
         }
     }
 

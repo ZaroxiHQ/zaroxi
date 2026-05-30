@@ -7,8 +7,8 @@
 pub mod rules;
 
 use serde::{Deserialize, Serialize};
-use zaroxi_kernel_types::Id;
 use std::path::PathBuf;
+use zaroxi_kernel_types::Id;
 
 /// Domain representation of a document buffer.
 #[derive(Clone, Debug, Serialize, Deserialize)]

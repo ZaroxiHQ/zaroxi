@@ -60,7 +60,10 @@ pub fn draw(
                 y: cy,
                 width: w,
                 height: card_h,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 0.94 - (i as f64 * 0.02)),
+                color: super::theme_adapter::adjust_brightness(
+                    theme.surface,
+                    0.94 - (i as f64 * 0.02),
+                ),
             });
 
             // thin separator between cards

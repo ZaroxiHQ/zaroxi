@@ -7,8 +7,8 @@ compact API used by the harness and presenter.
 */
 
 use crate::DesktopComposition;
-use std::collections::{HashMap, HashSet};
 use once_cell::sync::Lazy;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::thread;
 
@@ -94,7 +94,7 @@ pub fn collect_for_uri(uri: &str) -> DiagnosticsSummary {
     // When feature enabled, forward to the core platform adapter and map types.
     #[cfg(feature = "use_core_lsp")]
     {
-        use zaroxi_core_platform_lsp::session::{request_diagnostics, Diagnostic as CoreDiag};
+        use zaroxi_core_platform_lsp::session::{Diagnostic as CoreDiag, request_diagnostics};
         let raw: Vec<CoreDiag> = request_diagnostics(u);
         if raw.is_empty() {
             DiagnosticsSummary::None
@@ -165,10 +165,7 @@ pub fn register_mock_diagnostics(uri: &str, diags: Vec<Diagnostic>) {
     } else {
         map.insert(key, diags);
         // Mark provider installed for this thread token.
-        MOCK_PROVIDER_INSTALLED
-            .lock()
-            .unwrap()
-            .insert(current_thread_token());
+        MOCK_PROVIDER_INSTALLED.lock().unwrap().insert(current_thread_token());
     }
 }
 
@@ -196,11 +193,8 @@ pub fn clear_mock_diagnostics() {
     // Remove keys for this thread only.
     let mut map = MOCK_PROVIDER.lock().unwrap();
     let prefix = format!("{}::", token);
-    let keys_to_remove: Vec<String> = map
-        .keys()
-        .filter(|k| k.starts_with(&prefix))
-        .cloned()
-        .collect();
+    let keys_to_remove: Vec<String> =
+        map.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
     for k in keys_to_remove {
         map.remove(&k);
     }
@@ -229,11 +223,7 @@ pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
 
     // If an in-memory provider was installed for this thread (but has no entry for this URI),
     // report an empty ready set (provider present, zero diagnostics).
-    if MOCK_PROVIDER_INSTALLED
-        .lock()
-        .unwrap()
-        .contains(&current_thread_token())
-    {
+    if MOCK_PROVIDER_INSTALLED.lock().unwrap().contains(&current_thread_token()) {
         return Some(Vec::new());
     }
 
@@ -325,11 +315,7 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
 
     // If an in-memory provider was installed for this thread but no entry exists for this URI,
     // treat the provider as present and return a zero-count Ready snapshot.
-    if MOCK_PROVIDER_INSTALLED
-        .lock()
-        .unwrap()
-        .contains(&current_thread_token())
-    {
+    if MOCK_PROVIDER_INSTALLED.lock().unwrap().contains(&current_thread_token()) {
         return Some(DiagnosticsSnapshot {
             provider: ProviderState::Ready,
             active_buffer: u.to_string(),

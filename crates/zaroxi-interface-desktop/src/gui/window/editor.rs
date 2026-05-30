@@ -90,14 +90,19 @@ pub fn draw(
                 let tab_padding: u32 = 10;
                 let tabs_total = 4u32;
                 // compute a base width for tabs and allow active tab to be wider
-                let base_tab_w = (r.width.saturating_sub(tab_padding * (tabs_total + 1))) / tabs_total;
+                let base_tab_w =
+                    (r.width.saturating_sub(tab_padding * (tabs_total + 1))) / tabs_total;
                 let active_extra = base_tab_w / 3;
                 let mut tx = r.x.saturating_add(tab_padding);
                 let tab_y = r.y.saturating_add(top_sep_h);
 
                 for i in 0..tabs_total {
                     let is_active = i == 0;
-                    let w = if is_active { base_tab_w.saturating_add(active_extra) } else { base_tab_w };
+                    let w = if is_active {
+                        base_tab_w.saturating_add(active_extra)
+                    } else {
+                        base_tab_w
+                    };
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: tx,
                         y: tab_y,
@@ -180,18 +185,27 @@ pub fn draw(
                         y: ly,
                         width: bar_w.saturating_sub(12),
                         height: line_h,
-                        color: super::theme_adapter::adjust_brightness(theme.surface, 1.04 - (i as f64 * 0.002)),
+                        color: super::theme_adapter::adjust_brightness(
+                            theme.surface,
+                            1.04 - (i as f64 * 0.002),
+                        ),
                     });
 
                     ly = ly.saturating_add(line_h).saturating_add(6);
                     // subtle thin divider every few lines
-                    if i > 0 && i % 6 == 0 && ly.saturating_add(sep_h) < r.y.saturating_add(r.height) {
+                    if i > 0
+                        && i % 6 == 0
+                        && ly.saturating_add(sep_h) < r.y.saturating_add(r.height)
+                    {
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                             x: content_x,
                             y: ly,
                             width: content_w,
                             height: sep_h,
-                            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.86),
+                            color: super::theme_adapter::adjust_brightness(
+                                theme.border_color,
+                                0.86,
+                            ),
                         });
                         ly = ly.saturating_add(sep_h).saturating_add(4);
                     }
@@ -267,7 +281,10 @@ pub fn draw(
                         y: seg_y,
                         width: seg_w,
                         height: seg_h,
-                        color: super::theme_adapter::adjust_brightness(theme.border_color, 0.88 + (i as f64 * 0.02)),
+                        color: super::theme_adapter::adjust_brightness(
+                            theme.border_color,
+                            0.88 + (i as f64 * 0.02),
+                        ),
                     });
                     sx = sx.saturating_add(seg_w).saturating_add(seg_pad);
                 }

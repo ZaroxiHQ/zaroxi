@@ -12,8 +12,8 @@ pub mod usecases;
 pub mod view;
 pub mod workspace_manager; // small, read-only view seam (Phase 2)
 
-use std::path::PathBuf;
 use std::io;
+use std::path::PathBuf;
 use zaroxi_core_workspace_files::FileStorage;
 
 /// Thin application-level helpers for Phase 9 disk-backed operations.
@@ -152,10 +152,7 @@ pub struct WorkspaceExplorer {
 
 impl WorkspaceExplorer {
     pub fn new() -> Self {
-        WorkspaceExplorer {
-            tree: None,
-            selected: None,
-        }
+        WorkspaceExplorer { tree: None, selected: None }
     }
 
     /// Load a workspace tree rooted at `path`.
@@ -208,13 +205,7 @@ impl WorkspaceExplorer {
     pub fn render_text(&self) -> String {
         fn render_node(node: &WorkspaceEntry, indent: usize, out: &mut String) {
             let prefix = if node.is_dir { "📂" } else { "📄" };
-            let _ = writeln!(
-                out,
-                "{}{} {}",
-                "  ".repeat(indent),
-                prefix,
-                node.name
-            );
+            let _ = writeln!(out, "{}{} {}", "  ".repeat(indent), prefix, node.name);
             if node.is_dir && node.expanded {
                 for c in &node.children {
                     render_node(c, indent + 1, out);

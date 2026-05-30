@@ -34,21 +34,22 @@ pub async fn refresh_with_service(
     let new_presenter_snapshot = comp.presenter.latest();
 
     // signature helper for presenter snapshots (concatenate span texts) - compute early for lightweight change detection
-    let make_presenter_sig = |opt: Option<crate::view_adapter::InterfaceRenderableWindow>| -> String {
-        if let Some(w) = opt {
-            let mut out = String::new();
-            for line in w.lines.iter() {
-                for sp in line.spans.iter() {
-                    out.push_str(&sp.text);
-                    out.push('|');
+    let make_presenter_sig =
+        |opt: Option<crate::view_adapter::InterfaceRenderableWindow>| -> String {
+            if let Some(w) = opt {
+                let mut out = String::new();
+                for line in w.lines.iter() {
+                    for sp in line.spans.iter() {
+                        out.push_str(&sp.text);
+                        out.push('|');
+                    }
+                    out.push('\n');
                 }
-                out.push('\n');
+                out
+            } else {
+                String::new()
             }
-            out
-        } else {
-            String::new()
-        }
-    };
+        };
 
     // Compute presenter signatures early so we can decide whether to call potentially-expensive
     // service ports (recent events / recent commands). This narrows recomputation and avoids
@@ -62,11 +63,7 @@ pub async fn refresh_with_service(
     // application/orchestrator and would not necessarily change presenter output. This is a
     // conservative, narrow addition that only forces event/command queries when we previously
     // had no AI projection recorded in composition metadata.
-    let prev_has_ai = comp
-        .metadata
-        .as_ref()
-        .and_then(|m| m.ai_projection.as_ref())
-        .is_some();
+    let prev_has_ai = comp.metadata.as_ref().and_then(|m| m.ai_projection.as_ref()).is_some();
 
     // 2) Attempt to read the active editor document via the WorkspaceView seam.
     let active_buf_opt = match view
@@ -91,15 +88,8 @@ pub async fn refresh_with_service(
             // avoid calling the view port. This preserves exact semantics while avoiding a
             // potentially-expensive call on cursor-only or trivial updates.
             let reuse_prev = prev_sig == new_sig
-                && comp
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.visible_window.clone())
-                    .is_some()
-                && comp
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.active_buffer.clone())
+                && comp.metadata.as_ref().and_then(|m| m.visible_window.clone()).is_some()
+                && comp.metadata.as_ref().and_then(|m| m.active_buffer.clone())
                     == Some(bid.clone());
 
             if reuse_prev {
@@ -114,7 +104,8 @@ pub async fn refresh_with_service(
                 {
                     Ok(resp) => {
                         // Build a tiny basic projection decoupled from presenter view types.
-                        let mut lines_vec: Vec<String> = Vec::with_capacity(resp.window.lines.len());
+                        let mut lines_vec: Vec<String> =
+                            Vec::with_capacity(resp.window.lines.len());
                         let mut cursor_line: Option<usize> = None;
                         let mut cursor_column: Option<usize> = None;
                         let mut selection_present: bool = false;
@@ -407,7 +398,8 @@ pub async fn refresh_with_service(
         // Lightweight comparisons only: compare AI result, opened-active marker, active buffer ids,
         // presenter signature, opened count, visible-window shape, and active-buffer details.
         let prev_ai_result = prev_md.ai_projection.as_ref().and_then(|a| a.result.clone());
-        let prev_opened_active = prev_md.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
+        let prev_opened_active =
+            prev_md.opened_buffers.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
         let prev_last_command = prev_md.last_command_line.clone();
         let prev_opened_count = prev_md.opened_buffer_count;
 
@@ -433,11 +425,10 @@ pub async fn refresh_with_service(
             )
         });
 
-        let prev_abd_sig = prev_md
-            .active_buffer_details
-            .as_ref()
-            .map(|d| (d.buffer_id.clone(), d.line_count));
-        let new_abd_sig = active_buffer_details.as_ref().map(|d| (d.buffer_id.clone(), d.line_count));
+        let prev_abd_sig =
+            prev_md.active_buffer_details.as_ref().map(|d| (d.buffer_id.clone(), d.line_count));
+        let new_abd_sig =
+            active_buffer_details.as_ref().map(|d| (d.buffer_id.clone(), d.line_count));
 
         // If any of these lightweight indicators differ, we must replace the metadata.
         should_replace_metadata = prev_ai_result != new_ai_result
@@ -555,7 +546,8 @@ pub async fn request_ai_edit_active(
                 // open_buffer call (desktop can do this safely as an adapter). This helps UI flows where
                 // the presenter/view knows an active buffer but the orchestrator hasn't opened it yet.
                 match e {
-                    crate::ports::UseCaseError::InvalidActiveBuffer(_) | crate::ports::UseCaseError::UnknownSession => {
+                    crate::ports::UseCaseError::InvalidActiveBuffer(_)
+                    | crate::ports::UseCaseError::UnknownSession => {
                         // Try to derive a path from the BufferId and open it in the session.
                         if let Some(path) = target_buffer.path() {
                             let open_req = crate::ports::OpenBufferRequest {
@@ -586,8 +578,12 @@ pub async fn request_ai_edit_active(
                                                 md.ai_projection = Some(super::AiProjection {
                                                     kind: Some("Edit".to_string()),
                                                     result: resp2.proposal.summary.clone(),
-                                                    target_buffer: Some(resp2.proposal.target_buffer.clone()),
-                                                    proposal_text: Some(resp2.proposal.proposal_text.clone()),
+                                                    target_buffer: Some(
+                                                        resp2.proposal.target_buffer.clone(),
+                                                    ),
+                                                    proposal_text: Some(
+                                                        resp2.proposal.proposal_text.clone(),
+                                                    ),
                                                     state: Some(super::AiState::Proposed),
                                                 });
                                             }
@@ -595,10 +591,16 @@ pub async fn request_ai_edit_active(
                                             comp.set_status_message("AI edit proposed".to_string());
                                             Ok(())
                                         }
-                                        Err(e2) => Err(format!("request_ai_edit failed after open: {}", e2)),
+                                        Err(e2) => Err(format!(
+                                            "request_ai_edit failed after open: {}",
+                                            e2
+                                        )),
                                     }
                                 }
-                                Err(open_err) => Err(format!("request_ai_edit failed: {}; open_buffer failed: {}", e, open_err)),
+                                Err(open_err) => Err(format!(
+                                    "request_ai_edit failed: {}; open_buffer failed: {}",
+                                    e, open_err
+                                )),
                             }
                         } else {
                             Err(format!("request_ai_edit failed: {}", e))
@@ -611,7 +613,8 @@ pub async fn request_ai_edit_active(
     } else {
         // No application service provided: fall back to a deterministic interface-local mock provider.
         let provider = crate::ai::MockAiProvider::new();
-        let proposal_text: String = provider.propose_edit(target_buffer.clone(), document.content.clone()).await;
+        let proposal_text: String =
+            provider.propose_edit(target_buffer.clone(), document.content.clone()).await;
 
         // Ensure metadata exists and store the ai projection with Proposed state.
         if comp.metadata.is_none() {
@@ -657,10 +660,7 @@ pub async fn apply_ai_edit_active(
     workspace_id: Option<zaroxi_kernel_types::Id>,
     service: std::sync::Arc<dyn crate::ports::WorkspaceService>,
 ) -> Result<(), String> {
-    let md = comp
-        .metadata
-        .as_mut()
-        .ok_or_else(|| "no composition metadata present".to_string())?;
+    let md = comp.metadata.as_mut().ok_or_else(|| "no composition metadata present".to_string())?;
 
     let ai = md.ai_projection.as_ref().ok_or_else(|| "no ai proposal present".to_string())?;
 
@@ -668,15 +668,11 @@ pub async fn apply_ai_edit_active(
         return Err("ai proposal not in proposed state".to_string());
     }
 
-    let proposal_text = ai
-        .proposal_text
-        .clone()
-        .ok_or_else(|| "ai proposal text missing".to_string())?;
+    let proposal_text =
+        ai.proposal_text.clone().ok_or_else(|| "ai proposal text missing".to_string())?;
 
-    let buffer_id = ai
-        .target_buffer
-        .clone()
-        .ok_or_else(|| "ai target buffer missing".to_string())?;
+    let buffer_id =
+        ai.target_buffer.clone().ok_or_else(|| "ai target buffer missing".to_string())?;
 
     // Build application-level apply request and forward to the WorkspaceService.
     let apply_req = crate::ports::ApplyAiEditRequest {

@@ -27,15 +27,15 @@ mod status;
 // existing callers remain unchanged while the implementation is split.
 pub use composition::{
     ActiveBufferDetails, ActiveDocumentSummary, AiKind, AiProjection, AiProjectionSummary, AiState,
-    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopSummary, OpenedBufferItem,
-    OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext, ShellSnapshot,
-    StatusBarLine, ViewportAnchoring, ViewportSummary,
+    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopSummary,
+    OpenedBufferItem, OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext,
+    ShellSnapshot, StatusBarLine, ViewportAnchoring, ViewportSummary,
 };
 
 // Re-export async helpers moved into the composition refresh module so callers
 // that previously imported them from `crate::desktop` continue to compile.
-pub use composition::{request_ai_edit_active, apply_ai_edit_active, cancel_ai_edit_active};
+pub use composition::{apply_ai_edit_active, cancel_ai_edit_active, request_ai_edit_active};
 
 // Preserve other re-exports used across the crate.
-pub use consistency::DesktopConsistencyReport;
 pub use crate::close::PendingClose;
+pub use consistency::DesktopConsistencyReport;

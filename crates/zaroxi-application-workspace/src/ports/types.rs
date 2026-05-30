@@ -738,7 +738,9 @@ pub trait WorkspaceService: Send + Sync {
         &self,
         _req: RequestAiEditRequest,
     ) -> BoxFuture<'static, Result<RequestAiEditResponse, UseCaseError>> {
-        Box::pin(async move { Err(UseCaseError::AiFailure("request_ai_edit not implemented".to_string())) })
+        Box::pin(async move {
+            Err(UseCaseError::AiFailure("request_ai_edit not implemented".to_string()))
+        })
     }
 
     /// Apply a previously-returned AI proposal. Implementations are expected to
@@ -751,7 +753,9 @@ pub trait WorkspaceService: Send + Sync {
         &self,
         _req: ApplyAiEditRequest,
     ) -> BoxFuture<'static, Result<ApplyAiEditResponse, UseCaseError>> {
-        Box::pin(async move { Err(UseCaseError::AiFailure("apply_ai_edit not implemented".to_string())) })
+        Box::pin(async move {
+            Err(UseCaseError::AiFailure("apply_ai_edit not implemented".to_string()))
+        })
     }
 
     /// Cancel a pending AI proposal for the given session/buffer.

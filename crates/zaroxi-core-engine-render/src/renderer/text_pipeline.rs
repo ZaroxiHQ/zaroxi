@@ -8,7 +8,11 @@ available. Keeping this logic here avoids scattering sampler creation across
 the renderer codebase.
 */
 
-use wgpu::{Device, BindGroupLayout, BindGroup, TextureView, SamplerDescriptor, BindGroupEntry, BindGroupDescriptor, BindingResource, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
+use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Device,
+    SamplerDescriptor, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat,
+    VertexStepMode,
+};
 
 /// Create a default filtering sampler for text atlas sampling.
 pub fn create_default_text_sampler(device: &Device) -> wgpu::Sampler {
@@ -29,14 +33,8 @@ pub fn build_atlas_bind_group(
     sampler: &wgpu::Sampler,
 ) -> BindGroup {
     let entries = &[
-        BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(texture_view),
-        },
-        BindGroupEntry {
-            binding: 1,
-            resource: BindingResource::Sampler(sampler),
-        },
+        BindGroupEntry { binding: 0, resource: BindingResource::TextureView(texture_view) },
+        BindGroupEntry { binding: 1, resource: BindingResource::Sampler(sampler) },
     ];
 
     device.create_bind_group(&BindGroupDescriptor {
@@ -61,9 +59,5 @@ pub fn instance_buffer_layout() -> VertexBufferLayout<'static> {
         VertexAttribute { offset: 8, shader_location: 1, format: VertexFormat::Float32x2 },
         VertexAttribute { offset: 16, shader_location: 2, format: VertexFormat::Float32x2 },
     ]));
-    VertexBufferLayout {
-        array_stride: 24,
-        step_mode: VertexStepMode::Instance,
-        attributes: attrs,
-    }
+    VertexBufferLayout { array_stride: 24, step_mode: VertexStepMode::Instance, attributes: attrs }
 }

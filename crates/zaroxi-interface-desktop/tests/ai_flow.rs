@@ -1,22 +1,23 @@
 #![cfg(test)]
 
-use std::sync::Arc;
 use crate::ports::BoxFuture;
+use std::sync::Arc;
 
+use zaroxi_application_workspace::ports::{
+    ApplyTextTransactionRequest, ApplyTextTransactionResponse, BufferId, ClearSelectionRequest,
+    EditorDocument, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
+    GetEditorStateRequest, GetEditorStateResponse, GetRecentCommandsRequest,
+    GetRecentEventsRequest, GetVisibleLinesRequest, GetVisibleLinesResponse, ListBuffersRequest,
+    ListBuffersResponse, OpenBufferRequest, OpenBufferResponse, SessionId, SetActiveBufferRequest,
+    SetEditorCursorRequest, SetSelectionRequest, UpdateBufferRequest, UpdateBufferResponse,
+    UseCaseError, WorkspaceBootRequest, WorkspaceBootResponse, WorkspaceService, WorkspaceView,
+};
 use zaroxi_interface_desktop::desktop::DesktopComposition;
-use zaroxi_interface_desktop::desktop::request_ai_edit_active;
 use zaroxi_interface_desktop::desktop::apply_ai_edit_active;
 use zaroxi_interface_desktop::desktop::cancel_ai_edit_active;
-use zaroxi_application_workspace::ports::{
-    WorkspaceView, WorkspaceService, GetActiveEditorDocumentRequest, GetActiveEditorDocumentResponse,
-    UpdateBufferRequest, UpdateBufferResponse, GetVisibleLinesRequest, GetVisibleLinesResponse,
-    GetRecentCommandsRequest, GetRecentEventsRequest, ListBuffersRequest, ListBuffersResponse,
-    OpenBufferRequest, OpenBufferResponse, WorkspaceBootRequest, WorkspaceBootResponse, SetActiveBufferRequest,
-    SetEditorCursorRequest, SetSelectionRequest, ClearSelectionRequest, GetEditorStateRequest, GetEditorStateResponse,
-    EditorDocument, BufferId, SessionId, UseCaseError, ApplyTextTransactionRequest, ApplyTextTransactionResponse,
-};
-use zaroxi_kernel_types::Id;
+use zaroxi_interface_desktop::desktop::request_ai_edit_active;
 use zaroxi_interface_desktop::ports;
+use zaroxi_kernel_types::Id;
 
 struct FakeView {
     doc: EditorDocument,
@@ -38,22 +39,34 @@ impl FakeView {
 }
 
 impl WorkspaceView for FakeView {
-    fn get_buffer_content(&self, _buffer_id: BufferId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
+    fn get_buffer_content(
+        &self,
+        _buffer_id: BufferId,
+    ) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
         let content = self.doc.content.clone();
         Box::pin(async move { Ok(content) })
     }
 
-    fn get_active_buffer_content(&self, _session_id: SessionId) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
+    fn get_active_buffer_content(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'static, Result<Option<String>, UseCaseError>> {
         let content = self.doc.content.clone();
         Box::pin(async move { Ok(content) })
     }
 
-    fn get_active_editor_document(&self, _req: GetActiveEditorDocumentRequest) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
+    fn get_active_editor_document(
+        &self,
+        _req: GetActiveEditorDocumentRequest,
+    ) -> BoxFuture<'static, Result<GetActiveEditorDocumentResponse, UseCaseError>> {
         let doc = self.doc.clone();
         Box::pin(async move { Ok(GetActiveEditorDocumentResponse { document: doc }) })
     }
 
-    fn get_visible_lines(&self, _req: GetVisibleLinesRequest) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>> {
+    fn get_visible_lines(
+        &self,
+        _req: GetVisibleLinesRequest,
+    ) -> BoxFuture<'static, Result<GetVisibleLinesResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
 }
@@ -62,7 +75,12 @@ impl WorkspaceView for FakeView {
 struct FakeService {
     last_update: std::sync::Mutex<Option<String>>,
     // store pending AI proposals per-session per-buffer for test determinism
-    pending: std::sync::Mutex<std::collections::HashMap<zaroxi_application_workspace::ports::SessionId, std::collections::HashMap<ports::BufferId, String>>>,
+    pending: std::sync::Mutex<
+        std::collections::HashMap<
+            zaroxi_application_workspace::ports::SessionId,
+            std::collections::HashMap<ports::BufferId, String>,
+        >,
+    >,
 }
 
 #[allow(dead_code)]
@@ -76,82 +94,153 @@ impl FakeService {
 }
 
 impl WorkspaceService for FakeService {
-    fn boot_workspace(&self, _req: WorkspaceBootRequest) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>> {
+    fn boot_workspace(
+        &self,
+        _req: WorkspaceBootRequest,
+    ) -> BoxFuture<'static, Result<WorkspaceBootResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownWorkspace) })
     }
-    fn open_buffer(&self, _req: OpenBufferRequest) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>> {
+    fn open_buffer(
+        &self,
+        _req: OpenBufferRequest,
+    ) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownBuffer) })
     }
-    fn list_open_buffers(&self, _req: ListBuffersRequest) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>> {
+    fn list_open_buffers(
+        &self,
+        _req: ListBuffersRequest,
+    ) -> BoxFuture<'static, Result<ListBuffersResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_active_buffer(&self, _req: SetActiveBufferRequest) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, UseCaseError>> {
+    fn set_active_buffer(
+        &self,
+        _req: SetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::SetActiveBufferResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn get_active_buffer(&self, _req: ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<ports::GetActiveBufferResponse, UseCaseError>> {
+    fn get_active_buffer(
+        &self,
+        _req: ports::GetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::GetActiveBufferResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_editor_cursor(&self, _req: SetEditorCursorRequest) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, UseCaseError>> {
+    fn set_editor_cursor(
+        &self,
+        _req: SetEditorCursorRequest,
+    ) -> BoxFuture<'static, Result<ports::SetEditorCursorResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_editor_selection(&self, _req: SetSelectionRequest) -> BoxFuture<'static, Result<ports::SetSelectionResponse, UseCaseError>> {
+    fn set_editor_selection(
+        &self,
+        _req: SetSelectionRequest,
+    ) -> BoxFuture<'static, Result<ports::SetSelectionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn clear_editor_selection(&self, _req: ClearSelectionRequest) -> BoxFuture<'static, Result<ports::ClearSelectionResponse, UseCaseError>> {
+    fn clear_editor_selection(
+        &self,
+        _req: ClearSelectionRequest,
+    ) -> BoxFuture<'static, Result<ports::ClearSelectionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn get_editor_state(&self, _req: GetEditorStateRequest) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>> {
+    fn get_editor_state(
+        &self,
+        _req: GetEditorStateRequest,
+    ) -> BoxFuture<'static, Result<GetEditorStateResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn set_viewport_state(&self, _req: ports::SetViewportRequest) -> BoxFuture<'static, Result<ports::SetViewportResponse, UseCaseError>> {
+    fn set_viewport_state(
+        &self,
+        _req: ports::SetViewportRequest,
+    ) -> BoxFuture<'static, Result<ports::SetViewportResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn scroll_viewport(&self, _req: ports::ScrollViewportRequest) -> BoxFuture<'static, Result<ports::ScrollViewportResponse, UseCaseError>> {
+    fn scroll_viewport(
+        &self,
+        _req: ports::ScrollViewportRequest,
+    ) -> BoxFuture<'static, Result<ports::ScrollViewportResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn explain_active_buffer(&self, _req: ports::GetActiveBufferRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
+    fn explain_active_buffer(
+        &self,
+        _req: ports::GetActiveBufferRequest,
+    ) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn dispatch_command(&self, _req: ports::DispatchCommandRequest) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
+    fn dispatch_command(
+        &self,
+        _req: ports::DispatchCommandRequest,
+    ) -> BoxFuture<'static, Result<ports::DispatchCommandResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn update_buffer(&self, req: UpdateBufferRequest) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>> {
+    fn update_buffer(
+        &self,
+        req: UpdateBufferRequest,
+    ) -> BoxFuture<'static, Result<UpdateBufferResponse, UseCaseError>> {
         let mut guard = self.last_update.lock().unwrap();
         *guard = Some(req.new_content.clone());
         Box::pin(async move { Ok(UpdateBufferResponse { ok: true }) })
     }
-    fn apply_text_transaction(&self, _req: ApplyTextTransactionRequest) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, UseCaseError>> {
+    fn apply_text_transaction(
+        &self,
+        _req: ApplyTextTransactionRequest,
+    ) -> BoxFuture<'static, Result<ApplyTextTransactionResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn get_recent_commands(&self, _req: GetRecentCommandsRequest) -> BoxFuture<'static, Result<ports::GetRecentCommandsResponse, UseCaseError>> {
+    fn get_recent_commands(
+        &self,
+        _req: GetRecentCommandsRequest,
+    ) -> BoxFuture<'static, Result<ports::GetRecentCommandsResponse, UseCaseError>> {
         Box::pin(async move { Ok(ports::GetRecentCommandsResponse { commands: Vec::new() }) })
     }
-    fn get_recent_events(&self, _req: GetRecentEventsRequest) -> BoxFuture<'static, Result<ports::GetRecentEventsResponse, UseCaseError>> {
+    fn get_recent_events(
+        &self,
+        _req: GetRecentEventsRequest,
+    ) -> BoxFuture<'static, Result<ports::GetRecentEventsResponse, UseCaseError>> {
         Box::pin(async move { Ok(ports::GetRecentEventsResponse { events: Vec::new() }) })
     }
-    fn get_session_snapshot(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
+    fn get_session_snapshot(
+        &self,
+        _req: ports::GetSessionSnapshotRequest,
+    ) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn create_checkpoint(&self, _req: ports::CreateCheckpointRequest) -> BoxFuture<'static, Result<ports::CreateCheckpointResponse, UseCaseError>> {
+    fn create_checkpoint(
+        &self,
+        _req: ports::CreateCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::CreateCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn save_checkpoint(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
+    fn save_checkpoint(
+        &self,
+        _req: ports::SaveCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn load_checkpoint(&self, _req: ports::LoadCheckpointRequest) -> BoxFuture<'static, Result<ports::LoadCheckpointResponse, UseCaseError>> {
+    fn load_checkpoint(
+        &self,
+        _req: ports::LoadCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::LoadCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn restore_checkpoint(&self, _req: ports::RestoreCheckpointRequest) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, UseCaseError>> {
+    fn restore_checkpoint(
+        &self,
+        _req: ports::RestoreCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::RestoreCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
 
     // Phase 10: application-level AI orchestration API (test mock implementations).
-    fn request_ai_edit(&self, req: crate::ports::RequestAiEditRequest) -> BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, UseCaseError>> {
-        let proposal = format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
+    fn request_ai_edit(
+        &self,
+        req: crate::ports::RequestAiEditRequest,
+    ) -> BoxFuture<'static, Result<crate::ports::RequestAiEditResponse, UseCaseError>> {
+        let proposal =
+            format!("// AI Edit: proposed change\n{}", req.content.clone().unwrap_or_default());
         // store pending proposal keyed by session and buffer
         {
             let mut p = self.pending.lock().unwrap();
-            let sess = p.entry(req.session_id.clone()).or_insert_with(std::collections::HashMap::new);
+            let sess =
+                p.entry(req.session_id.clone()).or_insert_with(std::collections::HashMap::new);
             sess.insert(req.buffer_id.clone(), proposal.clone());
         }
         let resp = crate::ports::RequestAiEditResponse {
@@ -164,7 +253,10 @@ impl WorkspaceService for FakeService {
         Box::pin(async move { Ok(resp) })
     }
 
-    fn apply_ai_edit(&self, req: crate::ports::ApplyAiEditRequest) -> BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, UseCaseError>> {
+    fn apply_ai_edit(
+        &self,
+        req: crate::ports::ApplyAiEditRequest,
+    ) -> BoxFuture<'static, Result<crate::ports::ApplyAiEditResponse, UseCaseError>> {
         // For test double: accept the provided proposal text and record it as the last update.
         // This makes the request->apply flow deterministic in tests without requiring a full
         // session reconciliation step inside the fake service.
@@ -173,17 +265,29 @@ impl WorkspaceService for FakeService {
         Box::pin(async move { Ok(crate::ports::ApplyAiEditResponse { ok: true }) })
     }
 
-    fn cancel_ai_edit(&self, _req: crate::ports::CancelAiEditRequest) -> BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, UseCaseError>> {
+    fn cancel_ai_edit(
+        &self,
+        _req: crate::ports::CancelAiEditRequest,
+    ) -> BoxFuture<'static, Result<crate::ports::CancelAiEditResponse, UseCaseError>> {
         Box::pin(async move { Ok(crate::ports::CancelAiEditResponse { ok: true }) })
     }
 
-    fn attempt_close_session(&self, _req: ports::GetSessionSnapshotRequest) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
+    fn attempt_close_session(
+        &self,
+        _req: ports::GetSessionSnapshotRequest,
+    ) -> BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn resolve_close_session_save_all(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
+    fn resolve_close_session_save_all(
+        &self,
+        _req: ports::SaveCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Err(UseCaseError::UnknownSession) })
     }
-    fn resolve_close_session_discard_all(&self, _req: ports::SaveCheckpointRequest) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
+    fn resolve_close_session_discard_all(
+        &self,
+        _req: ports::SaveCheckpointRequest,
+    ) -> BoxFuture<'static, Result<ports::SaveCheckpointResponse, UseCaseError>> {
         Box::pin(async move { Ok(ports::SaveCheckpointResponse { location: String::new() }) })
     }
 }
@@ -197,11 +301,11 @@ async fn ai_request_and_apply_flow() {
     let view = Arc::new(FakeView::new(buf_id.clone(), Some("original content".to_string())));
 
     // Build a small orchestrator-backed service so request/apply touch a real buffer store.
-    use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-    use zaroxi_application_ai::ports as ai_ports;
-    use zaroxi_domain_workspace::ports as domain_ports;
-    use zaroxi_core_editor_buffer::ports as buffer_ports;
     use std::path::PathBuf;
+    use zaroxi_application_ai::ports as ai_ports;
+    use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
+    use zaroxi_core_editor_buffer::ports as buffer_ports;
+    use zaroxi_domain_workspace::ports as domain_ports;
 
     // Minimal infra fakes to compose an orchestrator instance for the test.
     struct TestRepo;
@@ -209,7 +313,10 @@ async fn ai_request_and_apply_flow() {
         fn open_workspace(
             &self,
             _cmd: domain_ports::WorkspaceOpenCommand,
-        ) -> crate::ports::BoxFuture<'static, Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>> {
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<domain_ports::WorkspaceDTO, domain_ports::DomainError>,
+        > {
             Box::pin(async move {
                 Ok(domain_ports::WorkspaceDTO {
                     id: Id::new(),
@@ -225,7 +332,10 @@ async fn ai_request_and_apply_flow() {
         fn open_buffer(
             &self,
             path: PathBuf,
-        ) -> crate::ports::BoxFuture<'static, Result<buffer_ports::BufferId, buffer_ports::BufferError>> {
+        ) -> crate::ports::BoxFuture<
+            'static,
+            Result<buffer_ports::BufferId, buffer_ports::BufferError>,
+        > {
             let id = buffer_ports::BufferId::from_path(&path);
             Box::pin(async move { Ok(id) })
         }
@@ -253,14 +363,19 @@ async fn ai_request_and_apply_flow() {
         fn request(
             &self,
             req: ai_ports::AiRequest,
-        ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>> {
+        ) -> ai_ports::BoxFuture<'static, Result<ai_ports::AiResponseDTO, ai_ports::AiError>>
+        {
             let buf = req.buffer_id.clone();
-            Box::pin(async move { Ok(ai_ports::AiResponseDTO { text: format!("fake-explain: {}", buf) }) })
+            Box::pin(async move {
+                Ok(ai_ports::AiResponseDTO { text: format!("fake-explain: {}", buf) })
+            })
         }
     }
 
-    let repo = std::sync::Arc::new(TestRepo) as std::sync::Arc<dyn domain_ports::WorkspaceRepository>;
-    let buf_store = std::sync::Arc::new(TestBufferStore) as std::sync::Arc<dyn buffer_ports::BufferStore>;
+    let repo =
+        std::sync::Arc::new(TestRepo) as std::sync::Arc<dyn domain_ports::WorkspaceRepository>;
+    let buf_store =
+        std::sync::Arc::new(TestBufferStore) as std::sync::Arc<dyn buffer_ports::BufferStore>;
     let ai_client = std::sync::Arc::new(TestAi) as std::sync::Arc<dyn ai_ports::AiClient>;
 
     let orch = WorkspaceOrchestrator::new(repo, buf_store, ai_client);
@@ -271,11 +386,20 @@ async fn ai_request_and_apply_flow() {
     let boot_res = service_arc.boot_workspace(boot).await.expect("boot ok");
     let session_id = boot_res.session.session_id.clone();
 
-    let open_req = crate::ports::OpenBufferRequest { session_id: session_id.clone(), path: PathBuf::from("file1.txt") };
+    let open_req = crate::ports::OpenBufferRequest {
+        session_id: session_id.clone(),
+        path: PathBuf::from("file1.txt"),
+    };
     let _open_res = service_arc.open_buffer(open_req).await.expect("open ok");
 
     // Request AI edit (application orchestrator stores authoritative proposal).
-    let req_res = request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(service_arc.clone())).await;
+    let req_res = request_ai_edit_active(
+        &mut comp,
+        view.clone(),
+        session_id.clone(),
+        Some(service_arc.clone()),
+    )
+    .await;
     assert!(req_res.is_ok(), "request_ai_edit_active failed: {:?}", req_res);
 
     // Ensure ai_projection is present and proposed.
@@ -285,7 +409,14 @@ async fn ai_request_and_apply_flow() {
     assert!(ai.proposal_text.is_some());
 
     // Apply the proposal using the same orchestrator service.
-    let apply_res = apply_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(boot_res.session.workspace_id.clone()), service_arc.clone()).await;
+    let apply_res = apply_ai_edit_active(
+        &mut comp,
+        view.clone(),
+        session_id.clone(),
+        Some(boot_res.session.workspace_id.clone()),
+        service_arc.clone(),
+    )
+    .await;
     assert!(apply_res.is_ok(), "apply_ai_edit_active failed: {:?}", apply_res);
 
     // After apply, projection should be Applied.

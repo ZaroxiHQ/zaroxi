@@ -193,7 +193,12 @@ impl<'a> Renderer<'a> {
                 &queue,
                 config.format,
                 font_size,
+                &text_bind_layout,
             )?);
+
+        // Inform the text renderer of the initial viewport so the fallback render_pass path
+        // can observe non-zero target dimensions for the first frame.
+        let _ = text_renderer.resize_viewport(config.width, config.height);
 
         // Create a simple shader for textured text (WGSL).
         // Diagnostic: record which WGSL source is being compiled into the pipeline.
@@ -333,6 +338,8 @@ impl<'a> Renderer<'a> {
             new_size,
         )?;
         debug!("Reconfigured surface to {}x{}", self.config.width, self.config.height);
+        // Update text renderer viewport so render_pass bridge observes fresh target dims.
+        let _ = self.text_renderer.resize_viewport(self.config.width, self.config.height);
         Ok(())
     }
 
@@ -1008,7 +1015,8 @@ impl<'a> Renderer<'a> {
                     if tmp_layout.exists() {
                         if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
                             if let Some(rest) = s.strip_prefix("lines=") {
-                                adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count() as u32;
+                                adapter_text_ops =
+                                    rest.split(" | ").filter(|p| !p.is_empty()).count() as u32;
                             }
                         }
                     }
@@ -1055,7 +1063,10 @@ impl<'a> Renderer<'a> {
 
                             // Record intent to call the backend prepare and capture queued size immediately prior.
                             let queued_before_prepare = self.text_renderer.queued_len();
-                            info!("GUI_TEXT_STAGE_3_BRANCH: prepare_invoking queued_before_prepare={}", queued_before_prepare);
+                            info!(
+                                "GUI_TEXT_STAGE_3_BRANCH: prepare_invoking queued_before_prepare={}",
+                                queued_before_prepare
+                            );
                             info!("Glyphon prepare called");
                             match self.text_renderer.prepare(&self.device, &mut self.queue) {
                                 Ok(()) => {
@@ -1064,12 +1075,18 @@ impl<'a> Renderer<'a> {
                                 }
                                 Err(e) => {
                                     info!("Glyphon prepare failed: {:?}", e);
-                                    info!("GUI_TEXT_STAGE_3_BRANCH: prepare_called=false error={:?}", e);
+                                    info!(
+                                        "GUI_TEXT_STAGE_3_BRANCH: prepare_called=false error={:?}",
+                                        e
+                                    );
                                     return Err(e);
                                 }
                             }
 
-                            info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: render_invoking panel_indices_len={} total_indices_len={}", panel_indices_len, total_indices_len);
+                            info!(
+                                "GUI_TEXT_STAGE_6_PIPELINE_RENDER: render_invoking panel_indices_len={} total_indices_len={}",
+                                panel_indices_len, total_indices_len
+                            );
                             info!("Glyphon render called");
                             match self.text_renderer.render_pass(
                                 &mut rpass,
@@ -1083,7 +1100,10 @@ impl<'a> Renderer<'a> {
                                 }
                                 Err(e) => {
                                     info!("Glyphon render failed: {:?}", e);
-                                    info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=false error={:?}", e);
+                                    info!(
+                                        "GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=false error={:?}",
+                                        e
+                                    );
                                     return Err(e);
                                 }
                             }
@@ -1146,10 +1166,13 @@ impl<'a> Renderer<'a> {
                 // cosmic_present computed earlier
                 let cosmic_prepare_called = cosmic_present;
                 // pipeline_render_called: infer from whether we attempted a text pass (backend_text_ops>0 or core_text_ops>0) and DISABLE_TEXT_PASS flag
-                let pipeline_render_called = (!DISABLE_TEXT_PASS) && (backend_text_ops > 0 || core_text_ops > 0) && cosmic_prepare_called;
+                let pipeline_render_called = (!DISABLE_TEXT_PASS)
+                    && (backend_text_ops > 0 || core_text_ops > 0)
+                    && cosmic_prepare_called;
                 // overlay rects marker: read fallback marker if present
                 let fallback_marker = std::env::temp_dir().join("zaroxi_gui_trace_fallback");
-                let fallback_used = fallback_marker.exists() || (adapter_text_ops > 0 && !cosmic_prepare_called);
+                let fallback_used =
+                    fallback_marker.exists() || (adapter_text_ops > 0 && !cosmic_prepare_called);
 
                 info!(
                     "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} shaped_glyphs_total={} emitted_glyphs_total={} glyphs={} atlas_entries={} font_resolved={} buffer_size={} text_len={} pipeline_render_called={} overlay_rects={} fallback_used={}",

@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use std::fs;
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zaroxi_application_workspace::WorkspaceExplorer;
@@ -16,10 +16,7 @@ fn explorer_load_expand_select_open() -> std::io::Result<()> {
     let uniq = format!(
         "zaroxi_test_{}_{}",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     );
     let tmp = base.join(uniq);
     let root = tmp.join("workspace");
@@ -63,12 +60,7 @@ fn explorer_load_expand_select_open() -> std::io::Result<()> {
     // After toggling we can find the child entry id.
     let file_id_opt = {
         let tree_ref = explorer.tree.as_ref().unwrap();
-        let dir_node = tree_ref
-            .root
-            .children
-            .iter()
-            .find(|c| c.name == "dir_a")
-            .unwrap();
+        let dir_node = tree_ref.root.children.iter().find(|c| c.name == "dir_a").unwrap();
         let file_child = dir_node
             .children
             .iter()

@@ -54,10 +54,10 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Theme {
-            surface: "#061025",           // dark blue-black surface
-            border_color: "#1e6fb3",     // thin luminous border
+            surface: "#061025",      // dark blue-black surface
+            border_color: "#1e6fb3", // thin luminous border
             border_thickness: 1,
-            corner_radius: 10,           // rounded outer shell
+            corner_radius: 10, // rounded outer shell
             // Use the workspace semantic values (dark theme defaults tuned for contrast).
             // These are intentionally chosen to read well against surface/backing colors.
             text_primary: "#E6EAF2",
@@ -112,12 +112,7 @@ impl ShellFrame {
         let minimap_w: u32 = 80;
 
         // Top toolbar / titlebar region (full width)
-        let toolbar = Rect {
-            x: inner_x,
-            y: inner_y,
-            width: inner_w,
-            height: top_toolbar_h,
-        };
+        let toolbar = Rect { x: inner_x, y: inner_y, width: inner_w, height: top_toolbar_h };
 
         // Status bar at bottom (stable anchor)
         let status = Rect {
@@ -140,12 +135,7 @@ impl ShellFrame {
         let columns_h = bottom_dock.y.saturating_sub(columns_y);
 
         // App rail (far-left)
-        let app_rail = Rect {
-            x: inner_x,
-            y: columns_y,
-            width: left_rail_w,
-            height: columns_h,
-        };
+        let app_rail = Rect { x: inner_x, y: columns_y, width: left_rail_w, height: columns_h };
 
         // Outer sidebar (to the right of app rail)
         let sidebar = Rect {
@@ -168,12 +158,8 @@ impl ShellFrame {
         let editor_w = ai_panel.x.saturating_sub(editor_x);
 
         // Editor header (top strip inside the editor column)
-        let editor_header = Rect {
-            x: editor_x,
-            y: columns_y,
-            width: editor_w,
-            height: editor_header_h,
-        };
+        let editor_header =
+            Rect { x: editor_x, y: columns_y, width: editor_w, height: editor_header_h };
 
         // Area below the editor header (available for left project rail, center editor, bottom panel)
         let below_header_y = editor_header.y + editor_header.height;
@@ -189,9 +175,7 @@ impl ShellFrame {
         let mut left_inner_w = ((editor_w as f32) * left_inner_pct) as u32;
         left_inner_w = left_inner_w.clamp(120, 480);
 
-        let center_editor_w = editor_w
-            .saturating_sub(left_inner_w)
-            .saturating_sub(right_minimap);
+        let center_editor_w = editor_w.saturating_sub(left_inner_w).saturating_sub(right_minimap);
 
         // Center heights (make the bottom panel a bit taller so it's visually obvious)
         let mut bottom_panel_h = ((below_header_h as f32) * 0.26) as u32;
@@ -199,12 +183,8 @@ impl ShellFrame {
         let center_editor_h = below_header_h.saturating_sub(bottom_panel_h);
 
         // Left project rail INSIDE the editor column (distinct from outer sidebar)
-        let content_left_sidebar = Rect {
-            x: editor_x,
-            y: below_header_y,
-            width: left_inner_w,
-            height: below_header_h,
-        };
+        let content_left_sidebar =
+            Rect { x: editor_x, y: below_header_y, width: left_inner_w, height: below_header_h };
 
         // Center editor canvas above the bottom panel
         let center_editor = Rect {
@@ -232,12 +212,8 @@ impl ShellFrame {
 
         // AI panel header and content split (unchanged)
         let ai_header_h: u32 = 36;
-        let ai_panel_header = Rect {
-            x: ai_panel.x,
-            y: ai_panel.y,
-            width: ai_panel.width,
-            height: ai_header_h,
-        };
+        let ai_panel_header =
+            Rect { x: ai_panel.x, y: ai_panel.y, width: ai_panel.width, height: ai_header_h };
         let ai_panel_content = Rect {
             x: ai_panel.x,
             y: ai_panel_header.y + ai_panel_header.height,
@@ -252,16 +228,28 @@ impl ShellFrame {
             ShellRegion { id: "app_rail", name: "app_rail", rect: app_rail },
             ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
             ShellRegion { id: "editor_header", name: "editor_header", rect: editor_header },
-            ShellRegion { id: "content_left_sidebar", name: "content_left_sidebar", rect: content_left_sidebar },
+            ShellRegion {
+                id: "content_left_sidebar",
+                name: "content_left_sidebar",
+                rect: content_left_sidebar,
+            },
             // Backwards-compatibility: provide an aggregated editor content region id expected by older tests.
             // This mirrors the center_editor rect so callers that expect "editor_content" continue to pass.
             ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
             ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
-            ShellRegion { id: "center_bottom_panel", name: "center_bottom_panel", rect: center_bottom_panel },
+            ShellRegion {
+                id: "center_bottom_panel",
+                name: "center_bottom_panel",
+                rect: center_bottom_panel,
+            },
             ShellRegion { id: "bottom_dock", name: "bottom_dock", rect: bottom_dock },
             ShellRegion { id: "ai_panel_header", name: "ai_panel_header", rect: ai_panel_header },
-            ShellRegion { id: "ai_panel_content", name: "ai_panel_content", rect: ai_panel_content },
+            ShellRegion {
+                id: "ai_panel_content",
+                name: "ai_panel_content",
+                rect: ai_panel_content,
+            },
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
 
@@ -274,7 +262,10 @@ impl ShellFrame {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("shell_size: {}x{}", self.size.width, self.size.height));
         lines.push(format!("theme.surface: {}", self.theme.surface));
-        lines.push(format!("theme.border: {} px color {}", self.theme.border_thickness, self.theme.border_color));
+        lines.push(format!(
+            "theme.border: {} px color {}",
+            self.theme.border_thickness, self.theme.border_color
+        ));
         lines.push("regions:".to_string());
         for r in &self.regions {
             lines.push(format!("  id={} name={} rect={}", r.id, r.name, r.rect));

@@ -192,7 +192,10 @@ async fn main() -> Result<(), String> {
                         action_result.success, action_result.refreshed, action_result.message
                     );
                     // Print a compact diagnostics summary (Phase 10 observable path).
-                    let diag_summary = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+                    let diag_summary =
+                        zaroxi_interface_desktop::diagnostics::summarize_for_composition(
+                            &composition,
+                        );
                     println!("Harness: diagnostics summary -> {}", diag_summary);
 
                     // Reusable helper: print an editor-focused verification slice using the real presenter helper.
@@ -884,29 +887,30 @@ async fn main() -> Result<(), String> {
 
             // Print diagnostics summary again after switching active buffer so the harness
             // demonstrates the ready-state counts for the newly active buffer.
-            let diag_summary_after = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+            let diag_summary_after =
+                zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
             println!("Harness: diagnostics summary after set_active -> {}", diag_summary_after);
 
             // Demonstrate external ingestion: update lib.rs diagnostics payload and show effect.
             println!("Harness: ingesting external diagnostics payload for lib.rs -> set errors=1 warnings=0");
             zaroxi_interface_desktop::diagnostics::ingest_diagnostics_payload(
                 "lib.rs",
-                vec![
-                    zaroxi_interface_desktop::diagnostics::Diagnostic {
-                        message: "external: error in lib.rs".to_string(),
-                        severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Error,
-                        uri: Some("lib.rs".to_string()),
-                    }
-                ],
+                vec![zaroxi_interface_desktop::diagnostics::Diagnostic {
+                    message: "external: error in lib.rs".to_string(),
+                    severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Error,
+                    uri: Some("lib.rs".to_string()),
+                }],
             );
 
-            let diag_after_ingest = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+            let diag_after_ingest =
+                zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
             println!("Harness: diagnostics summary after ingest -> {}", diag_after_ingest);
 
             // Demonstrate clearing diagnostics for lib.rs via empty payload.
             println!("Harness: clearing diagnostics for lib.rs via ingest(empty)");
             zaroxi_interface_desktop::diagnostics::ingest_diagnostics_payload("lib.rs", Vec::new());
-            let diag_after_clear = zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
+            let diag_after_clear =
+                zaroxi_interface_desktop::diagnostics::summarize_for_composition(&composition);
             println!("Harness: diagnostics summary after clear -> {}", diag_after_clear);
         }
         Err(e) => println!("Harness: set_active_and_get_shell_context failed: {}", e),

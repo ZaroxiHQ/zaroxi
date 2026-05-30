@@ -19,11 +19,11 @@ Note: This file purposely avoids creating a second text system. It reuses the
 existing `zaroxi_core_engine_text` layout helpers and the bundled monospace font.
 */
 
-use zaroxi_core_engine_font::load_bundled_monospace;
-use zaroxi_core_engine_text::plain::layout_plain_lines;
-use zaroxi_core_engine_scene::{EditorPrimitiveSet, TextPrimitive, ShellSceneModel};
-use zaroxi_core_engine_scene;
 use crate::gui::Theme;
+use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_engine_scene;
+use zaroxi_core_engine_scene::{EditorPrimitiveSet, ShellSceneModel, TextPrimitive};
+use zaroxi_core_engine_text::plain::layout_plain_lines;
 
 /// Layout `lines` inside the rectangle (x,y,width,height) using the existing
 /// Cosmic Text layout path and publish a minimal scene snapshot. Returns a set
@@ -52,7 +52,12 @@ pub fn layout_and_publish_text(
         // Log the lines we're asked to layout so runtime traces contain the label
         // strings (e.g. "Zaroxi") for later correlation with the renderer logs.
         let joined = lines.join(" | ");
-        log::info!("GUI_SHELL_TRACE: layout_and_publish_text called x={} y={} lines=[{}]", x, y, joined);
+        log::info!(
+            "GUI_SHELL_TRACE: layout_and_publish_text called x={} y={} lines=[{}]",
+            x,
+            y,
+            joined
+        );
 
         // If a canonical label "Zaroxi" is present, create a small temp-file marker
         // so lower-level backends (which can't depend on this crate) can detect

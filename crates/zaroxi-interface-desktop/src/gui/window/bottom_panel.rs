@@ -99,7 +99,10 @@ pub fn draw(
                 y: ly,
                 width: w.saturating_sub(12),
                 height: line_h,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.02 - (i as f64 * 0.002)),
+                color: super::theme_adapter::adjust_brightness(
+                    theme.surface,
+                    1.02 - (i as f64 * 0.002),
+                ),
             });
             ly = ly.saturating_add(line_h).saturating_add(gap);
         }

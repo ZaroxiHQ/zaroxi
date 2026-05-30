@@ -46,7 +46,10 @@ impl AiProposalLine {
     /// Render a compact single-line representation suitable for a shell status/line.
     pub fn render_compact(&self) -> String {
         let bid = self.buffer_id.as_deref().unwrap_or("<unknown>");
-        format!("AI proposal [{}] target={} state={} summary={}", self.id, bid, self.state, self.summary)
+        format!(
+            "AI proposal [{}] target={} state={} summary={}",
+            self.id, bid, self.state, self.summary
+        )
     }
 
     /// Render a multi-line preview suitable for a small popup or details panel.

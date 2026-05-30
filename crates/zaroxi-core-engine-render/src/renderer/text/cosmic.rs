@@ -436,9 +436,9 @@ impl TextRenderer for CosmicTextRenderer {
             let mut attrs = Attrs::new();
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
 
-            // Borrow buffer for layout runs. We extract owned `physical` records
-            // while the borrow is active, then drop the borrow before calling into
-            // `swash` which needs its own mutable access to the font system.
+            // Borrow buffer for layout runs. Extract owned `physical` records while the
+            // borrow is active, then drop it before calling into `swash` which needs
+            // mutable access to the font system.
             let mut borrowed = buf.borrow_with(&mut *fs);
             let mut physicals: Vec<_> = Vec::new();
             for run in borrowed.layout_runs() {
@@ -449,7 +449,6 @@ impl TextRenderer for CosmicTextRenderer {
                     physicals.push(physical);
                 }
             }
-            // Release the borrowed font-system reference before calling back into `swash`.
             drop(borrowed);
 
             for physical in physicals.into_iter() {
@@ -463,46 +462,45 @@ impl TextRenderer for CosmicTextRenderer {
 
                 // Request raster image from swash cache
                 match swash.get_image(&mut *fs, physical.cache_key) {
-                        Some(img) => {
-                            rasterized_total += 1;
-                            // Build RasterizedGlyph from swash image
-                            let glyph = RasterizedGlyph {
-                                width: img.placement.width,
-                                height: img.placement.height,
-                                data: img.data.clone(),
-                                offset_x: img.placement.left as i32,
-                                offset_y: -img.placement.top as i32,
-                            };
+                    Some(img) => {
+                        rasterized_total += 1;
+                        // Build RasterizedGlyph from swash image
+                        let glyph = RasterizedGlyph {
+                            width: img.placement.width,
+                            height: img.placement.height,
+                            data: img.data.clone(),
+                            offset_x: img.placement.left as i32,
+                            offset_y: -img.placement.top as i32,
+                        };
 
-                            // Attempt atlas insertion
-                            match self.shared_atlas.insert(&glyph) {
-                                Some(entry) => {
-                                    atlas_inserted_total += 1;
-                                    // Record instance sample for logging
-                                    let x0 = physical.x as f32 + glyph.offset_x as f32;
-                                    let y0 = physical.y as f32 + glyph.offset_y as f32;
-                                    samples.push(InstanceSample {
-                                        x: x0,
-                                        y: y0,
-                                        width: glyph.width as f32,
-                                        height: glyph.height as f32,
-                                        uv0: (entry.u0, entry.v0),
-                                        uv1: (entry.u1, entry.v1),
-                                        color: cmd.color,
-                                    });
-                                    instances_total += 1;
-                                }
-                                None => {
-                                    eprintln!(
-                                        "GUI_TEXT_ATLAS_INSERT_FAILED: key={:?} glyph_size={}x{}",
-                                        cache_key, glyph.width, glyph.height
-                                    );
-                                }
+                        // Attempt atlas insertion
+                        match self.shared_atlas.insert(&glyph) {
+                            Some(entry) => {
+                                atlas_inserted_total += 1;
+                                // Record instance sample for logging
+                                let x0 = physical.x as f32 + glyph.offset_x as f32;
+                                let y0 = physical.y as f32 + glyph.offset_y as f32;
+                                samples.push(InstanceSample {
+                                    x: x0,
+                                    y: y0,
+                                    width: glyph.width as f32,
+                                    height: glyph.height as f32,
+                                    uv0: (entry.u0, entry.v0),
+                                    uv1: (entry.u1, entry.v1),
+                                    color: cmd.color,
+                                });
+                                instances_total += 1;
+                            }
+                            None => {
+                                eprintln!(
+                                    "GUI_TEXT_ATLAS_INSERT_FAILED: key={:?} glyph_size={}x{}",
+                                    cache_key, glyph.width, glyph.height
+                                );
                             }
                         }
-                        None => {
-                            eprintln!("GUI_TEXT_RASTER_MISS: key={:?}", cache_key);
-                        }
+                    }
+                    None => {
+                        eprintln!("GUI_TEXT_RASTER_MISS: key={:?}", cache_key);
                     }
                 }
             }
@@ -559,7 +557,7 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Honest terminal-visible summary.
         eprintln!(
-            "GUI_TEXT_FRAME_SUMMARY: shaped={} rasterized={} atlas_inserted={} instances_pushed={}",
+            "GUI_TEXT_FRAME_SUMMARY: shaped={} rasterized={} atlas_inserted={} instances_pushed= {}",
             summary.shaped_glyphs_total,
             summary.rasterize_success_total,
             summary.atlas_insert_success_total,

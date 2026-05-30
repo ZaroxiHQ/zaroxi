@@ -169,7 +169,7 @@ impl EditorService {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "target buffer has no associated filesystem path",
-                ))
+                ));
             }
         };
 

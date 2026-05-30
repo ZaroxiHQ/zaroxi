@@ -2,12 +2,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::ports::{
+    AiProposal,
     AppCommand,
+    ApplyAiEditRequest,
+    ApplyAiEditResponse,
     // Transaction seam (Phase 4)
     ApplyTextTransactionRequest,
     ApplyTextTransactionResponse,
     BoxFuture,
     BufferSnapshot,
+    CancelAiEditRequest,
+    CancelAiEditResponse,
     Checkpoint,
     ClearSelectionRequest,
     ClearSelectionResponse,
@@ -37,6 +42,9 @@ use crate::ports::{
     ListBuffersResponse,
     OpenBufferRequest,
     OpenBufferResponse,
+    // Phase 10 AI DTOs (application-level re-exports from ports::types)
+    RequestAiEditRequest,
+    RequestAiEditResponse,
     RestoreCheckpointRequest,
     RestoreCheckpointResponse,
     ScrollViewportRequest,
@@ -61,14 +69,6 @@ use crate::ports::{
     WorkspaceEvent,
     WorkspaceEventKind,
     WorkspaceSessionDTO,
-    // Phase 10 AI DTOs (application-level re-exports from ports::types)
-    RequestAiEditRequest,
-    RequestAiEditResponse,
-    AiProposal,
-    ApplyAiEditRequest,
-    ApplyAiEditResponse,
-    CancelAiEditRequest,
-    CancelAiEditResponse,
 };
 
 use chrono::Utc;
@@ -1678,7 +1678,9 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
 
             if stored_proposal_opt.is_none() {
                 // No pending proposal found for this session/buffer.
-                return Err(UseCaseError::AiFailure("no pending AI proposal for buffer".to_string()));
+                return Err(UseCaseError::AiFailure(
+                    "no pending AI proposal for buffer".to_string(),
+                ));
             }
 
             // Validate content against buffer rules.

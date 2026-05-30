@@ -1,9 +1,9 @@
+use crate::diagnostics::{Diagnostic as PresentDiagnostic, diagnostics_details_for_uri};
 use crate::presenters::model::{GpuShellView, TabStrip};
 use crate::presenters::paint::GpuPaintPlan;
 use zaroxi_core_engine_render::intent::ChromePrimitive;
 use zaroxi_core_engine_scene::scene::ShellChrome;
 use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
-use crate::diagnostics::{diagnostics_details_for_uri, Diagnostic as PresentDiagnostic};
 
 use super::editor_projection::{DEFAULT_CHAR_WIDTH, DEFAULT_LINE_HEIGHT, EditorLayoutSpec};
 use super::scene_snapshot;
@@ -288,12 +288,7 @@ impl ShellRenderTranscript {
         // Scene published. The renderer consumes the global engine scene (zaroxi_core_engine_scene)
         // during its frame work to layout and rasterize glyphs. Presenters must not attempt to
         // call renderer internals directly to queue glyph uploads; keep this boundary clean.
-        let diag_uri = view
-            .active_buffer_label
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let diag_uri = view.active_buffer_label.as_deref().unwrap_or("").trim().to_string();
 
         let (diagnostics, diagnostics_enabled) = if diag_uri.is_empty() {
             // No active buffer: treat as ready/no-diagnostics for presenter display.

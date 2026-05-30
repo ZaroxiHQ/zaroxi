@@ -41,7 +41,10 @@ pub fn draw(
                     y: y_off,
                     width: r.width.saturating_sub(x_inset.saturating_mul(2)),
                     height: btn_h,
-                    color: super::theme_adapter::adjust_brightness(theme.border_color, 0.78 + (i as f64 * 0.03)),
+                    color: super::theme_adapter::adjust_brightness(
+                        theme.border_color,
+                        0.78 + (i as f64 * 0.03),
+                    ),
                 });
                 y_off = y_off.saturating_add(btn_h).saturating_add(padding / 2);
             }
@@ -69,7 +72,10 @@ pub fn draw(
                     y: y_off,
                     width,
                     height: row_h,
-                    color: super::theme_adapter::adjust_brightness(theme.surface, 0.96 - (i as f64 * 0.01)),
+                    color: super::theme_adapter::adjust_brightness(
+                        theme.surface,
+                        0.96 - (i as f64 * 0.01),
+                    ),
                 });
                 y_off = y_off.saturating_add(row_h).saturating_add(padding / 3);
                 // subtle dividing line after some rows
@@ -132,7 +138,10 @@ pub fn draw(
                     y: y_off,
                     width: row_w,
                     height: row_h,
-                    color: super::theme_adapter::adjust_brightness(theme.surface, 0.98 - (i as f64 * 0.01)),
+                    color: super::theme_adapter::adjust_brightness(
+                        theme.surface,
+                        0.98 - (i as f64 * 0.01),
+                    ),
                 });
                 y_off = y_off.saturating_add(row_h).saturating_add(6);
                 // occasional thin divider
@@ -170,7 +179,10 @@ pub fn draw(
                     y: y_off,
                     width: row_w,
                     height: row_h,
-                    color: super::theme_adapter::adjust_brightness(theme.surface, 0.95 - (i as f64 * 0.01)),
+                    color: super::theme_adapter::adjust_brightness(
+                        theme.surface,
+                        0.95 - (i as f64 * 0.01),
+                    ),
                 });
                 y_off = y_off.saturating_add(row_h).saturating_add(6);
             }
@@ -196,11 +208,7 @@ pub fn draw(
             vec!["Run".to_string(), "Search".to_string()]
         } else {
             // sidebar: show a compact project heading + a few file names
-            vec![
-                "Project".to_string(),
-                "src/main.rs".to_string(),
-                "src/lib.rs".to_string(),
-            ]
+            vec!["Project".to_string(), "src/main.rs".to_string(), "src/lib.rs".to_string()]
         };
         let inset_x = r.x.saturating_add(8);
         let inset_y = r.y.saturating_add(12);

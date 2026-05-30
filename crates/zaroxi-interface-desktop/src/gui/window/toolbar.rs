@@ -49,7 +49,10 @@ pub fn draw(
                 y: cy,
                 width: w,
                 height: ctrl_h,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.10 - (i as f64 * 0.03)),
+                color: super::theme_adapter::adjust_brightness(
+                    theme.surface,
+                    1.10 - (i as f64 * 0.03),
+                ),
             });
             cx = cx.saturating_add(w).saturating_add(8);
         }
@@ -67,7 +70,10 @@ pub fn draw(
                 y: cy,
                 width: w,
                 height: ctrl_h,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.06 - (i as f64 * 0.02)),
+                color: super::theme_adapter::adjust_brightness(
+                    theme.surface,
+                    1.06 - (i as f64 * 0.02),
+                ),
             });
             rx = rx.saturating_sub(8);
         }

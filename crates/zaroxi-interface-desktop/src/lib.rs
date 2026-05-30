@@ -48,17 +48,17 @@ pub use view_adapter::{
 pub mod render_debug_text;
 pub use render_debug_text::render_debug_text;
 
-pub mod presenters;
-pub mod gui;
 pub mod diagnostics;
+pub mod gui;
+pub mod presenters;
 pub use clipboard::InMemoryClipboard;
 pub use presenters::GpuShellPresenter;
 pub use presenters::ShellRenderPresenter;
 
 // Small adapter-local projections collected under `projections`.
 // Keep all shaping here; do not leak UI/shell concerns into application/domain.
-pub mod projections;
 pub mod ai;
+pub mod projections;
 pub use projections::active_buffer_line::ActiveBufferLine;
 pub use projections::last_event_line::LastEventLine;
 pub use projections::last_event_line::summarize_last_event;

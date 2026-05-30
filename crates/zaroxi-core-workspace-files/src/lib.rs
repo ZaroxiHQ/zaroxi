@@ -6,9 +6,9 @@ pub use file_loader::FileLoader;
 pub use metadata::FileMetadata;
 pub use workspace::WorkspaceLoader;
 
+use std::io;
 /// Port: FileStorage abstraction for reading/writing files on behalf of workspace.
 use std::path::PathBuf;
-use std::io;
 
 /// Minimal filesystem-backed storage port used by application/workspace.
 pub trait FileStorage: Send + Sync {

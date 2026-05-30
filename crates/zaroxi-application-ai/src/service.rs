@@ -1,10 +1,10 @@
 #![doc = "Application-level AI service used in Phase 11 to orchestrate AI edit proposals.\n\nThis service holds a small in-memory pending proposal list (presentation only)\nand exposes a simple request/accept/reject API that application orchestrators\nand interface adapters can call during Phase 11. The concrete AI provider is\nplumbed as an `AiClient` trait object provided by application composition.\n"]
 
 use std::sync::{Arc, Mutex};
-use tracing::info;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::info;
 
-use zaroxi_domain_ai::types::{AiEditRequest, AiEditProposal, AiProposalState, AiEditApplyResult};
+use zaroxi_domain_ai::types::{AiEditApplyResult, AiEditProposal, AiEditRequest, AiProposalState};
 use zaroxi_kernel_types::Id;
 
 /// Re-export port traits used by infra adapters (AiClient trait lives in crate::ports).
@@ -27,7 +27,10 @@ impl AiService {
     /// Create a new AI service.
     pub fn new() -> Self {
         Self {
-            state: Arc::new(Mutex::new(AiServiceState { running: false, pending_proposals: Vec::new() })),
+            state: Arc::new(Mutex::new(AiServiceState {
+                running: false,
+                pending_proposals: Vec::new(),
+            })),
         }
     }
 
@@ -137,7 +140,10 @@ impl AiService {
         if let Some(pos) = state.pending_proposals.iter().position(|p| p.id == id) {
             if let Some(p) = state.pending_proposals.get_mut(pos) {
                 p.state = AiProposalState::Applied;
-                return Ok(AiEditApplyResult { ok: true, message: Some("Marked applied (service)".to_string()) });
+                return Ok(AiEditApplyResult {
+                    ok: true,
+                    message: Some("Marked applied (service)".to_string()),
+                });
             }
         }
         Err(anyhow::anyhow!("proposal not found"))

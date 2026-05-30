@@ -13,9 +13,9 @@ Responsibilities:
 */
 
 use bytemuck;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_window::ZaroxiWindow;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 static GUI_TEXT_FALLBACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -163,18 +163,23 @@ impl<'a> RenderBackend<'a> {
                         tex
                     }
                     other => {
-                        eprintln!("wgpu surface acquisition returned {:?}; aborting clear_present_once", other);
+                        eprintln!(
+                            "wgpu surface acquisition returned {:?}; aborting clear_present_once",
+                            other
+                        );
                         backend.surface.configure(&backend.device, &backend.surface_config);
                         return Err("surface acquisition failed".into());
                     }
                 };
 
-                let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let view =
+                    surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
                 // Primary encoder for the one-shot pass.
-                let mut encoder = backend.device.create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("zaroxi-clear-encoder"),
-                });
+                let mut encoder =
+                    backend.device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some("zaroxi-clear-encoder"),
+                    });
 
                 // Initial full-surface clear to the requested background color.
                 {
@@ -205,7 +210,8 @@ impl<'a> RenderBackend<'a> {
                         // marker exists. We use temp-file markers created by the interface and
                         // renderer crates to avoid introducing cross-crate type dependencies.
                         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
-                        let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                        let tmp_cosmic =
+                            std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
                         let layout_present = tmp_layout.exists();
                         let cosmic_present = tmp_cosmic.exists();
                         eprintln!(
@@ -221,7 +227,8 @@ impl<'a> RenderBackend<'a> {
                         if layout_present {
                             if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
                                 if let Some(rest) = s.strip_prefix("lines=") {
-                                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                                    adapter_text_ops =
+                                        rest.split(" | ").filter(|p| !p.is_empty()).count();
                                 }
                             }
                         }
@@ -229,9 +236,7 @@ impl<'a> RenderBackend<'a> {
                         let forwarded = layout_present && overlay_rects_count > 0;
                         eprintln!(
                             "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} overlay_rects={} forwarded={}",
-                            adapter_text_ops,
-                            overlay_rects_count,
-                            forwarded
+                            adapter_text_ops, overlay_rects_count, forwarded
                         );
 
                         // If the interface produced layout for "Zaroxi" but the Cosmic prepare
@@ -294,30 +299,35 @@ impl<'a> RenderBackend<'a> {
 
                         if let Some(pipeline_ref) = &backend.pipeline {
                             // Create vertex buffer and draw using the pipeline.
-                            let vertex_buffer = backend.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("zaroxi-clear-rect-verts"),
-                                contents: bytemuck::cast_slice(&vertices),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            });
+                            let vertex_buffer = backend.device.create_buffer_init(
+                                &wgpu::util::BufferInitDescriptor {
+                                    label: Some("zaroxi-clear-rect-verts"),
+                                    contents: bytemuck::cast_slice(&vertices),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                },
+                            );
 
                             {
-                                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("zaroxi-clear-overlay-pass"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        depth_slice: None,
-                                        ops: wgpu::Operations {
-                                            // Load preserves the background clear we just did.
-                                            load: wgpu::LoadOp::Load,
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: None,
-                                    multiview_mask: None,
-                                    occlusion_query_set: None,
-                                    timestamp_writes: None,
-                                });
+                                let mut rpass =
+                                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: Some("zaroxi-clear-overlay-pass"),
+                                        color_attachments: &[Some(
+                                            wgpu::RenderPassColorAttachment {
+                                                view: &view,
+                                                resolve_target: None,
+                                                depth_slice: None,
+                                                ops: wgpu::Operations {
+                                                    // Load preserves the background clear we just did.
+                                                    load: wgpu::LoadOp::Load,
+                                                    store: wgpu::StoreOp::Store,
+                                                },
+                                            },
+                                        )],
+                                        depth_stencil_attachment: None,
+                                        multiview_mask: None,
+                                        occlusion_query_set: None,
+                                        timestamp_writes: None,
+                                    });
 
                                 rpass.set_pipeline(pipeline_ref);
                                 rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -327,7 +337,9 @@ impl<'a> RenderBackend<'a> {
                                 }
                             }
                         } else {
-                            eprintln!("clear_present_once: pipeline missing; skipping overlay rect draws");
+                            eprintln!(
+                                "clear_present_once: pipeline missing; skipping overlay rect draws"
+                            );
                         }
                     }
                 }
@@ -424,7 +436,9 @@ impl<'a> RenderBackend<'a> {
             })) {
                 Ok(p) => Some(p),
                 Err(_) => {
-                    eprintln!("RenderBackend: pipeline creation panicked; falling back to clear-only mode");
+                    eprintln!(
+                        "RenderBackend: pipeline creation panicked; falling back to clear-only mode"
+                    );
                     None
                 }
             }
@@ -507,9 +521,7 @@ impl<'a> RenderBackend<'a> {
         let forwarded = adapter_text_ops > 0 && backend_text_ops > 0;
         eprintln!(
             "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} backend_text_ops={} forwarded={}",
-            adapter_text_ops,
-            backend_text_ops,
-            forwarded
+            adapter_text_ops, backend_text_ops, forwarded
         );
 
         // Helper to convert rect coordinates -> two triangles (6 vertices)

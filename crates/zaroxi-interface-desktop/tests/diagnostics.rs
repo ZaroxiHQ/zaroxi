@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used)]
-use zaroxi_interface_desktop::diagnostics::{
-    collect_for_uri, diagnostics_snapshot_for_uri, DiagnosticsSummary,
-    ProviderState, register_mock_diagnostics, clear_mock_diagnostics, ingest_diagnostics_payload,
-    Diagnostic, DiagnosticSeverity,
-};
 use zaroxi_interface_desktop::DesktopComposition;
+use zaroxi_interface_desktop::diagnostics::{
+    Diagnostic, DiagnosticSeverity, DiagnosticsSummary, ProviderState, clear_mock_diagnostics,
+    collect_for_uri, diagnostics_snapshot_for_uri, ingest_diagnostics_payload,
+    register_mock_diagnostics,
+};
 
 #[test]
 #[cfg(feature = "use_core_lsp")]
@@ -53,7 +53,10 @@ fn switching_active_buffers_updates_diagnostics() {
 fn composition_no_active_buffer_reports_none() {
     // Fresh composition has no active buffer details by default.
     let comp = DesktopComposition::new();
-    assert!(comp.latest_diagnostics_snapshot().is_none(), "expected no diagnostics snapshot when no active buffer present");
+    assert!(
+        comp.latest_diagnostics_snapshot().is_none(),
+        "expected no diagnostics snapshot when no active buffer present"
+    );
 }
 
 #[test]
@@ -64,7 +67,10 @@ fn diagnostics_snapshot_for_uri_ready_and_counts() {
     match snap {
         Some(s) => {
             assert_eq!(s.provider, ProviderState::Ready);
-            assert!(s.warnings >= 1, "expected at least one warning in mock diagnostics for main.rs");
+            assert!(
+                s.warnings >= 1,
+                "expected at least one warning in mock diagnostics for main.rs"
+            );
         }
         None => panic!("expected Some snapshot for main.rs"),
     }
@@ -106,10 +112,26 @@ fn ready_summary_reports_counts_for_active_buffer() {
     register_mock_diagnostics(
         "lib.rs",
         vec![
-            Diagnostic { message: "E: something broke".to_string(), severity: DiagnosticSeverity::Error, uri: Some("lib.rs".to_string()) },
-            Diagnostic { message: "W: minor issue".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("lib.rs".to_string()) },
-            Diagnostic { message: "W: another warning".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("lib.rs".to_string()) },
-            Diagnostic { message: "I: consider this".to_string(), severity: DiagnosticSeverity::Information, uri: Some("lib.rs".to_string()) },
+            Diagnostic {
+                message: "E: something broke".to_string(),
+                severity: DiagnosticSeverity::Error,
+                uri: Some("lib.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: minor issue".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("lib.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: another warning".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("lib.rs".to_string()),
+            },
+            Diagnostic {
+                message: "I: consider this".to_string(),
+                severity: DiagnosticSeverity::Information,
+                uri: Some("lib.rs".to_string()),
+            },
         ],
     );
 
@@ -134,16 +156,26 @@ fn switching_active_buffer_changes_diagnostics_summary() {
 
     register_mock_diagnostics(
         "main.rs",
-        vec![
-            Diagnostic { message: "W: main warning".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("main.rs".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: main warning".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("main.rs".to_string()),
+        }],
     );
 
     register_mock_diagnostics(
         "lib.rs",
         vec![
-            Diagnostic { message: "E: lib error".to_string(), severity: DiagnosticSeverity::Error, uri: Some("lib.rs".to_string()) },
-            Diagnostic { message: "W: lib warning".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("lib.rs".to_string()) },
+            Diagnostic {
+                message: "E: lib error".to_string(),
+                severity: DiagnosticSeverity::Error,
+                uri: Some("lib.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: lib warning".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("lib.rs".to_string()),
+            },
         ],
     );
 
@@ -174,9 +206,21 @@ fn ingest_payload_updates_summary_for_active_buffer() {
     ingest_diagnostics_payload(
         "ingest.rs",
         vec![
-            Diagnostic { message: "E: failure".to_string(), severity: DiagnosticSeverity::Error, uri: Some("ingest.rs".to_string()) },
-            Diagnostic { message: "W: warn1".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("ingest.rs".to_string()) },
-            Diagnostic { message: "W: warn2".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("ingest.rs".to_string()) },
+            Diagnostic {
+                message: "E: failure".to_string(),
+                severity: DiagnosticSeverity::Error,
+                uri: Some("ingest.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: warn1".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("ingest.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: warn2".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("ingest.rs".to_string()),
+            },
         ],
     );
 
@@ -196,15 +240,18 @@ fn ingest_empty_payload_clears_summary_counts_feature_off() {
 
     register_mock_diagnostics(
         "clear_test.xyz",
-        vec![
-            Diagnostic { message: "W: w".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("clear_test.xyz".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: w".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("clear_test.xyz".to_string()),
+        }],
     );
 
     // Ingest empty payload -> clears entry
     ingest_diagnostics_payload("clear_test.xyz", Vec::new());
 
-    let snap = diagnostics_snapshot_for_uri("clear_test.xyz").expect("expected snapshot after clear");
+    let snap =
+        diagnostics_snapshot_for_uri("clear_test.xyz").expect("expected snapshot after clear");
     // After clearing the specific URI, provider availability should remain ready
     // (the in-memory provider was installed), and counts should be zero.
     assert_eq!(snap.provider, ProviderState::Ready);
@@ -221,15 +268,18 @@ fn ingest_empty_payload_clears_summary_counts_feature_on() {
 
     register_mock_diagnostics(
         "clear_test.txt",
-        vec![
-            Diagnostic { message: "W: w".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("clear_test.txt".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: w".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("clear_test.txt".to_string()),
+        }],
     );
 
     // Ingest empty payload -> clears entry
     ingest_diagnostics_payload("clear_test.txt", Vec::new());
 
-    let snap = diagnostics_snapshot_for_uri("clear_test.txt").expect("expected snapshot after clear");
+    let snap =
+        diagnostics_snapshot_for_uri("clear_test.txt").expect("expected snapshot after clear");
     // With feature on, absent mock falls back to adapter; if adapter reports none,
     // we map to Ready with zero counts; assert counts are zero.
     assert_eq!(snap.errors + snap.warnings + snap.infos + snap.hints, 0);
@@ -243,16 +293,26 @@ fn switching_active_buffer_reads_correct_uri_snapshot_after_updates() {
 
     ingest_diagnostics_payload(
         "a.rs",
-        vec![
-            Diagnostic { message: "W: a".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("a.rs".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: a".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("a.rs".to_string()),
+        }],
     );
 
     ingest_diagnostics_payload(
         "b.rs",
         vec![
-            Diagnostic { message: "E: b".to_string(), severity: DiagnosticSeverity::Error, uri: Some("b.rs".to_string()) },
-            Diagnostic { message: "W: b".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("b.rs".to_string()) },
+            Diagnostic {
+                message: "E: b".to_string(),
+                severity: DiagnosticSeverity::Error,
+                uri: Some("b.rs".to_string()),
+            },
+            Diagnostic {
+                message: "W: b".to_string(),
+                severity: DiagnosticSeverity::Warning,
+                uri: Some("b.rs".to_string()),
+            },
         ],
     );
 
@@ -274,24 +334,30 @@ fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
 
     ingest_diagnostics_payload(
         "one.rs",
-        vec![
-            Diagnostic { message: "W: one".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("one.rs".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: one".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("one.rs".to_string()),
+        }],
     );
 
     ingest_diagnostics_payload(
         "two.rs",
-        vec![
-            Diagnostic { message: "W: two".to_string(), severity: DiagnosticSeverity::Warning, uri: Some("two.rs".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "W: two".to_string(),
+            severity: DiagnosticSeverity::Warning,
+            uri: Some("two.rs".to_string()),
+        }],
     );
 
     // Update only `one.rs`
     ingest_diagnostics_payload(
         "one.rs",
-        vec![
-            Diagnostic { message: "E: one now error".to_string(), severity: DiagnosticSeverity::Error, uri: Some("one.rs".to_string()) },
-        ],
+        vec![Diagnostic {
+            message: "E: one now error".to_string(),
+            severity: DiagnosticSeverity::Error,
+            uri: Some("one.rs".to_string()),
+        }],
     );
 
     let snap_one = diagnostics_snapshot_for_uri("one.rs").expect("one.rs snapshot");

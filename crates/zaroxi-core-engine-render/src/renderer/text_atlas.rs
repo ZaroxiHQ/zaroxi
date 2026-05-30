@@ -198,7 +198,6 @@ impl Atlas {
         // If a future wgpu pin exposes `queue.write_texture`, replace this block to
         // perform the upload using the correct API for that wgpu version.
 
-
         let view = texture.create_view(&TextureViewDescriptor::default());
         let sampler = device.create_sampler(&SamplerDescriptor::default());
 

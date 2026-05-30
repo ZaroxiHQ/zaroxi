@@ -46,9 +46,6 @@ pub fn adjust_brightness(s: &str, factor: f64) -> wgpu::Color {
             return wgpu::Color { r, g, b, a: 1.0 };
         }
     }
-    eprintln!(
-        "GuiApp: adjust_brightness: invalid hex '{}', falling back to neutral black",
-        s
-    );
+    eprintln!("GuiApp: adjust_brightness: invalid hex '{}', falling back to neutral black", s);
     wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
 }

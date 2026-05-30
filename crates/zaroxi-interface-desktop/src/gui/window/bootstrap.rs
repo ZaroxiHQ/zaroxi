@@ -4,13 +4,9 @@ This file contains run_shell_window which creates the EventLoop, attributes,
 instantiates the GuiApp and hands it to run_app.
 */
 
-use std::error::Error;
-use winit::{
-    dpi::PhysicalSize,
-    event_loop::EventLoop,
-    window::WindowAttributes,
-};
 use crate::gui::ShellFrame;
+use std::error::Error;
+use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::WindowAttributes};
 
 /// Public runner: open a native window and run a basic winit event loop.
 ///

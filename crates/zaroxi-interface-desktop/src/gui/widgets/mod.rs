@@ -41,7 +41,10 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
 
     // App rail: stacked icons, bottom avatar, active item
     if let Some(ar) = regions.iter().find(|r| r.id == "app_rail") {
-        lines.push(format!("app_rail.icons: [explorer,search,source_control,extensions] rect={}", ar.rect));
+        lines.push(format!(
+            "app_rail.icons: [explorer,search,source_control,extensions] rect={}",
+            ar.rect
+        ));
         lines.push(format!("app_rail.avatar_slot: bottom rect={}", ar.rect));
         lines.push("app_rail.active: explorer".to_string());
     }
@@ -61,7 +64,10 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
 
     // Bottom dock chrome: tabs and problems badge placeholder
     if let Some(dk) = regions.iter().find(|r| r.id == "bottom_dock") {
-        lines.push(format!("bottom_dock.tabs: [Terminal,Problems,Output,Debug Console] rect={}", dk.rect));
+        lines.push(format!(
+            "bottom_dock.tabs: [Terminal,Problems,Output,Debug Console] rect={}",
+            dk.rect
+        ));
         lines.push("bottom_dock.problems_count: 0".to_string());
     }
 
