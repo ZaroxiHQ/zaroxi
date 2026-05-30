@@ -209,7 +209,17 @@ impl Atlas {
         queue.write_texture(image_copy_texture, &self.buffer, data_layout, size);
 
         let view = texture.create_view(&TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&SamplerDescriptor::default());
+        // Create a sampler configured for text atlases: linear filtering for smooth edges
+        let sampler = device.create_sampler(&SamplerDescriptor {
+            label: Some("text_atlas_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
 
         Some((texture, view, sampler))
     }

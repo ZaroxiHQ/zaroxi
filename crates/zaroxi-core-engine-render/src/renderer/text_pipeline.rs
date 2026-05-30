@@ -16,8 +16,15 @@ use wgpu::{
 
 /// Create a default filtering sampler for text atlas sampling.
 pub fn create_default_text_sampler(device: &Device) -> wgpu::Sampler {
+    // Use linear filtering for smoother mask sampling when scaled.
     device.create_sampler(&SamplerDescriptor {
         label: Some("text_atlas_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
         ..Default::default()
     })
 }

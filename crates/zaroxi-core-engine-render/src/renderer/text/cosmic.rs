@@ -115,7 +115,14 @@ impl CosmicTextRenderer {
             atlas_uploaded: Arc::new(Mutex::new(false)),
             atlas_meta: Arc::new(Mutex::new(None)),
             swash_cache: Arc::new(Mutex::new(swash)),
-            shared_atlas: SharedAtlas::new(1024, 1024),
+            shared_atlas: {
+                // Choose atlas size based on environment override or default to 4096.
+                let default_size: u32 = std::env::var("ZAROXI_ATLAS_SIZE")
+                    .ok()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(4096);
+                SharedAtlas::new(default_size, default_size)
+            },
             atlas_bind_group: Arc::new(Mutex::new(None)),
             text_bind_layout: Arc::new(bind_layout.clone()),
             font_system: Arc::new(Mutex::new(fs)),
@@ -260,10 +267,12 @@ impl CosmicTextRenderer {
             None
         };
 
-        eprintln!(
-            "GUI_TEXT_SCISSOR_INPUT: effective_target={}x{} sample_bbox={:?}",
-            target_w, target_h, sample_bbox_opt
-        );
+        if text_debug_enabled() {
+            eprintln!(
+                "GUI_TEXT_SCISSOR_INPUT: effective_target={}x{} sample_bbox={:?}",
+                target_w, target_h, sample_bbox_opt
+            );
+        }
 
         // Compute scissor: prefer sample bbox intersected with target; fallback to full viewport.
         let scissor_opt: Option<(u32, u32, u32, u32)> = if target_w > 0 && target_h > 0 {
@@ -296,9 +305,13 @@ impl CosmicTextRenderer {
 
         if let Some((x, y, w, h)) = scissor_opt {
             rpass.set_scissor_rect(x, y, w, h);
-            eprintln!("GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}", x, y, w, h);
+            if text_debug_enabled() {
+                eprintln!("GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}", x, y, w, h);
+            }
         } else {
-            eprintln!("GUI_TEXT_SCISSOR_FINAL: skipped (unknown target)");
+            if text_debug_enabled() {
+                eprintln!("GUI_TEXT_SCISSOR_FINAL: skipped (unknown target)");
+            }
         }
 
         // Bind the pipeline and emit a draw diagnostic.
@@ -318,16 +331,20 @@ impl CosmicTextRenderer {
         } else {
             "none"
         };
-        eprintln!("GUI_TEXT_BIND_GROUP_LIVE: {}", bind_group_live);
-        eprintln!("GUI_TEXT_BIND_GROUP_SOURCE: {}", bind_source);
+        if text_debug_enabled() {
+            eprintln!("GUI_TEXT_BIND_GROUP_LIVE: {}", bind_group_live);
+            eprintln!("GUI_TEXT_BIND_GROUP_SOURCE: {}", bind_source);
+        }
         if let Some(ref bg) = *bg_guard {
             rpass.set_bind_group(0, bg, &[]);
         }
         let vertex_count = 6usize * instance_count; // 6 verts per quad approximation
-        eprintln!(
-            "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
-            vertex_count, instance_count, pipeline_bound, bind_group_live
-        );
+        if text_debug_enabled() {
+            eprintln!(
+                "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
+                vertex_count, instance_count, pipeline_bound, bind_group_live
+            );
+        }
 
         // If we have instance data uploaded, perform an instanced non-indexed draw using
         // a small 6-vertex quad generated in the vertex shader via vertex_index.
@@ -342,12 +359,14 @@ impl CosmicTextRenderer {
             }
         }
 
-        // Dump up to first few samples for triage.
-        for (i, s) in samples.iter().enumerate().take(8) {
-            eprintln!(
-                "GUI_TEXT_INSTANCE_SAMPLE: idx={} x={} y={} w={} h={} uv0=({}, {}) uv1=({}, {}) color={:?}",
-                i, s.x, s.y, s.width, s.height, s.uv0.0, s.uv0.1, s.uv1.0, s.uv1.1, s.color
-            );
+        // Dump up to first few samples for triage (debug only).
+        if text_debug_enabled() {
+            for (i, s) in samples.iter().enumerate().take(8) {
+                eprintln!(
+                    "GUI_TEXT_INSTANCE_SAMPLE: idx={} x={} y={} w={} h={} uv0=({}, {}) uv1=({}, {}) color={:?}",
+                    i, s.x, s.y, s.width, s.height, s.uv0.0, s.uv0.1, s.uv1.0, s.uv1.1, s.color
+                );
+            }
         }
 
         // Atlas upload diagnostic: report metadata only.
@@ -491,8 +510,13 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Iterate queued commands and perform shaping/rasterization.
         for cmd in q.iter() {
-            // Build metrics & buffer
-            let metrics = Metrics::new(cmd.size, cmd.size * 1.2);
+            // Build metrics & buffer at device pixel scale
+            let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            let font_size_physical = cmd.size * device_scale;
+            let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut *fs, metrics);
             let mut attrs = Attrs::new();
             buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
