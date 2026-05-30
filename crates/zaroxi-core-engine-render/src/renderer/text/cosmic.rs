@@ -472,9 +472,10 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Prepare counters and samples
         let mut shaped_total: usize = 0;
-        let mut rasterized_total: usize = 0;
-        let mut atlas_inserted_total: usize = 0;
-        let mut instances_total: usize = 0;
+        let mut rasterized_total: usize = 0; // times swash.get_image returned Some
+        let mut atlas_inserted_total: usize = 0; // number of atlas insertions
+        let mut instances_total: usize = 0; // number of emitted instances
+        let mut cache_hits_total: usize = 0; // number of per-frame cache hits (local_cache)
         let mut samples: Vec<InstanceSample> = Vec::new();
         // Log up to the first few rasterized glyphs for diagnostics.
         let mut glyphs_logged: usize = 0;
@@ -531,13 +532,16 @@ impl TextRenderer for CosmicTextRenderer {
             for run in borrowed.layout_runs() {
                 for g in run.glyphs.iter() {
                     shaped_total += 1;
-                    // compute float layout origin using the same math as LayoutGlyph::physical
-                    let scale: f32 = 1.0;
+                    // compute float layout origin using the device pixel scale so cache keys
+                    // and subpixel bins reflect physical rasterization size.
+                    let scale: f32 = device_scale;
                     let x_offset = g.font_size * g.x_offset;
                     let y_offset = g.font_size * g.y_offset;
-                    let layout_x = (g.x + x_offset) * scale + cmd.x;
-                    let layout_y = (g.y - y_offset) * scale + (cmd.y + run.line_y);
-                    // Build cache key for rasterization (we only need the key here)
+                    // Apply device-scale to both layout coordinates and command offsets so
+                    // the CacheKey uses physical pixel positions.
+                    let layout_x = (g.x + x_offset) * scale + (cmd.x * device_scale);
+                    let layout_y = (g.y - y_offset) * scale + ((cmd.y + run.line_y) * device_scale);
+                    // Build cache key for rasterization using physical font size and position
                     let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
                         g.font_id,
                         g.glyph_id,
@@ -571,6 +575,8 @@ impl TextRenderer for CosmicTextRenderer {
                 // If we already have a cached result for this cache_key in this frame,
                 // reuse it: emit an instance if drawable, otherwise skip.
                 if let Some(cached_opt) = local_cache.get(&cache_key) {
+                    // Per-frame cache hit (either drawable or recorded non-drawable)
+                    cache_hits_total += 1;
                     if let Some((entry, xoff, yoff, w, h)) = cached_opt.clone() {
                         let x0 = layout_x + (xoff as f32);
                         let y0 = layout_y + (yoff as f32);
@@ -870,13 +876,11 @@ impl TextRenderer for CosmicTextRenderer {
             eprintln!("GUI_TEXT_INSTANCE_BUFFER_UPLOADED: count={} stride=48", insts.len());
         }
 
-        // Honest terminal-visible summary.
+        // Concise truthful frame summary (always printed)
+        let atlas_entries_live = self.shared_atlas.regions();
         eprintln!(
-            "GUI_TEXT_FRAME_SUMMARY: shaped={} rasterized={} atlas_inserted={} instances_pushed= {}",
-            summary.shaped_glyphs_total,
-            summary.rasterize_success_total,
-            summary.atlas_insert_success_total,
-            summary.instances_pushed
+            "GUITEXT summary glyph_instances={} cache_hits={} fresh_rasters={} atlas_entries={}",
+            instances_total, cache_hits_total, rasterized_total, atlas_entries_live
         );
 
         // Clear queue after prepare.
