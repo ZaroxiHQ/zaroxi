@@ -250,7 +250,7 @@ impl<'a> RenderBackend<'a> {
                         if layout_present && !cosmic_present {
                             let cnt = GUI_TEXT_FALLBACK_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
                             eprintln!(
-                                "GUI_TEXT_STAGE_FALLBACK: detected layout for 'Zaroxi' but no cosmic prepare; fallback_count={} overlay_rects_count={}",
+                                "GUI_TEXT_STAGE_2_BACKEND: detected layout for 'Zaroxi' but no cosmic prepare; fallback_count={} overlay_rects_count={}",
                                 cnt,
                                 rects.len()
                             );

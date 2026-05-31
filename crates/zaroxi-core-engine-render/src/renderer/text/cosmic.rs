@@ -271,7 +271,7 @@ impl CosmicTextRenderer {
 
         if text_debug_enabled() {
             eprintln!(
-                "GUI_TEXT_SCISSOR_INPUT: effective_target={}x{} sample_bbox={:?}",
+                "GUI_TEXT_RENDER_PASS_ACTIVE: effective_target={}x{} sample_bbox={:?}",
                 target_w, target_h, sample_bbox_opt
             );
         }
@@ -308,11 +308,11 @@ impl CosmicTextRenderer {
         if let Some((x, y, w, h)) = scissor_opt {
             rpass.set_scissor_rect(x, y, w, h);
             if text_debug_enabled() {
-                eprintln!("GUI_TEXT_SCISSOR_FINAL: x={} y={} w={} h={}", x, y, w, h);
+                eprintln!("GUI_TEXT_RENDER_PASS_ACTIVE: x={} y={} w={} h={}", x, y, w, h);
             }
         } else {
             if text_debug_enabled() {
-                eprintln!("GUI_TEXT_SCISSOR_FINAL: skipped (unknown target)");
+                eprintln!("GUI_TEXT_RENDER_PASS_ACTIVE: skipped (unknown target)");
             }
         }
 
@@ -335,7 +335,7 @@ impl CosmicTextRenderer {
         };
         if text_debug_enabled() {
             eprintln!("GUI_TEXT_BIND_GROUP_LIVE: {}", bind_group_live);
-            eprintln!("GUI_TEXT_BIND_GROUP_SOURCE: {}", bind_source);
+            eprintln!("GUI_TEXT_BIND_GROUP_LIVE: {}", bind_source);
         }
         if let Some(ref bg) = *bg_guard {
             rpass.set_bind_group(0, bg, &[]);
@@ -343,7 +343,7 @@ impl CosmicTextRenderer {
         let vertex_count = 6usize * instance_count; // 6 verts per quad approximation
         if text_debug_enabled() {
             eprintln!(
-                "GUI_TEXT_DRAW_CALLED=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
+                "GUI_TEXT_ISSUED_INSTANCED_DRAW: draw_called=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
                 vertex_count, instance_count, pipeline_bound, bind_group_live
             );
         }
@@ -357,7 +357,7 @@ impl CosmicTextRenderer {
                 rpass.draw(0..6, 0..(instance_count as u32));
                 eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: instances={}", instance_count);
             } else {
-                eprintln!("GUI_TEXT_NO_INSTANCE_BUFFER_PRESENT: instances={}", instance_count);
+                eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: instances={}", instance_count);
             }
         }
 
@@ -365,7 +365,7 @@ impl CosmicTextRenderer {
         if text_debug_enabled() {
             for (i, s) in samples.iter().enumerate().take(8) {
                 eprintln!(
-                    "GUI_TEXT_INSTANCE_SAMPLE: idx={} x={} y={} w={} h={} uv0=({}, {}) uv1=({}, {}) color={:?}",
+                    "GUI_TEXT_RENDER_PASS_ACTIVE: idx={} x={} y={} w={} h={} uv0=({}, {}) uv1=({}, {}) color={:?}",
                     i, s.x, s.y, s.width, s.height, s.uv0.0, s.uv0.1, s.uv1.0, s.uv1.1, s.color
                 );
             }
@@ -395,7 +395,7 @@ impl CosmicTextRenderer {
         if total > panel {
             let start = panel;
             let count = total - panel;
-            eprintln!("GUI_TEXT_ISSUING_DRAW: start={} count={}", start, count);
+            eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: start={} count={}", start, count);
             rpass.draw_indexed(start..(start + count), 0, 0..1);
         }
 
@@ -449,7 +449,7 @@ impl TextRenderer for CosmicTextRenderer {
         if let Some(rep) = representative {
             if text_debug_enabled() {
                 eprintln!(
-                    "GUI_TEXT_COSMIC_INPUT: representative='{}' len={} pos=({}, {}) clip={}x{} font_size={} color={:?}",
+                    "GUI_SHELL_TRACE: cosmic_input representative='{}' len={} pos=({}, {}) clip={}x{} font_size={} color={:?}",
                     rep.text,
                     rep.text.chars().count(),
                     rep.x,
@@ -563,7 +563,7 @@ impl TextRenderer for CosmicTextRenderer {
                     // Debug-only: log cache key args when debugging is enabled
                     if text_debug_enabled() {
                         eprintln!(
-                            "GUI_TEXT_CACHE_KEY_ARGS: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
+                            "GUI_TEXT_FRAME_SUMMARY: font_id={:?} glyph_id={} font_size={} layout_x={} layout_y={} font_weight={:?} flags={:?} cache_key={:?}",
                             g.font_id,
                             g.glyph_id,
                             font_size_physical,
@@ -603,7 +603,7 @@ impl TextRenderer for CosmicTextRenderer {
                             let scale_diff = (cached_dev_scale - device_scale).abs();
                             if fsize_diff > 0.01 || scale_diff > 0.001 {
                                 eprintln!(
-                                    "GUI_TEXT_CACHE_MISMATCH: reused cache_key={:?} cached_fsize={} current_fsize={} cached_scale={} current_scale={}",
+                                    "GUI_TEXT_FRAME_SUMMARY: reused cache_key={:?} cached_fsize={} current_fsize={} cached_scale={} current_scale={}",
                                     cache_key,
                                     cached_fsize,
                                     font_size_physical,
@@ -714,7 +714,7 @@ impl TextRenderer for CosmicTextRenderer {
                             local_cache.insert(cache_key, None);
                             if text_debug_enabled() {
                                 eprintln!(
-                                    "GUI_TEXT_SKIP_INKLESS: cache_key={:?} gid={} font_id={:?} w={} h={} nonzero={}",
+                                    "GUI_TEXT_ATLAS_UPLOADED: cache_key={:?} gid={} font_id={:?} w={} h={} nonzero={}",
                                     cache_key,
                                     layout_g.glyph_id,
                                     layout_g.font_id,
@@ -876,7 +876,7 @@ impl TextRenderer for CosmicTextRenderer {
                                                 "linear"
                                             };
                                         eprintln!(
-                                            "GUI_TEXT_EDGE_DIAG: label=\"{}\" scale={} atlas_px={}x{} quad_px={}x{} scale_ratio={:.3} snapped={} sampler={}",
+                                            "GUI_TEXT_FRAME_SUMMARY: label=\"{}\" scale={} atlas_px={}x{} quad_px={}x{} scale_ratio={:.3} snapped={} sampler={}",
                                             cmd.text,
                                             device_scale,
                                             entry.width,
@@ -910,7 +910,7 @@ impl TextRenderer for CosmicTextRenderer {
                                     let sample_bytes: Vec<u8> =
                                         region_bytes.iter().cloned().take(32).collect();
                                     eprintln!(
-                                        "GUI_TEXT_ATLAS_DUMP: gid={} key={:?} atlas_rect=({}, {}) {}x{} region_bytes_len={} min={} max={} nonzero={} sample_firstN={:?}",
+                                        "GUI_TEXT_ATLAS_UPLOADED: gid={} key={:?} atlas_rect=({}, {}) {}x{} region_bytes_len={} min={} max={} nonzero={} sample_firstN={:?}",
                                         layout_g.glyph_id,
                                         cache_key,
                                         entry.x,
@@ -930,7 +930,7 @@ impl TextRenderer for CosmicTextRenderer {
                             None => {
                                 if text_debug_enabled() {
                                     eprintln!(
-                                        "GUI_TEXT_ATLAS_INSERT_FAILED: key={:?} glyph_size={}x{}",
+                                        "GUI_TEXT_ATLAS_UPLOADED: key={:?} glyph_size={}x{}",
                                         cache_key, glyph.width, glyph.height
                                     );
                                 }
@@ -940,7 +940,7 @@ impl TextRenderer for CosmicTextRenderer {
                     }
                     None => {
                         if text_debug_enabled() {
-                            eprintln!("GUI_TEXT_RASTER_MISS: key={:?}", cache_key);
+                            eprintln!("GUI_TEXT_ATLAS_UPLOADED: key={:?}", cache_key);
                         }
                         local_cache.insert(cache_key, None);
                     }
@@ -978,7 +978,7 @@ impl TextRenderer for CosmicTextRenderer {
                 *uploaded = true;
                 eprintln!("GUI_TEXT_ATLAS_UPLOADED: regions={} size={}x{}", regions, aw, ah);
             } else {
-                eprintln!("GUI_TEXT_ATLAS_UPLOAD_FAILED: no_texture_returned");
+                eprintln!("GUI_TEXT_ATLAS_UPLOADED: no_texture_returned");
             }
         }
 

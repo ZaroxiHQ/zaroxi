@@ -91,7 +91,7 @@ pub fn layout_and_publish_text(
     // primitive count / bounds. This log uses the requested consistent prefix.
     let joined_labels = lines.join(" | ");
     log::info!(
-        "GUI_TEXT_STAGE_1_ADAPTER: labels=[{}] adapter_x={} adapter_y={} color={} font_family=\"{}\" adapter_ops_count={}",
+        "GUI_SHELL_TRACE: labels=[{}] adapter_x={} adapter_y={} color={} font_family=\"{}\" adapter_ops_count={}",
         joined_labels,
         x,
         y,
@@ -149,7 +149,7 @@ pub fn layout_and_publish_text(
 
         for t in &set.texts {
             log::info!(
-                "GUI_TEXT_STAGE_1_ADAPTER: label=\"{}\" adapter_x={} adapter_y={} requested_max_w={} requested_line_h={} font_family=\"{}\" color_token={} adapter_ops_count={} emitted_fallback_rects={}",
+                "GUI_SHELL_TRACE: label=\"{}\" adapter_x={} adapter_y={} requested_max_w={} requested_line_h={} font_family=\"{}\" color_token={} adapter_ops_count={} emitted_fallback_rects={}",
                 t.text,
                 x,
                 t.y,
@@ -163,7 +163,7 @@ pub fn layout_and_publish_text(
 
             // Extra verbose per-label diagnostics: explicit bounds, font size and inferred semantics.
             log::info!(
-                "GUI_TEXT_STAGE_1_ADAPTER_FULL: label=\"{}\" bounds_x={} bounds_y={} bounds_w={} bounds_h={} font_size={} color={} wrap_mode=\"none\" alignment=\"left\" clip_x={} clip_y={} clip_w={} clip_h={} emitted_text_ops={}",
+                "GUI_SHELL_TRACE: label=\"{}\" bounds_x={} bounds_y={} bounds_w={} bounds_h={} font_size={} color={} wrap_mode=\"none\" alignment=\"left\" clip_x={} clip_y={} clip_w={} clip_h={} emitted_text_ops={}",
                 t.text,
                 x,
                 t.y,
@@ -180,7 +180,7 @@ pub fn layout_and_publish_text(
         }
 
         log::info!(
-            "GUI_TEXT_STAGE_1_SUMMARY: labels={} text_ops={} fallback_rects={}",
+            "GUI_SHELL_TRACE: labels={} text_ops={} fallback_rects={}",
             labels_count,
             text_ops,
             fallback_rects

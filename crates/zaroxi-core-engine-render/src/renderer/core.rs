@@ -606,7 +606,7 @@ impl<'a> Renderer<'a> {
             // Emit core queue-stage trace: what the core queued for the text backend.
             let queued_after = self.text_renderer.queued_len();
             info!(
-                "GUI_TEXT_STAGE_3_CORE_QUEUE: block_id='{}' title=\"{}\" queued_after={}",
+                "GUI_TEXT_FRAME_SUMMARY: block_id='{}' title=\"{}\" queued_after={}",
                 block.id, block.title, queued_after
             );
             // Concise info for queued title (no per-glyph spam).
@@ -865,7 +865,7 @@ impl<'a> Renderer<'a> {
                     let queued_len = self.text_renderer.queued_len();
                     let backend_text_ops = total_indices_len.saturating_sub(panel_indices_len);
                     info!(
-                        "GUI_TEXT_STAGE_3_CORE_QUEUE: panel_indices_len={} total_indices_len={} queued_len={} adapter_text_ops={} backend_text_ops={}",
+                        "GUI_TEXT_FRAME_SUMMARY: panel_indices_len={} total_indices_len={} queued_len={} adapter_text_ops={} backend_text_ops={}",
                         panel_indices_len,
                         total_indices_len,
                         queued_len,
@@ -906,19 +906,19 @@ impl<'a> Renderer<'a> {
                             // Record intent to call the backend prepare and capture queued size immediately prior.
                             let queued_before_prepare = self.text_renderer.queued_len();
                             info!(
-                                "GUI_TEXT_STAGE_3_BRANCH: prepare_invoking queued_before_prepare={}",
+                                "GUI_TEXT_FRAME_SUMMARY: prepare_invoking queued_before_prepare={}",
                                 queued_before_prepare
                             );
                             info!("Glyphon prepare called");
                             match self.text_renderer.prepare(&self.device, &mut self.queue) {
                                 Ok(()) => {
                                     info!("Glyphon prepare succeeded");
-                                    info!("GUI_TEXT_STAGE_3_BRANCH: prepare_called=true");
+                                    info!("GUI_TEXT_FRAME_SUMMARY: prepare_called=true");
                                 }
                                 Err(e) => {
                                     info!("Glyphon prepare failed: {:?}", e);
                                     info!(
-                                        "GUI_TEXT_STAGE_3_BRANCH: prepare_called=false error={:?}",
+                                        "GUI_TEXT_FRAME_SUMMARY: prepare_called=false error={:?}",
                                         e
                                     );
                                     return Err(e);
@@ -926,7 +926,7 @@ impl<'a> Renderer<'a> {
                             }
 
                             info!(
-                                "GUI_TEXT_STAGE_6_PIPELINE_RENDER: render_invoking panel_indices_len={} total_indices_len={}",
+                                "GUI_TEXT_RENDER_PASS_ACTIVE: render_invoking panel_indices_len={} total_indices_len={}",
                                 panel_indices_len, total_indices_len
                             );
                             info!("Glyphon render called");
@@ -938,12 +938,12 @@ impl<'a> Renderer<'a> {
                             ) {
                                 Ok(()) => {
                                     info!("Glyphon render succeeded");
-                                    info!("GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=true");
+                                    info!("GUI_TEXT_RENDER_PASS_ACTIVE: executed=true");
                                 }
                                 Err(e) => {
                                     info!("Glyphon render failed: {:?}", e);
                                     info!(
-                                        "GUI_TEXT_STAGE_6_PIPELINE_RENDER: executed=false error={:?}",
+                                        "GUI_TEXT_RENDER_PASS_ACTIVE: executed=false error={:?}",
                                         e
                                     );
                                     return Err(e);
