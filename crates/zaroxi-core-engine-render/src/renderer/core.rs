@@ -416,36 +416,10 @@ impl<'a> Renderer<'a> {
         // - panel headers          -> colors.panel_header_background
         // - borders/dividers       -> colors.border / colors.divider
         //
-        // Diagnostic override: set FORCE_DIAGNOSTIC_COLORS = true to force highly
-        // contrasting colors (red/green/blue/...) for quick visual verification.
-        const FORCE_DIAGNOSTIC_COLORS: bool = false;
-        // DIAGNOSTIC_TEXT_ONLY: if true, skip the shape pass and render only text
-        // (useful to verify text/atlas/pipeline independently).
-        const DIAGNOSTIC_TEXT_ONLY: bool = false;
-        // When true, avoid any scissor operations (if present). Disabled by default.
-        const DIAGNOSTIC_DISABLE_SCISSOR: bool = false;
-        // Optional forced text color when DIAGNOSTIC_TEXT_ONLY is enabled.
-        // Set to Some([r,g,b,a]) to force all text to a bright color for visibility.
-        const DIAGNOSTIC_FORCE_TEXT_COLOR: Option<[f32; 4]> = None;
-        // DIAGNOSTIC_FULLSCREEN_QUAD: inject a full-screen solid quad into the
-        // shape (panel) vertex list to validate render-pass / pipeline state.
-        // Disabled by default to avoid contaminating normal rendering.
-        const DIAGNOSTIC_FULLSCREEN_QUAD: bool = false;
-        // DIAGNOSTIC_INJECT_CENTER_TEXT: inject a single small diagnostic quad
-        // into the text vertex list, centered on screen (NDC) to validate text path.
-        // Disabled by default to avoid contaminating normal rendering.
-        const DIAGNOSTIC_INJECT_CENTER_TEXT: bool = false;
-        if render_debug_enabled() {
-            log::debug!(
-                "debug geometry injection enabled={}, FORCE_DIAGNOSTIC_COLORS={}, DIAGNOSTIC_TEXT_ONLY={}, DIAGNOSTIC_DISABLE_SCISSOR={}, DIAGNOSTIC_FULLSCREEN_QUAD={}, DIAGNOSTIC_INJECT_CENTER_TEXT={}",
-                DEBUG_RENDER,
-                FORCE_DIAGNOSTIC_COLORS,
-                DIAGNOSTIC_TEXT_ONLY,
-                DIAGNOSTIC_DISABLE_SCISSOR,
-                DIAGNOSTIC_FULLSCREEN_QUAD,
-                DIAGNOSTIC_INJECT_CENTER_TEXT
-            );
-        }
+        // Removed local per-frame diagnostic knobs (DEBUG_RENDER / DIAGNOSTIC_*)
+        // to reduce comment-only scaffolding. Runtime diagnostic gating remains
+        // available via `renderer::debug::render_debug_enabled()` and the
+        // cross-crate flags in `renderer::debug` for observable markers.
 
         let sem = &layout.colors;
 
@@ -463,95 +437,6 @@ impl<'a> Renderer<'a> {
         // Convert render blocks into visible content quads and text.
         if render_debug_enabled() {
             log::debug!("[renderer] render_blocks count = {}", render_blocks.len());
-        }
-
-        // Debug injection flag: keeps visual debug geometry and debug pass off by default.
-        // Set to `true` when you need to re-enable the quick NDC/vertex layout checks.
-        const DEBUG_RENDER: bool = false;
-        if render_debug_enabled() {
-            log::debug!("debug geometry injection enabled={}", DEBUG_RENDER);
-        }
-
-        if DEBUG_RENDER {
-            // --- VISUAL DEBUG: guaranteed visible debug quads (solid colors, no alpha) ---
-            // If the window still renders clear/gray, vertex coordinates or shader mapping
-            // are wrong. These three rectangles should be unmissable:
-            //  - inset fullscreen magenta
-            //  - top-left green quarter
-            //  - centered blue rectangle
-            {
-                // inset magenta fullscreen
-                let inset = 8.0f32;
-                let rx = inset;
-                let ry = inset;
-                let rw = (width as f32) - inset * 2.0;
-                let rh = (height as f32) - inset * 2.0;
-                push_colored_quad(
-                    &mut panel_verts,
-                    &mut panel_indices,
-                    rx,
-                    ry,
-                    rw,
-                    rh,
-                    [1.0, 0.0, 1.0, 1.0],
-                    width,
-                    height,
-                );
-            }
-
-            {
-                // top-left quarter green
-                let rw = width * 0.5;
-                let rh = height * 0.5;
-                push_colored_quad(
-                    &mut panel_verts,
-                    &mut panel_indices,
-                    0.0,
-                    0.0,
-                    rw,
-                    rh,
-                    [0.0, 1.0, 0.0, 1.0],
-                    width,
-                    height,
-                );
-            }
-
-            {
-                // centered blue
-                let rw = width * 0.25;
-                let rh = height * 0.25;
-                let rx = (width - rw) * 0.5;
-                let ry = (height - rh) * 0.5;
-                push_colored_quad(
-                    &mut panel_verts,
-                    &mut panel_indices,
-                    rx,
-                    ry,
-                    rw,
-                    rh,
-                    [0.0, 0.4, 1.0, 1.0],
-                    width,
-                    height,
-                );
-            }
-            // --- end visual debug ---
-        }
-
-        // DIAGNOSTIC: optionally inject a fullscreen red quad into the panel (shape) list.
-        if DIAGNOSTIC_FULLSCREEN_QUAD {
-            info!("DIAGNOSTIC: injecting fullscreen red quad into panel_verts");
-            // push full-screen in pixel coords; push_colored_quad will convert to NDC.
-            push_colored_quad(
-                &mut panel_verts,
-                &mut panel_indices,
-                0.0,
-                0.0,
-                width as f32,
-                height as f32,
-                [1.0, 0.0, 0.0, 1.0],
-                width,
-                height,
-            );
         }
 
         // VALIDATION SCENE: when enabled inject three large horizontal bands (R/G/B)
@@ -696,12 +581,8 @@ impl<'a> Renderer<'a> {
             const DEFAULT_FONT_SIZE: f32 = 14.0;
             let title_x = target.x + 8.0;
             let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
-            // When running diagnostics we may force a single bright color for all text
-            let title_color: [f32; 4] = if DIAGNOSTIC_TEXT_ONLY {
-                DIAGNOSTIC_FORCE_TEXT_COLOR.unwrap_or([1.0, 1.0, 1.0, 1.0])
-            } else {
-                [0.95, 0.95, 0.95, 1.0]
-            };
+            // Title color (default)
+            let title_color: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 
             // Layout title text into glyph placements and convert to vertices/indices.
             // Use the pluggable text backend so shaping/layout logic is isolated from
@@ -802,27 +683,6 @@ impl<'a> Renderer<'a> {
         // Optional diagnostic: inject a small centered diagnostic text quad directly
         // into the text geometry (NDC quad). This bypasses atlas sampling to verify
         // text pipeline/vertex mapping independently.
-        if DIAGNOSTIC_INJECT_CENTER_TEXT {
-            info!("DIAGNOSTIC: injecting centered diagnostic text quad (NDC) into text_verts");
-            // small quad in NDC coordinates centered at (0,0)
-            let size_x = 0.25f32;
-            let size_y = 0.12f32;
-            let nx0 = -size_x * 0.5;
-            let ny0 = -size_y * 0.5;
-            let nx1 = size_x * 0.5;
-            let ny1 = size_y * 0.5;
-            // Use color red opaque and zero UVs (shader diagnostic)
-            let base = text_verts.len() as u16;
-            let a = Vertex { pos: [nx0, ny0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
-            let b = Vertex { pos: [nx1, ny0], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
-            let c = Vertex { pos: [nx1, ny1], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
-            let d = Vertex { pos: [nx0, ny1], uv: [0.0, 0.0], color: [1.0, 0.0, 0.0, 1.0] };
-            text_verts.push(a);
-            text_verts.push(b);
-            text_verts.push(c);
-            text_verts.push(d);
-            text_indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-        }
 
         // Merge panel + text geometry into final buffers. Text indices must be
         // offset by the number of panel vertices.
@@ -944,30 +804,7 @@ impl<'a> Renderer<'a> {
                     });
 
                     if render_debug_enabled() {
-                        log::debug!("debug pass enabled={}", DEBUG_RENDER);
-                    }
-
-                    // If DEBUG_RENDER is enabled, draw the full scene with the debug
-                    // solid-color pipeline (no textures/samplers) to validate geometry.
-                    if DEBUG_RENDER {
-                        rpass.set_pipeline(&self.debug_pipeline);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-
-                        let total_indices_len = indices.len() as u32;
-                        if total_indices_len == 0 {
-                            let verts_to_draw = verts.len() as u32;
-                            if RENDER_DEBUG {
-                                debug!("debug non-indexed draw (full): verts={}", verts_to_draw);
-                            }
-                            rpass.draw(0..verts_to_draw, 0..1);
-                        } else {
-                            rpass.set_index_buffer(
-                                self.index_buffer.slice(..),
-                                wgpu::IndexFormat::Uint16,
-                            );
-                            info!("debug indexed draw (full): indices_drawn={}", total_indices_len);
-                            rpass.draw_indexed(0..total_indices_len, 0, 0..1);
-                        }
+                        log::debug!("debug pass checked");
                     }
 
                     // SHAPE PASS: draw only the panel/background geometry using the
@@ -984,7 +821,7 @@ impl<'a> Renderer<'a> {
                         verts.len().saturating_sub(panel_vertex_count as usize)
                     );
 
-                    if !DIAGNOSTIC_TEXT_ONLY {
+                    if !false {
                         if panel_indices_len > 0 {
                             if render_debug_enabled() {
                                 log::debug!(
@@ -1007,9 +844,7 @@ impl<'a> Renderer<'a> {
                         }
                     } else {
                         if render_debug_enabled() {
-                            log::debug!(
-                                "DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass"
-                            );
+                            log::debug!("false enabled (suboptimal path): skipping shape pass");
                         }
                     }
 
@@ -1049,8 +884,8 @@ impl<'a> Renderer<'a> {
                         } else {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "binding text pipeline and font_atlas bind_group for text pass (DIAGNOSTIC_TEXT_ONLY={})",
-                                    DIAGNOSTIC_TEXT_ONLY
+                                    "binding text pipeline and font_atlas bind_group for text pass (false={})",
+                                    false
                                 );
                             }
 
@@ -1246,32 +1081,8 @@ impl<'a> Renderer<'a> {
                         ..Default::default()
                     });
 
-                    info!("debug pass enabled={}", DEBUG_RENDER);
-
-                    // If DEBUG_RENDER is enabled, draw the full scene with the debug
-                    // solid-color pipeline (no textures/samplers) to validate geometry.
-                    if DEBUG_RENDER {
-                        rpass.set_pipeline(&self.debug_pipeline);
-                        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                        let total_indices_len = indices.len() as u32;
-                        if total_indices_len == 0 {
-                            let verts_to_draw = verts.len() as u32;
-                            info!(
-                                "debug non-indexed draw (full, suboptimal path): verts={}",
-                                verts_to_draw
-                            );
-                            rpass.draw(0..verts_to_draw, 0..1);
-                        } else {
-                            rpass.set_index_buffer(
-                                self.index_buffer.slice(..),
-                                wgpu::IndexFormat::Uint16,
-                            );
-                            info!(
-                                "debug indexed draw (full, suboptimal path): indices_drawn={}",
-                                total_indices_len
-                            );
-                            rpass.draw_indexed(0..total_indices_len, 0, 0..1);
-                        }
+                    if render_debug_enabled() {
+                        log::debug!("debug pass checked (suboptimal)");
                     }
 
                     // SHAPE PASS: draw only the panel/background geometry using the
@@ -1288,7 +1099,7 @@ impl<'a> Renderer<'a> {
                         verts.len().saturating_sub(panel_vertex_count as usize)
                     );
 
-                    if !DIAGNOSTIC_TEXT_ONLY {
+                    if !false {
                         if panel_indices_len > 0 {
                             if RENDER_DEBUG {
                                 debug!(
@@ -1310,9 +1121,7 @@ impl<'a> Renderer<'a> {
                             );
                         }
                     } else {
-                        info!(
-                            "DIAGNOSTIC_TEXT_ONLY enabled (suboptimal path): skipping shape pass"
-                        );
+                        info!("false enabled (suboptimal path): skipping shape pass");
                     }
 
                     // TEXT PASS
@@ -1327,8 +1136,8 @@ impl<'a> Renderer<'a> {
                         } else {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "binding text pipeline and font_atlas bind_group for text pass (suboptimal path, DIAGNOSTIC_TEXT_ONLY={})",
-                                    DIAGNOSTIC_TEXT_ONLY
+                                    "binding text pipeline and font_atlas bind_group for text pass (suboptimal path, false={})",
+                                    false
                                 );
                             }
 
