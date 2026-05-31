@@ -8,7 +8,6 @@ matching the refined IDE shell layout.
 use crate::desktop::DesktopComposition;
 use crate::gui::shell::ShellRegion;
 use zaroxi_application_ai::view_model::AiPanelState;
-use zaroxi_application_editor::view_model::TabStrip;
 use zaroxi_application_navigation::view_model::AppRailState;
 
 pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>) -> Vec<String> {
