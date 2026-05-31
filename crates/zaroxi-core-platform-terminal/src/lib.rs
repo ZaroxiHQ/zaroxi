@@ -11,3 +11,6 @@ pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 pub fn info() -> &'static str {
     CRATE_NAME
 }
+
+// Expose small view model types for the UI composition layer
+pub mod view_model;

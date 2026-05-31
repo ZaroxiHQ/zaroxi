@@ -63,10 +63,11 @@ pub fn draw(
         let cy = r.y.saturating_add(10);
         let right_edge = r.x.saturating_add(r.width).saturating_sub(12);
 
+        let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
         let ctrl_colors = [
             super::theme_adapter::adjust_brightness(theme.border_color, 0.92),
             super::theme_adapter::adjust_brightness(theme.border_color, 0.96),
-            super::theme_adapter::adjust_brightness("#F44336", 0.96),
+            super::theme_adapter::adjust_color(sem.error, 0.96),
         ];
         let mut cx = right_edge;
         for i in (0..3u32).rev() {

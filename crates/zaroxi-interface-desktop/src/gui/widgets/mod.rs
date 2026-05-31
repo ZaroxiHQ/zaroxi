@@ -6,6 +6,10 @@ matching the refined IDE shell layout.
 */
 
 use crate::gui::shell::ShellRegion;
+use zaroxi_application_ai::view_model::AiPanelState;
+use zaroxi_application_editor::view_model::TabStrip;
+use zaroxi_application_navigation::view_model::AppRailState;
+use zaroxi_core_platform_terminal::view_model::TerminalPanelState;
 
 pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
@@ -16,9 +20,24 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     }
 
     if let Some(ar) = regions.iter().find(|r| r.id == "app_rail") {
-        lines.push(format!("app_rail.icons: [explorer,search,git,extensions] rect={}", ar.rect));
-        lines.push(format!("app_rail.bottom_icons: [settings,account] rect={}", ar.rect));
-        lines.push("app_rail.active: explorer".to_string());
+        // Prefer the application-owned AppRailState for the icon list and active item.
+        let rail = AppRailState::default();
+        let icons = if rail.icons.is_empty() {
+            vec![
+                "explorer".to_string(),
+                "search".to_string(),
+                "git".to_string(),
+                "extensions".to_string(),
+            ]
+        } else {
+            rail.icons.clone()
+        };
+        let icons_joined = icons.join(",");
+        lines.push(format!("app_rail.icons: [{}] rect={}", icons_joined, ar.rect));
+        let bottom = vec!["settings".to_string(), "account".to_string()].join(",");
+        lines.push(format!("app_rail.bottom_icons: [{}] rect={}", bottom, ar.rect));
+        let active = rail.active.unwrap_or_else(|| "explorer".to_string());
+        lines.push(format!("app_rail.active: {}", active));
     }
 
     if let Some(sb) = regions.iter().find(|r| r.id == "sidebar") {
@@ -44,11 +63,24 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     }
 
     if let Some(et) = regions.iter().find(|r| r.id == "editor_tabs") {
-        lines.push(format!("editor.tabs: [main.rs,lib.rs,mod.rs,config.rs] rect={}", et.rect));
+        // Use TabStrip from application-editor if available.
+        let ts = TabStrip::default();
+        if ts.tabs.is_empty() {
+            lines.push(format!("editor.tabs: [main.rs,lib.rs,mod.rs,config.rs] rect={}", et.rect));
+        } else {
+            let names: Vec<String> = ts.tabs.iter().map(|t| t.display.clone()).collect();
+            lines.push(format!("editor.tabs: [{}] rect={}", names.join(","), et.rect));
+        }
     }
 
     if let Some(bc) = regions.iter().find(|r| r.id == "breadcrumb") {
-        lines.push(format!("editor.breadcrumb: src > app > desktop > main.rs rect={}", bc.rect));
+        let b = zaroxi_application_editor::view_model::BreadcrumbState::default();
+        let breadcrumb = if b.segments.is_empty() {
+            "src > app > desktop > main.rs".to_string()
+        } else {
+            b.to_string()
+        };
+        lines.push(format!("editor.breadcrumb: {} rect={}", breadcrumb, bc.rect));
     }
 
     if let Some(ce) = regions.iter().find(|r| r.id == "center_editor") {
@@ -83,15 +115,22 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     }
 
     if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
-        lines.push(format!(
-            "ai.content.cards: [explanation,bullet-list,code-snippet] rect={}",
-            aic.rect
-        ));
+        let ai = AiPanelState::default();
+        if ai.cards.is_empty() {
+            lines.push(format!(
+                "ai.content.cards: [explanation,bullet-list,code-snippet] rect={}",
+                aic.rect
+            ));
+        } else {
+            let titles: Vec<String> = ai.cards.iter().map(|c| c.title.clone()).collect();
+            lines.push(format!("ai.content.cards: [{}] rect={}", titles.join(","), aic.rect));
+        }
         lines.push("ai.content.actions: [Accept,Reject,Edit]".to_string());
-        lines.push(
-            "ai.content.input: placeholder='Rewrite this...' ".to_string()
-                + "model='Claude 3.5 Sonnet'",
-        );
+        lines.push(format!(
+            "ai.content.input: placeholder='{}' model='{}'",
+            if ai.composer_text.is_empty() { "Rewrite this..." } else { &ai.composer_text },
+            ai.header
+        ));
     }
 
     lines

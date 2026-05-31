@@ -49,3 +49,19 @@ pub fn adjust_brightness(s: &str, factor: f64) -> wgpu::Color {
     eprintln!("GuiApp: adjust_brightness: invalid hex '{}', falling back to neutral black", s);
     wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }
 }
+
+/// Convert a `zaroxi_interface_theme::colors::Color` into `wgpu::Color`.
+pub fn color_from_semantic(c: zaroxi_interface_theme::colors::Color) -> wgpu::Color {
+    wgpu::Color { r: c.r as f64, g: c.g as f64, b: c.b as f64, a: c.a as f64 }
+}
+
+/// Adjust brightness of a semantic `Color` (factor applied to RGB channels).
+pub fn adjust_color(c: zaroxi_interface_theme::colors::Color, factor: f64) -> wgpu::Color {
+    let mut r = (c.r as f64) * factor;
+    let mut g = (c.g as f64) * factor;
+    let mut b = (c.b as f64) * factor;
+    r = r.clamp(0.0, 1.0);
+    g = g.clamp(0.0, 1.0);
+    b = b.clamp(0.0, 1.0);
+    wgpu::Color { r, g, b, a: c.a as f64 }
+}

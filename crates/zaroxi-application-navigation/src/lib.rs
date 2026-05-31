@@ -11,3 +11,6 @@ pub const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 pub fn info() -> &'static str {
     CRATE_NAME
 }
+
+// Re-export simple view models
+pub mod view_model;

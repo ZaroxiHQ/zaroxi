@@ -79,7 +79,10 @@ pub fn draw(
             y: y_off,
             width: inset_w,
             height: sep_h,
-            color: super::theme_adapter::adjust_brightness("#5B8CFF", 0.70),
+            color: {
+                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                super::theme_adapter::adjust_color(sem.accent, 0.70)
+            },
         });
 
         // Text content rows inside message card
@@ -153,7 +156,10 @@ pub fn draw(
             y: y_off,
             width: 4,
             height: snippet_h,
-            color: super::theme_adapter::adjust_brightness("#4CAF50", 0.80),
+            color: {
+                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                super::theme_adapter::adjust_color(sem.syntax_function, 0.80)
+            },
         });
 
         // Code lines inside the snippet card
@@ -187,7 +193,10 @@ pub fn draw(
         let action_x = r.x.saturating_add(pad + (inset_w.saturating_sub(total_w)) / 2);
 
         let btn_colors = [
-            super::theme_adapter::adjust_brightness("#5B8CFF", 0.90),
+            {
+                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                super::theme_adapter::adjust_color(sem.accent, 0.90)
+            },
             super::theme_adapter::adjust_brightness(theme.surface, 1.02),
             super::theme_adapter::adjust_brightness(theme.surface, 1.02),
         ];
@@ -250,7 +259,10 @@ pub fn draw(
             y: y_off.saturating_add(2),
             width: send_w,
             height: bottom_row_h.saturating_sub(4),
-            color: super::theme_adapter::adjust_brightness("#5B8CFF", 0.92),
+            color: {
+                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                super::theme_adapter::adjust_color(sem.accent, 0.92)
+            },
         });
     }
 

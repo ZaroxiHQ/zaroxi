@@ -53,15 +53,33 @@ pub struct Theme {
 
 impl Default for Theme {
     fn default() -> Self {
+        // Source canonical tokens from the workspace theme crate so the desktop
+        // crate does not own or hardcode theme values. Use the resolved dark
+        // variant for deterministic rendering in tests/harnesses.
+        let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+        let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
+
+        // Convert colors to hex strings and leak them to 'static so existing
+        // interfaces that expect &'static str continue to work without wide
+        // changes across the crate. This is a narrow shim and avoids creating
+        // a second theme representation inside the desktop crate.
+        let surface_s = sem.shell_background.to_hex();
+        let border_s = sem.border.to_hex();
+        let text_primary_s = sem.text_primary.to_hex();
+        let text_secondary_s = sem.text_secondary.to_hex();
+
+        let surface_static: &'static str = Box::leak(surface_s.into_boxed_str());
+        let border_static: &'static str = Box::leak(border_s.into_boxed_str());
+        let text_primary_static: &'static str = Box::leak(text_primary_s.into_boxed_str());
+        let text_secondary_static: &'static str = Box::leak(text_secondary_s.into_boxed_str());
+
         Theme {
-            surface: "#061025",      // dark blue-black surface
-            border_color: "#1e6fb3", // thin luminous border
-            border_thickness: 1,
-            corner_radius: 10, // rounded outer shell
-            // Use the workspace semantic values (dark theme defaults tuned for contrast).
-            // These are intentionally chosen to read well against surface/backing colors.
-            text_primary: "#E6EAF2",
-            text_secondary: "#C8CDD6",
+            surface: surface_static,
+            border_color: border_static,
+            border_thickness: tokens.border_width as u8,
+            corner_radius: tokens.radius_lg as u8,
+            text_primary: text_primary_static,
+            text_secondary: text_secondary_static,
         }
     }
 }
@@ -84,23 +102,23 @@ impl ShellFrame {
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
-        let outer_padding: u32 = 8;
-        let top_toolbar_h: u32 = 38;
-        let status_h: u32 = 24;
-        let bottom_dock_h: u32 = 150;
+        let outer_padding: u32 = 24; // outer shell inset (20-28 px target)
+        let top_toolbar_h: u32 = 44; // global toolbar height
+        let status_h: u32 = 26; // thin status bar
+        let bottom_dock_h: u32 = 0; // no full-width bottom slab (terminal docked to center)
 
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
 
-        // Left activity rail (compact, ~3.8% of inner width)
+        // Left activity rail (compact)
         let app_rail_w: u32 = 48;
-        // Left sidebar (~22%), clamped
-        let mut left_sidebar_w = (inner_w.saturating_mul(22)) / 100;
+        // Left sidebar: target ~260px
+        let mut left_sidebar_w: u32 = 260;
         left_sidebar_w = left_sidebar_w.clamp(180, inner_w.saturating_div(2));
-        // Right AI panel (~23%), clamped
-        let mut ai_panel_w = (inner_w.saturating_mul(23)) / 100;
+        // Right AI panel: target ~320px
+        let mut ai_panel_w: u32 = 320;
         ai_panel_w = ai_panel_w.clamp(220, inner_w.saturating_div(2));
 
         // Top toolbar / titlebar region (full width)
@@ -149,8 +167,8 @@ impl ShellFrame {
         let editor_x = sidebar.x + sidebar.width;
         let editor_w = ai_panel.x.saturating_sub(editor_x);
 
-        // Minimap lane to the far right of editor column
-        let minimap_w: u32 = 60;
+        // Minimap lane inset on the right inside the editor column (narrow)
+        let minimap_w: u32 = 60; // target 56-72
         let editor_content_w = editor_w.saturating_sub(minimap_w);
 
         // Editor tiles region: tab strip + breadcrumb row at top of editor column

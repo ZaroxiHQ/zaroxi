@@ -14,3 +14,6 @@ pub mod prelude {
     pub use super::service::*;
     pub use super::tasks::*;
 }
+
+// Small view model re-exports for UI consumption
+pub mod view_model;

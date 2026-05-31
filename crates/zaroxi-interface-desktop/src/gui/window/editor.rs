@@ -326,13 +326,21 @@ pub fn draw(
                         if seg_w == 0 {
                             continue;
                         }
+                        // Use semantic colors from the theme crate where available.
+                        let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
                         let color = match syntax_type {
-                            "keyword" => super::theme_adapter::adjust_brightness("#FF6B6B", 0.95),
-                            "function" => super::theme_adapter::adjust_brightness("#4CAF50", 0.95),
-                            "string" => super::theme_adapter::adjust_brightness("#FFB74D", 0.95),
-                            "comment" => super::theme_adapter::adjust_brightness("#7E8794", 0.90),
-                            "type" => super::theme_adapter::adjust_brightness("#5B8CFF", 0.95),
-                            "number" => super::theme_adapter::adjust_brightness("#B39DDB", 0.95),
+                            "keyword" => {
+                                super::theme_adapter::adjust_color(sem.syntax_keyword, 0.95)
+                            }
+                            "function" => {
+                                super::theme_adapter::adjust_color(sem.syntax_function, 0.95)
+                            }
+                            "string" => super::theme_adapter::adjust_color(sem.syntax_string, 0.95),
+                            "comment" => {
+                                super::theme_adapter::adjust_color(sem.syntax_comment, 0.90)
+                            }
+                            "type" => super::theme_adapter::adjust_color(sem.syntax_type, 0.95),
+                            "number" => super::theme_adapter::adjust_color(sem.syntax_number, 0.95),
                             _ => super::theme_adapter::adjust_brightness(theme.surface, 1.06),
                         };
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
@@ -497,13 +505,14 @@ pub fn draw(
                     if available_h > (line_h + gap) { available_h / (line_h + gap) } else { 0 };
                 let mut ly = body_y.saturating_add(6);
 
+                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
                 let terminal_lines = [
-                    (0.90, super::theme_adapter::adjust_brightness("#4CAF50", 0.90)),
+                    (0.90, super::theme_adapter::adjust_color(sem.syntax_function, 0.90)),
                     (0.72, super::theme_adapter::adjust_brightness(theme.surface, 1.04)),
                     (0.58, super::theme_adapter::adjust_brightness(theme.surface, 1.02)),
                     (0.84, super::theme_adapter::parse_hex_color(theme.text_secondary)),
                     (0.46, super::theme_adapter::adjust_brightness(theme.surface, 1.02)),
-                    (0.66, super::theme_adapter::adjust_brightness("#FFB74D", 0.88)),
+                    (0.66, super::theme_adapter::adjust_color(sem.syntax_string, 0.88)),
                 ];
 
                 for i in 0..lines {

@@ -37,6 +37,10 @@ log = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
+zaroxi-application-editor = { path = "../zaroxi-application-editor" }
+zaroxi-application-navigation = { path = "../zaroxi-application-navigation" }
+zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+zaroxi-core-platform-terminal = { path = "../zaroxi-core-platform-terminal" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render", features = ["full_renderer"] }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }

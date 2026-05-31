@@ -104,8 +104,14 @@ pub fn draw(
             let w = ((r.width as f64) * factor) as u32;
             let color = match i % 4 {
                 0 => super::theme_adapter::adjust_brightness(theme.surface, 1.08),
-                1 => super::theme_adapter::adjust_brightness("#4CAF50", 0.88),
-                3 => super::theme_adapter::adjust_brightness("#FFB74D", 0.88),
+                1 => {
+                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                    super::theme_adapter::adjust_color(sem.syntax_function, 0.88)
+                }
+                3 => {
+                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                    super::theme_adapter::adjust_color(sem.syntax_string, 0.88)
+                }
                 _ => super::theme_adapter::adjust_brightness(theme.surface, 1.04),
             };
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
