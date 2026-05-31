@@ -470,7 +470,6 @@ impl TextRenderer for CosmicTextRenderer {
         let mut rasterized_total: usize = 0; // times swash.get_image returned Some
         let mut atlas_inserted_total: usize = 0; // number of atlas insertions
         let mut instances_total: usize = 0; // number of emitted instances
-        let mut cache_hits_total: usize = 0; // number of per-frame cache hits (local_cache)
         let mut samples: Vec<InstanceSample> = Vec::new();
         // Log up to the first few rasterized glyphs for diagnostics.
         let mut glyphs_logged: usize = 0;
@@ -595,7 +594,6 @@ impl TextRenderer for CosmicTextRenderer {
                 // reuse it: emit an instance if drawable, otherwise skip.
                 if let Some(cached_opt) = local_cache.get(&cache_key) {
                     // Per-frame cache hit (either drawable or recorded non-drawable)
-                    cache_hits_total += 1;
                     if let Some((entry, xoff, yoff, w, h, cached_fsize, cached_dev_scale)) =
                         cached_opt.clone()
                     {
