@@ -133,9 +133,10 @@ impl winit::application::ApplicationHandler for GuiApp {
             WindowEvent::CloseRequested => {
                 active_loop.exit();
             }
-            WindowEvent::Resized(_size) => {
-                if let Some(z) = self.maybe_window.as_ref() {
-                    eprintln!("GuiApp: Resized -> requesting redraw (engine window)");
+            WindowEvent::Resized(size) => {
+                if let Some(z) = self.maybe_window.as_mut() {
+                    z.update_size(size.width, size.height);
+                    eprintln!("GuiApp: Resized -> {size:?}, requesting redraw (engine window)");
                     let _ = z.window().request_redraw();
                 }
             }
@@ -147,34 +148,20 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::RedrawRequested => {
                 eprintln!("GuiApp: RedrawRequested received");
-                if let Some(z) = self.maybe_window.as_ref() {
-                    eprintln!("GuiApp: performing present-related nudges (engine window)");
+                if let Some(z) = self.maybe_window.as_mut() {
                     let _ = z.window().pre_present_notify();
 
-                    // Diagnostic: produce a compact per-redraw summary so we can compare
-                    // the clear_present_once bootstrap path with the normal redraw path.
-                    let rects = super::frame::build_overlay_rects(&self.shell);
-                    let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
-                    let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                    let layout_present = tmp_layout.exists();
-                    let cosmic_present = tmp_cosmic.exists();
-                    let mut adapter_text_ops: usize = 0;
-                    if layout_present {
-                        if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
-                            if let Some(rest) = s.strip_prefix("lines=") {
-                                adapter_text_ops =
-                                    rest.split(" | ").filter(|p| !p.is_empty()).count();
-                            }
-                        }
+                    // Rebuild the shell layout from the actual surface size so all region
+                    // rects are in the same coordinate space as the render target.
+                    let (sw, sh) = z.size();
+                    if sw > 0 && sh > 0 {
+                        let actual = crate::gui::Size { width: sw, height: sh };
+                        self.shell = crate::gui::ShellFrame::new(actual);
                     }
+
+                    let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
-                    // Attempt to create and drive the full renderer path so text prepare/render
-                    // are exercised. This replaces the previous "simplified path" that only
-                    // did an overlay rect present and helps diagnose where text ops are lost.
-                    //
-                    // Build a RenderLayout and UiBlock list derived from the ShellFrame so
-                    // the renderer has the same resolved regions it expects.
                     let find_rect = |id: &str| -> zaroxi_core_engine_render::Rect {
                         if let Some(r) = self.shell.regions.iter().find(|rr| rr.id == id) {
                             zaroxi_core_engine_render::Rect {
@@ -198,9 +185,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         colors: zaroxi_interface_theme::SemanticColors::dark(),
                     };
 
-                    let mut render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = Vec::new();
-                    for r in &self.shell.regions {
-                        render_blocks.push(zaroxi_core_engine_render::UiBlock {
+                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = self
+                        .shell
+                        .regions
+                        .iter()
+                        .map(|r| zaroxi_core_engine_render::UiBlock {
                             id: r.id.to_string(),
                             title: r.name.to_string(),
                             content: String::new(),
@@ -213,74 +202,43 @@ impl winit::application::ApplicationHandler for GuiApp {
                             },
                             header_color: None,
                             content_color: None,
-                        });
-                    }
+                        })
+                        .collect();
 
-                    // Create renderer (blocking for now) and invoke the full render_with_layout path.
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
                         [0.051, 0.054, 0.062, 1.0],
                     )) {
                         Ok(mut renderer) => {
-                            // AppState is a zero-sized stub exposed by the renderer crate for compatibility.
-                            // Use the core module path where AppState is declared.
                             let app_state = zaroxi_core_engine_render::renderer::core::AppState;
                             match renderer.render_with_layout(&app_state, &layout, &render_blocks) {
                                 Ok(()) => {
-                                    eprintln!(
-                                        "GuiApp: full renderer path executed (render_with_layout succeeded)"
-                                    );
-                                    // Show the window on the very first successful full-renderer
-                                    // frame so the user never sees a bootstrap/fallback composition.
                                     if !self.first_render_shown {
                                         let _ = z.window().set_visible(true);
                                         let _ = z.window().pre_present_notify();
                                         self.first_render_shown = true;
                                         eprintln!(
-                                            "GuiApp: first full-renderer frame presented; window now visible"
+                                            "GuiApp: first full-renderer frame; window visible"
                                         );
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!(
-                                        "GuiApp: renderer.render_with_layout failed: {:?}",
-                                        e
-                                    );
+                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("GuiApp: failed to create full renderer: {:?}", e);
+                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
                         }
                     }
 
-                    // Recompute core_text_ops and pipeline/fallback markers for the summary logs.
-                    let core_text_ops: usize = {
-                        // Try to probe queued_len via a temporary renderer instance is non-trivial here;
-                        // conservatively assume renderer attempted to queue text if adapter/layout present.
-                        if layout_present { 1 } else { 0 }
-                    };
-                    let fallback_used = layout_present && !cosmic_present;
-
                     eprintln!(
-                        "GUI_TEXT_FRAME_SUMMARY: path=redraw_requested adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} glyphs=0 atlas_entries=0 pipeline_render_called=unknown overlay_rects={} fallback_used={}",
-                        adapter_text_ops,
+                        "GUI_TEXT_FRAME_SUMMARY: surface={}x{} overlay_rects={} render_blocks={}",
+                        sw,
+                        sh,
                         backend_text_ops,
-                        core_text_ops,
-                        if cosmic_present { "true" } else { "false" },
-                        backend_text_ops,
-                        if fallback_used { "true" } else { "false" }
+                        render_blocks.len()
                     );
-
-                    // Hard-checks for broken links (diagnostic only).
-                    if adapter_text_ops > 0 && backend_text_ops == 0 {
-                        eprintln!("GUI_TEXT_BROKEN_LINK: adapter->backend");
-                    }
-                    if backend_text_ops > 0 && core_text_ops == 0 {
-                        eprintln!("GUI_TEXT_BROKEN_LINK: backend->core");
-                    }
-
-                    // If we later add a wgpu clear/present path we will call it here.
                 }
             }
             _ => {}

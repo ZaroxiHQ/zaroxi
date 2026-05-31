@@ -261,15 +261,6 @@ impl ShellFrame {
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
 
-        // Region audit: print computed rects for debugging placement issues.
-        eprintln!("REGION_AUDIT: shell_size={}x{}", size.width, size.height);
-        for r in &regions {
-            eprintln!(
-                "REGION_AUDIT: id={:<20} x={:<6} y={:<6} w={:<6} h={:<6}",
-                r.id, r.rect.x, r.rect.y, r.rect.width, r.rect.height
-            );
-        }
-
         ShellFrame { size, theme, regions }
     }
 
