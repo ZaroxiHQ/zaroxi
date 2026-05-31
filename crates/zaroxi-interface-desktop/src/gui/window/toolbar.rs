@@ -1,7 +1,8 @@
 /*!
-Top toolbar / chrome band drawing logic.
+Top toolbar / titlebar drawing logic.
 
-Phase 3: compact title bar using semantic theme colours, 1 px separator.
+Phase 4: product-parity titlebar — brand left, action icons center row,
+window control dots right, thin bottom separator.
 */
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
@@ -14,6 +15,7 @@ pub fn draw(
     let r = &region.rect;
     let sem = ZaroxiTheme::Dark.colors(false);
 
+    // Title bar background
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
         x: r.x,
         y: r.y,
@@ -22,7 +24,63 @@ pub fn draw(
         color: super::theme_adapter::adjust_color(sem.title_bar_background, 1.0),
     });
 
-    // Thin bottom separator
+    // Brand area (left side with accent bar)
+    if r.width > 60 && r.height > 8 {
+        let brand_x = r.x.saturating_add(10);
+        let brand_y = r.y.saturating_add(5);
+        let brand_h = r.height.saturating_sub(10);
+        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+            x: brand_x,
+            y: brand_y,
+            width: 32,
+            height: brand_h,
+            color: super::theme_adapter::adjust_color(sem.accent, 0.82),
+        });
+
+        // File/edit/selection/view/go/run icons (simple dots to right of brand)
+        if r.width > 300 {
+            let mut dot_x = brand_x.saturating_add(48);
+            let dot_y = r.y.saturating_add(9);
+            let dot_h: u32 = 12;
+            for i in 0..6u32 {
+                let w: u32 = if i == 0 { 18 } else { 14 };
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: dot_x,
+                    y: dot_y,
+                    width: w,
+                    height: dot_h,
+                    color: super::theme_adapter::adjust_color(sem.text_faint, 0.24),
+                });
+                dot_x = dot_x.saturating_add(w).saturating_add(10);
+            }
+        }
+    }
+
+    // Window controls (right side): minimize | maximize | close
+    if r.width > 120 && r.height > 10 {
+        let ctrl_r: u32 = 6;
+        let cy = r.y.saturating_add(r.height / 2).saturating_sub(ctrl_r);
+        let right_edge = r.x.saturating_add(r.width).saturating_sub(10);
+
+        let ctrl_colors = [
+            super::theme_adapter::adjust_color(sem.success, 0.70),
+            super::theme_adapter::adjust_color(sem.warning, 0.60),
+            super::theme_adapter::adjust_color(sem.error, 0.72),
+        ];
+        let mut cx = right_edge;
+        for i in (0..3u32).rev() {
+            cx = cx.saturating_sub(ctrl_r * 2 + 8);
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: cx,
+                y: cy,
+                width: ctrl_r * 2,
+                height: ctrl_r * 2,
+                color: ctrl_colors[i as usize],
+            });
+        }
+    }
+
+    // Bottom separator
     if r.height > bt {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
@@ -33,39 +91,14 @@ pub fn draw(
         });
     }
 
-    // Right: window controls (minimize, maximize, close)
-    if r.width > 120 {
-        let ctrl_w: u32 = 16;
-        let ctrl_h: u32 = 14;
-        let cy = r.y.saturating_add(8);
-        let right_edge = r.x.saturating_add(r.width).saturating_sub(10);
-
-        let ctrl_colors = [
-            super::theme_adapter::adjust_color(sem.border, 0.88),
-            super::theme_adapter::adjust_color(sem.border, 0.94),
-            super::theme_adapter::adjust_color(sem.error, 0.90),
-        ];
-        let mut cx = right_edge;
-        for i in (0..3u32).rev() {
-            cx = cx.saturating_sub(ctrl_w + 4);
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: cx,
-                y: cy,
-                width: ctrl_w,
-                height: ctrl_h,
-                color: ctrl_colors[i as usize],
-            });
-        }
-    }
-
-    // Add text label
-    if r.width > 80 && r.height > 14 {
+    // Brand text label
+    if r.width > 80 && r.height > 12 {
         let labels = vec!["Zaroxi".to_string()];
         let mut text_rects = super::text_adapter::layout_and_publish_text(
             r.x.saturating_add(10),
-            r.y.saturating_add(4),
-            r.width.saturating_sub(20),
-            r.height.saturating_sub(8),
+            r.y.saturating_add(3),
+            r.width.saturating_sub(80),
+            r.height.saturating_sub(6),
             &labels,
             theme,
             theme.text_primary,

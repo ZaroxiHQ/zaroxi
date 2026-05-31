@@ -1,7 +1,10 @@
 /*!
 Center editor area drawing logic.
 
-Phase 3: semantic theme colours, 1 px separators, IDE-grade editor rendering.
+Phase 4: product-parity editor — tab strip with top-accent active tab,
+breadcrumb path, gutter with line numbers, current-line highlight,
+cursor block, syntax-colored code lines, minimap with viewport indicator,
+bottom dock with terminal tabs and colored output.
 */
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
@@ -16,6 +19,7 @@ pub fn draw(
     let sem = ZaroxiTheme::Dark.colors(false);
 
     match region.id {
+        // ── TAB STRIP ───────────────────────────────────────────────
         "editor_tabs" => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
@@ -25,30 +29,43 @@ pub fn draw(
                 color: super::theme_adapter::adjust_color(sem.tab_strip_background, 1.0),
             });
 
-            if r.width > 40 && r.height > 0 {
+            if r.width > 20 && r.height > 4 {
                 let tab_h: u32 = r.height;
                 let tab_count: u32 = 4;
                 let tab_pad: u32 = 2;
-                let tab_w = (r.width.saturating_sub(tab_pad * (tab_count + 1))) / tab_count;
-                let active_extra = cmp::min(tab_w / 3, 20);
+                let total_pad = tab_pad * (tab_count + 1);
+                let tab_w = if r.width > total_pad {
+                    (r.width.saturating_sub(total_pad)) / tab_count
+                } else {
+                    cmp::max(1, r.width.saturating_sub(total_pad) / cmp::max(1, tab_count))
+                };
                 let mut tx = r.x.saturating_add(tab_pad);
-                let tab_y = r.y;
 
                 for i in 0..tab_count {
                     let is_active = i == 0;
                     let w = if is_active {
-                        cmp::min(
-                            tab_w.saturating_add(active_extra),
-                            r.width.saturating_sub(tx - r.x),
-                        )
+                        cmp::min(tab_w.saturating_add(tab_w / 3), r.width.saturating_sub(tx - r.x))
                     } else {
                         tab_w
                     };
+                    // Active tab gets top accent line
+                    if is_active {
+                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                            x: tx,
+                            y: r.y,
+                            width: w,
+                            height: 2,
+                            color: super::theme_adapter::adjust_color(sem.accent, 1.0),
+                        });
+                    }
+                    // Tab body
+                    let tab_bg_y = if is_active { r.y.saturating_add(2) } else { r.y };
+                    let tab_bg_h = if is_active { tab_h.saturating_sub(2) } else { tab_h };
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: tx,
-                        y: tab_y,
+                        y: tab_bg_y,
                         width: w,
-                        height: tab_h,
+                        height: tab_bg_h,
                         color: if is_active {
                             super::theme_adapter::adjust_color(sem.tab_active_background, 1.0)
                         } else {
@@ -58,56 +75,65 @@ pub fn draw(
                     tx = tx.saturating_add(w).saturating_add(tab_pad);
                 }
 
-                // Bottom separator (1 px)
+                // Bottom separator
                 if r.height > bt {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: r.x,
                         y: r.y.saturating_add(r.height.saturating_sub(bt)),
                         width: r.width,
                         height: bt,
-                        color: super::theme_adapter::adjust_color(sem.divider, 0.9),
+                        color: super::theme_adapter::adjust_color(sem.divider, 0.88),
                     });
                 }
             }
         }
 
+        // ── BREADCRUMB ──────────────────────────────────────────────
         "breadcrumb" => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
                 width: r.width,
                 height: r.height,
-                color: super::theme_adapter::adjust_color(sem.tab_strip_background, 0.92),
+                color: super::theme_adapter::adjust_color(sem.tab_strip_background, 0.88),
             });
 
-            if r.width > 120 && r.height > 10 {
-                let seg_count: u32 = 4;
-                let seg_pad: u32 = 10;
-                let cy = r.y.saturating_add(3);
-                let seg_h: u32 = 12;
+            if r.width > 80 && r.height > 8 {
+                let segments = ["src", "app", "desktop", "main.rs"];
+                let seg_pad: u32 = 6;
+                let cy = r.y.saturating_add(4);
+                let seg_h: u32 = 10;
+                let arrow_w: u32 = 6;
                 let mut sx = r.x.saturating_add(10);
-                let seg_widths = [26u32, 20, 20, 44];
 
-                for i in 0..seg_count {
-                    if sx + seg_widths[i as usize] < r.x + r.width {
+                for (idx, _) in segments.iter().enumerate() {
+                    let seg_w: u32 = match idx {
+                        0 => 20,
+                        1 => 22,
+                        2 => 38,
+                        _ => 36,
+                    };
+                    if sx + seg_w > r.x + r.width {
+                        break;
+                    }
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: sx,
+                        y: cy,
+                        width: seg_w,
+                        height: seg_h,
+                        color: super::theme_adapter::adjust_color(sem.text_faint, 0.28),
+                    });
+                    sx = sx.saturating_add(seg_w);
+                    // Breadcrumb arrow
+                    if idx < segments.len() - 1 && sx + arrow_w + seg_pad < r.x + r.width {
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                            x: sx,
-                            y: cy,
-                            width: seg_widths[i as usize],
-                            height: seg_h,
-                            color: super::theme_adapter::adjust_color(sem.text_faint, 0.32),
+                            x: sx.saturating_add(seg_pad),
+                            y: cy.saturating_add(2),
+                            width: arrow_w,
+                            height: seg_h.saturating_sub(4),
+                            color: super::theme_adapter::adjust_color(sem.divider, 0.5),
                         });
-                        sx = sx.saturating_add(seg_widths[i as usize]);
-                        if i < seg_count - 1 && sx + 6 < r.x + r.width {
-                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                                x: sx,
-                                y: cy.saturating_add(2),
-                                width: seg_pad.saturating_sub(4),
-                                height: seg_h.saturating_sub(4),
-                                color: super::theme_adapter::adjust_color(sem.divider, 0.6),
-                            });
-                            sx = sx.saturating_add(seg_pad);
-                        }
+                        sx = sx.saturating_add(arrow_w + seg_pad * 2);
                     }
                 }
             }
@@ -118,11 +144,12 @@ pub fn draw(
                     y: r.y.saturating_add(r.height.saturating_sub(bt)),
                     width: r.width,
                     height: bt,
-                    color: super::theme_adapter::adjust_color(sem.divider, 0.9),
+                    color: super::theme_adapter::adjust_color(sem.divider, 0.88),
                 });
             }
         }
 
+        // ── EDITOR CANVAS ───────────────────────────────────────────
         "center_editor" => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
@@ -132,11 +159,12 @@ pub fn draw(
                 color: super::theme_adapter::adjust_color(sem.editor_background, 1.0),
             });
 
-            let gutter_w: u32 = 44;
+            let gutter_w: u32 = 48;
             let content_x = if r.width > gutter_w { r.x.saturating_add(gutter_w) } else { r.x };
             let content_w = if r.width > gutter_w { r.width.saturating_sub(gutter_w) } else { 0 };
 
-            if gutter_w > 0 && r.height > 0 && r.width > gutter_w {
+            // ---------- Gutter ----------
+            if gutter_w > 0 && r.width > gutter_w {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
                     y: r.y,
@@ -144,242 +172,327 @@ pub fn draw(
                     height: r.height,
                     color: super::theme_adapter::adjust_color(sem.editor_gutter_background, 1.0),
                 });
-
+                // Gutter separator
                 if gutter_w > bt {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: content_x.saturating_sub(bt),
                         y: r.y,
                         width: bt,
                         height: r.height,
-                        color: super::theme_adapter::adjust_color(sem.divider, 0.65),
+                        color: super::theme_adapter::adjust_color(sem.divider, 0.55),
+                    });
+                }
+            }
+
+            // Line-height rhythm
+            let line_h: u32 = 18;
+            let _gap: u32 = 0;
+            let max_lines = r.height / line_h;
+            let mut ly = r.y.saturating_add(6);
+            let current_line_idx: i32 = 7; // highlight line ~7
+
+            // ---------- Code lines ----------
+            let code_lines: &[&[(f64, &str)]] = &[
+                // 0: module-level structure
+                &[
+                    (0.06, "keyword"),
+                    (0.22, "default"),
+                    (0.04, "default"),
+                    (0.28, "type"),
+                    (0.04, "default"),
+                ],
+                // 1
+                &[
+                    (0.08, "keyword"),
+                    (0.16, "default"),
+                    (0.04, "default"),
+                    (0.20, "default"),
+                    (0.04, "default"),
+                ],
+                // 2: blank
+                &[],
+                // 3: fn main with return type
+                &[
+                    (0.04, "keyword"),
+                    (0.12, "function"),
+                    (0.04, "default"),
+                    (0.06, "keyword"),
+                    (0.18, "type"),
+                    (0.06, "default"),
+                    (0.04, "default"),
+                ],
+                // 4: generic constraint
+                &[
+                    (0.08, "keyword"),
+                    (0.10, "default"),
+                    (0.04, "default"),
+                    (0.24, "type"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                ],
+                // 5: where clause style
+                &[
+                    (0.08, "keyword"),
+                    (0.20, "default"),
+                    (0.04, "default"),
+                    (0.28, "type"),
+                    (0.04, "default"),
+                ],
+                // 6: expression with method call
+                &[
+                    (0.08, "default"),
+                    (0.14, "function"),
+                    (0.04, "default"),
+                    (0.10, "keyword"),
+                    (0.04, "default"),
+                ],
+                // 7: CURRENT LINE (highlighted)
+                &[
+                    (0.14, "keyword"),
+                    (0.22, "type"),
+                    (0.06, "default"),
+                    (0.04, "default"),
+                    (0.12, "default"),
+                ],
+                // 8: blank
+                &[],
+                // 9: impl block
+                &[(0.06, "keyword"), (0.20, "type"), (0.06, "default")],
+                // 10: struct field with type
+                &[(0.14, "default"), (0.04, "default"), (0.28, "type"), (0.04, "default")],
+                // 11: another field
+                &[(0.14, "default"), (0.04, "default"), (0.26, "type"), (0.04, "default")],
+                // 12: comment
+                &[(0.10, "comment")],
+                // 13: method definition
+                &[(0.18, "default"), (0.04, "default"), (0.18, "type"), (0.04, "default")],
+                // 14: return expr
+                &[
+                    (0.16, "keyword"),
+                    (0.08, "default"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                    (0.10, "function"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                ],
+                // 15: blank
+                &[],
+                // 16: closing
+                &[(0.04, "default")],
+                // 17: top-level calling code
+                &[(0.10, "keyword"), (0.20, "type"), (0.06, "default")],
+                // 18: let binding
+                &[
+                    (0.04, "keyword"),
+                    (0.08, "default"),
+                    (0.06, "default"),
+                    (0.04, "default"),
+                    (0.16, "type"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                    (0.18, "type"),
+                    (0.04, "default"),
+                ],
+                // 19: method call chain
+                &[
+                    (0.08, "default"),
+                    (0.18, "function"),
+                    (0.04, "default"),
+                    (0.14, "keyword"),
+                    (0.08, "default"),
+                    (0.06, "default"),
+                    (0.08, "default"),
+                ],
+                // 20: another call
+                &[
+                    (0.14, "default"),
+                    (0.04, "default"),
+                    (0.16, "number"),
+                    (0.04, "default"),
+                    (0.04, "default"),
+                ],
+                // 21: string / match
+                &[(0.10, "function"), (0.04, "default"), (0.48, "string"), (0.04, "default")],
+                // 22: comment
+                &[(0.12, "comment")],
+            ];
+
+            for (line_idx, segments) in code_lines.iter().enumerate() {
+                if ly + line_h > r.y + r.height || line_idx >= max_lines as usize {
+                    break;
+                }
+
+                // Current-line highlight
+                if line_idx == current_line_idx as usize {
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: r.x,
+                        y: ly,
+                        width: r.width,
+                        height: line_h,
+                        color: super::theme_adapter::adjust_color(sem.editor_line_highlight, 2.4),
+                    });
+                    // Cursor block
+                    let cursor_x = content_x.saturating_add(40);
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: cursor_x,
+                        y: ly.saturating_add(2),
+                        width: 2,
+                        height: line_h.saturating_sub(4),
+                        color: super::theme_adapter::adjust_color(sem.editor_cursor, 1.0),
                     });
                 }
 
                 // Line numbers in gutter
-                let num_w: u32 = 28;
-                let num_h: u32 = 15;
-                let num_x = r.x.saturating_add(6);
-                let mut num_y = r.y.saturating_add(6);
-                let max_nums = r.height / (num_h.saturating_add(2));
-                for _ in 0..max_nums {
-                    if num_y + num_h > r.y + r.height {
-                        break;
-                    }
+                if gutter_w > 0 {
+                    let num_w: u32 = 30;
+                    let num_h = line_h.saturating_sub(4);
+                    let is_current = line_idx == current_line_idx as usize;
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                        x: num_x,
-                        y: num_y,
+                        x: r.x.saturating_add(8),
+                        y: ly.saturating_add(2),
                         width: num_w,
-                        height: num_h.saturating_sub(2),
-                        color: super::theme_adapter::adjust_color(sem.text_faint, 0.30),
+                        height: num_h,
+                        color: if is_current {
+                            super::theme_adapter::adjust_color(sem.text_secondary, 0.30)
+                        } else {
+                            super::theme_adapter::adjust_color(sem.text_faint, 0.24)
+                        },
                     });
-                    num_y = num_y.saturating_add(num_h).saturating_add(2);
                 }
-            }
 
-            // Code lines with syntax-colored segments
-            if content_w > 0 && r.height > 0 {
-                let line_h: u32 = 15;
-                let line_gap: u32 = 2;
-                let total_line_h = line_h + line_gap;
-                let max_lines = r.height / total_line_h;
-                let mut ly = r.y.saturating_add(6);
+                // Code segments
+                let indent_level = match line_idx {
+                    0..=2 => 0,
+                    3..=6 => 1,
+                    7..=8 => 0,
+                    9..=11 => 1,
+                    12 => 1,
+                    13..=14 => 2,
+                    15..=16 => 1,
+                    17..=18 => 0,
+                    19..=20 => 1,
+                    _ => 0,
+                };
+                let indent_px: u32 = indent_level * 16;
+                let mut seg_x = content_x.saturating_add(8).saturating_add(indent_px);
+                let remaining_w = content_w.saturating_sub(16).saturating_sub(indent_px);
 
-                let code_lines: &[&[(f64, &str)]] = &[
-                    &[
-                        (0.08, "keyword"),
-                        (0.26, "default"),
-                        (0.04, "default"),
-                        (0.30, "type"),
-                        (0.04, "default"),
-                    ],
-                    &[
-                        (0.08, "keyword"),
-                        (0.24, "default"),
-                        (0.04, "default"),
-                        (0.18, "default"),
-                        (0.04, "default"),
-                    ],
-                    &[(0.06, "default")],
-                    &[
-                        (0.06, "keyword"),
-                        (0.14, "function"),
-                        (0.04, "default"),
-                        (0.06, "keyword"),
-                        (0.18, "type"),
-                        (0.06, "default"),
-                    ],
-                    &[
-                        (0.10, "keyword"),
-                        (0.10, "default"),
-                        (0.04, "default"),
-                        (0.22, "type"),
-                        (0.04, "default"),
-                        (0.04, "default"),
-                    ],
-                    &[
-                        (0.10, "keyword"),
-                        (0.10, "default"),
-                        (0.04, "default"),
-                        (0.30, "type"),
-                        (0.04, "default"),
-                    ],
-                    &[
-                        (0.10, "default"),
-                        (0.14, "function"),
-                        (0.04, "default"),
-                        (0.08, "keyword"),
-                        (0.04, "default"),
-                    ],
-                    &[(0.04, "default")],
-                    &[(0.06, "default")],
-                    &[(0.12, "keyword"), (0.18, "type"), (0.06, "default")],
-                    &[(0.18, "default"), (0.04, "default"), (0.28, "type"), (0.04, "default")],
-                    &[(0.18, "default"), (0.04, "default"), (0.28, "type"), (0.04, "default")],
-                    &[(0.12, "comment")],
-                    &[(0.18, "default"), (0.04, "default"), (0.16, "type"), (0.04, "default")],
-                    &[(0.04, "default")],
-                    &[(0.06, "default")],
-                    &[(0.10, "keyword"), (0.18, "type"), (0.06, "default")],
-                    &[
-                        (0.14, "function"),
-                        (0.10, "default"),
-                        (0.04, "default"),
-                        (0.24, "type"),
-                        (0.06, "keyword"),
-                        (0.06, "default"),
-                    ],
-                    &[
-                        (0.20, "type"),
-                        (0.12, "default"),
-                        (0.04, "default"),
-                        (0.10, "type"),
-                        (0.04, "default"),
-                        (0.06, "type"),
-                        (0.04, "default"),
-                        (0.10, "type"),
-                    ],
-                    &[(0.04, "default")],
-                    &[
-                        (0.16, "keyword"),
-                        (0.18, "function"),
-                        (0.04, "default"),
-                        (0.06, "keyword"),
-                        (0.10, "default"),
-                        (0.06, "keyword"),
-                        (0.16, "type"),
-                        (0.06, "default"),
-                    ],
-                    &[(0.14, "default"), (0.04, "default"), (0.14, "number"), (0.04, "default")],
-                    &[(0.10, "function"), (0.04, "default"), (0.42, "string"), (0.04, "default")],
-                    &[(0.12, "comment")],
-                ];
-
-                for (line_idx, segments) in code_lines.iter().enumerate() {
-                    if ly + line_h > r.y + r.height || line_idx >= max_lines as usize {
-                        break;
+                for &(pct, syntax_type) in *segments {
+                    let seg_w = ((remaining_w as f64) * pct.min(1.0)) as u32;
+                    if seg_w == 0 {
+                        continue;
                     }
-                    let mut seg_x = content_x.saturating_add(8);
-                    let remaining_w = content_w.saturating_sub(16);
+                    let color = match syntax_type {
+                        "keyword" => super::theme_adapter::adjust_color(sem.syntax_keyword, 0.92),
+                        "function" => super::theme_adapter::adjust_color(sem.syntax_function, 0.92),
+                        "string" => super::theme_adapter::adjust_color(sem.syntax_string, 0.92),
+                        "comment" => super::theme_adapter::adjust_color(sem.syntax_comment, 0.82),
+                        "type" => super::theme_adapter::adjust_color(sem.syntax_type, 0.92),
+                        "number" => super::theme_adapter::adjust_color(sem.syntax_number, 0.92),
+                        _ => super::theme_adapter::adjust_color(sem.text_secondary, 0.38),
+                    };
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: seg_x,
+                        y: ly.saturating_add(2),
+                        width: seg_w,
+                        height: line_h.saturating_sub(4),
+                        color,
+                    });
+                    seg_x = seg_x.saturating_add(seg_w);
+                }
 
-                    for &(pct, syntax_type) in *segments {
-                        let seg_w = ((remaining_w as f64) * pct.min(1.0)) as u32;
-                        if seg_w == 0 {
-                            continue;
-                        }
-                        let color = match syntax_type {
-                            "keyword" => {
-                                super::theme_adapter::adjust_color(sem.syntax_keyword, 0.95)
-                            }
-                            "function" => {
-                                super::theme_adapter::adjust_color(sem.syntax_function, 0.95)
-                            }
-                            "string" => super::theme_adapter::adjust_color(sem.syntax_string, 0.95),
-                            "comment" => {
-                                super::theme_adapter::adjust_color(sem.syntax_comment, 0.88)
-                            }
-                            "type" => super::theme_adapter::adjust_color(sem.syntax_type, 0.95),
-                            "number" => super::theme_adapter::adjust_color(sem.syntax_number, 0.95),
-                            _ => super::theme_adapter::adjust_color(sem.text_secondary, 0.40),
-                        };
+                ly = ly.saturating_add(line_h);
+
+                // Block-level separator between logical groups
+                if line_idx == 2 || line_idx == 8 || line_idx == 15 {
+                    if ly < r.y + r.height {
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                            x: seg_x,
+                            x: content_x,
                             y: ly,
-                            width: seg_w,
-                            height: line_h.saturating_sub(2),
-                            color,
+                            width: content_w,
+                            height: bt,
+                            color: super::theme_adapter::adjust_color(sem.divider_subtle, 1.0),
                         });
-                        seg_x = seg_x.saturating_add(seg_w);
-                    }
-                    ly = ly.saturating_add(total_line_h);
-
-                    // Thin logical block divider
-                    if line_idx == 1 || line_idx == 8 || line_idx == 14 {
-                        if ly < r.y + r.height {
-                            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                                x: content_x,
-                                y: ly.saturating_sub(line_gap),
-                                width: content_w,
-                                height: bt,
-                                color: super::theme_adapter::adjust_color(sem.divider_subtle, 1.0),
-                            });
-                        }
                     }
                 }
             }
         }
 
+        // ── MINIMAP ─────────────────────────────────────────────────
         "minimap_lane" => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
                 width: r.width,
                 height: r.height,
-                color: super::theme_adapter::adjust_color(sem.shell_background, 0.95),
+                color: super::theme_adapter::adjust_color(sem.shell_background, 0.92),
             });
 
-            // Reduced minimap bars (larger gap = fewer bars)
-            if r.height > 20 && r.width > 6 {
-                let bar_h: u32 = 2;
-                let bar_gap: u32 = 3;
-                let total_bar = bar_h + bar_gap;
-                let max_bars = r.height / total_bar;
-                let bar_max_w = r.width.saturating_sub(6);
-                let bar_x = r.x.saturating_add(3);
-                let mut by = r.y.saturating_add(4);
+            if r.height > 24 && r.width > 4 {
+                let bar_h: u32 = 3;
+                let bar_gap: u32 = 2;
+                let total_h = bar_h + bar_gap;
+                let max_bars = r.height / total_h;
+                let bar_max_w = r.width.saturating_sub(8);
+                let bar_x = r.x.saturating_add(4);
+                let mut by = r.y.saturating_add(6);
 
                 for i in 0..max_bars {
-                    let pct = match i % 6 {
-                        0 => 0.88,
-                        1 => 0.40,
-                        2 => 0.68,
-                        3 => 0.54,
-                        4 => 0.84,
-                        _ => 0.32,
+                    let pct = match i % 7 {
+                        0 => 0.84,
+                        1 => 0.38,
+                        2 => 0.62,
+                        3 => 0.50,
+                        4 => 0.80,
+                        5 => 0.44,
+                        _ => 0.28,
                     };
-                    let w = ((bar_max_w as f64) * pct) as u32;
+                    let w = cmp::max(2, ((bar_max_w as f64) * pct) as u32);
+                    // Color varies: green for functions, blue for types, white for others
+                    let color = match (i as usize) % 7 {
+                        1 | 4 => super::theme_adapter::adjust_color(sem.syntax_function, 0.40),
+                        3 => super::theme_adapter::adjust_color(sem.syntax_type, 0.40),
+                        _ => super::theme_adapter::adjust_color(sem.text_faint, 0.22),
+                    };
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: bar_x,
                         y: by,
-                        width: cmp::max(2, w),
+                        width: w,
                         height: bar_h,
-                        color: super::theme_adapter::adjust_color(sem.text_faint, 0.28),
+                        color,
                     });
-                    by = by.saturating_add(total_bar);
+                    by = by.saturating_add(total_h);
+                }
+
+                // Viewport indicator (shows current scroll position)
+                if r.height > 60 {
+                    let vp_h: u32 = 26;
+                    let vp_y = r.y.saturating_add(r.height / 3);
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: r.x.saturating_add(1),
+                        y: vp_y,
+                        width: r.width.saturating_sub(2),
+                        height: vp_h,
+                        color: super::theme_adapter::adjust_color(sem.text_faint, 0.06),
+                    });
                 }
             }
 
-            // Left separator (1 px)
+            // Left separator
             if r.width > bt {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
                     y: r.y,
                     width: bt,
                     height: r.height,
-                    color: super::theme_adapter::adjust_color(sem.divider, 0.65),
+                    color: super::theme_adapter::adjust_color(sem.divider, 0.55),
                 });
             }
         }
 
+        // ── BOTTOM DOCK (terminal) ──────────────────────────────────
         "center_bottom_panel" => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
@@ -389,7 +502,7 @@ pub fn draw(
                 color: super::theme_adapter::adjust_color(sem.panel_background, 1.0),
             });
 
-            // Top separator (1 px)
+            // Top separator
             if r.height > bt {
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
@@ -400,31 +513,31 @@ pub fn draw(
                 });
             }
 
-            // Terminal tabs header
-            let tab_header_h: u32 = cmp::min(26, r.height / 3);
-            if tab_header_h > 0 && r.width > 40 {
-                let header_y = r.y.saturating_add(bt);
+            // Terminal tab header
+            let tab_hdr_h: u32 = cmp::min(26, r.height / 3);
+            if tab_hdr_h > 0 && r.width > 40 {
+                let hdr_y = r.y.saturating_add(bt);
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: r.x,
-                    y: header_y,
+                    y: hdr_y,
                     width: r.width,
-                    height: tab_header_h,
+                    height: tab_hdr_h,
                     color: super::theme_adapter::adjust_color(sem.tab_strip_background, 1.0),
                 });
 
-                let tab_count: u32 = 3;
-                let tab_pad: u32 = 8;
-                let total_pad = tab_pad * (tab_count + 1);
+                let tabs: u32 = 3;
+                let tab_pad: u32 = 10;
+                let total_pad = tab_pad * (tabs + 1);
                 let tab_w = if r.width > total_pad {
-                    (r.width.saturating_sub(total_pad)) / tab_count
+                    (r.width.saturating_sub(total_pad)) / tabs
                 } else {
-                    r.width / cmp::max(1, tab_count)
+                    r.width / cmp::max(1, tabs)
                 };
                 let mut tx = r.x.saturating_add(tab_pad);
-                let tab_y = header_y.saturating_add(3);
-                let tab_content_h = tab_header_h.saturating_sub(6);
+                let tab_y = hdr_y.saturating_add(4);
+                let tab_content_h = tab_hdr_h.saturating_sub(4);
 
-                for i in 0..tab_count {
+                for i in 0..tabs {
                     let active = i == 0;
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: tx,
@@ -437,47 +550,76 @@ pub fn draw(
                             super::theme_adapter::adjust_color(sem.tab_background, 1.0)
                         },
                     });
+                    // Active tab gets bottom accent line
+                    if active {
+                        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                            x: tx,
+                            y: tab_y.saturating_add(tab_content_h).saturating_sub(2),
+                            width: tab_w,
+                            height: 2,
+                            color: super::theme_adapter::adjust_color(sem.accent, 0.9),
+                        });
+                    }
                     tx = tx.saturating_add(tab_w).saturating_add(tab_pad);
                 }
 
-                if r.height > tab_header_h.saturating_add(bt) {
+                if r.height > tab_hdr_h.saturating_add(bt) {
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
                         x: r.x,
-                        y: header_y.saturating_add(tab_header_h),
+                        y: hdr_y.saturating_add(tab_hdr_h),
                         width: r.width,
                         height: bt,
-                        color: super::theme_adapter::adjust_color(sem.divider, 0.85),
+                        color: super::theme_adapter::adjust_color(sem.divider, 0.8),
                     });
                 }
             }
 
-            // Terminal body: log lines
-            let body_y = r.y.saturating_add(bt).saturating_add(tab_header_h).saturating_add(bt);
-            if r.height > body_y.saturating_sub(r.y) && r.width > 40 {
+            // Terminal body: output lines with prompt
+            let body_y = r.y.saturating_add(bt).saturating_add(tab_hdr_h).saturating_add(bt);
+            if r.height > body_y.saturating_sub(r.y).saturating_add(10) && r.width > 40 {
                 let available_h =
-                    r.height.saturating_sub(body_y.saturating_sub(r.y)).saturating_sub(6);
-                let line_h = 11u32;
-                let gap = 4u32;
-                let lines =
+                    r.height.saturating_sub(body_y.saturating_sub(r.y)).saturating_sub(8);
+                let line_h = 12u32;
+                let gap = 3u32;
+                let max_out =
                     if available_h > (line_h + gap) { available_h / (line_h + gap) } else { 0 };
                 let mut ly = body_y.saturating_add(4);
+                let pad_x = r.x.saturating_add(12);
 
-                let terminal_lines = [
-                    (0.88, super::theme_adapter::adjust_color(sem.syntax_function, 0.85)),
-                    (0.68, super::theme_adapter::adjust_color(sem.text_secondary, 0.45)),
-                    (0.54, super::theme_adapter::adjust_color(sem.text_secondary, 0.38)),
-                    (0.80, super::theme_adapter::parse_hex_color(theme.text_secondary)),
-                    (0.44, super::theme_adapter::adjust_color(sem.text_secondary, 0.38)),
-                    (0.62, super::theme_adapter::adjust_color(sem.syntax_string, 0.82)),
-                ];
-
-                for i in 0..lines {
-                    let (pct, color) = terminal_lines[(i as usize) % terminal_lines.len()];
-                    let w = ((r.width as f64) * pct) as u32;
+                // Prompt line
+                {
+                    // Green `$` prompt
                     rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                        x: r.x.saturating_add(12),
+                        x: pad_x,
                         y: ly,
-                        width: w.saturating_sub(12),
+                        width: 8,
+                        height: line_h,
+                        color: super::theme_adapter::adjust_color(sem.syntax_function, 0.86),
+                    });
+                    // Command text
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: pad_x.saturating_add(12),
+                        y: ly,
+                        width: 110,
+                        height: line_h,
+                        color: super::theme_adapter::adjust_color(sem.text_secondary, 0.48),
+                    });
+                    ly = ly.saturating_add(line_h).saturating_add(gap);
+                }
+
+                for i in 0..max_out {
+                    let (pct, color) = match i % 5 {
+                        0 => (0.82, super::theme_adapter::adjust_color(sem.syntax_function, 0.78)),
+                        1 => (0.66, super::theme_adapter::adjust_color(sem.text_secondary, 0.40)),
+                        2 => (0.72, super::theme_adapter::adjust_color(sem.text_secondary, 0.44)),
+                        3 => (0.90, super::theme_adapter::adjust_color(sem.syntax_string, 0.74)),
+                        _ => (0.46, super::theme_adapter::adjust_color(sem.text_faint, 0.28)),
+                    };
+                    let w = cmp::max(20, ((r.width.saturating_sub(24) as f64) * pct) as u32);
+                    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                        x: pad_x,
+                        y: ly,
+                        width: w,
                         height: line_h,
                         color,
                     });
@@ -489,8 +631,8 @@ pub fn draw(
         _ => {}
     }
 
-    // Text labels
-    if r.width > 60 && r.height > 10 {
+    // Label text for tabs / breadcrumb / bottom dock
+    if r.width > 40 && r.height > 8 {
         let labels: Vec<String> = match region.id {
             "editor_tabs" => vec![
                 "main.rs".to_string(),
@@ -507,19 +649,43 @@ pub fn draw(
             "center_bottom_panel" => {
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             }
+            "center_editor" => vec![
+                format!("{}", 1),
+                format!("{}", 2),
+                format!("{}", 3),
+                format!("{}", 4),
+                format!("{}", 5),
+                format!("{}", 6),
+                format!("{}", 7),
+                format!("{}", 8),
+                format!("{}", 9),
+                format!("{}", 10),
+                format!("{}", 11),
+                format!("{}", 12),
+                format!("{}", 13),
+                format!("{}", 14),
+                format!("{}", 15),
+                format!("{}", 16),
+            ],
             _ => vec![],
         };
         if !labels.is_empty() {
-            let inset_x = r.x.saturating_add(8);
-            let inset_y = r.y.saturating_add(2);
+            let (lx, ly) = match region.id {
+                "center_editor" => (r.x.saturating_add(8), r.y.saturating_add(6)),
+                _ => (r.x.saturating_add(8), r.y.saturating_add(2)),
+            };
             let mut text_rects = super::text_adapter::layout_and_publish_text(
-                inset_x,
-                inset_y,
+                lx,
+                ly,
                 r.width.saturating_sub(16),
                 r.height.saturating_sub(6),
                 &labels,
                 theme,
-                theme.text_primary,
+                if region.id == "center_editor" {
+                    theme.text_secondary
+                } else {
+                    theme.text_primary
+                },
             );
             rects.append(&mut text_rects);
         }
