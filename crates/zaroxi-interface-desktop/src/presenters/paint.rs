@@ -429,10 +429,6 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
     fn fill_rect(buffer: &mut [u8], width: u32, rect: &GpuPaintRect) {
         for row in rect.y..rect.y.saturating_add(rect.height) {
             for col in rect.x..rect.x.saturating_add(rect.width) {
-                // Bounds-check to be safe in case of slightly out-of-range rects.
-                if row >= (u32::MAX) || col >= (u32::MAX) {
-                    continue;
-                }
                 let idx = ((row * width + col) * 4) as usize;
                 if idx + 4 <= buffer.len() {
                     buffer[idx..idx + 4].copy_from_slice(&rect.color);
