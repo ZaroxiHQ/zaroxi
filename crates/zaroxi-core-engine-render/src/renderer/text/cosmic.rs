@@ -1,5 +1,7 @@
 /*
 Canonical CosmicTextRenderer implementation.
+// AGENT: Removed noisy per-glyph debug eprintlns (GUI_TEXT_GLYPH_RASTER, GUI_TEXT_GLYPH_POS, EDITOR_DUMP, GLYPH_PLACEMENT_ALERT)
+// Purpose: keep frame-summary and atlas/bind/draw logs while reducing per-glyph spam.
 
 This file provides a single canonical render path for the CosmicText-backed
 text renderer. It keeps one explicit `render_to_view` (live-target) entrypoint
@@ -635,21 +637,7 @@ impl TextRenderer for CosmicTextRenderer {
                                 .take(layout_g.end - layout_g.start)
                                 .collect();
                             let next_x = next_layout_x_opt.unwrap_or(f32::NAN);
-                            eprintln!(
-                                "EDITOR_DUMP: char='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} final_x={} final_y={} next_shaped_x={} scale={}",
-                                cluster_text,
-                                layout_g.glyph_id,
-                                layout_g.x,
-                                layout_g.w,
-                                xoff,
-                                yoff,
-                                w,
-                                h,
-                                x0,
-                                y0,
-                                next_x,
-                                device_scale
-                            );
+                            // LOG_REMOVED: EDITOR_DUMP (noisy per-glyph editor dump)
                             rep_dumped += 1;
                         }
 
@@ -684,23 +672,7 @@ impl TextRenderer for CosmicTextRenderer {
                                     };
                                     let quad_x0 = x0;
                                     let quad_x1 = x0 + (w as f32);
-                                    eprintln!(
-                                        "GLYPH_PLACEMENT_ALERT: current='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} quad_x0={} quad_x1={} next_shaped_x={} snap_enabled={} cmd_origin_x_phys={} snapped_cmd_x={}",
-                                        cluster_text,
-                                        layout_g.glyph_id,
-                                        layout_g.x,
-                                        layout_g.w,
-                                        xoff,
-                                        yoff,
-                                        w,
-                                        h,
-                                        quad_x0,
-                                        quad_x1,
-                                        next_x,
-                                        snap_enabled,
-                                        cmd_origin_x_phys,
-                                        snapped_cmd_x
-                                    );
+                                    // LOG_REMOVED: GLYPH_PLACEMENT_ALERT (noisy per-glyph placement diagnostic)
                                     if cfg!(debug_assertions) {
                                         // Debug build: record placement alert but continue instead
                                         // of aborting prepare. This avoids taking down the whole frame
@@ -785,23 +757,7 @@ impl TextRenderer for CosmicTextRenderer {
                                 }
                                 let all_same = data.iter().all(|&v| v == data[0]);
                                 let pct_255 = (count_255 as f32) / (data.len() as f32) * 100.0;
-                                eprintln!(
-                                    "GUI_TEXT_GLYPH_RASTER: key={:?} glyph_id={} font_id={:?} font_size={} placement_left={} placement_top={} w={} h={} data_len={} min={} max={} nonzero={} pct_255={:.1}% all_same={}",
-                                    cache_key,
-                                    layout_g.glyph_id,
-                                    layout_g.font_id,
-                                    layout_g.font_size,
-                                    img.placement.left,
-                                    img.placement.top,
-                                    glyph.width,
-                                    glyph.height,
-                                    data.len(),
-                                    minv,
-                                    maxv,
-                                    nonzero,
-                                    pct_255,
-                                    all_same
-                                );
+                                // LOG_REMOVED: GUI_TEXT_GLYPH_RASTER (noisy per-glyph raster diagnostics)
                                 glyphs_logged += 1;
                             }
                         }
@@ -840,25 +796,7 @@ impl TextRenderer for CosmicTextRenderer {
                                         .skip(layout_g.start)
                                         .take(layout_g.end - layout_g.start)
                                         .collect();
-                                    eprintln!(
-                                        "GUI_TEXT_GLYPH_POS: text=\"{}\" char=\"{}\" gid={} font_id={:?} font_size={} start={} end={} shaped_x={} shaped_advance={} offset_x={} offset_y={} final_x={} final_y={} quad_w={} quad_h={} cache_key={:?}",
-                                        cmd.text,
-                                        cluster_text,
-                                        layout_g.glyph_id,
-                                        layout_g.font_id,
-                                        layout_g.font_size,
-                                        layout_g.start,
-                                        layout_g.end,
-                                        layout_g.x,
-                                        layout_g.w,
-                                        glyph.offset_x,
-                                        glyph.offset_y,
-                                        x0,
-                                        y0,
-                                        glyph.width,
-                                        glyph.height,
-                                        cache_key
-                                    );
+                                    // LOG_REMOVED: GUI_TEXT_GLYPH_POS (noisy per-glyph position diagnostics)
                                 }
 
                                 // Representative dump for label like "editor_content"
@@ -870,21 +808,7 @@ impl TextRenderer for CosmicTextRenderer {
                                         .take(layout_g.end - layout_g.start)
                                         .collect();
                                     let next_x = next_layout_x_opt.unwrap_or(f32::NAN);
-                                    eprintln!(
-                                        "EDITOR_DUMP: char='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} final_x={} final_y={} next_shaped_x={} scale={}",
-                                        cluster_text,
-                                        layout_g.glyph_id,
-                                        layout_g.x,
-                                        layout_g.w,
-                                        glyph.offset_x,
-                                        glyph.offset_y,
-                                        glyph.width,
-                                        glyph.height,
-                                        snapped_x0,
-                                        snapped_y0,
-                                        next_x,
-                                        device_scale
-                                    );
+                                    // LOG_REMOVED: EDITOR_DUMP (noisy per-glyph editor dump)
                                     rep_dumped += 1;
                                 }
 
@@ -924,23 +848,7 @@ impl TextRenderer for CosmicTextRenderer {
                                             };
                                             let quad_x0 = snapped_x0;
                                             let quad_x1 = snapped_x0 + (glyph.width as f32);
-                                            eprintln!(
-                                                "GLYPH_PLACEMENT_ALERT: current='{}' gid={} shaped_x={} shaped_adv={} offset_x={} offset_y={} bmp_w={} bmp_h={} quad_x0={} quad_x1={} next_shaped_x={} snap_enabled={} cmd_origin_x_phys={} snapped_cmd_x={}",
-                                                cluster_text,
-                                                layout_g.glyph_id,
-                                                layout_g.x,
-                                                layout_g.w,
-                                                glyph.offset_x,
-                                                glyph.offset_y,
-                                                glyph.width,
-                                                glyph.height,
-                                                quad_x0,
-                                                quad_x1,
-                                                next_x,
-                                                snap_enabled,
-                                                cmd_origin_x_phys,
-                                                snapped_cmd_x
-                                            );
+                                            // LOG_REMOVED: GLYPH_PLACEMENT_ALERT (noisy per-glyph placement diagnostic)
                                             if cfg!(debug_assertions) {
                                                 // Debug build: record placement alert but continue
                                                 // to avoid aborting the whole frame while investigating.
