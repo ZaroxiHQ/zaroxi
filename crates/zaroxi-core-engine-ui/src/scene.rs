@@ -23,3 +23,31 @@ impl RectPrimitive {
         Self { x, y, width, height, color }
     }
 }
+
+/// A positioned text label — the text analogue of `RectPrimitive`.
+///
+/// Carries the label string, an anchor position, layout bounds,
+/// and a caller-supplied color. Intentionally generic: no fonts,
+/// app names, or rendering specifics are baked in.
+#[derive(Clone, Debug)]
+pub struct LabelPrimitive {
+    pub label: String,
+    pub x: f32,
+    pub y: f32,
+    pub max_width: f32,
+    pub max_height: f32,
+    pub color: [f32; 4],
+}
+
+impl LabelPrimitive {
+    pub fn new(
+        label: impl Into<String>,
+        x: f32,
+        y: f32,
+        max_width: f32,
+        max_height: f32,
+        color: [f32; 4],
+    ) -> Self {
+        Self { label: label.into(), x, y, max_width, max_height, color }
+    }
+}
