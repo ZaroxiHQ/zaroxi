@@ -265,7 +265,7 @@ impl ShellFrame {
 
     /// Render a deterministic textual transcript describing each region.
     /// This is intentionally small and stable to enable tests and harness checks.
-    pub fn render_lines(&self) -> Vec<String> {
+    pub fn render_lines(&self, comp: Option<&crate::desktop::DesktopComposition>) -> Vec<String> {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("shell_size: {}x{}", self.size.width, self.size.height));
         lines.push(format!("theme.surface: {}", self.theme.surface));
@@ -282,7 +282,7 @@ impl ShellFrame {
         // Keeping widget rendering logic in `gui/widgets` preserves separation of concerns:
         // - `shell` remains the layout model and region source of truth
         // - `widgets` provides small, interface-facing chrome transcripts derived from regions
-        let widget_lines = super::widgets::render_chrome(&self.regions);
+        let widget_lines = super::widgets::render_chrome(&self.regions, comp);
         if !widget_lines.is_empty() {
             lines.push("widgets:".to_string());
             for wl in widget_lines {

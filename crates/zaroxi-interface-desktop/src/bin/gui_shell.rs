@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Default / fallback path: print deterministic transcript to stdout.
-    for line in shell.render_lines() {
+    // Create a DesktopComposition instance (empty) and pass it into render_lines so
+    // the widgets can consume authoritative composition projections when available.
+    let comp = zaroxi_interface_desktop::DesktopComposition::new();
+    for line in shell.render_lines(Some(&comp)) {
         println!("{}", line);
     }
 

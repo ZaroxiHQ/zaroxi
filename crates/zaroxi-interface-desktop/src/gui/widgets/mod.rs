@@ -5,12 +5,13 @@ Deterministic textual descriptions of chrome and navigation widgets
 matching the refined IDE shell layout.
 */
 
+use crate::desktop::DesktopComposition;
 use crate::gui::shell::ShellRegion;
 use zaroxi_application_ai::view_model::AiPanelState;
 use zaroxi_application_editor::view_model::TabStrip;
 use zaroxi_application_navigation::view_model::AppRailState;
 
-pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
+pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
     if let Some(tb) = regions.iter().find(|r| r.id == "toolbar") {
@@ -62,22 +63,38 @@ pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     }
 
     if let Some(et) = regions.iter().find(|r| r.id == "editor_tabs") {
-        // Use TabStrip from application-editor if available.
-        let ts = TabStrip::default();
-        if ts.tabs.is_empty() {
-            lines.push(format!("editor.tabs: [main.rs,lib.rs,mod.rs,config.rs] rect={}", et.rect));
+        // Prefer opened-buffer list from DesktopComposition when available.
+        if let Some(d) = comp {
+            let opened = d.latest_opened_buffers_summary();
+            if !opened.items.is_empty() {
+                let names: Vec<String> = opened
+                    .items
+                    .iter()
+                    .map(|it| it.display.clone().unwrap_or_else(|| "untitled".to_string()))
+                    .collect();
+                lines.push(format!("editor.tabs: [{}] rect={}", names.join(","), et.rect));
+            } else {
+                lines.push(format!(
+                    "editor.tabs: [main.rs,lib.rs,mod.rs,config.rs] rect={}",
+                    et.rect
+                ));
+            }
         } else {
-            let names: Vec<String> = ts.tabs.iter().map(|t| t.display.clone()).collect();
-            lines.push(format!("editor.tabs: [{}] rect={}", names.join(","), et.rect));
+            // No composition available: fall back to an empty tabs placeholder.
+            lines.push(format!("editor.tabs: [main.rs,lib.rs,mod.rs,config.rs] rect={}", et.rect));
         }
     }
 
     if let Some(bc) = regions.iter().find(|r| r.id == "breadcrumb") {
-        let b = zaroxi_application_editor::view_model::BreadcrumbState::default();
-        let breadcrumb = if b.segments.is_empty() {
-            "src > app > desktop > main.rs".to_string()
+        // Prefer the shell context active_display when available
+        let breadcrumb = if let Some(d) = comp {
+            if let Some(ctx) = crate::desktop::composition::projections::latest_shell_context(d) {
+                ctx.active_display.unwrap_or_else(|| "src > app > desktop > main.rs".to_string())
+            } else {
+                "src > app > desktop > main.rs".to_string()
+            }
         } else {
-            b.to_string()
+            "src > app > desktop > main.rs".to_string()
         };
         lines.push(format!("editor.breadcrumb: {} rect={}", breadcrumb, bc.rect));
     }

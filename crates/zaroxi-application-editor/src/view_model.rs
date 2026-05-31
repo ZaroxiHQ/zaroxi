@@ -26,6 +26,13 @@ impl BreadcrumbState {
     pub fn to_string(&self) -> String {
         if self.segments.is_empty() { String::new() } else { self.segments.join(" > ") }
     }
+
+    /// Sample breadcrumb helper used by the desktop until real breadcrumb sources are wired.
+    pub fn sample() -> Self {
+        BreadcrumbState {
+            segments: vec!["src".into(), "app".into(), "desktop".into(), "main.rs".into()],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -34,6 +41,18 @@ pub struct MinimapState {
 }
 
 impl TabStrip {
+    /// Sample helper: return a small sample TabStrip to be used by the desktop
+    /// composer until real application state is wired in. This belongs to the
+    /// application crate (owner of the model) and provides a migration-friendly
+    /// way for desktop to consume authoritative types.
+    pub fn sample() -> Self {
+        let opened = vec![
+            ("buffer://main.rs".to_string(), "main.rs".to_string()),
+            ("buffer://lib.rs".to_string(), "lib.rs".to_string()),
+            ("buffer://mod.rs".to_string(), "mod.rs".to_string()),
+        ];
+        TabStrip::from_opened_and_active(&opened, Some("buffer://main.rs"))
+    }
     pub fn from_opened_and_active(opened: &[(String, String)], active: Option<&str>) -> Self {
         let mut tabs: Vec<TabEntry> = Vec::with_capacity(opened.len());
         for (i, pair) in opened.iter().enumerate() {
