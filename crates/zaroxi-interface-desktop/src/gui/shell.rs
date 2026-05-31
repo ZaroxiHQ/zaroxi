@@ -108,8 +108,8 @@ impl ShellFrame {
         let outer_padding: u32 = 0;
         // Compact top toolbar: slim title bar / chrome band.
         let top_toolbar_h: u32 = 30;
-        // Slim status bar.
-        let status_h: u32 = 22;
+        // Slim status bar — tall enough to be clearly visible.
+        let status_h: u32 = 28;
         let bottom_dock_h: u32 = 0;
 
         let inner_x = outer_padding;
@@ -260,6 +260,15 @@ impl ShellFrame {
             },
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
+
+        // Region audit: print computed rects for debugging placement issues.
+        eprintln!("REGION_AUDIT: shell_size={}x{}", size.width, size.height);
+        for r in &regions {
+            eprintln!(
+                "REGION_AUDIT: id={:<20} x={:<6} y={:<6} w={:<6} h={:<6}",
+                r.id, r.rect.x, r.rect.y, r.rect.width, r.rect.height
+            );
+        }
 
         ShellFrame { size, theme, regions }
     }

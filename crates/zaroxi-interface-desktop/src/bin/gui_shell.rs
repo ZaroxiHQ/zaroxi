@@ -5,7 +5,7 @@ use std::error::Error;
 use zaroxi_interface_desktop::gui::{ShellFrame, Size};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let size = Size { width: 1280, height: 800 };
+    let size = Size { width: 1354, height: 720 };
     let shell = ShellFrame::new(size);
 
     // If compiled with the "gui_window" feature, attempt to open a native window.

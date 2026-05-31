@@ -49,7 +49,7 @@ impl ShellLayout {
 
         // Design defaults (implementation-light values).
         const TITLEBAR_H: f32 = 30.0;
-        const STATUS_H: f32 = 22.0;
+        const STATUS_H: f32 = 28.0;
         const SIDEBAR_W: f32 = 260.0;
         const AI_PANEL_W: f32 = 320.0;
         const TABBAR_H: f32 = 28.0;
