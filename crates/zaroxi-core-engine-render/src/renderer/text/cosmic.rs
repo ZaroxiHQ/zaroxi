@@ -99,6 +99,11 @@ pub struct CosmicTextRenderer {
     last_frame_summary: Arc<Mutex<Option<FrameSummary>>>,
     last_frame_samples: Arc<Mutex<Vec<InstanceSample>>>,
     viewport: Arc<Mutex<(u32, u32)>>,
+    // Conservatively track last-emitted stable diagnostics so we can avoid repeated identical lines.
+    last_render_pass_active: Arc<Mutex<Option<String>>>,
+    last_atlas_uploaded: Arc<Mutex<Option<String>>>,
+    last_instance_buffer_count: Arc<Mutex<Option<usize>>>,
+    last_final_path: Arc<Mutex<Option<String>>>,
 }
 
 impl CosmicTextRenderer {
@@ -133,6 +138,10 @@ impl CosmicTextRenderer {
             last_frame_samples: Arc::new(Mutex::new(Vec::new())),
             viewport: Arc::new(Mutex::new((0u32, 0u32))),
             instance_buffer: Arc::new(Mutex::new(None)),
+            last_render_pass_active: Arc::new(Mutex::new(None)),
+            last_atlas_uploaded: Arc::new(Mutex::new(None)),
+            last_instance_buffer_count: Arc::new(Mutex::new(None)),
+            last_final_path: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -244,10 +253,23 @@ impl CosmicTextRenderer {
             (0u32, 0u32, 0usize, "unknown".to_string())
         };
 
-        eprintln!(
-            "GUI_TEXT_RENDER_PASS_ACTIVE: instance_count={} atlas_texture_size={}x{} atlas_regions={} surface_format={:?} target_dim={}x{}",
-            instance_count, atlas_w, atlas_h, atlas_regions, self.color_format, target_w, target_h
-        );
+        {
+            let new = format!(
+                "GUI_TEXT_RENDER_PASS_ACTIVE: instance_count={} atlas_texture_size={}x{} atlas_regions={} surface_format={:?} target_dim={}x{}",
+                instance_count,
+                atlas_w,
+                atlas_h,
+                atlas_regions,
+                self.color_format,
+                target_w,
+                target_h
+            );
+            let mut guard = self.last_render_pass_active.lock().unwrap();
+            if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
+                eprintln!("{}", new);
+                *guard = Some(new);
+            }
+        }
 
         // Samples captured during prepare() inform scissor decisions.
         let samples = self.last_frame_samples.lock().unwrap().clone();
@@ -378,10 +400,17 @@ impl CosmicTextRenderer {
         let bind_group_state = if bind_group_live { "live" } else { "none" };
         let sampler_state = if bind_group_live { "real" } else { "none" };
         let texture_view_state = if bind_group_live { "real" } else { "none" };
-        eprintln!(
-            "GUI_TEXT_FINAL_PATH: atlas_format={} bind_group={} shader_mode={} sampler={} texture_view={}",
-            atlas_format, bind_group_state, shader_mode, sampler_state, texture_view_state
-        );
+        {
+            let new = format!(
+                "GUI_TEXT_FINAL_PATH: atlas_format={} bind_group={} shader_mode={} sampler={} texture_view={}",
+                atlas_format, bind_group_state, shader_mode, sampler_state, texture_view_state
+            );
+            let mut guard = self.last_final_path.lock().unwrap();
+            if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
+                eprintln!("{}", new);
+                *guard = Some(new);
+            }
+        }
 
         // If there are text indices to draw, issue an indexed draw for the text portion.
         let panel = panel_indices_len;
@@ -970,9 +999,24 @@ impl TextRenderer for CosmicTextRenderer {
                 });
                 let mut uploaded = self.atlas_uploaded.lock().unwrap();
                 *uploaded = true;
-                eprintln!("GUI_TEXT_ATLAS_UPLOADED: regions={} size={}x{}", regions, aw, ah);
+                {
+                    let new =
+                        format!("GUI_TEXT_ATLAS_UPLOADED: regions={} size={}x{}", regions, aw, ah);
+                    let mut guard = self.last_atlas_uploaded.lock().unwrap();
+                    if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
+                        eprintln!("{}", new);
+                        *guard = Some(new);
+                    }
+                }
             } else {
-                eprintln!("GUI_TEXT_ATLAS_UPLOADED: no_texture_returned");
+                {
+                    let new = "GUI_TEXT_ATLAS_UPLOADED: no_texture_returned".to_string();
+                    let mut guard = self.last_atlas_uploaded.lock().unwrap();
+                    if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
+                        eprintln!("{}", new);
+                        *guard = Some(new);
+                    }
+                }
             }
         }
 
@@ -1026,7 +1070,14 @@ impl TextRenderer for CosmicTextRenderer {
             });
             let mut ib = self.instance_buffer.lock().unwrap();
             *ib = Some(buf);
-            eprintln!("GUI_TEXT_INSTANCE_BUFFER_UPLOADED: count={} stride=48", insts.len());
+            {
+                let cnt = insts.len();
+                let mut guard = self.last_instance_buffer_count.lock().unwrap();
+                if guard.as_ref().map(|v| *v != cnt).unwrap_or(true) {
+                    eprintln!("GUI_TEXT_INSTANCE_BUFFER_UPLOADED: count={} stride=48", cnt);
+                    *guard = Some(cnt);
+                }
+            }
         }
 
         // Concise truthful frame summary (always printed)
@@ -1069,8 +1120,17 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {
         let mut vp = self.viewport.lock().unwrap();
-        *vp = (width, height);
-        eprintln!("GUI_TEXT_VIEWPORT_UPDATED: viewport_width={} viewport_height={}", width, height);
+        let old = *vp;
+        if old != (width, height) {
+            *vp = (width, height);
+            eprintln!(
+                "GUI_TEXT_VIEWPORT_UPDATED: viewport_width={} viewport_height={}",
+                width, height
+            );
+        } else {
+            // still update to be conservative (same value) but avoid duplicate log; keep state assigned
+            *vp = (width, height);
+        }
         Ok(())
     }
 }

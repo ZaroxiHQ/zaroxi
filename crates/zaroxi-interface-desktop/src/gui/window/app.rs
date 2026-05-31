@@ -62,7 +62,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let rects = super::frame::build_overlay_rects(&self.shell);
 
                         // Path marker for diagnostics: clear_present_once (first-frame bootstrap).
-                        eprintln!("GUI_TEXT_FRAME_SUMMARY: path=clear_present_once");
                         // Gather adapter/backend markers for a compact per-path summary (non-fatal).
                         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
                         let tmp_cosmic =
@@ -170,7 +169,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let rects = super::frame::build_overlay_rects(&self.shell);
 
                         // Path marker for diagnostics: clear_present_once invoked from resumed.
-                        eprintln!("GUI_TEXT_FRAME_SUMMARY: path=clear_present_once");
 
                         // Gather adapter/backend markers for a compact per-path summary (non-fatal).
                         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
@@ -286,7 +284,6 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     // Diagnostic: produce a compact per-redraw summary so we can compare
                     // the clear_present_once bootstrap path with the normal redraw path.
-                    eprintln!("GUI_TEXT_FRAME_SUMMARY: path=redraw_requested");
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
                     let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");

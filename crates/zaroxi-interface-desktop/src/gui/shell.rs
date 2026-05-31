@@ -77,39 +77,31 @@ pub struct ShellFrame {
 }
 
 impl ShellFrame {
-    /// Construct a new ShellFrame and compute a canonical layout.
+    /// Construct a new ShellFrame and compute a canonical IDE layout.
     ///
-    /// GUI-6 (follow-up): refine proportions and ensure visually-distinct
-    /// editor subdivisions: left project rail, center editor, bottom panel,
-    /// and the right AI pane. Geometry is explicit and uses simple proportional
-    /// heuristics so resizing remains deterministic.
+    /// Phase 2 layout: refined proportions, breadcrumb row, balanced panel widths
+    /// matching the target reference image structure.
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
-        // Compact desktop IDE spacing tokens (values chosen to match the visual direction)
         let outer_padding: u32 = 8;
-        let top_toolbar_h: u32 = 40;
-        let left_rail_w: u32 = 60;
-        // Compute sidebars proportionally from available inner width so resizing
-        // preserves relative balance rather than fixed absolute sizes.
+        let top_toolbar_h: u32 = 38;
+        let status_h: u32 = 24;
+        let bottom_dock_h: u32 = 150;
+
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
 
-        // Proportional outer sidebar (~20% of inner width), clamped to sane bounds.
-        let mut left_sidebar_w = (inner_w.saturating_mul(20)) / 100;
-        left_sidebar_w = left_sidebar_w.clamp(140, inner_w.saturating_div(2));
-
-        // Right AI pane (~26% of inner width), clamped.
-        let mut ai_panel_w = (inner_w.saturating_mul(26)) / 100;
-        ai_panel_w = ai_panel_w.clamp(200, inner_w.saturating_div(2));
-
-        // Keep a stable bottom dock and status height
-        let bottom_dock_h: u32 = 120;
-        let status_h: u32 = 24;
-        let editor_header_h: u32 = 28;
-        let minimap_w: u32 = 80;
+        // Left activity rail (compact, ~3.8% of inner width)
+        let app_rail_w: u32 = 48;
+        // Left sidebar (~22%), clamped
+        let mut left_sidebar_w = (inner_w.saturating_mul(22)) / 100;
+        left_sidebar_w = left_sidebar_w.clamp(180, inner_w.saturating_div(2));
+        // Right AI panel (~23%), clamped
+        let mut ai_panel_w = (inner_w.saturating_mul(23)) / 100;
+        ai_panel_w = ai_panel_w.clamp(220, inner_w.saturating_div(2));
 
         // Top toolbar / titlebar region (full width)
         let toolbar = Rect { x: inner_x, y: inner_y, width: inner_w, height: top_toolbar_h };
@@ -134,8 +126,8 @@ impl ShellFrame {
         let columns_y = inner_y + top_toolbar_h;
         let columns_h = bottom_dock.y.saturating_sub(columns_y);
 
-        // App rail (far-left)
-        let app_rail = Rect { x: inner_x, y: columns_y, width: left_rail_w, height: columns_h };
+        // App rail (far-left activity bar)
+        let app_rail = Rect { x: inner_x, y: columns_y, width: app_rail_w, height: columns_h };
 
         // Outer sidebar (to the right of app rail)
         let sidebar = Rect {
@@ -157,60 +149,61 @@ impl ShellFrame {
         let editor_x = sidebar.x + sidebar.width;
         let editor_w = ai_panel.x.saturating_sub(editor_x);
 
-        // Editor header (top strip inside the editor column)
-        let editor_header =
-            Rect { x: editor_x, y: columns_y, width: editor_w, height: editor_header_h };
+        // Minimap lane to the far right of editor column
+        let minimap_w: u32 = 60;
+        let editor_content_w = editor_w.saturating_sub(minimap_w);
 
-        // Area below the editor header (available for left project rail, center editor, bottom panel)
-        let below_header_y = editor_header.y + editor_header.height;
-        let below_header_h = columns_h.saturating_sub(editor_header.height);
+        // Editor tiles region: tab strip + breadcrumb row at top of editor column
+        let editor_tabs_h: u32 = 34;
+        let breadcrumb_h: u32 = 24;
+        let editor_top_h = editor_tabs_h + breadcrumb_h;
 
-        // Subdivision heuristics (refined for clearer separations):
-        // - left project rail: ~22% of editor column width (clamped)
-        // - right-side minimap lane preserved (minimap_w)
-        // - center editor: remaining width after left rail & minimap
-        // - bottom panel: ~26% of the center editor height (visually prominent)
-        let left_inner_pct: f32 = 0.22;
-        let right_minimap = minimap_w;
-        let mut left_inner_w = ((editor_w as f32) * left_inner_pct) as u32;
-        left_inner_w = left_inner_w.clamp(120, 480);
+        // Available height for editor body + terminal panel
+        let below_editor_top_y = columns_y + editor_top_h;
+        let below_editor_top_h = columns_h.saturating_sub(editor_top_h);
 
-        let center_editor_w = editor_w.saturating_sub(left_inner_w).saturating_sub(right_minimap);
+        // Terminal panel (~28% of editor content height)
+        let mut center_bottom_h = ((below_editor_top_h as f32) * 0.28) as u32;
+        center_bottom_h = center_bottom_h.clamp(80, below_editor_top_h.saturating_sub(60));
+        let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
 
-        // Center heights (make the bottom panel a bit taller so it's visually obvious)
-        let mut bottom_panel_h = ((below_header_h as f32) * 0.26) as u32;
-        bottom_panel_h = bottom_panel_h.clamp(56, below_header_h.saturating_sub(24));
-        let center_editor_h = below_header_h.saturating_sub(bottom_panel_h);
+        // Editor tabs row (tab strip at top of editor column)
+        let editor_tabs =
+            Rect { x: editor_x, y: columns_y, width: editor_content_w, height: editor_tabs_h };
 
-        // Left project rail INSIDE the editor column (distinct from outer sidebar)
-        let content_left_sidebar =
-            Rect { x: editor_x, y: below_header_y, width: left_inner_w, height: below_header_h };
+        // Breadcrumb / path row below tabs
+        let breadcrumb = Rect {
+            x: editor_x,
+            y: columns_y + editor_tabs_h,
+            width: editor_content_w,
+            height: breadcrumb_h,
+        };
 
-        // Center editor canvas above the bottom panel
+        // Center editor canvas (code area)
         let center_editor = Rect {
-            x: content_left_sidebar.x + content_left_sidebar.width,
-            y: below_header_y,
-            width: center_editor_w,
-            height: center_editor_h,
+            x: editor_x,
+            y: below_editor_top_y,
+            width: editor_content_w,
+            height: editor_body_h,
         };
 
-        // Bottom panel occupying the lower strip of the center editor area
+        // Terminal panel below editor body
         let center_bottom_panel = Rect {
-            x: center_editor.x,
-            y: center_editor.y.saturating_add(center_editor.height),
-            width: center_editor.width,
-            height: bottom_panel_h,
+            x: editor_x,
+            y: below_editor_top_y + editor_body_h,
+            width: editor_content_w,
+            height: center_bottom_h,
         };
 
-        // Minimap lane to the right of center editor (preserve previous visual hint)
+        // Minimap lane to the right of editor content (full column height)
         let minimap_lane = Rect {
-            x: center_editor.x + center_editor.width,
-            y: below_header_y,
-            width: right_minimap,
-            height: below_header_h,
+            x: editor_x + editor_content_w,
+            y: columns_y,
+            width: minimap_w,
+            height: columns_h,
         };
 
-        // AI panel header and content split (unchanged)
+        // AI panel header and content split
         let ai_header_h: u32 = 36;
         let ai_panel_header =
             Rect { x: ai_panel.x, y: ai_panel.y, width: ai_panel.width, height: ai_header_h };
@@ -221,20 +214,12 @@ impl ShellFrame {
             height: ai_panel.height.saturating_sub(ai_header_h),
         };
 
-        // Collect regions with stable ids and presentable names.
-        // GUI-6 follow-up: emphasize center and bottom subdivisions visually.
         let regions = vec![
             ShellRegion { id: "toolbar", name: "editor_header_toolbar", rect: toolbar },
             ShellRegion { id: "app_rail", name: "app_rail", rect: app_rail },
             ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
-            ShellRegion { id: "editor_header", name: "editor_header", rect: editor_header },
-            ShellRegion {
-                id: "content_left_sidebar",
-                name: "content_left_sidebar",
-                rect: content_left_sidebar,
-            },
-            // Backwards-compatibility: provide an aggregated editor content region id expected by older tests.
-            // This mirrors the center_editor rect so callers that expect "editor_content" continue to pass.
+            ShellRegion { id: "editor_tabs", name: "editor_tabs", rect: editor_tabs },
+            ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: breadcrumb },
             ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
             ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },

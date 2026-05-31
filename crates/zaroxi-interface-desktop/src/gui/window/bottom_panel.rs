@@ -1,9 +1,7 @@
 /*!
-Bottom dock drawing logic (full-width panel above status).
+Bottom dock drawing logic (full-width panel above status bar).
 
-GUI-8 refinements:
-- Clear header row with segmented placeholder tabs (terminal / problems / output)
-- Body placeholder lines beneath the header to make the panel visually distinct
+Phase 2: refined terminal panel with tab headers and log output lines.
 */
 
 pub fn draw(
@@ -21,114 +19,121 @@ pub fn draw(
         y: r.y,
         width: r.width,
         height: r.height,
-        color: super::theme_adapter::adjust_brightness(theme.surface, 0.94),
+        color: super::theme_adapter::adjust_brightness(theme.surface, 0.91),
     });
 
-    // Header area (segmented tabs)
-    let header_h: u32 = std::cmp::min(36, r.height / 4);
-    if header_h > 0 && r.width > 40 {
-        rects.push(zaroxi_core_engine_render_backend::DrawRect {
-            x: r.x,
-            y: r.y,
-            width: r.width,
-            height: header_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 0.98),
-        });
-
-        // Segments (e.g., Terminal | Problems | Output)
-        let segments: u32 = 3;
-        let seg_pad: u32 = 12;
-        let total_pad = seg_pad.saturating_mul(segments + 1);
-        let seg_w = if r.width > total_pad {
-            (r.width.saturating_sub(total_pad)) / segments
-        } else {
-            r.width / segments
-        };
-        let mut sx = r.x.saturating_add(seg_pad);
-        let seg_y = r.y.saturating_add((header_h / 8).saturating_mul(1));
-        let seg_h = header_h.saturating_sub((header_h / 8) * 2);
-
-        for i in 0..segments {
-            let active = i == 0;
-            // Use surface-derived tab fills rather than heavy border color so the
-            // textual tab labels remain the visual focus.
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: sx,
-                y: seg_y,
-                width: seg_w,
-                height: seg_h,
-                color: if active {
-                    super::theme_adapter::adjust_brightness(theme.surface, 1.04)
-                } else {
-                    super::theme_adapter::adjust_brightness(theme.surface, 1.00)
-                },
-            });
-            sx = sx.saturating_add(seg_w).saturating_add(seg_pad);
-        }
-
-        // header bottom separator
-        if r.height > header_h.saturating_add(sep_h) {
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: r.x,
-                y: r.y.saturating_add(header_h),
-                width: r.width,
-                height: sep_h,
-                color: super::theme_adapter::parse_hex_color(theme.border_color),
-            });
-        }
-    }
-
-    // Body: placeholder horizontal bars to suggest logs/output lines
-    let body_y = r.y.saturating_add(header_h).saturating_add(sep_h);
-    if r.height > body_y.saturating_sub(r.y) && r.width > 40 {
-        let available_h = r.height.saturating_sub(body_y.saturating_sub(r.y)).saturating_sub(8);
-        let line_h = 14u32;
-        let gap = 8u32;
-        let lines = if available_h > (line_h + gap) { available_h / (line_h + gap) } else { 0 };
-        let mut ly = body_y.saturating_add(8);
-        for i in 0..lines {
-            let factor = match i % 4 {
-                0 => 0.95,
-                1 => 0.62,
-                2 => 0.82,
-                _ => 0.46,
-            };
-            let w = ((r.width as f64) * factor) as u32;
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: r.x.saturating_add(12),
-                y: ly,
-                width: w.saturating_sub(12),
-                height: line_h,
-                color: super::theme_adapter::adjust_brightness(
-                    theme.surface,
-                    1.02 - (i as f64 * 0.002),
-                ),
-            });
-            ly = ly.saturating_add(line_h).saturating_add(gap);
-        }
-    }
-
-    // top thin separator for the whole panel (if not drawn above)
+    // Top separator
     if r.height > sep_h {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
             y: r.y,
             width: r.width,
             height: sep_h,
-            color: super::theme_adapter::parse_hex_color(theme.border_color),
+            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.82),
         });
     }
 
-    // Segmented header labels (Terminal | Problems | Output) using the shared layout.
+    // Tab header row
+    let header_h: u32 = std::cmp::min(32, r.height / 4);
+    if header_h > 0 && r.width > 40 {
+        let header_y = r.y.saturating_add(sep_h);
+        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+            x: r.x,
+            y: header_y,
+            width: r.width,
+            height: header_h,
+            color: super::theme_adapter::adjust_brightness(theme.surface, 0.96),
+        });
+
+        let tabs: u32 = 4;
+        let tab_pad: u32 = 10;
+        let total_pad = tab_pad * (tabs + 1);
+        let tab_w = if r.width > total_pad {
+            (r.width.saturating_sub(total_pad)) / tabs
+        } else {
+            r.width / std::cmp::max(1, tabs)
+        };
+        let mut tx = r.x.saturating_add(tab_pad);
+        let tab_y = header_y.saturating_add(4);
+        let tab_h = header_h.saturating_sub(8);
+
+        for i in 0..tabs {
+            let active = i == 0;
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: tx,
+                y: tab_y,
+                width: tab_w,
+                height: tab_h,
+                color: if active {
+                    super::theme_adapter::adjust_brightness(theme.surface, 1.06)
+                } else {
+                    super::theme_adapter::adjust_brightness(theme.surface, 0.97)
+                },
+            });
+            tx = tx.saturating_add(tab_w).saturating_add(tab_pad);
+        }
+
+        // Header bottom separator
+        if r.height > header_y.saturating_sub(r.y).saturating_add(header_h).saturating_add(sep_h) {
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: r.x,
+                y: header_y.saturating_add(header_h),
+                width: r.width,
+                height: sep_h,
+                color: super::theme_adapter::adjust_brightness(theme.border_color, 0.80),
+            });
+        }
+    }
+
+    // Body: output/log lines
+    let body_start = r.y.saturating_add(sep_h).saturating_add(header_h).saturating_add(sep_h);
+    if r.height > body_start.saturating_sub(r.y) && r.width > 40 {
+        let available_h = r.height.saturating_sub(body_start.saturating_sub(r.y)).saturating_sub(8);
+        let line_h = 13u32;
+        let gap = 6u32;
+        let lines = if available_h > (line_h + gap) { available_h / (line_h + gap) } else { 0 };
+        let mut ly = body_start.saturating_add(6);
+
+        for i in 0..lines {
+            let factor = match i % 4 {
+                0 => 0.92,
+                1 => 0.58,
+                2 => 0.78,
+                _ => 0.44,
+            };
+            let w = ((r.width as f64) * factor) as u32;
+            let color = match i % 4 {
+                0 => super::theme_adapter::adjust_brightness(theme.surface, 1.08),
+                1 => super::theme_adapter::adjust_brightness("#4CAF50", 0.88),
+                3 => super::theme_adapter::adjust_brightness("#FFB74D", 0.88),
+                _ => super::theme_adapter::adjust_brightness(theme.surface, 1.04),
+            };
+            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                x: r.x.saturating_add(14),
+                y: ly,
+                width: w.saturating_sub(14),
+                height: line_h,
+                color,
+            });
+            ly = ly.saturating_add(line_h).saturating_add(gap);
+        }
+    }
+
+    // Tab labels
     if r.width > 80 {
-        let labels = vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()];
+        let labels = vec![
+            "Terminal".to_string(),
+            "Problems".to_string(),
+            "Output".to_string(),
+            "Debug".to_string(),
+        ];
         let inset_x = r.x.saturating_add(12);
-        let inset_y = r.y.saturating_add(4);
+        let inset_y = r.y.saturating_add(6);
         let mut text_rects = super::text_adapter::layout_and_publish_text(
             inset_x,
             inset_y,
             r.width.saturating_sub(24),
-            32,
+            30,
             &labels,
             theme,
             theme.text_primary,
