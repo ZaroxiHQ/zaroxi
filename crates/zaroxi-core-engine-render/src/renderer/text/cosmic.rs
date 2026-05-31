@@ -372,14 +372,7 @@ impl CosmicTextRenderer {
         }
 
         // Atlas upload diagnostic: report metadata only.
-        if atlas_w > 0 {
-            eprintln!(
-                "GUI_TEXT_ATLAS_UPLOAD: uploaded=true width={} height={} regions={} format={}",
-                atlas_w, atlas_h, atlas_regions, atlas_fmt
-            );
-        } else {
-            eprintln!("GUI_TEXT_ATLAS_UPLOAD: uploaded=false");
-        }
+        // GUI_TEXT_ATLAS_UPLOAD diagnostic removed (dedup-only pass)
 
         // Final per-frame truth line: confirm the authoritative path used for text rendering.
         let shader_mode =
@@ -1046,10 +1039,7 @@ impl TextRenderer for CosmicTextRenderer {
 
         // Concise truthful frame summary (always printed)
         let atlas_entries_live = self.shared_atlas.regions();
-        eprintln!(
-            "GUITEXT summary glyph_instances={} cache_hits={} fresh_rasters={} atlas_entries={}",
-            instances_total, cache_hits_total, rasterized_total, atlas_entries_live
-        );
+        // GUITEXT summary removed (use GUI_TEXT_FRAME_SUMMARY as authoritative)
 
         // Clear queue after prepare.
         q.clear();
