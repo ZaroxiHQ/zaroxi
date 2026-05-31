@@ -9,7 +9,6 @@ use crate::gui::shell::ShellRegion;
 use zaroxi_application_ai::view_model::AiPanelState;
 use zaroxi_application_editor::view_model::TabStrip;
 use zaroxi_application_navigation::view_model::AppRailState;
-use zaroxi_core_platform_terminal::view_model::TerminalPanelState;
 
 pub fn render_chrome(regions: &[ShellRegion]) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();

@@ -102,9 +102,12 @@ impl ShellFrame {
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
-        let outer_padding: u32 = 24; // outer shell inset (20-28 px target)
-        let top_toolbar_h: u32 = 44; // global toolbar height
-        let status_h: u32 = 26; // thin status bar
+        // Use design tokens for spacing/metrics where reasonable (theme-driven sizes)
+        let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
+        let outer_padding: u32 = tokens.spacing_xl as u32; // expected 24
+        // Top toolbar height derived from token + small delta for visual comfort
+        let top_toolbar_h: u32 = tokens.spacing_xxl as u32 + 12; // ~32 + 12 = 44
+        let status_h: u32 = (tokens.spacing_md + tokens.font_size_sm + 2.0) as u32; // ~12+12+2=26
         let bottom_dock_h: u32 = 0; // no full-width bottom slab (terminal docked to center)
 
         let inner_x = outer_padding;
@@ -168,7 +171,8 @@ impl ShellFrame {
         let editor_w = ai_panel.x.saturating_sub(editor_x);
 
         // Minimap lane inset on the right inside the editor column (narrow)
-        let minimap_w: u32 = 60; // target 56-72
+        let minimap_w: u32 =
+            (zaroxi_interface_theme::theme::DesignTokens::default().spacing_lg * 4.0) as u32; // use token-derived width (~64)
         let editor_content_w = editor_w.saturating_sub(minimap_w);
 
         // Editor tiles region: tab strip + breadcrumb row at top of editor column
