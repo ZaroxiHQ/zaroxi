@@ -341,12 +341,6 @@ impl CosmicTextRenderer {
             rpass.set_bind_group(0, bg, &[]);
         }
         let vertex_count = 6usize * instance_count; // 6 verts per quad approximation
-        if text_debug_enabled() {
-            eprintln!(
-                "GUI_TEXT_ISSUED_INSTANCED_DRAW: draw_called=true vertex_count={} instance_count={} pipeline_bound={} bind_group_live={}",
-                vertex_count, instance_count, pipeline_bound, bind_group_live
-            );
-        }
 
         // If we have instance data uploaded, perform an instanced non-indexed draw using
         // a small 6-vertex quad generated in the vertex shader via vertex_index.

@@ -909,14 +909,11 @@ impl<'a> Renderer<'a> {
                                 "GUI_TEXT_FRAME_SUMMARY: prepare_invoking queued_before_prepare={}",
                                 queued_before_prepare
                             );
-                            info!("Glyphon prepare called");
                             match self.text_renderer.prepare(&self.device, &mut self.queue) {
                                 Ok(()) => {
-                                    info!("Glyphon prepare succeeded");
                                     info!("GUI_TEXT_FRAME_SUMMARY: prepare_called=true");
                                 }
                                 Err(e) => {
-                                    info!("Glyphon prepare failed: {:?}", e);
                                     info!(
                                         "GUI_TEXT_FRAME_SUMMARY: prepare_called=false error={:?}",
                                         e
@@ -929,7 +926,6 @@ impl<'a> Renderer<'a> {
                                 "GUI_TEXT_RENDER_PASS_ACTIVE: render_invoking panel_indices_len={} total_indices_len={}",
                                 panel_indices_len, total_indices_len
                             );
-                            info!("Glyphon render called");
                             match self.text_renderer.render_pass(
                                 &mut rpass,
                                 &self.text_pipeline,
@@ -937,11 +933,9 @@ impl<'a> Renderer<'a> {
                                 total_indices_len,
                             ) {
                                 Ok(()) => {
-                                    info!("Glyphon render succeeded");
                                     info!("GUI_TEXT_RENDER_PASS_ACTIVE: executed=true");
                                 }
                                 Err(e) => {
-                                    info!("Glyphon render failed: {:?}", e);
                                     info!(
                                         "GUI_TEXT_RENDER_PASS_ACTIVE: executed=false error={:?}",
                                         e
