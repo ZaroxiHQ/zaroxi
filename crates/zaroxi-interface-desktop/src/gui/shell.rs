@@ -104,27 +104,37 @@ impl ShellFrame {
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
-        // No outer padding – chrome components handle their own insets.
+        // Chrome dimensions — responsive horizontal allocation.
         let outer_padding: u32 = 0;
-        // Compact top toolbar: slim title bar / chrome band.
         let top_toolbar_h: u32 = 30;
-        // Slim status bar — tall enough to be clearly visible.
         let status_h: u32 = 28;
         let bottom_dock_h: u32 = 0;
+        let app_rail_w: u32 = 44;
 
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
 
-        // Very narrow activity rail (icons only).
-        let app_rail_w: u32 = 44;
-        // Left sidebar: secondary, narrower than editor.
-        let mut left_sidebar_w: u32 = 260;
-        left_sidebar_w = left_sidebar_w.clamp(180, inner_w.saturating_div(2));
-        // Right utility panel: optional/supporting, narrower than editor.
-        let mut ai_panel_w: u32 = 320;
-        ai_panel_w = ai_panel_w.clamp(220, inner_w.saturating_div(2));
+        // ── Responsive horizontal allocation ──────────────────────
+        // Sidebar and AI panel shrink at narrower widths so the center
+        // editor always keeps a usable minimum. The minimap is hidden
+        // below 750 px since it's auxiliary.
+        //
+        // Breakpoints:
+        //   >= 1100  full layout: sidebar=260, ai=320, minimap=56
+        //   >= 850   medium:      sidebar=200, ai=260, minimap=48
+        //   >= 650   narrow:      sidebar=160, ai=200, minimap=0
+        //   < 650    very narrow: sidebar=56,  ai=160, minimap=0
+        let (left_sidebar_w, ai_panel_w, minimap_w) = if inner_w >= 1100 {
+            (260u32, 320u32, 56u32)
+        } else if inner_w >= 850 {
+            (200, 260, 48)
+        } else if inner_w >= 650 {
+            (160, 200, 0)
+        } else {
+            (56, 160, 0)
+        };
 
         // Top toolbar / titlebar region (full width)
         let toolbar = Rect { x: inner_x, y: inner_y, width: inner_w, height: top_toolbar_h };
@@ -171,10 +181,16 @@ impl ShellFrame {
         // Editor main column sits between sidebar and AI panel
         let editor_x = sidebar.x + sidebar.width;
         let editor_w = ai_panel.x.saturating_sub(editor_x);
-
-        // Minimap lane inset on the right inside the editor column (narrow)
-        let minimap_w: u32 = 56;
         let editor_content_w = editor_w.saturating_sub(minimap_w);
+        // Invariant: editor content width must be at least 120 px so tabs/breadcrumb
+        // and code viewport remain functional. This is guaranteed by the responsive
+        // sidebar/ai/minimap selection above.
+        debug_assert!(
+            editor_content_w >= 120 || editor_w == 0,
+            "editor_content_w={} too narrow at inner_w={}",
+            editor_content_w,
+            inner_w
+        );
 
         // Editor tiles region: slim tab strip + compact breadcrumb
         let editor_tabs_h: u32 = 28;
@@ -292,5 +308,82 @@ impl ShellFrame {
         }
 
         lines
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify the editor keeps a usable width at every responsive breakpoint
+    /// and that side panels shrink instead of squeezing the editor to zero.
+    #[test]
+    fn editor_never_collapses_at_any_width() {
+        let widths = [1354u32, 960, 850, 680, 650, 500, 400];
+        for &w in &widths {
+            let shell = ShellFrame::new(Size { width: w, height: 400 });
+            let editor = shell
+                .regions
+                .iter()
+                .find(|r| r.id == "center_editor")
+                .expect("center_editor region missing");
+            assert!(
+                editor.rect.width >= 120,
+                "editor width {} < 120 at shell width {}",
+                editor.rect.width,
+                w
+            );
+        }
+    }
+
+    /// Regions occupying the same horizontal band must not overlap.
+    #[test]
+    fn no_horizontal_overlap_in_main_band() {
+        let shell = ShellFrame::new(Size { width: 960, height: 540 });
+        let find = |id: &str| -> Rect { shell.regions.iter().find(|r| r.id == id).unwrap().rect };
+
+        let rail = find("app_rail");
+        let sidebar = find("sidebar");
+        let editor = find("center_editor");
+        let minimap = find("minimap_lane");
+        let ai = find("ai_panel_content");
+
+        // Check no gaps between adjacent regions
+        assert_eq!(rail.x + rail.width, sidebar.x, "rail/sidebar gap");
+        assert_eq!(sidebar.x + sidebar.width, editor.x, "sidebar/editor gap");
+
+        // Minimap sits between editor content and AI panel (or has zero width)
+        if minimap.width > 0 {
+            assert_eq!(editor.x + editor.width, minimap.x, "editor/minimap gap");
+            assert_eq!(minimap.x + minimap.width, ai.x, "minimap/ai gap");
+        } else {
+            assert_eq!(editor.x + editor.width, ai.x, "editor/ai gap");
+        }
+    }
+
+    /// At narrow widths, the minimap is hidden and sidebar shrinks.
+    #[test]
+    fn minimap_hidden_at_narrow_widths() {
+        let shell = ShellFrame::new(Size { width: 680, height: 400 });
+        let minimap = shell.regions.iter().find(|r| r.id == "minimap_lane").unwrap();
+        assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 680px");
+
+        let sidebar = shell.regions.iter().find(|r| r.id == "sidebar").unwrap();
+        assert_eq!(sidebar.rect.width, 160, "sidebar should shrink to 160 at 680px");
+    }
+
+    /// Sidebar collapses to rail-width at very narrow shells.
+    #[test]
+    fn sidebar_collapses_at_extreme_widths() {
+        let shell = ShellFrame::new(Size { width: 500, height: 400 });
+        let sidebar = shell.regions.iter().find(|r| r.id == "sidebar").unwrap();
+        assert_eq!(sidebar.rect.width, 56, "sidebar should collapse to 56 at 500px");
+
+        let editor = shell.regions.iter().find(|r| r.id == "center_editor").unwrap();
+        assert!(
+            editor.rect.width >= 200,
+            "editor should stay usable at 500px, got {}",
+            editor.rect.width
+        );
     }
 }
