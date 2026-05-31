@@ -45,10 +45,10 @@ pub fn run_shell_window(shell: ShellFrame) -> Result<(), Box<dyn Error>> {
         window_attributes: window_attributes.clone(),
         title,
         maybe_window: None,
-        bg_color: super::theme_adapter::adjust_brightness(shell.theme.surface, 0.95),
         shell: shell.clone(),
         requested_initial_frame: false,
         already_logged_existing: false,
+        first_render_shown: false,
     };
 
     let run_result = event_loop.run_app(&mut app);

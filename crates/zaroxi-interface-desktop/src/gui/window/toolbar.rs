@@ -1,9 +1,9 @@
 /*!
 Top toolbar / chrome band drawing logic.
 
-Phase 2: refined title bar with Zaroxi brand, control group placeholders,
-and tab strip impression.
+Phase 3: compact title bar using semantic theme colours, 1 px separator.
 */
+use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
@@ -11,63 +11,39 @@ pub fn draw(
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
-    let sep_h: u32 = std::cmp::max(2, bt);
-
     let r = &region.rect;
+    let sem = ZaroxiTheme::Dark.colors(false);
+
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
         x: r.x,
         y: r.y,
         width: r.width,
         height: r.height,
-        color: super::theme_adapter::adjust_brightness(theme.surface, 0.90),
+        color: super::theme_adapter::adjust_color(sem.title_bar_background, 1.0),
     });
 
-    // Bottom separator
-    if r.height > sep_h {
+    // Thin bottom separator
+    if r.height > bt {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
-            y: r.y.saturating_add(r.height.saturating_sub(sep_h)),
+            y: r.y.saturating_add(r.height.saturating_sub(bt)),
             width: r.width,
-            height: sep_h,
-            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.78),
-        });
-    }
-
-    // Left: Zaroxi brand area
-    if r.width > 100 && r.height > 16 {
-        rects.push(zaroxi_core_engine_render_backend::DrawRect {
-            x: r.x.saturating_add(12),
-            y: r.y.saturating_add(6),
-            width: 64,
-            height: r.height.saturating_sub(12),
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.04),
-        });
-    }
-
-    // Center: window title area
-    if r.width > 200 {
-        let center_x = r.x.saturating_add(r.width / 2 - 40);
-        rects.push(zaroxi_core_engine_render_backend::DrawRect {
-            x: center_x,
-            y: r.y.saturating_add(8),
-            width: 80,
-            height: r.height.saturating_sub(16),
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.00),
+            height: bt,
+            color: super::theme_adapter::adjust_color(sem.divider, 0.8),
         });
     }
 
     // Right: window controls (minimize, maximize, close)
     if r.width > 120 {
-        let ctrl_w: u32 = 20;
-        let ctrl_h: u32 = 18;
-        let cy = r.y.saturating_add(10);
-        let right_edge = r.x.saturating_add(r.width).saturating_sub(12);
+        let ctrl_w: u32 = 16;
+        let ctrl_h: u32 = 14;
+        let cy = r.y.saturating_add(8);
+        let right_edge = r.x.saturating_add(r.width).saturating_sub(10);
 
-        let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
         let ctrl_colors = [
-            super::theme_adapter::adjust_brightness(theme.border_color, 0.92),
-            super::theme_adapter::adjust_brightness(theme.border_color, 0.96),
-            super::theme_adapter::adjust_color(sem.error, 0.96),
+            super::theme_adapter::adjust_color(sem.border, 0.88),
+            super::theme_adapter::adjust_color(sem.border, 0.94),
+            super::theme_adapter::adjust_color(sem.error, 0.90),
         ];
         let mut cx = right_edge;
         for i in (0..3u32).rev() {
@@ -82,13 +58,13 @@ pub fn draw(
         }
     }
 
-    // Add text labels
-    if r.width > 120 && r.height > 20 {
+    // Add text label
+    if r.width > 80 && r.height > 14 {
         let labels = vec!["Zaroxi".to_string()];
         let mut text_rects = super::text_adapter::layout_and_publish_text(
-            r.x.saturating_add(16),
-            r.y.saturating_add(8),
-            r.width,
+            r.x.saturating_add(10),
+            r.y.saturating_add(4),
+            r.width.saturating_sub(20),
             r.height.saturating_sub(8),
             &labels,
             theme,

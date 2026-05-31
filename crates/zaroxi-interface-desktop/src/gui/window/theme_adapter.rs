@@ -33,6 +33,7 @@ pub fn parse_hex_color(s: &str) -> wgpu::Color {
 /// factor > 1.0 -> lighter, factor < 1.0 -> darker. Values are clamped to [0.0,1.0].
 /// This is intentionally simple (linear scale) and lives in the interface layer
 /// so we don't introduce a second theme system in the render backend.
+#[allow(dead_code)]
 pub fn adjust_brightness(s: &str, factor: f64) -> wgpu::Color {
     let s_trim = s.trim_start_matches('#');
     if s_trim.len() == 6 {

@@ -97,30 +97,32 @@ pub struct ShellFrame {
 impl ShellFrame {
     /// Construct a new ShellFrame and compute a canonical IDE layout.
     ///
-    /// Phase 2 layout: refined proportions, breadcrumb row, balanced panel widths
-    /// matching the target reference image structure.
+    /// Phase 3 layout: compact chrome, editor-dominant, IDE-grade proportions.
+    /// Removes outer padding (chrome regions self-inset), tightens header/separator
+    /// heights, narrows the activity rail, and gives the center editor unambiguous
+    /// visual dominance.
     pub fn new(size: Size) -> Self {
         let theme = Theme::default();
 
-        // Use design tokens for spacing/metrics where reasonable (theme-driven sizes)
-        let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
-        let outer_padding: u32 = tokens.spacing_xl as u32; // expected 24
-        // Top toolbar height derived from token + small delta for visual comfort
-        let top_toolbar_h: u32 = tokens.spacing_xxl as u32 + 12; // ~32 + 12 = 44
-        let status_h: u32 = (tokens.spacing_md + tokens.font_size_sm + 2.0) as u32; // ~12+12+2=26
-        let bottom_dock_h: u32 = 0; // no full-width bottom slab (terminal docked to center)
+        // No outer padding – chrome components handle their own insets.
+        let outer_padding: u32 = 0;
+        // Compact top toolbar: slim title bar / chrome band.
+        let top_toolbar_h: u32 = 30;
+        // Slim status bar.
+        let status_h: u32 = 22;
+        let bottom_dock_h: u32 = 0;
 
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
 
-        // Left activity rail (compact)
-        let app_rail_w: u32 = 48;
-        // Left sidebar: target ~260px
+        // Very narrow activity rail (icons only).
+        let app_rail_w: u32 = 44;
+        // Left sidebar: secondary, narrower than editor.
         let mut left_sidebar_w: u32 = 260;
         left_sidebar_w = left_sidebar_w.clamp(180, inner_w.saturating_div(2));
-        // Right AI panel: target ~320px
+        // Right utility panel: optional/supporting, narrower than editor.
         let mut ai_panel_w: u32 = 320;
         ai_panel_w = ai_panel_w.clamp(220, inner_w.saturating_div(2));
 
@@ -171,22 +173,21 @@ impl ShellFrame {
         let editor_w = ai_panel.x.saturating_sub(editor_x);
 
         // Minimap lane inset on the right inside the editor column (narrow)
-        let minimap_w: u32 =
-            (zaroxi_interface_theme::theme::DesignTokens::default().spacing_lg * 4.0) as u32; // use token-derived width (~64)
+        let minimap_w: u32 = 56;
         let editor_content_w = editor_w.saturating_sub(minimap_w);
 
-        // Editor tiles region: tab strip + breadcrumb row at top of editor column
-        let editor_tabs_h: u32 = 34;
-        let breadcrumb_h: u32 = 24;
+        // Editor tiles region: slim tab strip + compact breadcrumb
+        let editor_tabs_h: u32 = 28;
+        let breadcrumb_h: u32 = 20;
         let editor_top_h = editor_tabs_h + breadcrumb_h;
 
         // Available height for editor body + terminal panel
         let below_editor_top_y = columns_y + editor_top_h;
         let below_editor_top_h = columns_h.saturating_sub(editor_top_h);
 
-        // Terminal panel (~28% of editor content height)
-        let mut center_bottom_h = ((below_editor_top_h as f32) * 0.28) as u32;
-        center_bottom_h = center_bottom_h.clamp(80, below_editor_top_h.saturating_sub(60));
+        // Terminal panel (~24% of editor content height, clamped conservatively)
+        let mut center_bottom_h = ((below_editor_top_h as f32) * 0.24) as u32;
+        center_bottom_h = center_bottom_h.clamp(60, below_editor_top_h.saturating_sub(80));
         let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
 
         // Editor tabs row (tab strip at top of editor column)
@@ -226,7 +227,7 @@ impl ShellFrame {
         };
 
         // AI panel header and content split
-        let ai_header_h: u32 = 36;
+        let ai_header_h: u32 = 28;
         let ai_panel_header =
             Rect { x: ai_panel.x, y: ai_panel.y, width: ai_panel.width, height: ai_header_h };
         let ai_panel_content = Rect {

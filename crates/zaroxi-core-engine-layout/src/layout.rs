@@ -47,14 +47,14 @@ impl ShellLayout {
         let w = width as f32;
         let h = height as f32;
 
-        // Design defaults (sensible, implementation-light values).
-        const TITLEBAR_H: f32 = 28.0;
+        // Design defaults (implementation-light values).
+        const TITLEBAR_H: f32 = 30.0;
         const STATUS_H: f32 = 22.0;
-        const SIDEBAR_W: f32 = 240.0;
-        const AI_PANEL_W: f32 = 300.0;
-        const TABBAR_H: f32 = 32.0;
-        const BREADCRUMB_H: f32 = 24.0;
-        const EDITOR_BOTTOM_H: f32 = 160.0;
+        const SIDEBAR_W: f32 = 260.0;
+        const AI_PANEL_W: f32 = 320.0;
+        const TABBAR_H: f32 = 28.0;
+        const BREADCRUMB_H: f32 = 20.0;
+        const EDITOR_BOTTOM_H: f32 = 150.0;
         const MIN_EDITOR_CONTENT_W: f32 = 80.0;
         const MIN_EDITOR_CONTENT_H: f32 = 40.0;
 

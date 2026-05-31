@@ -1,10 +1,9 @@
 /*!
 AI assistant pane drawing logic.
 
-Phase 2: structured assistant panel with header, explanation card,
-bullet list summary, code snippet preview, action buttons,
-prompt input, model dropdown, and send button.
+Phase 3: semantic theme colours, 1 px separators, compact IDE utility panel.
 */
+use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
@@ -12,8 +11,8 @@ pub fn draw(
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
-    let sep_h: u32 = std::cmp::max(2, bt);
     let r = &region.rect;
+    let sem = ZaroxiTheme::Dark.colors(false);
 
     // Pane background
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
@@ -21,26 +20,26 @@ pub fn draw(
         y: r.y,
         width: r.width,
         height: r.height,
-        color: super::theme_adapter::adjust_brightness(theme.surface, 0.94),
+        color: super::theme_adapter::adjust_color(sem.assistant_panel_background, 1.0),
     });
 
     let pad: u32 = 10;
     let inset_w = r.width.saturating_sub(pad * 2);
     let mut y_off = r.y.saturating_add(pad);
 
-    // --- Pane internal header: "Assistant" title + actions ---
-    let pane_header_h: u32 = 28;
+    // Pane internal header
+    let pane_header_h: u32 = 24;
     if r.height > pane_header_h + 20 && r.width > 80 {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
             width: inset_w,
             height: pane_header_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.02),
+            color: super::theme_adapter::adjust_color(sem.panel_header_background, 1.0),
         });
 
-        // Action buttons on right side of header (pin, close)
-        let btn_w: u32 = 20;
+        // Action buttons
+        let btn_w: u32 = 18;
         let btn_gap: u32 = 6;
         if inset_w > btn_w * 2 + btn_gap + 40 {
             let right_edge = r.x.saturating_add(pad).saturating_add(inset_w);
@@ -48,125 +47,106 @@ pub fn draw(
                 let bx = right_edge.saturating_sub((2 - i) * (btn_w + btn_gap));
                 rects.push(zaroxi_core_engine_render_backend::DrawRect {
                     x: bx,
-                    y: y_off.saturating_add(4),
+                    y: y_off.saturating_add(3),
                     width: btn_w,
-                    height: pane_header_h.saturating_sub(8),
-                    color: super::theme_adapter::adjust_brightness(
-                        theme.border_color,
-                        0.84 + (i as f64 * 0.02),
-                    ),
+                    height: pane_header_h.saturating_sub(6),
+                    color: super::theme_adapter::adjust_color(sem.divider, 0.82),
                 });
             }
         }
-
         y_off = y_off.saturating_add(pane_header_h).saturating_add(6);
     }
 
-    // --- Explanation / message card ---
-    let msg_h: u32 = 62;
-    if y_off.saturating_add(msg_h) < r.y.saturating_add(r.height).saturating_sub(200) {
-        // Card background (slightly rounded-looking via inset)
+    // Explanation message card
+    let msg_h: u32 = 56;
+    if y_off.saturating_add(msg_h) < r.y.saturating_add(r.height).saturating_sub(180) {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
             width: inset_w,
             height: msg_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.04),
+            color: super::theme_adapter::adjust_color(sem.nested_surface_background, 1.0),
         });
-        // Card border top
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
-            width: inset_w,
-            height: sep_h,
-            color: {
-                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                super::theme_adapter::adjust_color(sem.accent, 0.70)
-            },
+            width: 3,
+            height: msg_h,
+            color: super::theme_adapter::adjust_color(sem.accent, 0.65),
         });
 
-        // Text content rows inside message card
         let msg_rows: &[(f64, &str)] =
-            &[(0.86, "default"), (0.64, "default"), (0.72, "default"), (0.48, "default")];
-        let row_h: u32 = 12;
+            &[(0.82, "default"), (0.60, "default"), (0.68, "default"), (0.44, "default")];
+        let row_h: u32 = 10;
         let mut my = y_off.saturating_add(8);
-        let mw = inset_w.saturating_sub(20);
+        let mw = inset_w.saturating_sub(24);
         for &(pct, _) in msg_rows {
             if my + row_h > y_off + msg_h - 4 {
                 break;
             }
             let w = ((mw as f64) * pct) as u32;
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: r.x.saturating_add(pad + 10),
+                x: r.x.saturating_add(pad + 14),
                 y: my,
                 width: cmp_w(w, 0),
                 height: row_h,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.08),
+                color: super::theme_adapter::adjust_color(sem.text_faint, 0.38),
             });
             my = my.saturating_add(row_h).saturating_add(3);
         }
-
-        y_off = y_off.saturating_add(msg_h).saturating_add(10);
+        y_off = y_off.saturating_add(msg_h).saturating_add(8);
     }
 
-    // --- Bullet list summary ---
-    let bullet_h: u32 = 52;
-    if y_off.saturating_add(bullet_h) < r.y.saturating_add(r.height).saturating_sub(160) {
+    // Bullet list summary
+    let bullet_h: u32 = 46;
+    if y_off.saturating_add(bullet_h) < r.y.saturating_add(r.height).saturating_sub(140) {
         let bullet_items: &[(f64, &str)] =
-            &[(0.78, "default"), (0.60, "default"), (0.68, "default")];
+            &[(0.72, "default"), (0.56, "default"), (0.64, "default")];
         let mut by = y_off;
-        let bi_h: u32 = 16;
+        let bi_h: u32 = 14;
         for &(pct, _) in bullet_items {
-            // Bullet dot
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x.saturating_add(pad + 6),
                 y: by.saturating_add(4),
-                width: 6,
-                height: 6,
-                color: super::theme_adapter::adjust_brightness(theme.border_color, 1.00),
+                width: 5,
+                height: 5,
+                color: super::theme_adapter::adjust_color(sem.accent, 0.70),
             });
-            // Text line
             let w = ((inset_w.saturating_sub(30) as f64) * pct) as u32;
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x.saturating_add(pad + 20),
                 y: by.saturating_add(2),
                 width: cmp_w(w, 0),
                 height: bi_h.saturating_sub(4),
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.06),
+                color: super::theme_adapter::adjust_color(sem.text_faint, 0.36),
             });
             by = by.saturating_add(bi_h);
         }
-        y_off = y_off.saturating_add(bullet_h).saturating_add(8);
+        y_off = y_off.saturating_add(bullet_h).saturating_add(6);
     }
 
-    // --- Code snippet preview card ---
-    let snippet_h: u32 = 56;
-    if y_off.saturating_add(snippet_h) < r.y.saturating_add(r.height).saturating_sub(110) {
-        // Card background with left accent border
+    // Code snippet card
+    let snippet_h: u32 = 48;
+    if y_off.saturating_add(snippet_h) < r.y.saturating_add(r.height).saturating_sub(90) {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
             width: inset_w,
             height: snippet_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.02),
+            color: super::theme_adapter::adjust_color(sem.nested_surface_background, 1.0),
         });
-        // Left accent bar
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
-            width: 4,
+            width: 3,
             height: snippet_h,
-            color: {
-                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                super::theme_adapter::adjust_color(sem.syntax_function, 0.80)
-            },
+            color: super::theme_adapter::adjust_color(sem.syntax_function, 0.70),
         });
 
-        // Code lines inside the snippet card
-        let code_rows = [0.82, 0.58, 0.70];
+        let code_rows = [0.78, 0.54, 0.66];
         let mut sy = y_off.saturating_add(8);
         for &pct in &code_rows {
-            if sy + 12 > y_off + snippet_h - 6 {
+            if sy + 10 > y_off + snippet_h - 6 {
                 break;
             }
             let w = ((inset_w.saturating_sub(24) as f64) * pct) as u32;
@@ -174,31 +154,27 @@ pub fn draw(
                 x: r.x.saturating_add(pad + 14),
                 y: sy,
                 width: cmp_w(w, 0),
-                height: 10,
-                color: super::theme_adapter::adjust_brightness(theme.surface, 1.06),
+                height: 8,
+                color: super::theme_adapter::adjust_color(sem.text_faint, 0.36),
             });
-            sy = sy.saturating_add(14);
+            sy = sy.saturating_add(12);
         }
-
-        y_off = y_off.saturating_add(snippet_h).saturating_add(10);
+        y_off = y_off.saturating_add(snippet_h).saturating_add(8);
     }
 
-    // --- Action buttons ---
-    let action_h: u32 = 26;
-    if y_off.saturating_add(action_h) < r.y.saturating_add(r.height).saturating_sub(80) {
+    // Action buttons
+    let action_h: u32 = 24;
+    if y_off.saturating_add(action_h) < r.y.saturating_add(r.height).saturating_sub(70) {
         let btn_count: u32 = 3;
-        let btn_w: u32 = cmp_w(inset_w, btn_count * 60 + 20) / btn_count;
+        let btn_w: u32 = cmp_w(inset_w, btn_count * 56 + 20) / btn_count;
         let act_btns = btn_w.saturating_sub(4);
         let total_w = btn_count * btn_w;
         let action_x = r.x.saturating_add(pad + (inset_w.saturating_sub(total_w)) / 2);
 
         let btn_colors = [
-            {
-                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                super::theme_adapter::adjust_color(sem.accent, 0.90)
-            },
-            super::theme_adapter::adjust_brightness(theme.surface, 1.02),
-            super::theme_adapter::adjust_brightness(theme.surface, 1.02),
+            super::theme_adapter::adjust_color(sem.accent, 0.85),
+            super::theme_adapter::adjust_color(sem.hover_background, 1.6),
+            super::theme_adapter::adjust_color(sem.hover_background, 1.6),
         ];
         for i in 0..btn_count {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
@@ -209,75 +185,66 @@ pub fn draw(
                 color: btn_colors[i as usize],
             });
         }
-        y_off = y_off.saturating_add(action_h).saturating_add(10);
+        y_off = y_off.saturating_add(action_h).saturating_add(8);
     }
 
-    // --- Prompt input row ---
-    let input_h: u32 = 32;
-    if r.height > r.y.saturating_add(r.height).saturating_sub(y_off).saturating_add(30)
-        && y_off.saturating_add(input_h) < r.y.saturating_add(r.height).saturating_sub(20)
-    {
-        // Input field background
+    // Prompt input row
+    let input_h: u32 = 28;
+    if y_off.saturating_add(input_h) < r.y.saturating_add(r.height).saturating_sub(20) {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
             width: inset_w,
             height: input_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 1.04),
+            color: super::theme_adapter::adjust_color(sem.input_background, 1.0),
         });
 
-        // Prompt text hint inside
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad + 10),
             y: y_off.saturating_add(8),
             width: inset_w.saturating_sub(80),
             height: input_h.saturating_sub(16),
-            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.78),
+            color: super::theme_adapter::adjust_color(sem.divider, 0.65),
         });
 
-        y_off = y_off.saturating_add(input_h).saturating_add(8);
+        y_off = y_off.saturating_add(input_h).saturating_add(6);
     }
 
-    // --- Model dropdown + Send button row ---
-    let bottom_row_h: u32 = 28;
-    if y_off.saturating_add(bottom_row_h) < r.y.saturating_add(r.height).saturating_sub(16) {
-        // Model dropdown (left side)
+    // Model dropdown + Send button
+    let bottom_row_h: u32 = 26;
+    if y_off.saturating_add(bottom_row_h) < r.y.saturating_add(r.height).saturating_sub(12) {
         let dropdown_w = inset_w.saturating_mul(2) / 3;
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x.saturating_add(pad),
             y: y_off,
             width: dropdown_w,
             height: bottom_row_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 0.98),
+            color: super::theme_adapter::adjust_color(sem.panel_background, 1.0),
         });
 
-        // Send button (right side)
-        let send_w: u32 = 42;
+        let send_w: u32 = 40;
         let send_x = r.x.saturating_add(pad).saturating_add(inset_w).saturating_sub(send_w);
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: send_x,
             y: y_off.saturating_add(2),
             width: send_w,
             height: bottom_row_h.saturating_sub(4),
-            color: {
-                let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                super::theme_adapter::adjust_color(sem.accent, 0.92)
-            },
+            color: super::theme_adapter::adjust_color(sem.accent, 0.88),
         });
     }
 
-    // Left separator for the pane
-    if r.width > sep_h {
+    // Left separator
+    if r.width > bt {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
             y: r.y,
-            width: sep_h,
+            width: bt,
             height: r.height,
-            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.82),
+            color: super::theme_adapter::adjust_color(sem.divider, 0.90),
         });
     }
 
-    // Text labels via Cosmic Text layout
+    // Text labels
     if r.width > 120 && r.height > 40 {
         let labels = vec![
             "Assistant".to_string(),
@@ -305,23 +272,6 @@ pub fn draw(
             theme.text_primary,
         );
         rects.append(&mut text_rects);
-    }
-
-    // Optional input placeholder
-    if r.height > 80 && r.width > 160 {
-        let input = vec!["Rewrite this to use Result...".to_string()];
-        let fx = r.x.saturating_add(14);
-        let fy = r.y.saturating_add(r.height).saturating_sub(72);
-        let mut foot = super::text_adapter::layout_and_publish_text(
-            fx,
-            fy,
-            r.width.saturating_sub(28),
-            28,
-            &input,
-            theme,
-            theme.text_secondary,
-        );
-        rects.append(&mut foot);
     }
 
     rects

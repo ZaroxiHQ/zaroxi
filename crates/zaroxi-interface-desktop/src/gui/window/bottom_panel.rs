@@ -1,8 +1,9 @@
 /*!
 Bottom dock drawing logic (full-width panel above status bar).
 
-Phase 2: refined terminal panel with tab headers and log output lines.
+Phase 3: semantic theme colours, 1 px separator.
 */
+use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
@@ -10,39 +11,37 @@ pub fn draw(
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
-    let sep_h: u32 = std::cmp::max(2, bt);
     let r = &region.rect;
+    let sem = ZaroxiTheme::Dark.colors(false);
 
-    // Panel background
     rects.push(zaroxi_core_engine_render_backend::DrawRect {
         x: r.x,
         y: r.y,
         width: r.width,
         height: r.height,
-        color: super::theme_adapter::adjust_brightness(theme.surface, 0.91),
+        color: super::theme_adapter::adjust_color(sem.panel_background, 1.0),
     });
 
-    // Top separator
-    if r.height > sep_h {
+    if r.height > bt {
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
             y: r.y,
             width: r.width,
-            height: sep_h,
-            color: super::theme_adapter::adjust_brightness(theme.border_color, 0.82),
+            height: bt,
+            color: super::theme_adapter::adjust_color(sem.divider, 0.85),
         });
     }
 
     // Tab header row
-    let header_h: u32 = std::cmp::min(32, r.height / 4);
+    let header_h: u32 = std::cmp::min(28, r.height / 4);
     if header_h > 0 && r.width > 40 {
-        let header_y = r.y.saturating_add(sep_h);
+        let header_y = r.y.saturating_add(bt);
         rects.push(zaroxi_core_engine_render_backend::DrawRect {
             x: r.x,
             y: header_y,
             width: r.width,
             height: header_h,
-            color: super::theme_adapter::adjust_brightness(theme.surface, 0.96),
+            color: super::theme_adapter::adjust_color(sem.tab_strip_background, 1.0),
         });
 
         let tabs: u32 = 4;
@@ -65,59 +64,52 @@ pub fn draw(
                 width: tab_w,
                 height: tab_h,
                 color: if active {
-                    super::theme_adapter::adjust_brightness(theme.surface, 1.06)
+                    super::theme_adapter::adjust_color(sem.tab_active_background, 1.0)
                 } else {
-                    super::theme_adapter::adjust_brightness(theme.surface, 0.97)
+                    super::theme_adapter::adjust_color(sem.tab_background, 1.0)
                 },
             });
             tx = tx.saturating_add(tab_w).saturating_add(tab_pad);
         }
 
-        // Header bottom separator
-        if r.height > header_y.saturating_sub(r.y).saturating_add(header_h).saturating_add(sep_h) {
+        if r.height > header_y.saturating_sub(r.y).saturating_add(header_h).saturating_add(bt) {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: header_y.saturating_add(header_h),
                 width: r.width,
-                height: sep_h,
-                color: super::theme_adapter::adjust_brightness(theme.border_color, 0.80),
+                height: bt,
+                color: super::theme_adapter::adjust_color(sem.divider, 0.85),
             });
         }
     }
 
     // Body: output/log lines
-    let body_start = r.y.saturating_add(sep_h).saturating_add(header_h).saturating_add(sep_h);
+    let body_start = r.y.saturating_add(bt).saturating_add(header_h).saturating_add(bt);
     if r.height > body_start.saturating_sub(r.y) && r.width > 40 {
-        let available_h = r.height.saturating_sub(body_start.saturating_sub(r.y)).saturating_sub(8);
-        let line_h = 13u32;
-        let gap = 6u32;
+        let available_h = r.height.saturating_sub(body_start.saturating_sub(r.y)).saturating_sub(6);
+        let line_h = 11u32;
+        let gap = 4u32;
         let lines = if available_h > (line_h + gap) { available_h / (line_h + gap) } else { 0 };
-        let mut ly = body_start.saturating_add(6);
+        let mut ly = body_start.saturating_add(4);
 
         for i in 0..lines {
             let factor = match i % 4 {
-                0 => 0.92,
-                1 => 0.58,
-                2 => 0.78,
-                _ => 0.44,
+                0 => 0.86,
+                1 => 0.54,
+                2 => 0.72,
+                _ => 0.40,
             };
             let w = ((r.width as f64) * factor) as u32;
             let color = match i % 4 {
-                0 => super::theme_adapter::adjust_brightness(theme.surface, 1.08),
-                1 => {
-                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                    super::theme_adapter::adjust_color(sem.syntax_function, 0.88)
-                }
-                3 => {
-                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
-                    super::theme_adapter::adjust_color(sem.syntax_string, 0.88)
-                }
-                _ => super::theme_adapter::adjust_brightness(theme.surface, 1.04),
+                0 => super::theme_adapter::adjust_color(sem.text_secondary, 0.45),
+                1 => super::theme_adapter::adjust_color(sem.syntax_function, 0.82),
+                3 => super::theme_adapter::adjust_color(sem.syntax_string, 0.82),
+                _ => super::theme_adapter::adjust_color(sem.text_secondary, 0.38),
             };
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: r.x.saturating_add(14),
+                x: r.x.saturating_add(12),
                 y: ly,
-                width: w.saturating_sub(14),
+                width: w.saturating_sub(12),
                 height: line_h,
                 color,
             });
