@@ -9,6 +9,7 @@ use crate::desktop::DesktopComposition;
 use crate::gui::shell::ShellRegion;
 use zaroxi_application_ai::view_model::AiPanelState;
 use zaroxi_application_navigation::view_model::AppRailState;
+use zaroxi_core_engine_ui::ContentView;
 
 pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
@@ -99,7 +100,17 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ce) = regions.iter().find(|r| r.id == "center_editor") {
-        lines.push(format!("editor.content: code-area rect={}", ce.rect));
+        let content = ContentView::default();
+        lines.push(format!("editor.title: {} rect={}", content.title, ce.rect));
+        if !content.subtitle.is_empty() {
+            lines.push(format!("editor.subtitle: {} rect={}", content.subtitle, ce.rect));
+        }
+        lines.push(format!(
+            "editor.lines: {} count={} rect={}",
+            content.lines.join(" | "),
+            content.lines.len(),
+            ce.rect
+        ));
     }
 
     if let Some(ml) = regions.iter().find(|r| r.id == "minimap_lane") {

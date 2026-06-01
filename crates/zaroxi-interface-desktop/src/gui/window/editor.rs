@@ -1,11 +1,11 @@
 /*!
 Center editor area drawing logic.
 
-Phase 4: product-parity editor — tab strip with top-accent active tab,
-breadcrumb path, gutter with line numbers, current-line highlight,
-cursor block, syntax-colored code lines, minimap with viewport indicator,
-bottom dock with terminal tabs and colored output.
+Phase 6: engine content path — text labels flow through
+ContentView → compose_content_view() → WidgetScene.labels.
+Visual styling (gutter, syntax colors, cursor, minimap) remains desktop-owned.
 */
+use zaroxi_core_engine_ui::{ContentView, compose_content_view};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
@@ -649,24 +649,23 @@ pub fn draw(
             "center_bottom_panel" => {
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             }
-            "center_editor" => vec![
-                format!("{}", 1),
-                format!("{}", 2),
-                format!("{}", 3),
-                format!("{}", 4),
-                format!("{}", 5),
-                format!("{}", 6),
-                format!("{}", 7),
-                format!("{}", 8),
-                format!("{}", 9),
-                format!("{}", 10),
-                format!("{}", 11),
-                format!("{}", 12),
-                format!("{}", 13),
-                format!("{}", 14),
-                format!("{}", 15),
-                format!("{}", 16),
-            ],
+            "center_editor" => {
+                let content = ContentView::new(
+                    "main.rs",
+                    "src/app/",
+                    vec!["fn main() {".into(), "    println!(\"hello\");".into(), "}".into()],
+                );
+                let title_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
+                let body_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_secondary));
+                let krect = zaroxi_kernel_math::Rect::new(
+                    r.x as f32,
+                    r.y as f32,
+                    r.width as f32,
+                    r.height as f32,
+                );
+                let scene = compose_content_view(&krect, &content, title_c, body_c);
+                scene.labels.iter().map(|l| l.label.clone()).collect()
+            }
             _ => vec![],
         };
         if !labels.is_empty() {
@@ -692,4 +691,8 @@ pub fn draw(
     }
 
     rects
+}
+
+fn wgpu_f32(c: wgpu::Color) -> [f32; 4] {
+    [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
 }

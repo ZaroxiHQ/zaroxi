@@ -1,4 +1,5 @@
 use crate::bar::Bar;
+use crate::content::ContentView;
 use zaroxi_core_engine_scene::{LabelPrimitive, RectPrimitive, WidgetScene};
 
 /// Compose a set of generic `Bar` widgets into scene `RectPrimitive`s.
@@ -56,6 +57,70 @@ pub fn compose_bars_scene(
     let rects = compose_bars(bars, rect_colors);
     let labels = compose_bar_labels(bars, label_colors);
     WidgetScene::new(rects, labels)
+}
+
+/// Compose a `ContentView` into a `WidgetScene`.
+///
+/// Lays out title, subtitle, and code lines within the given region rect using
+/// a simple vertical stack. The title receives `title_color`, everything else
+/// uses `body_color`. Returns only label primitives (no background rects) —
+/// the caller owns the panel background.
+pub fn compose_content_view(
+    region: &zaroxi_kernel_math::Rect,
+    content: &ContentView,
+    title_color: [f32; 4],
+    body_color: [f32; 4],
+) -> WidgetScene {
+    let title_h: f32 = 18.0;
+    let subtitle_h: f32 = 14.0;
+    let line_h: f32 = 16.0;
+    let pad_x: f32 = 10.0;
+    let mut labels: Vec<LabelPrimitive> = Vec::new();
+    let mut y = region.y + 4.0;
+
+    // Title
+    labels.push(LabelPrimitive::new(
+        &content.title,
+        region.x + pad_x,
+        y,
+        (region.width - pad_x * 2.0).max(0.0),
+        title_h,
+        title_color,
+    ));
+    y += title_h + 2.0;
+
+    // Subtitle
+    if !content.subtitle.is_empty() {
+        labels.push(LabelPrimitive::new(
+            &content.subtitle,
+            region.x + pad_x,
+            y,
+            (region.width - pad_x * 2.0).max(0.0),
+            subtitle_h,
+            body_color,
+        ));
+        y += subtitle_h + 4.0;
+    }
+
+    // Code lines
+    let max_lines = ((region.y + region.height - y) / line_h) as usize;
+    for (i, line) in content.lines.iter().enumerate().take(max_lines) {
+        if y + line_h > region.y + region.height {
+            break;
+        }
+        labels.push(LabelPrimitive::new(
+            line,
+            region.x + pad_x,
+            y,
+            (region.width - pad_x * 2.0).max(0.0),
+            line_h,
+            body_color,
+        ));
+        y += line_h;
+        let _ = i; // used only for iter position
+    }
+
+    WidgetScene::new(Vec::new(), labels)
 }
 
 #[cfg(test)]
