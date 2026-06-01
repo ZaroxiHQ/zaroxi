@@ -35,6 +35,8 @@ pub mod transcript;
 #[cfg(feature = "full_renderer")]
 pub use error::RenderError;
 #[cfg(feature = "full_renderer")]
+pub use renderer::PanelColors;
+#[cfg(feature = "full_renderer")]
 pub use renderer::Rect;
 #[cfg(feature = "full_renderer")]
 pub use renderer::RenderLayout;
@@ -42,6 +44,9 @@ pub use renderer::RenderLayout;
 pub use renderer::Renderer;
 #[cfg(feature = "full_renderer")]
 pub use renderer::UiBlock;
+
+// Engine seam: re-export text layout so interface crates don't reach into engine-text directly.
+pub use zaroxi_core_engine_text::plain::layout_plain_lines;
 
 // Export the tiny semantic render intent and the Phase 53 draw-plan adapter.
 // Intent remains always available; the draw-plan is a semantic, non-rendering

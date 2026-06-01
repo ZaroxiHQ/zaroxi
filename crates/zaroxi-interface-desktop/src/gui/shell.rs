@@ -108,13 +108,20 @@ impl ShellFrame {
         let outer_padding: u32 = 0;
         let top_toolbar_h: u32 = 30;
         let status_h: u32 = 28;
-        let bottom_dock_h: u32 = 0;
         let app_rail_w: u32 = 44;
 
         let inner_x = outer_padding;
         let inner_y = outer_padding;
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
+
+        let bottom_dock_h: u32 = if inner_h >= 600 {
+            150
+        } else if inner_h >= 450 {
+            100
+        } else {
+            0
+        };
 
         // ── Responsive horizontal allocation ──────────────────────
         // Sidebar and AI panel shrink at narrower widths so the center
@@ -203,7 +210,8 @@ impl ShellFrame {
 
         // Terminal panel (~24% of editor content height, clamped conservatively)
         let mut center_bottom_h = ((below_editor_top_h as f32) * 0.24) as u32;
-        center_bottom_h = center_bottom_h.clamp(60, below_editor_top_h.saturating_sub(80));
+        center_bottom_h =
+            center_bottom_h.saturating_sub(0).min(below_editor_top_h.saturating_sub(80)).max(0);
         let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
 
         // Editor tabs row (tab strip at top of editor column)

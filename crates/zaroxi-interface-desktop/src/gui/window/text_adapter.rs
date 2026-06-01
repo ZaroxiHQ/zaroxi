@@ -2,7 +2,7 @@
 Thin text adapter for GUI-9.
 
 This adapter reuses the existing Cosmic Text integration path that lives under
-`zaroxi_core_engine_text::plain::layout_plain_lines` and the bundled monospace
+`zaroxi_core_engine_render::layout_plain_lines` and the bundled monospace
 metrics from `zaroxi_core_engine_font::load_bundled_monospace`.
 
 Responsibilities:
@@ -16,14 +16,14 @@ Responsibilities:
   forwards-compatible with backends that later render glyphs from the scene.
 
 Note: This file purposely avoids creating a second text system. It reuses the
-existing `zaroxi_core_engine_text` layout helpers and the bundled monospace font.
+existing `zaroxi_core_engine_render` layout helpers and the bundled monospace font.
 */
 
 use crate::gui::Theme;
 use zaroxi_core_engine_font::load_bundled_monospace;
+use zaroxi_core_engine_render::layout_plain_lines;
 use zaroxi_core_engine_scene;
 use zaroxi_core_engine_scene::{EditorPrimitiveSet, ShellSceneModel, TextPrimitive};
-use zaroxi_core_engine_text::plain::layout_plain_lines;
 
 /// Layout `lines` inside the rectangle (x,y,width,height) using the existing
 /// Cosmic Text layout path and publish a minimal scene snapshot. Returns a set
@@ -69,7 +69,7 @@ pub fn layout_and_publish_text(
         }
     }
 
-    // Use the existing Cosmic Text / engine text layout helper to produce
+    // Use the existing Cosmic Text layout helper to produce
     // stable TextPrimitive positions. This is the existing integration path.
     let line_layout = layout_plain_lines(lines, &font, x, y, None);
 

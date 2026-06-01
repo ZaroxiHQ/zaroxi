@@ -16,3 +16,4 @@ pub use shell_layout_input::{
 
 pub mod layout;
 pub use layout::ShellLayout;
+pub use layout::build_shell_ui;

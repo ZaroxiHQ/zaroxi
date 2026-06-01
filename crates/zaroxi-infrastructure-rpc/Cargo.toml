@@ -6,4 +6,6 @@ description = "zaroxi-infrastructure-rpc (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

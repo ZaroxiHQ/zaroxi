@@ -15,5 +15,4 @@ zaroxi-kernel-math = { workspace = true }
 zaroxi-core-engine-font = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
 zaroxi-core-engine-text = { workspace = true }
-zaroxi-core-engine-ui = { workspace = true }
 bytemuck = { workspace = true }

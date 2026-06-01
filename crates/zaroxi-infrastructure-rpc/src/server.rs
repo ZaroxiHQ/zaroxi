@@ -70,9 +70,9 @@ so concrete service crates can implement them and be injected at runtime.
 "#]
 
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
@@ -93,14 +93,23 @@ pub struct AppContext {
 /// The concrete implementation should be provided by `zaroxi-service-workspace`.
 #[allow(dead_code)]
 pub trait WorkspaceService {
-    fn open_workspace(&self, path: String) -> Pin<Box<dyn Future<Output = Result<WorkspaceOpenResult, WorkspaceError>> + Send>>;
-    fn read_tree(&self, path: String) -> Pin<Box<dyn Future<Output = Result<WorkspaceTree, WorkspaceError>> + Send>>;
+    fn open_workspace(
+        &self,
+        path: String,
+    ) -> Pin<Box<dyn Future<Output = Result<WorkspaceOpenResult, WorkspaceError>> + Send>>;
+    fn read_tree(
+        &self,
+        path: String,
+    ) -> Pin<Box<dyn Future<Output = Result<WorkspaceTree, WorkspaceError>> + Send>>;
 }
 
 /// AI service trait shape for handlers to call into.
 #[allow(dead_code)]
 pub trait AiService {
-    fn query_context(&self, prompt: String) -> Pin<Box<dyn Future<Output = Result<AiResult, AiError>> + Send>>;
+    fn query_context(
+        &self,
+        prompt: String,
+    ) -> Pin<Box<dyn Future<Output = Result<AiResult, AiError>> + Send>>;
 }
 
 /// Example domain/result structs used by the trait signatures.
@@ -170,7 +179,11 @@ pub type RpcResult<T> = Result<T, RpcError>;
 
 /// Handler trait: every RPC method handler implements this.
 pub trait Handler: Send + Sync + 'static {
-    fn call(&self, ctx: AppContext, params: serde_json::Value) -> Pin<Box<dyn Future<Output = RpcResult<serde_json::Value>> + Send>>;
+    fn call(
+        &self,
+        ctx: AppContext,
+        params: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = RpcResult<serde_json::Value>> + Send>>;
 }
 
 /// Registry maps method names to handlers.
@@ -217,7 +230,11 @@ impl RpcServer {
 
     /// Handle a single incoming request represented by a method name and
     /// raw JSON params. This is the thin handler dispatcher used by transports.
-    pub async fn handle_request(&self, method: &str, params: serde_json::Value) -> serde_json::Value {
+    pub async fn handle_request(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> serde_json::Value {
         match self.registry.get(method) {
             Some(handler) => {
                 match handler.call(self.ctx.clone(), params).await {
@@ -251,12 +268,19 @@ impl WorkspaceOpenHandler {
 }
 
 impl Handler for WorkspaceOpenHandler {
-    fn call(&self, _ctx: AppContext, params: serde_json::Value) -> Pin<Box<dyn Future<Output = RpcResult<serde_json::Value>> + Send>> {
+    fn call(
+        &self,
+        _ctx: AppContext,
+        params: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = RpcResult<serde_json::Value>> + Send>> {
         let svc = self.workspace_service.clone();
         let params = params.clone();
         Box::pin(async move {
             // Transport-level validation: expect { "path": "..." }
-            let path = params.get("path").and_then(|v| v.as_str()).ok_or_else(|| RpcError::invalid_params("missing 'path'"))?;
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| RpcError::invalid_params("missing 'path'"))?;
             // Call into service layer (thin adapter)
             match svc.open_workspace(path.to_string()).await {
                 Ok(res) => {
@@ -286,7 +310,11 @@ mod tests {
     }
 
     impl WorkspaceService for MockWorkspaceService {
-        fn open_workspace(&self, path: String) -> Pin<Box<dyn Future<Output = Result<WorkspaceOpenResult, WorkspaceError>> + Send>> {
+        fn open_workspace(
+            &self,
+            path: String,
+        ) -> Pin<Box<dyn Future<Output = Result<WorkspaceOpenResult, WorkspaceError>> + Send>>
+        {
             let opened = self.opened.clone();
             let path_clone = path.clone();
             Box::pin(async move {
@@ -295,10 +323,11 @@ mod tests {
             })
         }
 
-        fn read_tree(&self, _path: String) -> Pin<Box<dyn Future<Output = Result<WorkspaceTree, WorkspaceError>> + Send>> {
-            Box::pin(async move {
-                Ok(WorkspaceTree { root_path: "/".to_string() })
-            })
+        fn read_tree(
+            &self,
+            _path: String,
+        ) -> Pin<Box<dyn Future<Output = Result<WorkspaceTree, WorkspaceError>> + Send>> {
+            Box::pin(async move { Ok(WorkspaceTree { root_path: "/".to_string() }) })
         }
     }
 
@@ -307,10 +336,8 @@ mod tests {
         let svc: Arc<dyn WorkspaceService + Send + Sync> =
             Arc::new(MockWorkspaceService { opened: Arc::new(Mutex::new(vec![])) });
         let handler = WorkspaceOpenHandler::new(svc.clone());
-        let ctx = AppContext {
-            workspace_service: svc.clone(),
-            ai_service: Arc::new(MockAiService {}),
-        };
+        let ctx =
+            AppContext { workspace_service: svc.clone(), ai_service: Arc::new(MockAiService {}) };
         let params = json!({ "path": "/home/project" });
         let result = handler.call(ctx, params).await;
         assert!(result.is_ok());
@@ -321,7 +348,10 @@ mod tests {
     struct MockAiService {}
 
     impl AiService for MockAiService {
-        fn query_context(&self, _prompt: String) -> Pin<Box<dyn Future<Output = Result<AiResult, AiError>> + Send>> {
+        fn query_context(
+            &self,
+            _prompt: String,
+        ) -> Pin<Box<dyn Future<Output = Result<AiResult, AiError>> + Send>> {
             Box::pin(async move { Ok(AiResult { response: "ok".to_string() }) })
         }
     }

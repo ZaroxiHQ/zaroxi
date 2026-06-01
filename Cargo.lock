@@ -3928,7 +3928,6 @@ dependencies = [
  "zaroxi-core-engine-layout",
  "zaroxi-core-engine-scene",
  "zaroxi-core-engine-text",
- "zaroxi-interface-theme",
 ]
 
 [[package]]
@@ -3943,7 +3942,6 @@ dependencies = [
  "zaroxi-core-engine-layout",
  "zaroxi-core-engine-scene",
  "zaroxi-core-engine-text",
- "zaroxi-core-engine-ui",
  "zaroxi-core-engine-window",
  "zaroxi-kernel-math",
 ]
@@ -4004,6 +4002,7 @@ dependencies = [
  "serde_json",
  "taffy",
  "zaroxi-core-engine-layout",
+ "zaroxi-core-engine-scene",
  "zaroxi-kernel-math",
 ]
 
@@ -4237,6 +4236,7 @@ name = "zaroxi-domain-session"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "uuid",
  "zaroxi-kernel-id",
 ]
 
@@ -4309,6 +4309,11 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-infrastructure-rpc"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "zaroxi-infrastructure-settings"
@@ -4329,6 +4334,11 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-intelligence-agent"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "uuid",
+]
 
 [[package]]
 name = "zaroxi-intelligence-context"
@@ -4402,7 +4412,7 @@ dependencies = [
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-render-backend",
  "zaroxi-core-engine-scene",
- "zaroxi-core-engine-text",
+ "zaroxi-core-engine-ui",
  "zaroxi-core-engine-window",
  "zaroxi-core-platform-lsp",
  "zaroxi-core-platform-terminal",
@@ -4410,6 +4420,7 @@ dependencies = [
  "zaroxi-domain-workspace",
  "zaroxi-interface-app",
  "zaroxi-interface-theme",
+ "zaroxi-kernel-math",
  "zaroxi-kernel-types",
 ]
 
@@ -4432,6 +4443,9 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-kernel-config"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zaroxi-kernel-core"

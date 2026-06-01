@@ -89,13 +89,7 @@ pub fn get_or_compute(
         Vec::new()
     };
 
-    let state = DocumentSyntaxState {
-        version,
-        syntax,
-        spans: spans.clone(),
-        language,
-        pool,
-    };
+    let state = DocumentSyntaxState { version, syntax, spans: spans.clone(), language, pool };
 
     guard.insert(path.clone(), state);
     Ok(spans)
@@ -105,7 +99,11 @@ pub fn get_or_compute(
 /// This is a fast, non-computing lookup used by the frontend to avoid a visible
 /// recompute/flash when a previously computed highlight exists for the same
 /// document+version.
-pub fn get_cached(path: &PathBuf, version: u64, language: LanguageId) -> Option<Vec<HighlightSpan>> {
+pub fn get_cached(
+    path: &PathBuf,
+    version: u64,
+    language: LanguageId,
+) -> Option<Vec<HighlightSpan>> {
     let guard = CACHE.lock();
     if let Some(state) = guard.get(path) {
         if state.version == version && state.language == language {
@@ -126,7 +124,7 @@ pub fn clear() {
 }
 
 /// Number of documents currently cached.  Mostly useful for
-diagnostics.
+/// diagnostics.
 pub fn len() -> usize {
     CACHE.lock().len()
 }

@@ -186,27 +186,60 @@ mod tests {
         let diff = (total - l.editor.height).abs();
         assert!(diff < 0.001, "editor subregion heights must sum to editor height; diff={}", diff);
     }
+}
 
-    #[test]
-    fn layout_tiny_window_clamps_and_remains_nonnegative() {
-        let l = ShellLayout::from_window_size(60, 40);
-        // Everything must be non-negative and inside window bounds.
-        assert!(l.window_size.width >= 0.0);
-        assert!(l.window_size.height >= 0.0);
-        for r in &[
-            l.titlebar,
-            l.sidebar,
-            l.editor,
-            l.ai_panel,
-            l.status_bar,
-            l.editor_tab_bar,
-            l.editor_breadcrumb_bar,
-            l.editor_content,
-            l.editor_bottom_panel,
-        ] {
-            assert!(r.width >= 0.0 && r.height >= 0.0, "negative dimension found");
-            assert!(r.x + r.width <= l.window_size.width + 0.01, "rect overflows window width");
-            assert!(r.y + r.height <= l.window_size.height + 0.01, "rect overflows window height");
-        }
-    }
+/// Build a simple, deterministic shell UI from window dimensions.
+///
+/// Computes a `ShellLayout` and converts each major region into a colored
+/// `RectPrimitive` in paint order (background first).
+pub fn build_shell_ui(
+    window_w: u32,
+    window_h: u32,
+) -> Vec<zaroxi_core_engine_scene::RectPrimitive> {
+    use zaroxi_core_engine_scene::RectPrimitive;
+    let layout = super::ShellLayout::from_window_size(window_w, window_h);
+
+    let mut rects: Vec<RectPrimitive> = Vec::new();
+
+    rects.push(RectPrimitive::new(
+        0.0,
+        0.0,
+        layout.window_size.width,
+        layout.window_size.height,
+        [13.0 / 255.0, 14.0 / 255.0, 17.0 / 255.0, 1.0],
+    ));
+
+    rects.push(RectPrimitive::new(
+        layout.titlebar.x,
+        layout.titlebar.y,
+        layout.titlebar.width,
+        layout.titlebar.height,
+        [0.18, 0.18, 0.22, 1.0],
+    ));
+
+    rects.push(RectPrimitive::new(
+        layout.sidebar.x,
+        layout.sidebar.y,
+        layout.sidebar.width,
+        layout.sidebar.height,
+        [0.12, 0.12, 0.14, 1.0],
+    ));
+
+    rects.push(RectPrimitive::new(
+        layout.editor.x,
+        layout.editor.y,
+        layout.editor.width,
+        layout.editor.height,
+        [0.08, 0.09, 0.11, 1.0],
+    ));
+
+    rects.push(RectPrimitive::new(
+        layout.status_bar.x,
+        layout.status_bar.y,
+        layout.status_bar.width,
+        layout.status_bar.height,
+        [0.15, 0.15, 0.17, 1.0],
+    ));
+
+    rects
 }

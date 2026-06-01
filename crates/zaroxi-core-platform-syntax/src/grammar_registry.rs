@@ -570,7 +570,8 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to create languages dir: {}", e))?;
 
     // Create a unique temporary directory for cloning and compiling
-    let temp_dir = std::env::temp_dir().join(format!("zaroxi-grammar-{}-{}", language_id, std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("zaroxi-grammar-{}-{}", language_id, std::process::id()));
     if temp_dir.exists() {
         // Remove the entire directory to ensure a clean clone
         std::fs::remove_dir_all(&temp_dir)
@@ -583,7 +584,16 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
 
     // Use git clone with --force to overwrite existing directory
     let status = std::process::Command::new("git")
-        .args(["clone", "--depth", "1", "--branch", revision, "--force", repo_url, temp_dir.to_str().unwrap()])
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            revision,
+            "--force",
+            repo_url,
+            temp_dir.to_str().unwrap(),
+        ])
         .status()
         .map_err(|e| format!("Failed to run git clone: {}", e))?;
 
@@ -667,8 +677,7 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
                 let _ = std::fs::remove_dir_all(&temp_dir);
                 return Err(format!(
                     "Could not find compiled library for {} in {}",
-                    language_id,
-                    out_dir
+                    language_id, out_dir
                 ));
             }
         }
@@ -691,8 +700,7 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
 
         cc_cmd.arg("-o").arg(output_lib.to_str().unwrap());
 
-        let status = cc_cmd.status()
-            .map_err(|e| format!("Failed to run system cc: {}", e))?;
+        let status = cc_cmd.status().map_err(|e| format!("Failed to run system cc: {}", e))?;
 
         if !status.success() {
             let _ = std::fs::remove_dir_all(&temp_dir);

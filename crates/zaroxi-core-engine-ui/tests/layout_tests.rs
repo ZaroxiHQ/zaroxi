@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::composer::build_shell_ui;
+    use zaroxi_core_engine_layout::build_shell_ui;
 
     #[test]
     fn basic_shell_rects_count_and_top_height() {

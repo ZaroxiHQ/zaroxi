@@ -66,9 +66,7 @@ pub struct HighlightEngine {
 impl HighlightEngine {
     /// Create a new highlighting engine.
     pub fn new() -> Self {
-        Self {
-            runtime: crate::runtime::Runtime::new(),
-        }
+        Self { runtime: crate::runtime::Runtime::new() }
     }
 
     /// Highlight a syntax tree for a given language.
@@ -134,16 +132,18 @@ impl HighlightEngine {
         let ts_lang = language.tree_sitter_language()?;
 
         // Read the query file from the runtime directory
-        let query_path = self
-            .runtime
-            .language_dir(language_id)
-            .join("queries")
-            .join("highlights.scm");
+        let query_path =
+            self.runtime.language_dir(language_id).join("queries").join("highlights.scm");
 
         let query_text = match std::fs::read_to_string(&query_path) {
             Ok(text) => text,
             Err(e) => {
-                eprintln!("DEBUG: Query file not found for {}: {} (path: {})", language_id, e, query_path.display());
+                eprintln!(
+                    "DEBUG: Query file not found for {}: {} (path: {})",
+                    language_id,
+                    e,
+                    query_path.display()
+                );
                 // Try alternative path: look for queries directly in language directory
                 let alt_path = self.runtime.language_dir(language_id).join("highlights.scm");
                 match std::fs::read_to_string(&alt_path) {
@@ -169,28 +169,24 @@ impl HighlightEngine {
             }
             Err(e) => {
                 // Log the error for debugging but don't crash
-                eprintln!(
-                    "Warning: Failed to compile query for {}: {}",
-                    language_id, e
-                );
+                eprintln!("Warning: Failed to compile query for {}: {}", language_id, e);
                 None
             }
         }
     }
 
     /// Execute a highlighting query against a syntax tree.
-    fn execute_query(
-        &self,
-        query: &Query,
-        source: &str,
-        tree: &Tree,
-    ) -> Vec<HighlightSpan> {
+    fn execute_query(&self, query: &Query, source: &str, tree: &Tree) -> Vec<HighlightSpan> {
         let mut cursor = QueryCursor::new();
         let root_node = tree.root_node();
         let mut spans = Vec::new();
 
         eprintln!("DEBUG: Executing query, source length: {} bytes", source.len());
-        eprintln!("DEBUG: Root node: start={}, end={}", root_node.start_byte(), root_node.end_byte());
+        eprintln!(
+            "DEBUG: Root node: start={}, end={}",
+            root_node.start_byte(),
+            root_node.end_byte()
+        );
 
         // Iterate over query matches using QueryCursor::matches which returns a streaming
         // iterator. Use the StreamingIterator trait's `next` helper to walk matches.
@@ -258,122 +254,204 @@ impl Default for HighlightEngine {
 pub fn map_capture_name(name: &str) -> Highlight {
     match name {
         // Comments
-        "comment" | "comment.line" | "comment.block" | "comment.documentation" => Highlight::Comment,
-        
+        "comment" | "comment.line" | "comment.block" | "comment.documentation" => {
+            Highlight::Comment
+        }
+
         // Strings
-        "string" | "string.quoted" | "string.quoted.single" | "string.quoted.double" 
-        | "string.quoted.triple" | "string.quoted.raw" | "string.quoted.other" 
-        | "string.special" | "string.special.path" | "string.special.url" 
-        | "string.special.symbol" | "string.special.regex" | "string.special.format" 
-        | "string.interpolation" | "string.template" => Highlight::String,
-        
+        "string"
+        | "string.quoted"
+        | "string.quoted.single"
+        | "string.quoted.double"
+        | "string.quoted.triple"
+        | "string.quoted.raw"
+        | "string.quoted.other"
+        | "string.special"
+        | "string.special.path"
+        | "string.special.url"
+        | "string.special.symbol"
+        | "string.special.regex"
+        | "string.special.format"
+        | "string.interpolation"
+        | "string.template" => Highlight::String,
+
         // Escape sequences
         "escape" | "string.escape" | "character.escape" | "escape_sequence" => Highlight::String,
-        
+
         // Keywords
-        "keyword" | "keyword.control" | "keyword.control.conditional" 
-        | "keyword.control.repeat" | "keyword.control.import" 
-        | "keyword.control.exception" | "keyword.control.flow" | "keyword.operator" 
-        | "keyword.directive" | "keyword.directive.define" | "keyword.directive.include" 
-        | "keyword.storage" | "keyword.storage.modifier" | "keyword.storage.type" 
-        | "keyword.function" | "keyword.other" | "keyword.other.unit" 
-        | "keyword.other.special-method" | "keyword.other.import" 
-        | "keyword.control.as" | "keyword.control.use" | "keyword.control.mod" 
-        | "keyword.control.where" | "keyword.control.let" | "keyword.control.match" 
-        | "keyword.control.if" | "keyword.control.else" | "keyword.control.for" 
-        | "keyword.control.while" | "keyword.control.loop" | "keyword.control.in" 
-        | "keyword.control.break" | "keyword.control.continue" 
-        | "keyword.control.return" | "keyword.control.yield" | "keyword.control.await" 
-        | "keyword.control.async" | "keyword.control.unsafe" | "keyword.control.pub" 
-        | "keyword.control.crate" | "keyword.control.super" | "keyword.control.self" 
-        | "keyword.control.static" | "keyword.control.const" | "keyword.control.mut" 
-        | "keyword.control.ref" | "keyword.control.move" | "keyword.control.dyn" 
-        | "keyword.control.impl" | "keyword.control.trait" | "keyword.control.enum" 
-        | "keyword.control.struct" | "keyword.control.type" | "keyword.control.fn" 
-        | "keyword.control.extern" | "keyword.control.macro" | "keyword.control.union" => Highlight::Keyword,
-        
+        "keyword"
+        | "keyword.control"
+        | "keyword.control.conditional"
+        | "keyword.control.repeat"
+        | "keyword.control.import"
+        | "keyword.control.exception"
+        | "keyword.control.flow"
+        | "keyword.operator"
+        | "keyword.directive"
+        | "keyword.directive.define"
+        | "keyword.directive.include"
+        | "keyword.storage"
+        | "keyword.storage.modifier"
+        | "keyword.storage.type"
+        | "keyword.function"
+        | "keyword.other"
+        | "keyword.other.unit"
+        | "keyword.other.special-method"
+        | "keyword.other.import"
+        | "keyword.control.as"
+        | "keyword.control.use"
+        | "keyword.control.mod"
+        | "keyword.control.where"
+        | "keyword.control.let"
+        | "keyword.control.match"
+        | "keyword.control.if"
+        | "keyword.control.else"
+        | "keyword.control.for"
+        | "keyword.control.while"
+        | "keyword.control.loop"
+        | "keyword.control.in"
+        | "keyword.control.break"
+        | "keyword.control.continue"
+        | "keyword.control.return"
+        | "keyword.control.yield"
+        | "keyword.control.await"
+        | "keyword.control.async"
+        | "keyword.control.unsafe"
+        | "keyword.control.pub"
+        | "keyword.control.crate"
+        | "keyword.control.super"
+        | "keyword.control.self"
+        | "keyword.control.static"
+        | "keyword.control.const"
+        | "keyword.control.mut"
+        | "keyword.control.ref"
+        | "keyword.control.move"
+        | "keyword.control.dyn"
+        | "keyword.control.impl"
+        | "keyword.control.trait"
+        | "keyword.control.enum"
+        | "keyword.control.struct"
+        | "keyword.control.type"
+        | "keyword.control.fn"
+        | "keyword.control.extern"
+        | "keyword.control.macro"
+        | "keyword.control.union" => Highlight::Keyword,
+
         // Functions and methods
-        "function" | "function.call" | "function.method" | "function.builtin" 
-        | "method" | "method.call" | "constructor" | "function.macro" | "macro" => Highlight::Function,
-        
+        "function" | "function.call" | "function.method" | "function.builtin" | "method"
+        | "method.call" | "constructor" | "function.macro" | "macro" => Highlight::Function,
+
         // Variables
-        "variable" | "variable.parameter" | "variable.other" | "variable.other.member" 
-        | "label" | "definition" => Highlight::Variable,
-        
+        "variable"
+        | "variable.parameter"
+        | "variable.other"
+        | "variable.other.member"
+        | "label"
+        | "definition" => Highlight::Variable,
+
         // Built-in variables
         "variable.builtin" | "variable.language" | "variable.special" => Highlight::Type,
-        
+
         // Types
-        "type" | "type.builtin" | "type.parameter" | "type.qualifier" 
-        | "lifetime" | "storageclass" => Highlight::Type,
-        
+        "type" | "type.builtin" | "type.parameter" | "type.qualifier" | "lifetime"
+        | "storageclass" => Highlight::Type,
+
         // Constants
-        "constant" | "constant.builtin" | "boolean" | "constant.language" 
-        | "constant.numeric" | "constant.character" | "constant.other" => Highlight::Constant,
-        
+        "constant" | "constant.builtin" | "boolean" | "constant.language" | "constant.numeric"
+        | "constant.character" | "constant.other" => Highlight::Constant,
+
         // Attributes
         "attribute" | "attribute.builtin" | "decorator" | "annotation" => Highlight::Attribute,
-        
+
         // Operators
-        "operator" | "operator.assignment" | "operator.arithmetic" 
-        | "operator.comparison" | "operator.logical" | "operator.bitwise" 
-        | "operator.unary" | "operator.ternary" | "operator.spread" 
-        | "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special" 
+        "operator"
+        | "operator.assignment"
+        | "operator.arithmetic"
+        | "operator.comparison"
+        | "operator.logical"
+        | "operator.bitwise"
+        | "operator.unary"
+        | "operator.ternary"
+        | "operator.spread"
+        | "punctuation.bracket"
+        | "punctuation.delimiter"
+        | "punctuation.special"
         | "punctuation" => Highlight::Operator,
-        
+
         // Numbers
-        "number" | "number.float" | "number.integer" | "number.hex" 
-        | "number.octal" | "number.binary" | "number.scientific" => Highlight::Number,
-        
+        "number" | "number.float" | "number.integer" | "number.hex" | "number.octal"
+        | "number.binary" | "number.scientific" => Highlight::Number,
+
         // Properties
-        "property" | "property.definition" | "property.readonly" 
-        | "field" | "field.definition" => Highlight::Property,
-        
+        "property" | "property.definition" | "property.readonly" | "field" | "field.definition" => {
+            Highlight::Property
+        }
+
         // Namespaces
         "namespace" | "module" | "package" | "import" | "include" => Highlight::Namespace,
-        
+
         // Markdown-specific captures
         "emphasis" | "text.emphasis" => Highlight::Comment,
         "strong_emphasis" | "text.strong" => Highlight::Keyword,
         "code_span" | "inline_code" | "text.literal" | "code_block.content" => Highlight::Constant,
-        "link_text" | "shortcut_link" | "full_reference_link" | "collapsed_reference_link" 
-        | "inline_link" | "link" | "reference_link" | "reference_definition" 
-        | "footnote_reference" | "footnote_definition" | "text.reference" => Highlight::Variable,
-        "link_destination" | "link_title" | "uri_autolink" | "email_autolink" 
-        | "url" | "email" | "text.uri" => Highlight::String,
+        "link_text"
+        | "shortcut_link"
+        | "full_reference_link"
+        | "collapsed_reference_link"
+        | "inline_link"
+        | "link"
+        | "reference_link"
+        | "reference_definition"
+        | "footnote_reference"
+        | "footnote_definition"
+        | "text.reference" => Highlight::Variable,
+        "link_destination" | "link_title" | "uri_autolink" | "email_autolink" | "url" | "email"
+        | "text.uri" => Highlight::String,
         "image" | "image.description" => Highlight::Variable,
         "html_tag" | "html" | "html_block" | "html_inline" | "tag" => Highlight::Attribute,
         "hard_line_break" | "line_break" | "soft_line_break" => Highlight::Operator,
         "strikethrough" => Highlight::Comment,
         "backslash_escape" => Highlight::String,
         "latex" | "text.math" => Highlight::Constant,
-        
+
         // Headings
-        "heading" | "heading.1" | "heading.2" | "heading.3" | "heading.4" | "heading.5" | "heading.6" 
-        | "atx_heading" | "setext_heading" | "setext_heading_text" | "heading_content" 
+        "heading"
+        | "heading.1"
+        | "heading.2"
+        | "heading.3"
+        | "heading.4"
+        | "heading.5"
+        | "heading.6"
+        | "atx_heading"
+        | "setext_heading"
+        | "setext_heading_text"
+        | "heading_content"
         | "text.title" => Highlight::Type,
-        
+
         // Code blocks
-        "code_block" | "fenced_code_block" | "code_block.delimiter" | "fenced_code_block_delimiter" => Highlight::Property,
-        
+        "code_block"
+        | "fenced_code_block"
+        | "code_block.delimiter"
+        | "fenced_code_block_delimiter" => Highlight::Property,
+
         // Blockquotes
         "blockquote" | "block_quote" | "text.quote" => Highlight::Comment,
         "blockquote.marker" | "block_quote_marker" => Highlight::Operator,
-        
+
         // Lists
         "list" | "list.item" | "list_item" | "text.environment" => Highlight::Property,
         "list.marker" | "list_item_marker" | "task_list_marker" => Highlight::Operator,
-        
+
         // Tables
         "table" | "table.row" => Highlight::Property,
         "table.header" => Highlight::Type,
         "table.cell" => Highlight::Plain,
         "table.delimiter" => Highlight::Operator,
-        
+
         // Other
         "thematic_break" | "atx_heading_marker" => Highlight::Operator,
         "paragraph" | "inline" | "block" | "document" | "plain" => Highlight::Plain,
-        
+
         // Catch-all
         _ => Highlight::Plain,
     }

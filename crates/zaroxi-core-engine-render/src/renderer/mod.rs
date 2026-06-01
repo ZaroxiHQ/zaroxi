@@ -16,5 +16,5 @@ mod ui;
 /// Internal implementation modules are kept private; only the stable, intended
 /// public API is re-exported here.
 pub use core::Renderer;
-pub use core::{Rect, RenderLayout};
+pub use core::{PanelColors, Rect, RenderLayout};
 pub use ui::UiBlock;

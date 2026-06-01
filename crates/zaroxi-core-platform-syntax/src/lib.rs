@@ -24,22 +24,19 @@ pub mod parser;
 pub mod query_cache;
 pub mod runtime;
 pub mod theme_map;
+pub mod theme_shim;
 
 // Re-export main types for convenience
 pub use dynamic_loader::DynamicGrammarLoader;
 pub use error::SyntaxError;
 pub use grammar_builder::build_and_install_grammar;
 pub use grammar_registry::{
-    GrammarInfo,
-    for_language,
-    available_languages,
-    is_grammar_installed,
-    download_and_install_grammar,
-    install_missing_grammars,
+    GrammarInfo, available_languages, download_and_install_grammar, for_language,
+    install_missing_grammars, is_grammar_installed,
 };
 pub use highlight::{Highlight, HighlightSpan};
 pub use language::LanguageId;
-pub use parser::{SyntaxTree, ParserPool};
+pub use parser::{ParserPool, SyntaxTree};
 // Note: QueryCache::get returns Option<&'static Query>
 pub use query_cache::QueryCache;
 

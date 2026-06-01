@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(missing_docs)]
 //! Minimal local theme types used by core-platform-syntax to avoid depending on the interface theme crate.
 //!
 //! This shim defines small, stable data types (Color, SemanticColors) that

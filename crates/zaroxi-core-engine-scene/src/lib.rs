@@ -131,3 +131,79 @@ impl PartialEq for EditorPrimitiveSet {
 pub fn info() -> &'static str {
     CRATE_NAME
 }
+
+// ------- UI-widget scene primitives (moved from zaroxi-core-engine-ui) -------
+
+/// A filled rectangle primitive — the most basic draw command.
+///
+/// Uses f32 coordinates and an RGBA color array for compatibility with
+/// float-based layout systems (taffy) and custom renderers.
+#[derive(Clone, Debug)]
+pub struct RectPrimitive {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub color: [f32; 4],
+}
+
+impl RectPrimitive {
+    pub fn new(x: f32, y: f32, width: f32, height: f32, color: [f32; 4]) -> Self {
+        Self { x, y, width, height, color }
+    }
+}
+
+/// A positioned text label — the text analogue of `RectPrimitive`.
+///
+/// Carries the label string, an anchor position, layout bounds,
+/// and a caller-supplied color. No fonts, app names, or rendering
+/// specifics are baked in.
+#[derive(Clone, Debug)]
+pub struct LabelPrimitive {
+    pub label: String,
+    pub x: f32,
+    pub y: f32,
+    pub max_width: f32,
+    pub max_height: f32,
+    pub color: [f32; 4],
+}
+
+impl LabelPrimitive {
+    pub fn new(
+        label: impl Into<String>,
+        x: f32,
+        y: f32,
+        max_width: f32,
+        max_height: f32,
+        color: [f32; 4],
+    ) -> Self {
+        Self { label: label.into(), x, y, max_width, max_height, color }
+    }
+}
+
+/// A grouped scene output from widget composition.
+///
+/// Bundles rectangle and label primitives into a single coherent result.
+/// Callers receive one `WidgetScene` instead of managing separate primitive
+/// vectors. Intentionally generic — no app concepts, no theme ownership.
+#[derive(Clone, Debug)]
+pub struct WidgetScene {
+    pub rects: Vec<RectPrimitive>,
+    pub labels: Vec<LabelPrimitive>,
+}
+
+impl WidgetScene {
+    pub fn new(rects: Vec<RectPrimitive>, labels: Vec<LabelPrimitive>) -> Self {
+        Self { rects, labels }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rects.is_empty() && self.labels.is_empty()
+    }
+}
+
+impl Default for WidgetScene {
+    fn default() -> Self {
+        Self { rects: Vec::new(), labels: Vec::new() }
+    }
+}

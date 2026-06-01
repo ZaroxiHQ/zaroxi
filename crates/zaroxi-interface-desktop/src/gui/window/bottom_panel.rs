@@ -1,22 +1,23 @@
 /*!
 Bottom dock drawing logic (full-width panel above status bar).
 
-Phase 4: product-parity bottom dock — tabs with accent bottom border,
-tab header row, output log lines with colored types.
+Phase 5: engine integration — tab content flows through engine-owned
+`Bar` → `compose_bars_scene()` → `WidgetScene`. Desktop owns only visual
+styling (separators, body log lines, active accent border).
 */
+use zaroxi_core_engine_render_backend::DrawRect;
+use zaroxi_core_engine_ui::{Bar, compose_bars_scene};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_kernel_math::Rect;
 
-pub fn draw(
-    region: &crate::gui::ShellRegion,
-    theme: &crate::gui::Theme,
-) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
-    let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+pub fn draw(region: &crate::gui::ShellRegion, theme: &crate::gui::Theme) -> Vec<DrawRect> {
+    let mut rects: Vec<DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
     let r = &region.rect;
     let sem = ZaroxiTheme::Dark.colors(false);
 
     // Dock background
-    rects.push(zaroxi_core_engine_render_backend::DrawRect {
+    rects.push(DrawRect {
         x: r.x,
         y: r.y,
         width: r.width,
@@ -26,7 +27,7 @@ pub fn draw(
 
     // Top separator
     if r.height > bt {
-        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+        rects.push(DrawRect {
             x: r.x,
             y: r.y,
             width: r.width,
@@ -39,7 +40,7 @@ pub fn draw(
     let header_h: u32 = std::cmp::min(28, r.height / 4);
     if header_h > 0 && r.width > 40 {
         let header_y = r.y.saturating_add(bt);
-        rects.push(zaroxi_core_engine_render_backend::DrawRect {
+        rects.push(DrawRect {
             x: r.x,
             y: header_y,
             width: r.width,
@@ -48,6 +49,7 @@ pub fn draw(
         });
 
         let tabs: u32 = 4;
+        let tab_labels = ["Terminal", "Problems", "Output", "Debug"];
         let tab_pad: u32 = 10;
         let total_pad = tab_pad * (tabs + 1);
         let tab_w = if r.width > total_pad {
@@ -59,33 +61,71 @@ pub fn draw(
         let tab_y = header_y.saturating_add(4);
         let tab_h = header_h.saturating_sub(8);
 
-        for i in 0..tabs {
-            let active = i == 0;
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                x: tx,
-                y: tab_y,
-                width: tab_w,
-                height: tab_h,
-                color: if active {
-                    super::theme_adapter::adjust_color(sem.tab_active_background, 1.0)
-                } else {
-                    super::theme_adapter::adjust_color(sem.tab_background, 1.0)
-                },
-            });
-            if active {
-                rects.push(zaroxi_core_engine_render_backend::DrawRect {
-                    x: tx,
-                    y: tab_y.saturating_add(tab_h).saturating_sub(2),
-                    width: tab_w,
-                    height: 2,
-                    color: super::theme_adapter::adjust_color(sem.accent, 0.88),
-                });
-            }
+        // ── engine widget path: each tab is a Bar ──
+        let mut bars: Vec<Bar> = Vec::new();
+        for i in 0..tabs as usize {
+            let tab_rect = Rect::new(tx as f32, tab_y as f32, tab_w as f32, tab_h as f32);
+            bars.push(Bar::new(tab_labels[i], tab_rect));
             tx = tx.saturating_add(tab_w).saturating_add(tab_pad);
         }
 
+        let active_bg =
+            wgpu_color_to_f32(super::theme_adapter::adjust_color(sem.tab_active_background, 1.0));
+        let inactive_bg =
+            wgpu_color_to_f32(super::theme_adapter::adjust_color(sem.tab_background, 1.0));
+        let text_color =
+            wgpu_color_to_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
+
+        // First tab is active
+        let mut rect_colors = vec![inactive_bg; bars.len()];
+        rect_colors[0] = active_bg;
+        let label_colors = vec![text_color; bars.len()];
+
+        let scene = compose_bars_scene(&bars, &rect_colors, &label_colors);
+
+        // Tab background rects
+        for rp in &scene.rects {
+            rects.push(DrawRect {
+                x: rp.x as u32,
+                y: rp.y as u32,
+                width: rp.width as u32,
+                height: rp.height as u32,
+                color: f32_to_wgpu(rp.color),
+            });
+        }
+
+        // Active tab accent border (desktop styling)
+        {
+            let active_bar = &bars[0];
+            let ax = active_bar.rect.x as u32;
+            let ay = (active_bar.rect.y + active_bar.rect.height) as u32 - 2;
+            rects.push(DrawRect {
+                x: ax,
+                y: ay,
+                width: tab_w,
+                height: 2,
+                color: super::theme_adapter::adjust_color(sem.accent, 0.88),
+            });
+        }
+
+        // Text labels from engine scene
+        if !scene.labels.is_empty() {
+            let label_strings: Vec<String> = scene.labels.iter().map(|l| l.label.clone()).collect();
+            let mut text_rects = super::text_adapter::layout_and_publish_text(
+                r.x.saturating_add(12),
+                r.y.saturating_add(6),
+                r.width.saturating_sub(24),
+                30,
+                &label_strings,
+                theme,
+                theme.text_primary,
+            );
+            rects.append(&mut text_rects);
+        }
+
+        // Divider below header
         if r.height > header_y.saturating_sub(r.y).saturating_add(header_h).saturating_add(bt) {
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+            rects.push(DrawRect {
                 x: r.x,
                 y: header_y.saturating_add(header_h),
                 width: r.width,
@@ -95,7 +135,7 @@ pub fn draw(
         }
     }
 
-    // Body
+    // Body (desktop styling — simulated output log lines)
     let body_start = r.y.saturating_add(bt).saturating_add(header_h).saturating_add(bt);
     if r.height > body_start.saturating_sub(r.y).saturating_add(8) && r.width > 40 {
         let available_h = r.height.saturating_sub(body_start.saturating_sub(r.y)).saturating_sub(6);
@@ -118,7 +158,7 @@ pub fn draw(
                 3 => super::theme_adapter::adjust_color(sem.syntax_string, 0.78),
                 _ => super::theme_adapter::adjust_color(sem.text_secondary, 0.36),
             };
-            rects.push(zaroxi_core_engine_render_backend::DrawRect {
+            rects.push(DrawRect {
                 x: r.x.saturating_add(14),
                 y: ly,
                 width: w.saturating_sub(14),
@@ -129,25 +169,13 @@ pub fn draw(
         }
     }
 
-    // Text labels
-    if r.width > 80 {
-        let labels = vec![
-            "Terminal".to_string(),
-            "Problems".to_string(),
-            "Output".to_string(),
-            "Debug".to_string(),
-        ];
-        let mut text_rects = super::text_adapter::layout_and_publish_text(
-            r.x.saturating_add(12),
-            r.y.saturating_add(6),
-            r.width.saturating_sub(24),
-            30,
-            &labels,
-            theme,
-            theme.text_primary,
-        );
-        rects.append(&mut text_rects);
-    }
-
     rects
+}
+
+fn wgpu_color_to_f32(c: wgpu::Color) -> [f32; 4] {
+    [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
+}
+
+fn f32_to_wgpu(c: [f32; 4]) -> wgpu::Color {
+    wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: c[3] as f64 }
 }

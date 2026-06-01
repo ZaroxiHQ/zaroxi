@@ -6,4 +6,6 @@ description = "zaroxi-intelligence-agent (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+anyhow = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }

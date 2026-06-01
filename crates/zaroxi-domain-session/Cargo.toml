@@ -8,3 +8,4 @@ license = "MIT"
 [dependencies]
 zaroxi-kernel-id = { workspace = true }
 serde = { workspace = true }
+uuid = { workspace = true }

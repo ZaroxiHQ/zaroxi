@@ -1,9 +1,9 @@
 pub mod bar;
 pub mod composer;
 pub mod layout;
-pub mod scene;
 pub mod ui;
 
 pub use bar::Bar;
-pub use composer::{build_shell_ui, compose_bar_labels, compose_bars};
-pub use scene::LabelPrimitive;
+pub use composer::{compose_bar_labels, compose_bars, compose_bars_scene};
+pub use zaroxi_core_engine_layout::build_shell_ui;
+pub use zaroxi_core_engine_scene::{LabelPrimitive, WidgetScene};

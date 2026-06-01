@@ -1,10 +1,11 @@
+use zaroxi_interface_desktop::desktop::DesktopComposition;
 use zaroxi_interface_desktop::gui::{ShellFrame, Size};
 
 #[test]
 fn canonical_layout_contains_expected_regions() {
     let size = Size { width: 1280, height: 800 };
     let shell = ShellFrame::new(size);
-    let comp = crate::desktop::DesktopComposition::new();
+    let comp = DesktopComposition::new();
     let lines = shell.render_lines(Some(&comp));
 
     // Check that all required region ids/names appear in the transcript.

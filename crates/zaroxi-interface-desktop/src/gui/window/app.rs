@@ -182,7 +182,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         right_panel: find_rect("ai_panel_content"),
                         bottom_panel: find_rect("bottom_dock"),
                         status_bar: find_rect("status_bar"),
-                        colors: zaroxi_interface_theme::SemanticColors::dark(),
+                        colors: zaroxi_core_engine_render::PanelColors {
+                            panel_header_background: [0.12, 0.12, 0.14, 1.0],
+                            panel_background: [0.08, 0.09, 0.11, 1.0],
+                        },
                     };
 
                     let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = self

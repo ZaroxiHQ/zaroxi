@@ -72,9 +72,6 @@ impl From<&SyntaxError> for SyntaxErrorDto {
             SyntaxError::MetadataError(_) => "METADATA_ERROR",
             SyntaxError::Unknown(_) => "UNKNOWN_ERROR",
         };
-        SyntaxErrorDto {
-            code,
-            message: e.to_string(),
-        }
+        SyntaxErrorDto { code, message: e.to_string() }
     }
 }

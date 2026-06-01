@@ -1,6 +1,3 @@
-use crate::Rect;
-use zaroxi_interface_theme::Color;
-
 /// Generic UI block visual description passed into the renderer.
 ///
 /// This struct is renderer-facing and intentionally generic: it describes a
@@ -14,6 +11,8 @@ pub struct UiBlock {
     pub content: String,
     pub visible: bool,
     pub rect: Rect,
-    pub header_color: Option<Color>,
-    pub content_color: Option<Color>,
+    pub header_color: Option<[f32; 4]>,
+    pub content_color: Option<[f32; 4]>,
 }
+
+use super::core::Rect;

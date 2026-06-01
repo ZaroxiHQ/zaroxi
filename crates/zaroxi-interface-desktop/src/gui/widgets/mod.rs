@@ -99,7 +99,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ce) = regions.iter().find(|r| r.id == "center_editor") {
-        lines.push(format!("editor.content: syntax-highlighted code rect={}", ce.rect));
+        lines.push(format!("editor.content: code-area rect={}", ce.rect));
     }
 
     if let Some(ml) = regions.iter().find(|r| r.id == "minimap_lane") {

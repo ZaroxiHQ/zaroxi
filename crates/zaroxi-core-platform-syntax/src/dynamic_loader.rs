@@ -110,11 +110,18 @@ mod enabled {
         let library_path = runtime.grammar_library_path(language_id);
         eprintln!("DEBUG: load_language_impl: checking path {:?}", library_path);
         if !library_path.exists() {
-            eprintln!("DEBUG: load_language_impl: Library path doesn't exist: {}", library_path.display());
+            eprintln!(
+                "DEBUG: load_language_impl: Library path doesn't exist: {}",
+                library_path.display()
+            );
             return None;
         }
 
-        eprintln!("DEBUG: load_language_impl: Loading language {} from {}", language_id, library_path.display());
+        eprintln!(
+            "DEBUG: load_language_impl: Loading language {} from {}",
+            language_id,
+            library_path.display()
+        );
 
         // Load the library
         unsafe {
@@ -137,11 +144,17 @@ mod enabled {
                         eprintln!("DEBUG: load_language_impl: Looking for symbol: {}", symbol_name);
 
                         // Use explicit generic to help type inference across libloading versions.
-                        let language_fn = lib.get::<unsafe extern "C" fn() -> tree_sitter::Language>(symbol_name.as_bytes());
+                        let language_fn = lib
+                            .get::<unsafe extern "C" fn() -> tree_sitter::Language>(
+                                symbol_name.as_bytes(),
+                            );
 
                         match language_fn {
                             Ok(func) => {
-                                eprintln!("DEBUG: load_language_impl: Found symbol {} for {}", symbol_name, language_id);
+                                eprintln!(
+                                    "DEBUG: load_language_impl: Found symbol {} for {}",
+                                    symbol_name, language_id
+                                );
                                 let language = func();
                                 // Leak the library to keep it loaded
                                 std::mem::forget(lib);
@@ -167,7 +180,10 @@ mod enabled {
                                 // Store error message string instead of the error itself
                                 let error_msg = format!("{}", e);
                                 last_error = Some(error_msg);
-                                eprintln!("DEBUG: load_language_impl: Failed to get symbol {}: {}", symbol_name, e);
+                                eprintln!(
+                                    "DEBUG: load_language_impl: Failed to get symbol {}: {}",
+                                    symbol_name, e
+                                );
                                 // Try next symbol
                             }
                         }
@@ -175,12 +191,19 @@ mod enabled {
 
                     // If we get here, all symbols failed
                     if let Some(e) = last_error {
-                        eprintln!("DEBUG: load_language_impl: All symbols failed for {}: {}", language_id, e);
+                        eprintln!(
+                            "DEBUG: load_language_impl: All symbols failed for {}: {}",
+                            language_id, e
+                        );
                     }
                     None
                 }
                 Err(e) => {
-                    eprintln!("DEBUG: load_language_impl: Failed to load library {}: {}", library_path.display(), e);
+                    eprintln!(
+                        "DEBUG: load_language_impl: Failed to load library {}: {}",
+                        library_path.display(),
+                        e
+                    );
                     None
                 }
             }

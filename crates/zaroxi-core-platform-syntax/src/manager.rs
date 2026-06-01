@@ -158,7 +158,10 @@ impl SyntaxManager {
         })?;
         match &doc.tree {
             Some(tree) => {
-                eprintln!("DEBUG: highlight_spans: tree exists for doc '{}', language {:?}", doc_id, doc.language);
+                eprintln!(
+                    "DEBUG: highlight_spans: tree exists for doc '{}', language {:?}",
+                    doc_id, doc.language
+                );
                 self.highlight_engine.highlight(doc.language, &doc.text, tree)
             }
             None => {

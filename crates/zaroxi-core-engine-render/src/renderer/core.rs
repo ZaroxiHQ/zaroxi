@@ -21,8 +21,6 @@ use winit::window::Window;
 #[allow(dead_code)]
 pub struct AppState;
 
-use zaroxi_interface_theme::SemanticColors;
-
 use crate::renderer::debug::{
     DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
     LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, VALIDATION_SCENE,
@@ -84,6 +82,17 @@ pub struct Rect {
     pub h: f32,
 }
 
+/// Minimal panel colors consumed by the renderer.
+///
+/// The renderer owns this struct; callers convert their theme data into
+/// `PanelColors` before constructing a `RenderLayout`. This keeps the render
+/// crate free of interface-layer theme dependencies.
+#[derive(Debug, Clone, Copy)]
+pub struct PanelColors {
+    pub panel_header_background: [f32; 4],
+    pub panel_background: [f32; 4],
+}
+
 /// Resolved layout passed into the renderer. Layout is owned by the app
 /// / layout layer; the renderer simply consumes it.
 #[derive(Debug, Clone)]
@@ -94,7 +103,7 @@ pub struct RenderLayout {
     pub right_panel: Rect,
     pub bottom_panel: Rect,
     pub status_bar: Rect,
-    pub colors: SemanticColors,
+    pub colors: PanelColors,
 }
 
 /* Vertex type and vertex-layout helpers moved to renderer/geometry.rs */

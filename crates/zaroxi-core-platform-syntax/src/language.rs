@@ -25,15 +25,8 @@ pub enum LanguageId {
 impl LanguageId {
     /// Determine language from file path.
     pub fn from_path(path: &Path) -> Self {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_lowercase();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
 
         // Try to match against dynamic language registry first.
         if let Some(lang_id) = Self::from_filename_dynamic(&name) {

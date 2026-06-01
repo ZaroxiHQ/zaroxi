@@ -52,7 +52,8 @@ impl Runtime {
                     let cargo_toml = current.join("Cargo.toml");
                     if cargo_toml.exists() {
                         // Found workspace root, look for crates/zaroxi-lang-syntax/runtime/treesitter
-                        let candidate = current.join("crates/zaroxi-lang-syntax/runtime/treesitter");
+                        let candidate =
+                            current.join("crates/zaroxi-lang-syntax/runtime/treesitter");
                         if candidate.is_dir() {
                             return Some(candidate);
                         }
@@ -319,9 +320,11 @@ impl Runtime {
                 None
             };
 
-            let get_symbol = |sym: &str| -> Result<Symbol<unsafe extern "C" fn() -> tree_sitter::Language>, String> {
-                lib.get(sym.as_bytes())
-                    .map_err(|e| format!("Failed to get symbol {}: {}", sym, e))
+            let get_symbol = |sym: &str| -> Result<
+                Symbol<unsafe extern "C" fn() -> tree_sitter::Language>,
+                String,
+            > {
+                lib.get(sym.as_bytes()).map_err(|e| format!("Failed to get symbol {}: {}", sym, e))
             };
 
             let symbol = match get_symbol(&standard_symbol) {
@@ -330,10 +333,17 @@ impl Runtime {
                     if language_id == "markdown" {
                         match get_symbol(&markdown_inline_symbol.unwrap()) {
                             Ok(s) => {
-                                eprintln!("[runtime] loaded markdown inline symbol instead of standard");
+                                eprintln!(
+                                    "[runtime] loaded markdown inline symbol instead of standard"
+                                );
                                 Some(s)
                             }
-                            Err(_) => return Err(format!("Failed to get symbol {}: {}", standard_symbol, e)),
+                            Err(_) => {
+                                return Err(format!(
+                                    "Failed to get symbol {}: {}",
+                                    standard_symbol, e
+                                ));
+                            }
                         }
                     } else {
                         return Err(e);
