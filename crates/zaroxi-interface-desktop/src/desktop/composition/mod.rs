@@ -1,24 +1,19 @@
 /*!
 Composition submodule split into focused files.
 
-This module now provides a small façade that exposes the composition public
-types and functions while delegating implementation to focused submodules:
-
 - state: stored data types, DesktopComposition struct, and basic accessors.
 - refresh: refresh/build/update logic and AI apply/request helpers.
 - projections: projection assembly helpers (active document, opened buffers, shell context).
 - summary: small summary helpers (AI projection summary).
-
-The goal is to keep behavior identical while making future maintenance easier.
-
-Public API (stable): the original symbols remain available from
-`crate::desktop` because `desktop/mod.rs` includes this file.
+- work_content: DesktopComposition::build_work_content() adapter bridging
+  desktop DTOs into Core's ShellWorkContent.
 */
 
 pub mod projections;
 pub mod refresh;
 pub mod state;
 pub mod summary;
+pub mod work_content;
 
 pub use state::{
     ActiveBufferDetails, ActiveDocumentSummary, AiKind, AiProjection, AiProjectionSummary, AiState,
