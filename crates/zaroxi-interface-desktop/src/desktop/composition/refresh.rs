@@ -482,7 +482,6 @@ pub async fn refresh_with_service(
 /// supplied `view` and forwards a compact request to the application `WorkspaceService`.
 /// The application side (mock or real) returns a proposal payload which we surface
 /// in the composition metadata.ai_projection as a presentation-only projection.
-#[allow(dead_code)]
 pub async fn request_ai_edit_active(
     comp: &mut super::DesktopComposition,
     view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
@@ -657,7 +656,6 @@ pub async fn request_ai_edit_active(
 /// Desktop delegates apply semantics to the application/AI layer. The composition reads
 /// the pending proposal payload and forwards it to WorkspaceService.apply_ai_edit.
 /// On success the composition updates the ai_projection state to Applied and refreshes.
-#[allow(dead_code)]
 pub async fn apply_ai_edit_active(
     comp: &mut super::DesktopComposition,
     view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
@@ -781,7 +779,6 @@ pub async fn apply_ai_edit_active(
 ///
 /// Desktop forwards the cancel request to the application/AI layer when a service is provided;
 /// otherwise it simply clears the presentation projection.
-#[allow(dead_code)]
 pub fn cancel_ai_edit_active(
     comp: &mut super::DesktopComposition,
     service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,

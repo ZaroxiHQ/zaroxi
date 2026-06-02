@@ -491,3 +491,92 @@ async fn ai_proposal_populates_content_view_and_transcript() {
         "transcript must include action labels Accept/Reject/Edit"
     );
 }
+
+/// Phase 19: AI review / apply / reject flow via the command bar.
+#[tokio::test]
+async fn ai_commands_review_apply_reject_via_command_bar() {
+    use zaroxi_application_workspace::workspace_view::command_bar_labels;
+    use zaroxi_interface_desktop::actions::{execute_command_by_index, open_command_bar};
+
+    let labels = command_bar_labels();
+    assert!(labels.contains(&"AI review active buffer".to_string()));
+    assert!(labels.contains(&"Apply AI proposal".to_string()));
+    assert!(labels.contains(&"Reject AI proposal".to_string()));
+
+    let mut comp = DesktopComposition::new();
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("src/lib.rs"));
+    let view = Arc::new(FakeView::new(buf_id.clone(), Some("fn main() {}".to_string())));
+    let session_id = SessionId(Id::new());
+    let fake_svc = Arc::new(FakeService::new());
+
+    // Open the command bar so labels are available.
+    let _ = open_command_bar(&mut comp).await;
+
+    // Find the AI review command index.
+    let review_idx = labels.iter().position(|l| l == "AI review active buffer").unwrap();
+
+    // Request AI review via command bar.
+    let res = execute_command_by_index(
+        &mut comp,
+        view.clone(),
+        Some(fake_svc.clone()),
+        session_id.clone(),
+        None,
+        review_idx,
+    )
+    .await
+    .unwrap();
+    assert!(res.success, "AI review should succeed: {:?}", res.message);
+
+    let proj = comp.latest_metadata().and_then(|m| m.ai_projection.clone());
+    assert!(proj.is_some(), "ai_projection should be set after AI review");
+    let proj = proj.unwrap();
+    assert!(proj.proposal_text.is_some(), "proposal text should be populated");
+
+    // AI panel content in work content should show proposal
+    let work = comp.build_work_content();
+    let ai_content = work.ai_panel_content.expect("ai_panel_content in work content");
+    assert!(ai_content.subtitle.contains("Proposal for"));
+    assert!(ai_content.lines.iter().any(|l| l.contains("Accept")));
+
+    // Apply
+    let apply_idx = labels.iter().position(|l| l == "Apply AI proposal").unwrap();
+    let res = execute_command_by_index(
+        &mut comp,
+        view.clone(),
+        Some(fake_svc.clone()),
+        session_id.clone(),
+        None,
+        apply_idx,
+    )
+    .await
+    .unwrap();
+    assert!(res.success, "apply should succeed");
+
+    let applied_text = fake_svc.last_update.lock().unwrap().clone();
+    assert!(applied_text.is_some(), "applied text should be recorded");
+
+    // Re-request then reject
+    let reject_idx = labels.iter().position(|l| l == "Reject AI proposal").unwrap();
+    execute_command_by_index(
+        &mut comp,
+        view.clone(),
+        Some(fake_svc.clone()),
+        session_id.clone(),
+        None,
+        review_idx,
+    )
+    .await
+    .unwrap();
+    execute_command_by_index(
+        &mut comp,
+        view.clone(),
+        Some(fake_svc.clone()),
+        session_id,
+        None,
+        reject_idx,
+    )
+    .await
+    .unwrap();
+    assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_none());
+}

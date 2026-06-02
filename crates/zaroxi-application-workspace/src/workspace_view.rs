@@ -227,6 +227,9 @@ pub fn command_bar_labels() -> Vec<String> {
         "Open buffer".into(),
         "Set active buffer".into(),
         "Explain active buffer".into(),
+        "AI review active buffer".into(),
+        "Apply AI proposal".into(),
+        "Reject AI proposal".into(),
         "Request close active".into(),
         "Confirm close: save".into(),
         "Confirm close: discard".into(),
@@ -678,6 +681,13 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
                     refreshed: false,
                 })
             }
+        }
+        "AI review active buffer" | "Apply AI proposal" | "Reject AI proposal" => {
+            Ok(ActionResult {
+                success: false,
+                message: Some("delegate".to_string()),
+                refreshed: false,
+            })
         }
         "Request close active" => request_close_active(ctx).await,
         "Confirm close: save" => confirm_save_and_close(ctx).await,
