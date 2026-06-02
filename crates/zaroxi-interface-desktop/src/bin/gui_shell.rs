@@ -1,18 +1,24 @@
 use std::error::Error;
 
-// Note: binaries in the same package can reference the library crate by its package name.
-// The package crate name is expected to be `zaroxi_interface_desktop` (hyphens -> underscores).
-use zaroxi_interface_desktop::gui::{ShellFrame, Size};
+use zaroxi_interface_desktop::gui::{ShellFrame, ShellWorkContent, Size};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let size = Size { width: 1354, height: 720 };
-    let shell = ShellFrame::new(size);
+    let mut shell = ShellFrame::new(size);
+
+    // Build live workspace content from DesktopComposition.
+    // In a production harness, DesktopComposition would be refreshed with a real
+    // workspace view and service; here we use an empty composition which produces
+    // minimal content (terminals tabs only). The architecture wire is correct —
+    // any caller can inject a fully populated ShellWorkContent.
+    let comp = zaroxi_interface_desktop::DesktopComposition::new();
+    let work = ShellWorkContent::from_composition(&comp);
 
     // If compiled with the "gui_window" feature, attempt to open a native window.
-    // Otherwise, fall back to deterministic transcript output.
+    // The work_content is threaded through so the GPU path renders live data.
     #[cfg(feature = "gui_window")]
     {
-        match zaroxi_interface_desktop::gui::run_shell_window(shell.clone()) {
+        match zaroxi_interface_desktop::gui::run_shell_window(shell.clone(), Some(work.clone())) {
             Ok(_) => return Ok(()),
             Err(e) => {
                 eprintln!("window init failed; falling back to transcript output: {}", e);
@@ -21,9 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Default / fallback path: print deterministic transcript to stdout.
-    // Create a DesktopComposition instance (empty) and pass it into render_lines so
-    // the widgets can consume authoritative composition projections when available.
-    let comp = zaroxi_interface_desktop::DesktopComposition::new();
+    shell.work_content = Some(work);
     for line in shell.render_lines(Some(&comp)) {
         println!("{}", line);
     }

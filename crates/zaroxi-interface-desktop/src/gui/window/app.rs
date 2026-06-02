@@ -12,7 +12,7 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::gui::ShellFrame;
+use crate::gui::{ShellFrame, ShellWorkContent};
 
 /// Small application handler that owns the engine window handle and the ShellFrame
 /// snapshot. Lifecycle methods handle window creation and redraw requests.
@@ -22,16 +22,13 @@ pub struct GuiApp {
     pub window_attributes: WindowAttributes,
     pub title: String,
     pub maybe_window: Option<zaroxi_core_engine_window::ZaroxiWindow>,
-    /// Keep a clone of the ShellFrame so we can resolve stable region rects and theme tokens
-    /// at window creation time and pass low-level draw inputs into the backend.
     pub shell: ShellFrame,
-    /// Request the initial frame once after window creation to avoid a busy loop.
+    /// Live workspace content snapshot built from DesktopComposition.
+    /// Applied to `shell.work_content` before each redraw so the GPU
+    /// window renders live session data (editor body, tabs, explorer, etc.).
+    pub work_content: Option<ShellWorkContent>,
     pub requested_initial_frame: bool,
-    /// Prevent repeated "already created" logs from flooding the terminal.
     pub already_logged_existing: bool,
-    /// Track whether the first full-renderer frame has been presented and the
-    /// window made visible. The window stays hidden until this flag flips so
-    /// the user never sees a bootstrap/fallback composition.
     pub first_render_shown: bool,
 }
 
@@ -158,6 +155,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let actual = crate::gui::Size { width: sw, height: sh };
                         self.shell = crate::gui::ShellFrame::new(actual);
                     }
+
+                    // Inject live workspace content so the GPU draw path renders
+                    // real editor body, explorer items, tabs, and breadcrumb.
+                    self.shell.work_content = self.work_content.clone();
 
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
