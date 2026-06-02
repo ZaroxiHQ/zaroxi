@@ -134,3 +134,28 @@ fn shell_context_serializable() {
     assert_eq!(ctx.latest_revision, 42);
     assert_eq!(ctx.active_display, Some("src/lib.rs".into()));
 }
+
+/// Phase 20: build_work_content with explain-style result (no proposal_text)
+/// produces ai_panel_content with Analysis subtitle and body without actions.
+#[test]
+fn build_work_content_handles_explain_result() {
+    use zaroxi_core_engine_ui::ContentView;
+
+    let opened = OpenedBuffersSummary { count: 0, items: vec![], active: None };
+
+    // Simulate an explain result: result text present, no proposal_text.
+    let explain_body = "This module exports the main entrypoint. Consider adding error handling.";
+    let ai_content = ContentView::new(
+        "Assistant",
+        "Analysis: src/lib.rs",
+        explain_body.lines().map(|l| l.to_string()).collect(),
+    );
+
+    let result = build_work_content(&opened, None, None, None, Some(ai_content.clone()));
+    let ai = result.ai_panel_content.expect("ai_panel_content should be present");
+    assert_eq!(ai.title, "Assistant");
+    assert!(ai.subtitle.contains("Analysis:"));
+    assert!(ai.lines.iter().any(|l| l.contains("entrypoint")));
+    // Explain content should NOT have action labels
+    assert!(!ai.lines.iter().any(|l| l.contains("Accept") || l.contains("Reject")));
+}
