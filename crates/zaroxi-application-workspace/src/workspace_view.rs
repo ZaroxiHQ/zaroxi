@@ -128,6 +128,32 @@ pub trait CloseContext {
     fn perform_session_close(&mut self);
 }
 
+/// Application-facing capability set for refresh orchestration.
+pub trait RefreshContext: CloseContext {
+    fn has_pending_refresh_reason(&self) -> bool;
+    fn set_pending_refresh_reason(&mut self, reason: RefreshReason);
+    fn active_buffer(&self) -> Option<BufferId>;
+    fn latest_shell_context(&self) -> Option<ShellContext>;
+}
+
+/// Application-facing capability set for command-bar UI state.
+pub trait CommandBarContext {
+    fn open_command_bar(&mut self);
+    fn close_command_bar(&mut self);
+    fn latest_command_bar(&self) -> Option<CommandBarState>;
+    fn select_next_command(&mut self);
+    fn select_prev_command(&mut self);
+}
+
+/// Command-bar UI state (moved from desktop).
+#[derive(Clone, Debug)]
+pub struct CommandBarState {
+    pub open: bool,
+    pub commands: Vec<String>,
+    pub selected: usize,
+    pub staged_arg: Option<String>,
+}
+
 /// Small, single-source-of-truth model describing an in-progress close
 /// resolution flow that the UI will present to the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -462,5 +488,36 @@ pub async fn confirm_cancel_close<C: CloseContext>(ctx: &mut C) -> Result<Action
     ctx.clear_close_result_status();
     ctx.clear_pending_close();
     ctx.set_status_message("Close cancelled".to_string());
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+// ── Command-bar orchestration ──────────────────────────────────────
+
+pub async fn open_command_bar<C: CommandBarContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    ctx.open_command_bar();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+pub async fn close_command_bar<C: CommandBarContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    ctx.close_command_bar();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+pub async fn navigate_command_bar_next<C: CommandBarContext>(
+    ctx: &mut C,
+) -> Result<ActionResult, String> {
+    ctx.select_next_command();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+pub async fn navigate_command_bar_prev<C: CommandBarContext>(
+    ctx: &mut C,
+) -> Result<ActionResult, String> {
+    ctx.select_prev_command();
+    Ok(ActionResult { success: true, message: None, refreshed: false })
+}
+
+pub async fn cancel_command_bar<C: CommandBarContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    ctx.close_command_bar();
     Ok(ActionResult { success: true, message: None, refreshed: false })
 }

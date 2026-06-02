@@ -1,11 +1,12 @@
-// Focused command-bar helper implementations (split from former large actions.rs).
-
+/// Command-bar action handlers — thin desktop delegates to shared
+/// orchestration in `zaroxi_application_workspace::workspace_view`.
 use crate::desktop::DesktopComposition;
 use std::path::PathBuf;
 use std::sync::Arc;
 use zaroxi_application_workspace::ports::{
     GetActiveBufferRequest, OpenBufferRequest, SessionId, WorkspaceView,
 };
+use zaroxi_application_workspace::workspace_view as ws;
 use zaroxi_application_workspace::workspace_view::ActionResult;
 
 use super::actions_buffer::set_active_buffer_and_get_shell_context;
@@ -14,29 +15,28 @@ use super::actions_close_flow::{
 };
 use super::actions_refresh::refresh_desktop;
 
-/// Open the command bar with a deterministic set of commands.
 pub async fn open_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {
-    comp.open_command_bar();
-    Ok(ActionResult { success: true, message: None, refreshed: false })
+    ws::open_command_bar(comp).await
 }
 
 pub async fn close_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {
-    comp.close_command_bar();
-    Ok(ActionResult { success: true, message: None, refreshed: false })
+    ws::close_command_bar(comp).await
 }
 
 pub async fn navigate_command_bar_next(
     comp: &mut DesktopComposition,
 ) -> Result<ActionResult, String> {
-    comp.select_next_command();
-    Ok(ActionResult { success: true, message: None, refreshed: false })
+    ws::navigate_command_bar_next(comp).await
 }
 
 pub async fn navigate_command_bar_prev(
     comp: &mut DesktopComposition,
 ) -> Result<ActionResult, String> {
-    comp.select_prev_command();
-    Ok(ActionResult { success: true, message: None, refreshed: false })
+    ws::navigate_command_bar_prev(comp).await
+}
+
+pub async fn cancel_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {
+    ws::cancel_command_bar(comp).await
 }
 
 pub async fn confirm_selected_command(
@@ -64,11 +64,6 @@ pub async fn confirm_selected_command(
         comp.close_command_bar();
     }
     Ok(res)
-}
-
-pub async fn cancel_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {
-    comp.close_command_bar();
-    Ok(ActionResult { success: true, message: None, refreshed: false })
 }
 
 pub async fn execute_command_by_index(

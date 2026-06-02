@@ -142,13 +142,8 @@ pub enum Command {
     ConfirmCancelClose,
 }
 
-#[derive(Clone, Debug)]
-pub struct CommandBarState {
-    pub open: bool,
-    pub commands: Vec<String>,
-    pub selected: usize,
-    pub staged_arg: Option<String>,
-}
+// Re-export CommandBarState from app-workspace (moved in Phase 11).
+pub use zaroxi_application_workspace::workspace_view::CommandBarState;
 
 #[derive(Clone, Debug)]
 pub struct ShellSnapshot {
@@ -576,5 +571,40 @@ impl CloseContext for DesktopComposition {
 
     fn perform_session_close(&mut self) {
         self.perform_session_close();
+    }
+}
+
+use zaroxi_application_workspace::workspace_view::{CommandBarContext, RefreshContext};
+
+impl CommandBarContext for DesktopComposition {
+    fn open_command_bar(&mut self) {
+        self.open_command_bar();
+    }
+    fn close_command_bar(&mut self) {
+        self.close_command_bar();
+    }
+    fn latest_command_bar(&self) -> Option<CommandBarState> {
+        self.latest_command_bar()
+    }
+    fn select_next_command(&mut self) {
+        self.select_next_command();
+    }
+    fn select_prev_command(&mut self) {
+        self.select_prev_command();
+    }
+}
+
+impl RefreshContext for DesktopComposition {
+    fn has_pending_refresh_reason(&self) -> bool {
+        self.has_pending_refresh_reason()
+    }
+    fn set_pending_refresh_reason(&mut self, reason: RefreshReason) {
+        self.set_pending_refresh_reason(reason);
+    }
+    fn active_buffer(&self) -> Option<crate::ports::BufferId> {
+        self.metadata.as_ref().and_then(|m| m.active_buffer.clone())
+    }
+    fn latest_shell_context(&self) -> Option<ShellContext> {
+        self.latest_shell_context()
     }
 }
