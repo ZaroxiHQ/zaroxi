@@ -354,6 +354,66 @@ impl InteractionState {
     pub fn is_engaged(&self) -> bool {
         matches!(self, Self::Active | Self::Focused | Self::Selected)
     }
+
+    /// Resolve the fill color for a widget background in this state.
+    /// `base_bg` is the normal-state fill, theme provides the state overlays.
+    pub fn resolve_fill(&self, base_bg: &ThemeColor, theme: &EngineTheme) -> ThemeColor {
+        match self {
+            Self::Normal => *base_bg,
+            Self::Hover => base_bg.blend(theme.hover_bg.to_array()),
+            Self::Active => base_bg.blend(theme.active_bg.to_array()),
+            Self::Focused => base_bg.blend(theme.focus_ring.to_array()),
+            Self::Selected => theme.selected_bg.blend(base_bg.to_array()),
+            Self::Disabled => base_bg.adjust_brightness(0.6),
+        }
+    }
+
+    /// Resolve the text color for a widget label in this state.
+    pub fn resolve_text(&self, base_text: &ThemeColor, theme: &EngineTheme) -> ThemeColor {
+        match self {
+            Self::Disabled => theme.text_disabled,
+            Self::Selected => theme.text_primary,
+            _ => *base_text,
+        }
+    }
+
+    /// Whether the widget should show an accent indicator (left strip, ring).
+    pub fn shows_accent(&self) -> bool {
+        matches!(self, Self::Active | Self::Focused | Self::Selected)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WidgetId — lightweight widget identity for hit-testing and focus
+// ---------------------------------------------------------------------------
+
+/// Identifies a shell widget for hit-testing and state tracking purposes.
+/// The engine uses these to resolve pointer-to-widget mappings.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum WidgetId {
+    Tab { index: usize },
+    RailItem { index: usize },
+    StatusSegment { index: usize },
+    PanelHeader { id: &'static str },
+    Surface { role: SurfaceRole },
+}
+
+impl WidgetId {
+    pub fn tab(idx: usize) -> Self {
+        Self::Tab { index: idx }
+    }
+    pub fn rail_item(idx: usize) -> Self {
+        Self::RailItem { index: idx }
+    }
+    pub fn status_segment(idx: usize) -> Self {
+        Self::StatusSegment { index: idx }
+    }
+    pub fn panel_header(id: &'static str) -> Self {
+        Self::PanelHeader { id }
+    }
+    pub fn surface(role: SurfaceRole) -> Self {
+        Self::Surface { role }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +422,7 @@ impl InteractionState {
 
 /// Declares what structural role a shell surface plays so the renderer can
 /// apply role-appropriate theme colors without hardcoded identifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SurfaceRole {
     AppBackground,
     Toolbar,

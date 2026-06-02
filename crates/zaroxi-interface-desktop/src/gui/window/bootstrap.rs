@@ -49,6 +49,9 @@ pub fn run_shell_window(
         requested_initial_frame: false,
         already_logged_existing: false,
         first_render_shown: false,
+        widget_tree: None,
+        hovered_widget_idx: None,
+        cursor_pos: None,
     };
 
     let run_result = event_loop.run_app(&mut app);

@@ -17,11 +17,7 @@ mod tests {
         assert!(!set.is_empty(), "shell surface set must not be empty");
 
         // Surfaces are the primary layer — must have at least the full bg + major regions
-        assert!(
-            set.surfaces.len() >= 5,
-            "expected >=5 surfaces, got {}",
-            set.surfaces.len()
-        );
+        assert!(set.surfaces.len() >= 5, "expected >=5 surfaces, got {}", set.surfaces.len());
 
         // Background must be first in paint order (full window)
         let bg = &set.surfaces[0];
@@ -30,7 +26,8 @@ mod tests {
         assert_eq!(bg.rect.width, layout.window_size.width, "bg width must span window");
         assert_eq!(bg.rect.height, layout.window_size.height, "bg height must span window");
         assert_eq!(
-            bg.fill_color, theme.app_background.to_array(),
+            bg.fill_color,
+            theme.app_background.to_array(),
             "bg must use app_background color"
         );
 
@@ -84,8 +81,12 @@ mod tests {
 
         let rects = set.to_rect_primitives();
 
-        let expected_min = set.surfaces.len() + set.headers.len() + set.dividers.len()
-            + set.status_pills.len() + set.tabs.len() + set.icons.len();
+        let expected_min = set.surfaces.len()
+            + set.headers.len()
+            + set.dividers.len()
+            + set.status_pills.len()
+            + set.tabs.len()
+            + set.icons.len();
         assert_eq!(
             rects.len(),
             expected_min,

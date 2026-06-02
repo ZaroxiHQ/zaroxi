@@ -5,6 +5,7 @@ pub mod layout;
 pub mod primitives;
 pub mod shell_builder;
 pub mod ui;
+pub mod widgets;
 pub mod work_content;
 
 pub use bar::Bar;
@@ -14,8 +15,11 @@ pub use primitives::{
     Divider, DividerOrientation, HeaderBar, IconSlot, Inset, PanelFrame, ShellSurfaceSet,
     StatusPill, Surface, TabChrome,
 };
-pub use shell_builder::build_shell_surface_set;
+pub use shell_builder::{build_shell_surface_set, build_shell_widget_tree};
+pub use widgets::{ShellWidget, ShellWidgetTree};
 pub use work_content::ShellWorkContent;
-pub use zaroxi_core_engine_layout::build_shell_ui;
+pub use zaroxi_core_engine_layout::{ShellLayout, build_shell_ui};
 pub use zaroxi_core_engine_scene::{LabelPrimitive, RectPrimitive, WidgetScene};
-pub use zaroxi_core_engine_style::{EngineTheme, InteractionState, SurfaceRole, ThemeColor};
+pub use zaroxi_core_engine_style::{
+    EngineTheme, InteractionState, SurfaceRole, ThemeColor, WidgetId,
+};

@@ -2,6 +2,8 @@
 GuiApp implementation and winit ApplicationHandler lifecycle methods.
 This file contains the GuiApp struct and its ApplicationHandler impl
 (moved out of the large `window.rs` to make the module tree clearer).
+
+Phase 28: added cursor hover tracking and widget-tree hit-testing.
 */
 
 use pollster;
@@ -30,6 +32,12 @@ pub struct GuiApp {
     pub requested_initial_frame: bool,
     pub already_logged_existing: bool,
     pub first_render_shown: bool,
+    /// Cached widget tree built on each redraw, used for hit-testing.
+    pub widget_tree: Option<zaroxi_core_engine_ui::ShellWidgetTree>,
+    /// Index of the currently hovered widget in the tree, if any.
+    pub hovered_widget_idx: Option<usize>,
+    /// Most recent cursor position for hit-testing after resize/redraw.
+    pub cursor_pos: Option<PhysicalPosition<f64>>,
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -39,9 +47,6 @@ impl winit::application::ApplicationHandler for GuiApp {
             eprintln!("GuiApp: attempting to create window (StartCause::Init)");
             match active_loop.create_window(self.window_attributes.clone()) {
                 Ok(w) => {
-                    // Convert the raw winit Window into the engine wrapper.
-                    // Keep the window hidden until the first full renderer frame completes
-                    // so the user never sees a bootstrap/fallback composition.
                     let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                     let wid = zaroxi_w.window().id();
                     eprintln!("GuiApp: created engine window id={:?}", wid);
@@ -49,8 +54,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let _ = zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
                     self.maybe_window = Some(zaroxi_w);
 
-                    // Request a single initial frame. The window will be made visible
-                    // inside RedrawRequested after the full renderer produces its first frame.
                     if let Some(z) = self.maybe_window.as_ref() {
                         let _ = z.window().request_redraw();
                     }
@@ -63,7 +66,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
         } else if self.maybe_window.is_some() {
-            // Already created; noop but only log once for diagnostics to avoid terminal bloat.
             if !self.already_logged_existing {
                 eprintln!("GuiApp: new_events called but window already created");
                 self.already_logged_existing = true;
@@ -74,20 +76,15 @@ impl winit::application::ApplicationHandler for GuiApp {
     }
 
     fn resumed(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
-        // Some Wayland compositors deliver readiness after `resumed`, not Init.
-        // Attempt window creation here as a fallback when new_events didn't create it.
         if self.maybe_window.is_none() {
             eprintln!("GuiApp: resumed -> attempting to create window");
             match active_loop.create_window(self.window_attributes.clone()) {
                 Ok(w) => {
-                    // Keep the window hidden until the first full renderer frame completes.
                     let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                     let wid = zaroxi_w.window().id();
                     eprintln!("GuiApp: created engine window on resumed id={:?}", wid);
                     self.maybe_window = Some(zaroxi_w);
 
-                    // Request a single initial frame. The window will be made visible
-                    // inside RedrawRequested after the full renderer produces its first frame.
                     if let Some(z) = self.maybe_window.as_ref() {
                         let _ = z.window().request_redraw();
                     }
@@ -106,18 +103,15 @@ impl winit::application::ApplicationHandler for GuiApp {
     }
 
     fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
-        // Request the initial frame once to avoid a continuous busy redraw loop.
         if self.requested_initial_frame {
             if let Some(z) = self.maybe_window.as_ref() {
                 eprintln!("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
                 let _ = z.window().request_redraw();
             }
             self.requested_initial_frame = false;
-            // After requesting the single initial frame, stop polling to avoid busy-looping.
             active_loop.set_control_flow(ControlFlow::Wait);
             eprintln!("GuiApp: about_to_wait -> switched control flow back to Wait");
         }
-        // Otherwise remain idle (Wait) and let the platform wake us for real events.
     }
 
     fn window_event(
@@ -143,28 +137,66 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let _ = z.window().request_redraw();
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_pos = Some(position);
+                if let Some(ref tree) = self.widget_tree {
+                    let new_hover = tree.hit_test(position.x as f32, position.y as f32);
+                    if new_hover != self.hovered_widget_idx {
+                        if let Some(t) = self.widget_tree.as_mut() {
+                            t.clear_all_hover();
+                            if let Some(idx) = new_hover {
+                                t.set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
+                            }
+                        }
+                        self.hovered_widget_idx = new_hover;
+                        if let Some(z) = self.maybe_window.as_ref() {
+                            let _ = z.window().request_redraw();
+                        }
+                    }
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.hovered_widget_idx = None;
+                self.cursor_pos = None;
+                if let Some(t) = self.widget_tree.as_mut() {
+                    t.clear_all_hover();
+                }
+                if let Some(z) = self.maybe_window.as_ref() {
+                    let _ = z.window().request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 eprintln!("GuiApp: RedrawRequested received");
                 if let Some(z) = self.maybe_window.as_mut() {
                     let _ = z.window().pre_present_notify();
 
-                    // Rebuild the shell layout from the actual surface size so all region
-                    // rects are in the same coordinate space as the render target.
                     let (sw, sh) = z.size();
                     if sw > 0 && sh > 0 {
                         let actual = crate::gui::Size { width: sw, height: sh };
                         self.shell = crate::gui::ShellFrame::new(actual);
                     }
 
-                    // Inject live workspace content so the GPU draw path renders
-                    // real editor body, explorer items, tabs, and breadcrumb.
                     self.shell.work_content = self.work_content.clone();
 
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
-                    // Use engine-owned theme for semantic color resolution.
                     let theme = zaroxi_core_engine_ui::EngineTheme::dark();
+
+                    // Build the engine-side widget tree for hover tracking.
+                    let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
+                    let mut widget_tree =
+                        zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &theme);
+                    // Re-apply hover state if cursor is over a widget.
+                    if let Some(pos) = self.cursor_pos {
+                        let hit = widget_tree.hit_test(pos.x as f32, pos.y as f32);
+                        if let Some(idx) = hit {
+                            widget_tree
+                                .set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
+                        }
+                        self.hovered_widget_idx = hit;
+                    }
+                    self.widget_tree = Some(widget_tree.clone());
 
                     let find_rect = |id: &str| -> zaroxi_core_engine_render::Rect {
                         if let Some(r) = self.shell.regions.iter().find(|rr| rr.id == id) {
@@ -179,7 +211,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     };
 
-                    let layout = zaroxi_core_engine_render::RenderLayout {
+                    let render_layout = zaroxi_core_engine_render::RenderLayout {
                         title_bar: find_rect("toolbar"),
                         sidebar: find_rect("sidebar"),
                         editor: find_rect("center_editor"),
@@ -192,7 +224,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         },
                     };
 
-                    // Map shell regions to theme-driven UiBlocks.
                     let region_to_block =
                         |r: &crate::gui::ShellRegion| -> zaroxi_core_engine_render::UiBlock {
                             let rect = zaroxi_core_engine_render::Rect {
@@ -203,7 +234,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                             };
 
                             match r.id {
-                                // Full-window background
                                 "toolbar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -217,7 +247,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                 },
-                                // Activity rail
                                 "app_rail" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -233,7 +262,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: false,
                                 },
-                                // Sidebar
                                 "sidebar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -247,7 +275,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: false,
                                 },
-                                // Editor tab strip
                                 "editor_tabs" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -261,7 +288,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                 },
-                                // Breadcrumb
                                 "breadcrumb" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -277,7 +303,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                 },
-                                // Editor content
                                 "center_editor" | "editor_content" => {
                                     zaroxi_core_engine_render::UiBlock {
                                         id: r.id.to_string(),
@@ -293,7 +318,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         header_only: true,
                                     }
                                 }
-                                // Minimap lane
                                 "minimap_lane" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -309,7 +333,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                 },
-                                // Center bottom panel (terminal)
                                 "center_bottom_panel" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Terminal".to_string(),
@@ -323,7 +346,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: false,
                                 },
-                                // Bottom dock
                                 "bottom_dock" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -337,7 +359,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                 },
-                                // AI panel header
                                 "ai_panel_header" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "AI Assistant".to_string(),
@@ -351,7 +372,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                 },
-                                // AI panel content
                                 "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -365,7 +385,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                 },
-                                // Status bar
                                 "status_bar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -381,7 +400,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                 },
-                                // Unknown regions
                                 _ => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: r.name.to_string(),
@@ -412,7 +430,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     )) {
                         Ok(mut renderer) => {
                             let app_state = zaroxi_core_engine_render::renderer::core::AppState;
-                            match renderer.render_with_layout(&app_state, &layout, &render_blocks) {
+                            match renderer.render_with_layout(
+                                &app_state,
+                                &render_layout,
+                                &render_blocks,
+                            ) {
                                 Ok(()) => {
                                     if !self.first_render_shown {
                                         let _ = z.window().set_visible(true);

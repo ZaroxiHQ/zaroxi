@@ -1,193 +1,225 @@
-use crate::primitives::{
-    Divider, HeaderBar, IconSlot, ShellSurfaceSet, StatusPill, Surface, TabChrome,
-};
+use crate::primitives::DividerOrientation;
+use crate::widgets::{ShellWidget, ShellWidgetTree};
 use zaroxi_core_engine_layout::ShellLayout;
-use zaroxi_core_engine_style::EngineTheme;
+use zaroxi_core_engine_style::{EngineTheme, InteractionState, WidgetId};
 use zaroxi_kernel_math::Rect;
 
-/// Build a complete `ShellSurfaceSet` from the deterministic shell layout and
-/// the engine theme. Returns ordered primitives in paint order.
+/// Build a complete `ShellWidgetTree` from the deterministic shell layout and
+/// the engine theme. Returns ordered widgets in paint order (bg first).
 ///
-/// This function is the authoritative bridge between layout geometry and
-/// themed visual primitives. It does NOT depend on any interface-layer types.
-pub fn build_shell_surface_set(layout: &ShellLayout, theme: &EngineTheme) -> ShellSurfaceSet {
-    let mut set = ShellSurfaceSet::new();
-    let dt = zaroxi_core_engine_style::EngineDesignTokens::default();
-    let r = dt.radius_md;
+/// Each widget carries a `WidgetId` for hit-testing and state mutation.
+pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> ShellWidgetTree {
+    let mut tree = ShellWidgetTree::new();
+    let _dt = zaroxi_core_engine_style::EngineDesignTokens::default();
 
-    // ── Background (full window) ──
-    set.add_surface(
-        Surface::new(Rect::new(0.0, 0.0, layout.window_size.width, layout.window_size.height))
-            .with_fill(theme.app_background.to_array()),
-    );
+    // ── 1. App background ──
+    tree.push(ShellWidget::AppBackground {
+        rect: Rect::new(0.0, 0.0, layout.window_size.width, layout.window_size.height),
+        fill_color: theme.app_background.to_array(),
+    });
 
-    // ── Titlebar/toolbar surface ──
-    set.add_surface(
-        Surface::new(layout.titlebar).with_fill(theme.status_bar_background.to_array()),
-    );
-    // Toolbar bottom divider
-    set.add_divider(Divider::horizontal(
-        layout.titlebar.x,
-        layout.titlebar.y + layout.titlebar.height - 1.0,
-        layout.titlebar.width,
-        theme.divider_default.to_array(),
-    ));
+    // ── 2. Titlebar ──
+    tree.push(ShellWidget::Titlebar {
+        rect: layout.titlebar,
+        fill_color: theme.status_bar_background.to_array(),
+        brand_label: "Zaroxi".into(),
+    });
+    tree.push(ShellWidget::Divider {
+        rect: Rect::new(
+            layout.titlebar.x,
+            layout.titlebar.y + layout.titlebar.height - 1.0,
+            layout.titlebar.width,
+            1.0,
+        ),
+        color: theme.divider_default.to_array(),
+        orientation: DividerOrientation::Horizontal,
+    });
 
-    // ── Titlebar brand accent strip ──
+    // Titlebar brand accent
     if layout.titlebar.width > 60.0 && layout.titlebar.height > 8.0 {
-        let brand_x = layout.titlebar.x + 10.0;
-        let brand_y = layout.titlebar.y + 5.0;
-        let brand_h = layout.titlebar.height - 10.0;
-        set.add_surface(
-            Surface::new(Rect::new(brand_x, brand_y, 32.0, brand_h))
-                .with_fill(theme.accent.adjust_brightness(0.82).to_array()),
-        );
+        tree.push(ShellWidget::RegionSurface {
+            rect: Rect::new(
+                layout.titlebar.x + 10.0,
+                layout.titlebar.y + 5.0,
+                32.0,
+                layout.titlebar.height - 10.0,
+            ),
+            fill_color: theme.accent.adjust_brightness(0.82).to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
     }
 
-    // ── Activity rail ──
-    set.add_surface(Surface::new(layout.sidebar).with_fill(theme.sidebar_background.to_array()));
+    // ── 3. Activity rail + sidebar (left column) ──
+    let rail_w = 44.0;
+    let rail_rect = Rect::new(0.0, layout.sidebar.y, rail_w, layout.sidebar.height);
+    tree.push(ShellWidget::RegionSurface {
+        rect: rail_rect,
+        fill_color: theme.activity_rail_background.to_array(),
+        border_color: None,
+        border_width: 0.0,
+    });
 
-    // Rail-icon icons (top group)
+    // Rail items (top group)
     if layout.sidebar.height > 48.0 {
-        let rail_x = layout.sidebar.x;
-        let icon_w = layout.sidebar.width - 14.0;
+        let icon_w = rail_w - 14.0;
         let icon_h: f32 = 28.0;
         let gap: f32 = 4.0;
         let mut y = layout.sidebar.y + 10.0;
+        let rail_items: [(usize, &str, bool); 4] = [
+            (0, "Explorer", true),
+            (1, "Search", false),
+            (2, "Source Ctrl", false),
+            (3, "Debug", false),
+        ];
 
-        for (idx, active) in [true, false, false, false].iter().enumerate() {
-            let icon_rect = Rect::new(rail_x + 7.0, y, icon_w, icon_h);
-            let mut slot = IconSlot::new(icon_rect).with_fill(if *active {
+        for (idx, label, active) in rail_items {
+            let icon_rect = Rect::new(rail_rect.x + 7.0, y, icon_w, icon_h);
+            let fill = if active {
                 theme.selected_bg.adjust_brightness(1.6).to_array()
             } else {
                 theme.text_faint.adjust_brightness(0.18).to_array()
+            };
+            let accent = if active { Some(theme.accent.to_array()) } else { None };
+            let state = if active { InteractionState::Selected } else { InteractionState::Normal };
+
+            tree.push(ShellWidget::RailItem {
+                id: WidgetId::rail_item(idx),
+                rect: icon_rect,
+                label: label.into(),
+                fill_color: fill,
+                accent_indicator: accent,
+                state,
             });
-            if *active {
-                slot = slot.with_accent(theme.accent.to_array());
-            }
-            set.add_icon(slot);
-
-            if *active {
-                let indicator_rect = Rect::new(rail_x + 2.0, y + 2.0, 3.0, icon_h - 4.0);
-                set.add_surface(Surface::new(indicator_rect).with_fill(theme.accent.to_array()));
-            }
-
             y += icon_h + gap;
 
-            // Separator after first icon group
+            // Separator after active group
             if idx == 0 && layout.sidebar.height > 200.0 {
-                set.add_divider(Divider::horizontal(
-                    rail_x + 12.0,
-                    y,
-                    layout.sidebar.width - 24.0,
-                    theme.divider_subtle.to_array(),
-                ));
+                tree.push(ShellWidget::Divider {
+                    rect: Rect::new(rail_rect.x + 12.0, y, rail_w - 24.0, 1.0),
+                    color: theme.divider_subtle.to_array(),
+                    orientation: DividerOrientation::Horizontal,
+                });
                 y += gap;
             }
         }
 
-        // Bottom icons (settings, account)
+        // Bottom rail items (settings, account)
         if layout.sidebar.height > 120.0 {
             let bottom_start =
                 layout.sidebar.y + layout.sidebar.height - (2.0 * (icon_h + gap) + 12.0);
             let mut by = bottom_start;
-            for _ in 0..2 {
-                let icon_rect = Rect::new(rail_x + 7.0, by, icon_w, icon_h);
-                set.add_icon(
-                    IconSlot::new(icon_rect)
-                        .with_fill(theme.text_faint.adjust_brightness(0.16).to_array()),
-                );
+            for (idx, label) in [(4, "Settings"), (5, "Account")].iter() {
+                tree.push(ShellWidget::RailItem {
+                    id: WidgetId::rail_item(*idx),
+                    rect: Rect::new(rail_rect.x + 7.0, by, icon_w, icon_h),
+                    label: label.to_string(),
+                    fill_color: theme.text_faint.adjust_brightness(0.16).to_array(),
+                    accent_indicator: None,
+                    state: InteractionState::Normal,
+                });
                 by += icon_h + gap;
             }
         }
     }
 
-    // ── Sidebar (right of rail) ──
-    let sidebar_w = if layout.sidebar.width > 0.0 { layout.sidebar.width - 44.0 } else { 0.0 };
+    // ── 4. Sidebar (right of rail) ──
+    let sidebar_w = if layout.sidebar.width > 0.0 { layout.sidebar.width - rail_w } else { 0.0 };
     if sidebar_w > 0.0 {
-        let sidebar_rect = Rect::new(44.0, layout.sidebar.y, sidebar_w, layout.sidebar.height);
-        set.add_surface(Surface::new(sidebar_rect).with_fill(theme.sidebar_background.to_array()));
+        let sx = 44.0;
+        let sidebar_rect = Rect::new(sx, layout.sidebar.y, sidebar_w, layout.sidebar.height);
+        tree.push(ShellWidget::RegionSurface {
+            rect: sidebar_rect,
+            fill_color: theme.sidebar_background.to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
 
-        // Search bar
         let pad = 10.0;
         let search_h = 26.0;
         let inner_w = sidebar_w - pad * 2.0;
         let mut y_off = layout.sidebar.y + pad;
-        set.add_surface(
-            Surface::new(Rect::new(sidebar_rect.x + pad, y_off, inner_w, search_h))
-                .with_fill(theme.input_background.to_array())
-                .with_radius(r),
-        );
+
+        // Search bar area
+        tree.push(ShellWidget::RegionSurface {
+            rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, search_h),
+            fill_color: theme.input_background.to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
         y_off += search_h + 8.0;
 
-        // Subtle divider below search
-        set.add_divider(Divider::horizontal(
-            sidebar_rect.x + pad,
-            y_off,
-            inner_w,
-            theme.divider_subtle.adjust_brightness(0.8).to_array(),
-        ));
+        // Subtract divider
+        tree.push(ShellWidget::Divider {
+            rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 2.0),
+            color: theme.divider_subtle.adjust_brightness(0.8).to_array(),
+            orientation: DividerOrientation::Horizontal,
+        });
         y_off += 12.0;
 
-        // Section headers: PROJECT, GIT, OUTLINE
-        let section_labels = ["PROJECT", "GIT", "OUTLINE"];
+        // Sections: PROJECT, GIT, OUTLINE
         let section_h = 20.0;
         let row_h = 16.0;
-        for section_label in section_labels {
+        for section_label in &["PROJECT", "GIT", "OUTLINE"] {
             if y_off + section_h > layout.sidebar.y + layout.sidebar.height - 60.0 {
                 break;
             }
-            set.add_header(
-                HeaderBar::new(
-                    Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
-                    section_label,
-                )
-                .with_fill(theme.panel_header_bg().to_array())
-                .with_text_color(theme.text_secondary.to_array()),
-            );
+            tree.push(ShellWidget::SidebarSection {
+                rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
+                label: section_label.to_string(),
+                fill_color: theme.panel_header_bg().to_array(),
+                text_color: theme.text_secondary.to_array(),
+            });
             y_off += section_h + 2.0;
 
-            // Section item placeholders
-            let item_count = if section_label == "PROJECT" { 4 } else { 3 };
-            for _ in 0..item_count {
+            let items = if *section_label == "PROJECT" { 4 } else { 3 };
+            for _ in 0..items {
                 if y_off + row_h > layout.sidebar.y + layout.sidebar.height - 36.0 {
                     break;
                 }
-                set.add_surface(
-                    Surface::new(Rect::new(
-                        sidebar_rect.x + pad + 14.0,
-                        y_off + 2.0,
-                        inner_w - 20.0,
-                        12.0,
-                    ))
-                    .with_fill(theme.text_faint.adjust_brightness(0.20).to_array()),
-                );
+                tree.push(ShellWidget::RegionSurface {
+                    rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 2.0, inner_w - 20.0, 12.0),
+                    fill_color: theme.text_faint.adjust_brightness(0.20).to_array(),
+                    border_color: None,
+                    border_width: 0.0,
+                });
                 y_off += row_h;
             }
             y_off += 6.0;
         }
     }
 
-    // Sidebar right edge divider
-    set.add_divider(Divider::vertical(
-        layout.sidebar.x + layout.sidebar.width - 1.0,
-        layout.sidebar.y,
-        layout.sidebar.height,
-        theme.divider_default.adjust_brightness(0.85).to_array(),
-    ));
+    // Sidebar right-edge divider
+    tree.push(ShellWidget::Divider {
+        rect: Rect::new(
+            layout.sidebar.x + layout.sidebar.width - 1.0,
+            layout.sidebar.y,
+            1.0,
+            layout.sidebar.height,
+        ),
+        color: theme.divider_default.adjust_brightness(0.85).to_array(),
+        orientation: DividerOrientation::Vertical,
+    });
 
-    // ── Editor tab strip ──
-    set.add_surface(
-        Surface::new(layout.editor_tab_bar).with_fill(theme.tab_strip_background.to_array()),
-    );
-    set.add_divider(Divider::horizontal(
-        layout.editor_tab_bar.x,
-        layout.editor_tab_bar.y + layout.editor_tab_bar.height - 1.0,
-        layout.editor_tab_bar.width,
-        theme.divider_default.to_array(),
-    ));
+    // ── 5. Editor tab strip ──
+    tree.push(ShellWidget::RegionSurface {
+        rect: layout.editor_tab_bar,
+        fill_color: theme.tab_strip_background.to_array(),
+        border_color: None,
+        border_width: 0.0,
+    });
+    tree.push(ShellWidget::Divider {
+        rect: Rect::new(
+            layout.editor_tab_bar.x,
+            layout.editor_tab_bar.y + layout.editor_tab_bar.height - 1.0,
+            layout.editor_tab_bar.width,
+            1.0,
+        ),
+        color: theme.divider_default.to_array(),
+        orientation: DividerOrientation::Horizontal,
+    });
 
-    // Active tab
+    // Active tab widget
     if layout.editor_tab_bar.width > 80.0 && layout.editor_tab_bar.height > 4.0 {
         let tab_w = 120.0;
         let tab_rect = Rect::new(
@@ -196,135 +228,171 @@ pub fn build_shell_surface_set(layout: &ShellLayout, theme: &EngineTheme) -> She
             tab_w,
             layout.editor_tab_bar.height + 1.0,
         );
-        set.add_tab(
-            TabChrome::new(tab_rect, "main.rs")
-                .active(theme.accent.to_array())
-                .with_fill(theme.tab_active_background.to_array())
-                .with_text_color(theme.text_primary.to_array()),
-        );
+        tree.push(ShellWidget::Tab {
+            id: WidgetId::tab(0),
+            rect: tab_rect,
+            label: "main.rs".into(),
+            fill_color: theme.tab_active_background.to_array(),
+            text_color: theme.text_primary.to_array(),
+            accent_strip: Some(theme.accent.to_array()),
+            state: InteractionState::Selected,
+        });
     }
 
-    // ── Editor breadcrumb ──
-    set.add_surface(
-        Surface::new(layout.editor_breadcrumb_bar)
-            .with_fill(theme.editor_background.adjust_brightness(0.97).to_array()),
-    );
-    set.add_divider(Divider::horizontal(
-        layout.editor_breadcrumb_bar.x,
-        layout.editor_breadcrumb_bar.y + layout.editor_breadcrumb_bar.height - 1.0,
-        layout.editor_breadcrumb_bar.width,
-        theme.divider_subtle.to_array(),
-    ));
+    // ── 6. Editor breadcrumb ──
+    tree.push(ShellWidget::RegionSurface {
+        rect: layout.editor_breadcrumb_bar,
+        fill_color: theme.editor_background.adjust_brightness(0.97).to_array(),
+        border_color: None,
+        border_width: 0.0,
+    });
+    tree.push(ShellWidget::Divider {
+        rect: Rect::new(
+            layout.editor_breadcrumb_bar.x,
+            layout.editor_breadcrumb_bar.y + layout.editor_breadcrumb_bar.height - 1.0,
+            layout.editor_breadcrumb_bar.width,
+            1.0,
+        ),
+        color: theme.divider_subtle.to_array(),
+        orientation: DividerOrientation::Horizontal,
+    });
 
-    // ── Editor content area ──
-    set.add_surface(
-        Surface::new(layout.editor_content).with_fill(theme.editor_background.to_array()),
-    );
+    // ── 7. Editor content ──
+    tree.push(ShellWidget::RegionSurface {
+        rect: layout.editor_content,
+        fill_color: theme.editor_background.to_array(),
+        border_color: None,
+        border_width: 0.0,
+    });
 
-    // ── Editor bottom panel (terminal) ──
+    // ── 8. Editor bottom panel (Terminal) ──
     if layout.editor_bottom_panel.height > 0.0 {
-        set.add_divider(Divider::horizontal(
-            layout.editor_bottom_panel.x,
-            layout.editor_bottom_panel.y - 1.0,
-            layout.editor_bottom_panel.width,
-            theme.divider_default.to_array(),
-        ));
-        set.add_header(
-            HeaderBar::new(
-                Rect::new(
-                    layout.editor_bottom_panel.x,
-                    layout.editor_bottom_panel.y,
-                    layout.editor_bottom_panel.width,
-                    26.0,
-                ),
-                "Terminal",
-            )
-            .with_fill(theme.panel_header_bg().to_array())
-            .with_text_color(theme.text_secondary.to_array()),
-        );
-        set.add_surface(
-            Surface::new(Rect::new(
+        tree.push(ShellWidget::Divider {
+            rect: Rect::new(
+                layout.editor_bottom_panel.x,
+                layout.editor_bottom_panel.y - 1.0,
+                layout.editor_bottom_panel.width,
+                1.0,
+            ),
+            color: theme.divider_default.to_array(),
+            orientation: DividerOrientation::Horizontal,
+        });
+        tree.push(ShellWidget::PanelHeader {
+            id: WidgetId::panel_header("terminal"),
+            rect: Rect::new(
+                layout.editor_bottom_panel.x,
+                layout.editor_bottom_panel.y,
+                layout.editor_bottom_panel.width,
+                26.0,
+            ),
+            label: "Terminal".into(),
+            fill_color: theme.panel_header_bg().to_array(),
+            text_color: theme.text_secondary.to_array(),
+        });
+        tree.push(ShellWidget::RegionSurface {
+            rect: Rect::new(
                 layout.editor_bottom_panel.x,
                 layout.editor_bottom_panel.y + 26.0,
                 layout.editor_bottom_panel.width,
                 (layout.editor_bottom_panel.height - 26.0).max(0.0),
-            ))
-            .with_fill(theme.bottom_panel_background.to_array()),
-        );
+            ),
+            fill_color: theme.bottom_panel_background.to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
     }
 
-    // ── AI panel ──
+    // ── 9. AI panel ──
     if layout.ai_panel.width > 0.0 {
-        set.add_divider(Divider::vertical(
-            layout.ai_panel.x - 1.0,
-            layout.ai_panel.y,
-            layout.ai_panel.height,
-            theme.divider_default.to_array(),
-        ));
-
-        set.add_header(
-            HeaderBar::new(
-                Rect::new(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, 28.0),
-                "AI Assistant",
-            )
-            .with_fill(theme.panel_header_bg().to_array())
-            .with_text_color(theme.text_secondary.to_array()),
-        );
-
-        set.add_surface(
-            Surface::new(Rect::new(
+        tree.push(ShellWidget::Divider {
+            rect: Rect::new(
+                layout.ai_panel.x - 1.0,
+                layout.ai_panel.y,
+                1.0,
+                layout.ai_panel.height,
+            ),
+            color: theme.divider_default.to_array(),
+            orientation: DividerOrientation::Vertical,
+        });
+        tree.push(ShellWidget::PanelHeader {
+            id: WidgetId::panel_header("ai_assistant"),
+            rect: Rect::new(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, 28.0),
+            label: "AI Assistant".into(),
+            fill_color: theme.panel_header_bg().to_array(),
+            text_color: theme.text_secondary.to_array(),
+        });
+        tree.push(ShellWidget::RegionSurface {
+            rect: Rect::new(
                 layout.ai_panel.x,
                 layout.ai_panel.y + 28.0,
                 layout.ai_panel.width,
                 (layout.ai_panel.height - 28.0).max(0.0),
-            ))
-            .with_fill(theme.assistant_panel_background.to_array()),
-        );
+            ),
+            fill_color: theme.assistant_panel_background.to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
     }
 
-    // ── Status bar ──
-    set.add_surface(
-        Surface::new(layout.status_bar).with_fill(theme.status_bar_background.to_array()),
-    );
-    // Status bar top separator
-    set.add_divider(Divider::horizontal(
-        layout.status_bar.x,
-        layout.status_bar.y,
-        layout.status_bar.width,
-        theme.divider_default.adjust_brightness(0.9).to_array(),
-    ));
+    // ── 10. Status bar ──
+    tree.push(ShellWidget::RegionSurface {
+        rect: layout.status_bar,
+        fill_color: theme.status_bar_background.to_array(),
+        border_color: None,
+        border_width: 0.0,
+    });
+    tree.push(ShellWidget::Divider {
+        rect: Rect::new(layout.status_bar.x, layout.status_bar.y, layout.status_bar.width, 1.0),
+        color: theme.divider_default.adjust_brightness(0.9).to_array(),
+        orientation: DividerOrientation::Horizontal,
+    });
 
-    // Status bar pills
+    // Status bar segments (pills)
     if layout.status_bar.width > 120.0 && layout.status_bar.height > 8.0 {
         let pill_h = layout.status_bar.height - 6.0;
         let pill_y = layout.status_bar.y + 3.0;
 
-        // Left group: info cells
-        let left_cells = [("Ready", 36.0), ("Ln 22, Col 14", 54.0), ("UTF-8", 36.0), ("LF", 28.0)];
+        let left_cells: [(&str, f32); 4] =
+            [("Ready", 36.0), ("Ln 22, Col 14", 54.0), ("UTF-8", 36.0), ("LF", 28.0)];
         let mut cx = layout.status_bar.x + 20.0;
-        for (label, w) in left_cells {
-            if cx + w > layout.status_bar.x + layout.status_bar.width {
+        for (idx, (label, w)) in left_cells.iter().enumerate() {
+            if cx + *w > layout.status_bar.x + layout.status_bar.width {
                 break;
             }
-            set.add_pill(
-                StatusPill::new(Rect::new(cx, pill_y, w, pill_h), label)
-                    .with_fill(theme.text_faint.adjust_brightness(0.14).to_array())
-                    .with_text_color(theme.text_secondary.to_array()),
-            );
-            cx += w + 10.0;
+            tree.push(ShellWidget::StatusSegment {
+                id: WidgetId::status_segment(idx),
+                rect: Rect::new(cx, pill_y, *w, pill_h),
+                label: label.to_string(),
+                fill_color: theme.text_faint.adjust_brightness(0.14).to_array(),
+                text_color: theme.text_secondary.to_array(),
+            });
+            cx += *w + 10.0;
         }
 
-        // Right group: language badge
+        // Language badge (right)
         if layout.status_bar.width > 200.0 {
             let badge_w = 48.0;
             let badge_x = layout.status_bar.x + layout.status_bar.width - badge_w - 16.0;
-            set.add_pill(
-                StatusPill::new(Rect::new(badge_x, pill_y, badge_w, pill_h), "Rust")
-                    .with_fill(theme.accent_soft_bg.adjust_brightness(2.2).to_array())
-                    .with_text_color(theme.accent.to_array()),
-            );
+            tree.push(ShellWidget::StatusSegment {
+                id: WidgetId::status_segment(4),
+                rect: Rect::new(badge_x, pill_y, badge_w, pill_h),
+                label: "Rust".into(),
+                fill_color: theme.accent_soft_bg.adjust_brightness(2.2).to_array(),
+                text_color: theme.accent.to_array(),
+            });
         }
     }
 
-    set
+    // ── 11. Bottom dock (currently unused placeholder) ──
+
+    tree
+}
+
+/// Build a `ShellSurfaceSet` (backward-compat wrapper that builds a widget
+/// tree and converts to the flat primitives collection).
+pub fn build_shell_surface_set(
+    layout: &ShellLayout,
+    theme: &EngineTheme,
+) -> crate::primitives::ShellSurfaceSet {
+    build_shell_widget_tree(layout, theme).to_surface_set()
 }
