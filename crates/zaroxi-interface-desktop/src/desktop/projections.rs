@@ -2,27 +2,12 @@
 /// The functions are intentionally small and pure-ish: they read from the parent
 /// DesktopComposition and return a shallow ViewportSummary. They purposely avoid
 /// mutating composition state.
-
-/// Small basic visible-window projection derived from WorkspaceView VisibleLinesWindow.
-/// This representation is intentionally tiny and decoupled from presenter view_adapter types.
-/// It is a best-effort, read-only projection populated during `refresh_with_service` when
-/// the caller's WorkspaceView can provide VisibleLinesWindow data. Consumers prefer this
-/// projection over presenter snapshots when present.
-#[derive(Clone, Debug)]
-pub struct VisibleWindowBasic {
-    /// 1-based top visible line number.
-    pub top_line: usize,
-    /// Total number of lines in the buffer/document.
-    pub total_lines: usize,
-    /// Visible lines' textual content, in order from `top_line`.
-    pub lines: Vec<String>,
-    /// Optional 1-based cursor line if present in the visible window.
-    pub cursor_line: Option<usize>,
-    /// Optional 0-based cursor column within the cursor line.
-    pub cursor_column: Option<usize>,
-    /// Whether any selection intersects the visible window.
-    pub selection_present: bool,
-}
+// The shared workspace-view DTOs live in zaroxi-application-workspace.
+// Re-export them here so crate::desktop::projections::VisibleWindowBasic
+// and similar paths continue to resolve.
+pub use zaroxi_application_workspace::workspace_view::{
+    ViewportAnchoring, ViewportSummary, VisibleWindowBasic,
+};
 
 /// Compute a small, read-only ViewportSummary from the DesktopComposition.
 ///
@@ -33,7 +18,7 @@ pub struct VisibleWindowBasic {
 /// This function preserves the exact heuristics previously present in desktop.rs:
 /// - cursor_visible flag when a cursor-like span exists in the visible lines.
 /// - anchoring heuristic: Top when cursor == top, Centered when cursor strictly inside, Unknown otherwise.
-pub fn latest_viewport_summary(comp: &super::DesktopComposition) -> Option<super::ViewportSummary> {
+pub fn latest_viewport_summary(comp: &super::DesktopComposition) -> Option<ViewportSummary> {
     // Prefer WorkspaceView-provided visible-window when available.
     if let Some(vw) = comp.metadata.as_ref().and_then(|m| m.visible_window.clone()) {
         let top = vw.top_line;
@@ -46,17 +31,17 @@ pub fn latest_viewport_summary(comp: &super::DesktopComposition) -> Option<super
         let anchoring = if let Some(cursor_line) = cursor_line_opt {
             let bottom = top.saturating_add(visible_count.saturating_sub(1));
             if cursor_line == top {
-                super::ViewportAnchoring::Top
+                ViewportAnchoring::Top
             } else if cursor_line > top && cursor_line < bottom {
-                super::ViewportAnchoring::Centered
+                ViewportAnchoring::Centered
             } else {
-                super::ViewportAnchoring::Unknown
+                ViewportAnchoring::Unknown
             }
         } else {
-            super::ViewportAnchoring::Unknown
+            ViewportAnchoring::Unknown
         };
 
-        return Some(super::ViewportSummary {
+        return Some(ViewportSummary {
             top_visible_line: top,
             visible_line_count: visible_count,
             total_lines: total,
@@ -93,17 +78,17 @@ pub fn latest_viewport_summary(comp: &super::DesktopComposition) -> Option<super
     let anchoring = if let Some(cursor_line) = cursor_line_opt {
         let bottom = top.saturating_add(visible_count.saturating_sub(1));
         if cursor_line == top {
-            super::ViewportAnchoring::Top
+            ViewportAnchoring::Top
         } else if cursor_line > top && cursor_line < bottom {
-            super::ViewportAnchoring::Centered
+            ViewportAnchoring::Centered
         } else {
-            super::ViewportAnchoring::Unknown
+            ViewportAnchoring::Unknown
         }
     } else {
-        super::ViewportAnchoring::Unknown
+        ViewportAnchoring::Unknown
     };
 
-    Some(super::ViewportSummary {
+    Some(ViewportSummary {
         top_visible_line: top,
         visible_line_count: visible_count,
         total_lines: total,

@@ -28,6 +28,9 @@ zaroxi-application-command = { path = "../zaroxi-application-command" }
 # Application AI port (used by orchestrator)
 zaroxi-application-ai = { path = "../zaroxi-application-ai" }
 
+# Core engine UI (ShellWorkContent, ContentView) for workspace content assembly.
+zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
+
 [dev-dependencies]
 zaroxi-infrastructure-memory = { path = "../zaroxi-infrastructure-memory" }
 zaroxi-infrastructure-ai-mock = { path = "../zaroxi-infrastructure-ai-mock" }

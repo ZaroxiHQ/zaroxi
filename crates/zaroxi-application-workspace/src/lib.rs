@@ -1,16 +1,12 @@
 pub mod editor_service;
-/// Workspace service orchestration logic for Zaroxi Studio.
-///
-/// Application-level orchestrators (use-case services) live here. They depend on
-/// domain contracts and core ports, but not on infrastructure or interface.
-/// For Phase 1 keep implementations minimal and focused on the single slice.
 pub mod service;
 pub use editor_service::EditorService;
 pub mod in_memory_adapters;
 pub mod ports;
 pub mod usecases;
 pub mod view;
-pub mod workspace_manager; // small, read-only view seam (Phase 2)
+pub mod workspace_manager;
+pub mod workspace_view;
 
 use std::io;
 use std::path::PathBuf;

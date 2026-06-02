@@ -5,6 +5,11 @@ Responsibilities:
 - Define composition-facing DTOs stored in-memory (metadata/status/summary types).
 - Define DesktopComposition (presenter + stored fields).
 - Implement small, side-effect free accessors and thin delegations to focused submodules.
+
+Shared workspace-view DTOs (OpenedBufferItemSummary, OpenedBuffersSummary,
+ActiveDocumentSummary, ViewportSummary, ShellContext, RefreshReason,
+VisibleWindowBasic) live in `zaroxi-application-workspace::workspace_view`
+and are re-exported here for backward compatibility.
 */
 
 use std::sync::Arc;
@@ -13,6 +18,13 @@ use crate::presenter::Presenter;
 use crate::view_adapter::InterfaceRenderableWindow;
 use zaroxi_application_workspace::ports::SessionId;
 use zaroxi_kernel_types::Id;
+
+// Imports and re-exports: these types live in zaroxi-application-workspace
+// but downstream code references them via super::* / crate::desktop::*.
+pub use zaroxi_application_workspace::workspace_view::{
+    ActiveDocumentSummary, OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason,
+    ShellContext, ViewportAnchoring, ViewportSummary, VisibleWindowBasic,
+};
 
 /// Single opened-buffer projection item exposed to the shell.
 #[derive(Clone, Debug)]
@@ -27,33 +39,6 @@ pub struct ActiveBufferDetails {
     pub buffer_id: crate::ports::BufferId,
     pub display: Option<String>,
     pub line_count: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActiveDocumentSummary {
-    pub buffer_id: Option<crate::ports::BufferId>,
-    pub display: Option<String>,
-    pub line_count: usize,
-    pub cursor_line: Option<usize>,
-    pub cursor_column: Option<usize>,
-    pub selection_present: bool,
-    pub current_line_snippet: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ViewportAnchoring {
-    Top,
-    Centered,
-    Unknown,
-}
-
-#[derive(Clone, Debug)]
-pub struct ViewportSummary {
-    pub top_visible_line: usize,
-    pub visible_line_count: usize,
-    pub total_lines: usize,
-    pub cursor_visible: bool,
-    pub anchoring: ViewportAnchoring,
 }
 
 #[derive(Clone, Debug)]
@@ -101,16 +86,6 @@ pub struct AiProjectionSummary {
     pub state: AiState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RefreshReason {
-    InitialLoad,
-    RefreshAction,
-    CursorMoved,
-    BufferUpdated,
-    ActiveBufferChanged,
-    AiProjectionUpdated,
-}
-
 #[allow(dead_code)]
 pub(crate) fn command_kind_short_name(kind: &crate::ports::CommandKind) -> &'static str {
     // Prefer concise variant names for small status lines (avoid Debug output with fields).
@@ -134,7 +109,7 @@ pub struct DesktopMetadata {
     pub active_buffer_details: Option<ActiveBufferDetails>,
     pub ai_projection: Option<AiProjection>,
     pub ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView>,
-    pub visible_window: Option<crate::desktop::projections::VisibleWindowBasic>,
+    pub visible_window: Option<VisibleWindowBasic>,
     pub last_command_line: Option<String>,
     pub refresh_reason: Option<RefreshReason>,
 }
@@ -149,36 +124,11 @@ pub struct DesktopStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OpenedBufferItemSummary {
-    pub buffer_id: crate::ports::BufferId,
-    pub display: Option<String>,
-    pub line_count: usize,
-    pub active: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OpenedBuffersSummary {
-    pub count: usize,
-    pub items: Vec<OpenedBufferItemSummary>,
-    pub active: Option<crate::ports::BufferId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesktopSummary {
     pub revision: u64,
     pub refresh_reason: Option<RefreshReason>,
     pub status: Option<DesktopStatus>,
     pub active_buffer: Option<crate::ports::BufferId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ShellContext {
-    pub active_buffer: Option<crate::ports::BufferId>,
-    pub active_display: Option<String>,
-    pub latest_revision: u64,
-    pub latest_refresh_reason: Option<RefreshReason>,
-    pub has_ai_projection: bool,
-    pub last_command_line: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

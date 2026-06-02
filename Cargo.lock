@@ -3759,6 +3759,7 @@ dependencies = [
  "zaroxi-application-ai",
  "zaroxi-application-command",
  "zaroxi-core-editor-buffer",
+ "zaroxi-core-engine-ui",
  "zaroxi-core-workspace-files",
  "zaroxi-domain-buffer",
  "zaroxi-domain-workspace",
