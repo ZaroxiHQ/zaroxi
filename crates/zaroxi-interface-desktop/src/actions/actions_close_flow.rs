@@ -148,14 +148,7 @@ pub async fn confirm_save_and_close(
     if let Some(pc) = comp.latest_pending_close() {
         match pc {
             crate::desktop::PendingClose::BufferClose { buffer_id, display, .. } => {
-                // Prefer a human-friendly display label when available, otherwise fall back to
-                // buffer path or buffer id string. This makes the status message explicit.
-                let label = display
-                    .clone()
-                    .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
-                    .unwrap_or_else(|| buffer_id.to_string());
-
-                // Remove from opened buffers and set a final close-result status (this clears pending state).
+                let label = crate::desktop::PendingClose::close_buffer_label(&buffer_id, &display);
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 let id_str = format!("{}", buffer_id);
                 comp.set_close_result_status(format!("Saved and closed {} ({})", label, id_str));
@@ -179,13 +172,7 @@ pub async fn confirm_discard_and_close(
     if let Some(pc) = comp.latest_pending_close() {
         match pc {
             crate::desktop::PendingClose::BufferClose { buffer_id, display, .. } => {
-                // Prefer human-friendly display when available, otherwise fall back to path or id.
-                let label = display
-                    .clone()
-                    .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
-                    .unwrap_or_else(|| buffer_id.to_string());
-
-                // Remove from opened buffers and set a final close-result status (this clears pending state).
+                let label = crate::desktop::PendingClose::close_buffer_label(&buffer_id, &display);
                 let _removed = comp.close_opened_buffer(&buffer_id);
                 let id_str = format!("{}", buffer_id);
                 comp.set_close_result_status(format!(

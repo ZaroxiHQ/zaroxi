@@ -87,6 +87,51 @@ pub enum RefreshReason {
 
 // ── Pure policy functions (moved from interface-desktop) ───────────
 
+/// Small, single-source-of-truth model describing an in-progress close
+/// resolution flow that the UI will present to the user.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PendingClose {
+    BufferClose { buffer_id: BufferId, display: Option<String>, dirty: bool },
+    SessionClose { dirty_buffers: Vec<BufferId>, summary: String },
+    ResolutionFailure { message: String },
+}
+
+impl PendingClose {
+    /// Render a compact single-line summary suitable for shell banners/tests.
+    pub fn render_summary(&self) -> String {
+        match self {
+            PendingClose::BufferClose { display, dirty, .. } => {
+                if *dirty {
+                    format!(
+                        "Close buffer '{}' (unsaved changes)",
+                        display.clone().unwrap_or_else(|| "<unnamed>".to_string())
+                    )
+                } else {
+                    format!(
+                        "Close buffer '{}'",
+                        display.clone().unwrap_or_else(|| "<unnamed>".to_string())
+                    )
+                }
+            }
+            PendingClose::SessionClose { summary, .. } => {
+                format!("Close session: {}", summary)
+            }
+            PendingClose::ResolutionFailure { message } => {
+                format!("Close failed: {}", message)
+            }
+        }
+    }
+
+    /// Human-friendly buffer label from a BufferClose variant.
+    /// Prefers display name, falls back to buffer path, then buffer id.
+    pub fn close_buffer_label(buffer_id: &BufferId, display: &Option<String>) -> String {
+        display
+            .clone()
+            .or_else(|| buffer_id.path().map(|p| p.to_string_lossy().to_string()))
+            .unwrap_or_else(|| buffer_id.to_string())
+    }
+}
+
 /// Deterministic human-readable label for a `RefreshReason`.
 pub fn refresh_reason_label(reason: &RefreshReason) -> &'static str {
     match reason {
