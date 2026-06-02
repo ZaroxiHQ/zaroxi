@@ -556,6 +556,15 @@ async fn ai_commands_review_apply_reject_via_command_bar() {
     let applied_text = fake_svc.last_update.lock().unwrap().clone();
     assert!(applied_text.is_some(), "applied text should be recorded");
 
+    // Phase 23: after apply, AI panel should show applied state.
+    let work_after = comp.build_work_content();
+    let ai_after = work_after.ai_panel_content.expect("ai panel content after apply");
+    assert!(
+        ai_after.subtitle.contains("Applied:"),
+        "should show Applied: subtitle after apply, got: {}",
+        ai_after.subtitle
+    );
+
     // Re-request then reject
     let reject_idx = labels.iter().position(|l| l == "Reject AI proposal").unwrap();
     execute_command_by_index(
