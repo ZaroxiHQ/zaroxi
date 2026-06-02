@@ -660,6 +660,7 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
                 {
                     Ok(resp) => {
                         ctx.set_status_message(format!("Explain dispatched: {:?}", resp));
+                        ctx.set_pending_refresh_reason(RefreshReason::AiProjectionUpdated);
                         let ar =
                             refresh_desktop(ctx, view, session_id, workspace_id, Some(s)).await?;
                         Ok(ActionResult {
