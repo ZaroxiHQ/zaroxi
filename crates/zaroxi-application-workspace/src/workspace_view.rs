@@ -85,6 +85,50 @@ pub enum RefreshReason {
     AiProjectionUpdated,
 }
 
+// ── Pure policy functions (moved from interface-desktop) ───────────
+
+/// Deterministic human-readable label for a `RefreshReason`.
+pub fn refresh_reason_label(reason: &RefreshReason) -> &'static str {
+    match reason {
+        RefreshReason::InitialLoad => "initial load",
+        RefreshReason::RefreshAction => "refreshed",
+        RefreshReason::CursorMoved => "cursor moved",
+        RefreshReason::BufferUpdated => "buffer updated",
+        RefreshReason::ActiveBufferChanged => "active buffer changed",
+        RefreshReason::AiProjectionUpdated => "AI projection updated",
+    }
+}
+
+/// The canonical set of command-bar command labels.
+pub fn command_bar_labels() -> Vec<String> {
+    vec![
+        "Refresh".into(),
+        "Open buffer".into(),
+        "Set active buffer".into(),
+        "Explain active buffer".into(),
+        "Request close active".into(),
+        "Confirm close: save".into(),
+        "Confirm close: discard".into(),
+        "Confirm close: cancel".into(),
+    ]
+}
+
+/// Navigation: next command index with wrap-around.
+pub fn select_next_command_index(current: usize, len: usize) -> usize {
+    if len == 0 {
+        return current;
+    }
+    (current + 1) % len
+}
+
+/// Navigation: previous command index with wrap-around.
+pub fn select_prev_command_index(current: usize, len: usize) -> usize {
+    if len == 0 {
+        return current;
+    }
+    if current == 0 { len - 1 } else { current - 1 }
+}
+
 /// Assemble a `ShellWorkContent` snapshot from workspace-view DTOs.
 ///
 /// This is the shared content-assembly function — any interface (desktop,

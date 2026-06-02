@@ -45,15 +45,8 @@ pub fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super:
 
     // Fallback to mapping refresh reason to a concise single-line message.
     if let Some(rr) = meta.refresh_reason.as_ref() {
-        let text = match rr {
-            super::RefreshReason::InitialLoad => "initial load".to_string(),
-            super::RefreshReason::RefreshAction => "refreshed".to_string(),
-            super::RefreshReason::CursorMoved => "cursor moved".to_string(),
-            super::RefreshReason::BufferUpdated => "buffer updated".to_string(),
-            super::RefreshReason::ActiveBufferChanged => "active buffer changed".to_string(),
-            super::RefreshReason::AiProjectionUpdated => "AI projection updated".to_string(),
-        };
-        return Some(super::StatusBarLine { text, sticky });
+        let text = zaroxi_application_workspace::workspace_view::refresh_reason_label(rr);
+        return Some(super::StatusBarLine { text: text.to_string(), sticky });
     }
 
     None

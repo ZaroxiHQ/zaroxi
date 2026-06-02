@@ -1,23 +1,15 @@
-// Focused command-bar helper implementations.
-//
-// Each function operates on `&mut super::DesktopComposition` or `&super::DesktopComposition`
-// and mirrors the previous method bodies moved out of the large `desktop.rs` file.
-// Exposed as `pub(crate)` to keep API surface minimal.
+// Command-bar helpers operating on DesktopComposition.
+// Pure policy (label list, index arithmetic) is delegated to
+// zaroxi_application_workspace::workspace_view.
+
+use zaroxi_application_workspace::workspace_view::{
+    command_bar_labels, select_next_command_index, select_prev_command_index,
+};
 
 pub(crate) fn open_command_bar(comp: &mut super::DesktopComposition) {
-    let mut labels: Vec<String> = Vec::new();
-    labels.push("Refresh".to_string());
-    labels.push("Open buffer".to_string());
-    labels.push("Set active buffer".to_string());
-    labels.push("Explain active buffer".to_string());
-    labels.push("Request close active".to_string());
-    labels.push("Confirm close: save".to_string());
-    labels.push("Confirm close: discard".to_string());
-    labels.push("Confirm close: cancel".to_string());
-
     comp.command_bar = Some(super::CommandBarState {
         open: true,
-        commands: labels,
+        commands: command_bar_labels(),
         selected: 0,
         staged_arg: None,
     });
@@ -49,7 +41,7 @@ pub(crate) fn latest_command_bar(
 pub(crate) fn select_next_command(comp: &mut super::DesktopComposition) {
     if let Some(cb) = comp.command_bar.as_mut() {
         if !cb.commands.is_empty() {
-            cb.selected = (cb.selected + 1) % cb.commands.len();
+            cb.selected = select_next_command_index(cb.selected, cb.commands.len());
         }
     }
 }
@@ -57,11 +49,7 @@ pub(crate) fn select_next_command(comp: &mut super::DesktopComposition) {
 pub(crate) fn select_prev_command(comp: &mut super::DesktopComposition) {
     if let Some(cb) = comp.command_bar.as_mut() {
         if !cb.commands.is_empty() {
-            if cb.selected == 0 {
-                cb.selected = cb.commands.len() - 1;
-            } else {
-                cb.selected -= 1;
-            }
+            cb.selected = select_prev_command_index(cb.selected, cb.commands.len());
         }
     }
 }
