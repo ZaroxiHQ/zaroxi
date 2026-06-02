@@ -64,6 +64,8 @@ pub struct Diagnostic {
     pub message: String,
     pub severity: DiagnosticSeverity,
     pub uri: Option<String>,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
 }
 
 /// Stable summary enum returned to callers so caller code can distinguish
@@ -118,6 +120,8 @@ pub fn collect_for_uri(uri: &str) -> DiagnosticsSummary {
                         }
                     },
                     uri: d.uri,
+                    line: None,
+                    column: None,
                 })
                 .collect();
             DiagnosticsSummary::Some(mapped)

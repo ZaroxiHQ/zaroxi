@@ -816,3 +816,47 @@ pub fn cancel_ai_edit_active(
     }
     comp.set_status_message("AI proposal cancelled".to_string());
 }
+
+/// Navigate to the first diagnostic with line information for the active buffer.
+/// Moves the editor cursor to the diagnostic's line/column.
+pub async fn goto_first_diagnostic_active(
+    comp: &mut super::DesktopComposition,
+    view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+) -> Result<(), String> {
+    let active_uri = comp
+        .latest_metadata()
+        .and_then(|md| md.active_buffer.as_ref().map(|b| b.to_string()))
+        .ok_or_else(|| "no active buffer".to_string())?;
+
+    let diags = crate::diagnostics::diagnostics_details_for_uri(&active_uri);
+    let loc = diags
+        .as_ref()
+        .and_then(|ds| ds.iter().find(|d| d.line.is_some()))
+        .and_then(|d| d.line.map(|ln| (ln, d.column.unwrap_or(0))));
+
+    if let Some((line, col)) = loc {
+        if let Some(svc) = service {
+            let active_req =
+                crate::ports::GetActiveBufferRequest { session_id: session_id.clone() };
+            if let Ok(resp) = svc.get_active_buffer(active_req).await {
+                let bid = resp.buffer_id;
+                let _ = svc
+                    .set_editor_cursor(crate::ports::SetEditorCursorRequest {
+                        session_id: session_id.clone(),
+                        buffer_id: bid,
+                        cursor: crate::ports::EditorCursor { line, column: col },
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                comp.set_pending_refresh_reason(super::RefreshReason::CursorMoved);
+                let _ = comp
+                    .refresh_with_service(view, session_id, comp.workspace_id.clone(), None)
+                    .await;
+                return Ok(());
+            }
+        }
+    }
+    Err("no diagnostic with line info found".to_string())
+}

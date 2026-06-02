@@ -49,7 +49,13 @@ impl DesktopComposition {
                     crate::diagnostics::diagnostics_details_for_uri(&diag.active_buffer)
                         .unwrap_or_default()
                         .iter()
-                        .map(|d| format!("{:?}: {}", d.severity, d.message))
+                        .map(|d| {
+                            if let Some(ln) = d.line {
+                                format!("{} (line {}): {}", d.severity.as_str(), ln, d.message)
+                            } else {
+                                format!("{}: {}", d.severity.as_str(), d.message)
+                            }
+                        })
                         .collect();
 
                 let diag_view = panel::diagnostics_content_view(

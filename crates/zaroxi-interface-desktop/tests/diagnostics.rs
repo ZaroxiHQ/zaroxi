@@ -2,8 +2,8 @@
 use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_interface_desktop::diagnostics::{
     Diagnostic, DiagnosticSeverity, DiagnosticsSummary, ProviderState, clear_mock_diagnostics,
-    collect_for_uri, diagnostics_snapshot_for_uri, ingest_diagnostics_payload,
-    register_mock_diagnostics,
+    collect_for_uri, diagnostics_details_for_uri, diagnostics_snapshot_for_uri,
+    ingest_diagnostics_payload, register_mock_diagnostics,
 };
 
 #[test]
@@ -116,21 +116,29 @@ fn ready_summary_reports_counts_for_active_buffer() {
                 message: "E: something broke".to_string(),
                 severity: DiagnosticSeverity::Error,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: minor issue".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: another warning".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "I: consider this".to_string(),
                 severity: DiagnosticSeverity::Information,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
         ],
     );
@@ -160,6 +168,8 @@ fn switching_active_buffer_changes_diagnostics_summary() {
             message: "W: main warning".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("main.rs".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -170,11 +180,15 @@ fn switching_active_buffer_changes_diagnostics_summary() {
                 message: "E: lib error".to_string(),
                 severity: DiagnosticSeverity::Error,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: lib warning".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
         ],
     );
@@ -210,16 +224,22 @@ fn ingest_payload_updates_summary_for_active_buffer() {
                 message: "E: failure".to_string(),
                 severity: DiagnosticSeverity::Error,
                 uri: Some("ingest.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: warn1".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("ingest.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: warn2".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("ingest.rs".to_string()),
+                line: None,
+                column: None,
             },
         ],
     );
@@ -244,6 +264,8 @@ fn ingest_empty_payload_clears_summary_counts_feature_off() {
             message: "W: w".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("clear_test.xyz".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -272,6 +294,8 @@ fn ingest_empty_payload_clears_summary_counts_feature_on() {
             message: "W: w".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("clear_test.txt".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -297,6 +321,8 @@ fn switching_active_buffer_reads_correct_uri_snapshot_after_updates() {
             message: "W: a".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("a.rs".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -307,11 +333,15 @@ fn switching_active_buffer_reads_correct_uri_snapshot_after_updates() {
                 message: "E: b".to_string(),
                 severity: DiagnosticSeverity::Error,
                 uri: Some("b.rs".to_string()),
+                line: None,
+                column: None,
             },
             Diagnostic {
                 message: "W: b".to_string(),
                 severity: DiagnosticSeverity::Warning,
                 uri: Some("b.rs".to_string()),
+                line: None,
+                column: None,
             },
         ],
     );
@@ -338,6 +368,8 @@ fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
             message: "W: one".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("one.rs".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -347,6 +379,8 @@ fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
             message: "W: two".to_string(),
             severity: DiagnosticSeverity::Warning,
             uri: Some("two.rs".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -357,6 +391,8 @@ fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
             message: "E: one now error".to_string(),
             severity: DiagnosticSeverity::Error,
             uri: Some("one.rs".to_string()),
+            line: None,
+            column: None,
         }],
     );
 
@@ -372,4 +408,45 @@ fn updating_one_uri_does_not_mutate_other_uri_snapshots() {
     assert_eq!(snap_two.errors, 0);
 
     clear_mock_diagnostics();
+}
+
+/// Phase 26: actionable diagnostics with line info.
+#[tokio::test]
+async fn goto_first_diagnostic_finds_location() {
+    let buf_uri = "src/actionable.rs";
+    ingest_diagnostics_payload(
+        buf_uri,
+        vec![Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            message: "missing semicolon".to_string(),
+            uri: Some(buf_uri.to_string()),
+            line: Some(42),
+            column: Some(5),
+        }],
+    );
+
+    let diags = diagnostics_details_for_uri(buf_uri).expect("diags present");
+    let with_loc = diags.iter().find(|d| d.line.is_some());
+    assert!(with_loc.is_some());
+    assert_eq!(with_loc.unwrap().line, Some(42));
+}
+
+/// Phase 26: diagnostics without location still render.
+#[tokio::test]
+async fn diagnostics_without_location_render_fine() {
+    let buf_uri = "src/noloc.rs";
+    ingest_diagnostics_payload(
+        buf_uri,
+        vec![Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            message: "no location info".to_string(),
+            uri: Some(buf_uri.to_string()),
+            line: None,
+            column: None,
+        }],
+    );
+
+    let diags = diagnostics_details_for_uri(buf_uri).expect("diags present");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].line, None);
 }
