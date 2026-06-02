@@ -20,8 +20,8 @@ pub use crate::ports::BoxFuture;
 pub use zaroxi_application_workspace::ports;
 
 pub use actions::{
-    ActionResult, ShellActionResult, move_cursor_to_start_and_refresh,
-    refresh_and_get_shell_context, refresh_desktop, set_active_buffer_and_get_shell_context,
+    move_cursor_to_start_and_refresh, refresh_and_get_shell_context, refresh_desktop,
+    set_active_buffer_and_get_shell_context,
 };
 pub use commands::EditorCommand;
 pub use desktop::{
@@ -37,6 +37,7 @@ pub use view_adapter::{
     InterfaceRenderSpan, InterfaceRenderableLine, InterfaceRenderableWindow, InterfaceSpanKind,
     fetch_renderable_window,
 };
+pub use zaroxi_application_workspace::workspace_view::{ActionResult, ShellActionResult};
 
 pub mod render_debug_text;
 pub use render_debug_text::render_debug_text;

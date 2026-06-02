@@ -4,9 +4,10 @@ use zaroxi_application_workspace::ports::{
     ApplyTextTransactionRequest, EditorCursor, GetActiveBufferRequest, SessionId,
     SetEditorCursorRequest, TextEdit, WorkspaceView,
 };
+use zaroxi_application_workspace::workspace_view::ActionResult;
 use zaroxi_kernel_types::Id;
 
-use super::actions_refresh::{ActionResult, refresh_desktop};
+use super::actions_refresh::refresh_desktop;
 
 /// Small shell action: move the editor cursor for the active buffer to the document start
 /// (line 0, column 0) and refresh the desktop composition.

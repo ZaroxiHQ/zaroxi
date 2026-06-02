@@ -36,6 +36,29 @@ pub struct ActiveDocumentSummary {
     pub current_line_snippet: Option<String>,
 }
 
+/// Small active-buffer details from the composition metadata.
+#[derive(Clone, Debug)]
+pub struct ActiveBufferDetails {
+    pub buffer_id: BufferId,
+    pub display: Option<String>,
+    pub line_count: usize,
+}
+
+/// Normalized action result returned by interface actions.
+#[derive(Clone, Debug)]
+pub struct ActionResult {
+    pub success: bool,
+    pub message: Option<String>,
+    pub refreshed: bool,
+}
+
+/// Convenience result containing ActionResult plus latest ShellContext.
+#[derive(Clone, Debug)]
+pub struct ShellActionResult {
+    pub action: ActionResult,
+    pub context: Option<ShellContext>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ViewportAnchoring {
     Top,
@@ -85,7 +108,25 @@ pub enum RefreshReason {
     AiProjectionUpdated,
 }
 
-// ── Pure policy functions (moved from interface-desktop) ───────────
+// ── Close-flow orchestration trait ──────────────────────────────────
+
+/// Application-facing capability set needed by close-flow orchestration.
+///
+/// Desktop implements this on `DesktopComposition`. The close-flow action
+/// functions in this module are generic over `C: CloseContext` so they can
+/// live in the application layer without depending on interface types.
+pub trait CloseContext {
+    fn latest_active_buffer_details(&self) -> Option<ActiveBufferDetails>;
+    fn latest_opened_buffers_summary(&self) -> OpenedBuffersSummary;
+    fn latest_pending_close(&self) -> Option<PendingClose>;
+    fn set_pending_close(&mut self, pending: PendingClose);
+    fn clear_pending_close(&mut self);
+    fn close_opened_buffer(&mut self, buffer_id: &BufferId) -> bool;
+    fn set_status_message(&mut self, message: String);
+    fn set_close_result_status(&mut self, message: String);
+    fn clear_close_result_status(&mut self);
+    fn perform_session_close(&mut self);
+}
 
 /// Small, single-source-of-truth model describing an in-progress close
 /// resolution flow that the UI will present to the user.
@@ -245,4 +286,181 @@ pub fn build_work_content(
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
     }
+}
+
+// ── Close-flow action orchestration ────────────────────────────────
+
+use crate::ports::{GetSessionSnapshotRequest, SaveCheckpointRequest, SessionId, WorkspaceService};
+use std::sync::Arc;
+
+pub async fn request_close_active<C: CloseContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    if let Some(details) = ctx.latest_active_buffer_details() {
+        let pending = PendingClose::BufferClose {
+            buffer_id: details.buffer_id.clone(),
+            display: details.display.clone(),
+            dirty: true,
+        };
+        ctx.set_pending_close(pending);
+        Ok(ActionResult { success: true, message: None, refreshed: false })
+    } else {
+        Ok(ActionResult {
+            success: false,
+            message: Some("no active buffer".to_string()),
+            refreshed: false,
+        })
+    }
+}
+
+pub async fn request_close_session<C: CloseContext>(
+    ctx: &mut C,
+    session_id: SessionId,
+    service: Option<Arc<dyn WorkspaceService>>,
+) -> Result<ActionResult, String> {
+    if let Some(s) = service {
+        let req = GetSessionSnapshotRequest { session_id: session_id.clone(), recent_limit: 0 };
+        match s.attempt_close_session(req).await {
+            Ok(snapshot) => {
+                if snapshot.snapshot.opened_buffers.is_empty() {
+                    ctx.perform_session_close();
+                    return Ok(ActionResult { success: true, message: None, refreshed: true });
+                } else {
+                    let dirty_ids = snapshot.snapshot.opened_buffers.clone();
+                    let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
+                    let pending = PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
+                    ctx.set_pending_close(pending);
+                    return Ok(ActionResult { success: true, message: None, refreshed: false });
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    let obs = ctx.latest_opened_buffers_summary();
+    if obs.count == 0 {
+        ctx.perform_session_close();
+        Ok(ActionResult { success: true, message: None, refreshed: true })
+    } else {
+        let ids: Vec<BufferId> = obs.items.iter().map(|i| i.buffer_id.clone()).collect();
+        let summary = format!("{} open buffers", ids.len());
+        let pending = PendingClose::SessionClose { dirty_buffers: ids, summary };
+        ctx.set_pending_close(pending);
+        Ok(ActionResult { success: true, message: None, refreshed: false })
+    }
+}
+
+pub async fn confirm_save_all_and_close<C: CloseContext>(
+    ctx: &mut C,
+    service: Option<Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+) -> Result<ActionResult, String> {
+    if let Some(s) = service {
+        let save_req = SaveCheckpointRequest { session_id: session_id.clone() };
+        match s.save_checkpoint(save_req).await {
+            Ok(_) => {
+                ctx.perform_session_close();
+                ctx.set_close_result_status("Saved and closed session".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            Err(e) => {
+                ctx.set_pending_close(PendingClose::ResolutionFailure {
+                    message: format!("Save failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("save failed".to_string()),
+                    refreshed: false,
+                });
+            }
+        }
+    } else {
+        ctx.perform_session_close();
+        ctx.set_close_result_status("Closed session (no service)".to_string());
+        return Ok(ActionResult { success: true, message: None, refreshed: true });
+    }
+}
+
+pub async fn confirm_discard_all_and_close<C: CloseContext>(
+    ctx: &mut C,
+    service: Option<Arc<dyn WorkspaceService>>,
+    session_id: SessionId,
+) -> Result<ActionResult, String> {
+    if let Some(s) = service {
+        let req = SaveCheckpointRequest { session_id: session_id.clone() };
+        match s.resolve_close_session_discard_all(req).await {
+            Ok(_) => {
+                ctx.perform_session_close();
+                ctx.set_close_result_status("Discarded and closed session".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            Err(e) => {
+                ctx.set_pending_close(PendingClose::ResolutionFailure {
+                    message: format!("Discard failed: {}", e),
+                });
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("discard failed".to_string()),
+                    refreshed: false,
+                });
+            }
+        }
+    } else {
+        ctx.clear_pending_close();
+        ctx.perform_session_close();
+        ctx.set_status_message("Discarded and closed session (no service)".to_string());
+        return Ok(ActionResult { success: true, message: None, refreshed: true });
+    }
+}
+
+pub async fn confirm_save_and_close<C: CloseContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    if let Some(pc) = ctx.latest_pending_close() {
+        match pc {
+            PendingClose::BufferClose { buffer_id, display, .. } => {
+                let label = PendingClose::close_buffer_label(&buffer_id, &display);
+                let _removed = ctx.close_opened_buffer(&buffer_id);
+                let id_str = format!("{}", buffer_id);
+                ctx.set_close_result_status(format!("Saved and closed {} ({})", label, id_str));
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            _ => {
+                ctx.set_close_result_status("Saved and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+        }
+    }
+
+    ctx.set_status_message("Saved and closed".to_string());
+    Ok(ActionResult { success: true, message: None, refreshed: true })
+}
+
+pub async fn confirm_discard_and_close<C: CloseContext>(
+    ctx: &mut C,
+) -> Result<ActionResult, String> {
+    if let Some(pc) = ctx.latest_pending_close() {
+        match pc {
+            PendingClose::BufferClose { buffer_id, display, .. } => {
+                let label = PendingClose::close_buffer_label(&buffer_id, &display);
+                let _removed = ctx.close_opened_buffer(&buffer_id);
+                let id_str = format!("{}", buffer_id);
+                ctx.set_close_result_status(format!(
+                    "Discarded changes and closed {} ({})",
+                    label, id_str
+                ));
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+            _ => {
+                ctx.set_close_result_status("Discarded and closed".to_string());
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            }
+        }
+    }
+
+    ctx.set_status_message("Discarded and closed".to_string());
+    Ok(ActionResult { success: true, message: None, refreshed: true })
+}
+
+pub async fn confirm_cancel_close<C: CloseContext>(ctx: &mut C) -> Result<ActionResult, String> {
+    ctx.clear_close_result_status();
+    ctx.clear_pending_close();
+    ctx.set_status_message("Close cancelled".to_string());
+    Ok(ActionResult { success: true, message: None, refreshed: false })
 }

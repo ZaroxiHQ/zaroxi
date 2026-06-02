@@ -22,8 +22,8 @@ use zaroxi_kernel_types::Id;
 // Imports and re-exports: these types live in zaroxi-application-workspace
 // but downstream code references them via super::* / crate::desktop::*.
 pub use zaroxi_application_workspace::workspace_view::{
-    ActiveDocumentSummary, OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason,
-    ShellContext, ViewportAnchoring, ViewportSummary, VisibleWindowBasic,
+    ActiveBufferDetails, ActiveDocumentSummary, OpenedBufferItemSummary, OpenedBuffersSummary,
+    RefreshReason, ShellContext, ViewportAnchoring, ViewportSummary, VisibleWindowBasic,
 };
 
 /// Single opened-buffer projection item exposed to the shell.
@@ -32,13 +32,6 @@ pub struct OpenedBufferItem {
     pub buffer_id: crate::ports::BufferId,
     pub display: Option<String>,
     pub active: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActiveBufferDetails {
-    pub buffer_id: crate::ports::BufferId,
-    pub display: Option<String>,
-    pub line_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -532,5 +525,56 @@ impl DesktopComposition {
         &self,
     ) -> crate::desktop::consistency::DesktopConsistencyReport {
         crate::desktop::consistency::latest_consistency_report(self)
+    }
+}
+
+// CloseContext trait impl: enables close-flow action functions in
+// zaroxi-application-workspace to operate on DesktopComposition.
+use zaroxi_application_workspace::workspace_view::CloseContext;
+
+impl CloseContext for DesktopComposition {
+    fn latest_active_buffer_details(&self) -> Option<ActiveBufferDetails> {
+        self.metadata.as_ref().and_then(|m| m.active_buffer_details.clone())
+    }
+
+    fn latest_opened_buffers_summary(&self) -> OpenedBuffersSummary {
+        self.latest_opened_buffers_summary()
+    }
+
+    fn latest_pending_close(
+        &self,
+    ) -> Option<zaroxi_application_workspace::workspace_view::PendingClose> {
+        crate::desktop::pending_close::latest_pending_close(self)
+    }
+
+    fn set_pending_close(
+        &mut self,
+        pending: zaroxi_application_workspace::workspace_view::PendingClose,
+    ) {
+        self.set_pending_close(pending);
+    }
+
+    fn clear_pending_close(&mut self) {
+        self.clear_pending_close();
+    }
+
+    fn close_opened_buffer(&mut self, buffer_id: &crate::ports::BufferId) -> bool {
+        self.close_opened_buffer(buffer_id)
+    }
+
+    fn set_status_message(&mut self, message: String) {
+        self.set_status_message(message);
+    }
+
+    fn set_close_result_status(&mut self, message: String) {
+        self.set_close_result_status(message);
+    }
+
+    fn clear_close_result_status(&mut self) {
+        self.clear_close_result_status();
+    }
+
+    fn perform_session_close(&mut self) {
+        self.perform_session_close();
     }
 }

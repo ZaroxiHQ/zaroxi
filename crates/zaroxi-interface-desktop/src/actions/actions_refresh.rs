@@ -3,20 +3,9 @@ use std::sync::Arc;
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_kernel_types::Id;
 
-use crate::desktop::{DesktopComposition, RefreshReason};
+pub use zaroxi_application_workspace::workspace_view::{ActionResult, ShellActionResult};
 
-/// Normalized, tiny action result returned by interface-desktop actions.
-///
-/// Purpose:
-/// - Simple, shell-oriented status for UI actions.
-/// - Avoid duplicating application/domain error types.
-/// - Communicate whether a composition refresh occurred.
-#[derive(Clone, Debug)]
-pub struct ActionResult {
-    pub success: bool,
-    pub message: Option<String>,
-    pub refreshed: bool,
-}
+use crate::desktop::{DesktopComposition, RefreshReason};
 
 /// Refresh the given DesktopComposition by delegating to its async `refresh` method.
 ///
@@ -49,14 +38,6 @@ pub async fn refresh_desktop(
         Ok(()) => Ok(ActionResult { success: true, message: None, refreshed: true }),
         Err(e) => Ok(ActionResult { success: false, message: Some(e), refreshed: false }),
     }
-}
-
-/// Convenience, tiny shell-facing result containing the normalized ActionResult
-/// plus the latest ShellContext (when available).
-#[derive(Clone, Debug)]
-pub struct ShellActionResult {
-    pub action: ActionResult,
-    pub context: Option<crate::desktop::ShellContext>,
 }
 
 /// Tiny convenience action used by shells/harnesses:

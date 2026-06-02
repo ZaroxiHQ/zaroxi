@@ -16,10 +16,16 @@ pub mod summary;
 pub mod work_content;
 
 pub use state::{
-    ActiveBufferDetails, ActiveDocumentSummary, AiKind, AiProjection, AiProjectionSummary, AiState,
-    Command, CommandBarState, DesktopComposition, DesktopMetadata, DesktopStatus, DesktopSummary,
-    OpenedBufferItem, OpenedBufferItemSummary, OpenedBuffersSummary, RefreshReason, ShellContext,
-    ShellSnapshot, StatusBarLine, ViewportAnchoring, ViewportSummary,
+    AiKind, AiProjection, AiProjectionSummary, AiState, Command, CommandBarState,
+    DesktopComposition, DesktopMetadata, DesktopStatus, DesktopSummary, OpenedBufferItem,
+    ShellSnapshot, StatusBarLine,
+};
+
+// Re-export workspace-view DTOs through composition so downstream crate::desktop::*
+// imports find them at the same paths.
+pub use zaroxi_application_workspace::workspace_view::{
+    ActiveBufferDetails, ActiveDocumentSummary, OpenedBufferItemSummary, OpenedBuffersSummary,
+    RefreshReason, ShellContext, ViewportAnchoring, ViewportSummary,
 };
 
 pub use refresh::{

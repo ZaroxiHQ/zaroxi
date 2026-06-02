@@ -6,12 +6,13 @@ use std::sync::Arc;
 use zaroxi_application_workspace::ports::{
     GetActiveBufferRequest, OpenBufferRequest, SessionId, WorkspaceView,
 };
+use zaroxi_application_workspace::workspace_view::ActionResult;
 
 use super::actions_buffer::set_active_buffer_and_get_shell_context;
 use super::actions_close_flow::{
     confirm_cancel_close, confirm_discard_and_close, confirm_save_and_close, request_close_active,
 };
-use super::actions_refresh::{ActionResult, refresh_desktop};
+use super::actions_refresh::refresh_desktop;
 
 /// Open the command bar with a deterministic set of commands.
 pub async fn open_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {

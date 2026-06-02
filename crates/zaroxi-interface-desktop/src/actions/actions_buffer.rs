@@ -1,7 +1,8 @@
 use crate::desktop::RefreshReason;
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
+use zaroxi_application_workspace::workspace_view::{ActionResult, ShellActionResult};
 
-use super::actions_refresh::{ActionResult, refresh_and_get_shell_context};
+use super::actions_refresh::refresh_and_get_shell_context;
 
 /// Tiny convenience shell action:
 /// - Set the active buffer via the provided WorkspaceService.
@@ -14,7 +15,7 @@ pub async fn set_active_buffer_and_get_shell_context(
     session_id: SessionId,
     workspace_id: Option<zaroxi_kernel_types::Id>,
     buffer_id: crate::ports::BufferId,
-) -> Result<super::actions_refresh::ShellActionResult, String> {
+) -> Result<ShellActionResult, String> {
     match service
         .get_active_buffer(crate::ports::GetActiveBufferRequest { session_id: session_id.clone() })
         .await
@@ -35,7 +36,7 @@ pub async fn set_active_buffer_and_get_shell_context(
                     })
                     .await
                 {
-                    return Ok(super::actions_refresh::ShellActionResult {
+                    return Ok(ShellActionResult {
                         action: ActionResult {
                             success: false,
                             message: Some(e.to_string()),
@@ -55,7 +56,7 @@ pub async fn set_active_buffer_and_get_shell_context(
                 })
                 .await
             {
-                return Ok(super::actions_refresh::ShellActionResult {
+                return Ok(ShellActionResult {
                     action: ActionResult {
                         success: false,
                         message: Some(e.to_string()),
