@@ -26,7 +26,9 @@ pub fn build_overlay_rects(
             | "center_editor"
             | "minimap_lane"
             | "center_bottom_panel" => super::editor::draw(r, &shell.theme),
-            "ai_panel_content" => super::ai_pane::draw(r, &shell.theme),
+            "ai_panel_content" => {
+                super::ai_pane::draw(r, &shell.theme, shell.ai_panel_content_view.as_ref())
+            }
             "bottom_dock" => super::bottom_panel::draw(r, &shell.theme),
             "status_bar" => super::status_bar::draw(r, &shell.theme),
             _ => Vec::new(),

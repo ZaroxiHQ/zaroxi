@@ -137,19 +137,42 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ai) = regions.iter().find(|r| r.id == "ai_panel_header") {
-        let content = idle_content_view();
+        let content =
+            comp.and_then(|c| c.latest_ai_panel_content_view()).unwrap_or_else(idle_content_view);
         lines.push(format!("ai.header.title: {} rect={}", content.title, ai.rect));
         lines.push("ai.header.actions: [pin,close]".to_string());
     }
 
     if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
-        let content = idle_content_view();
+        let content =
+            comp.and_then(|c| c.latest_ai_panel_content_view()).unwrap_or_else(idle_content_view);
         lines.push(format!("ai.content.title: {} rect={}", content.title, aic.rect));
         if !content.subtitle.is_empty() {
             lines.push(format!("ai.content.subtitle: {} rect={}", content.subtitle, aic.rect));
         }
+        let body_lines: Vec<&str> = content
+            .lines
+            .iter()
+            .filter(|l| !l.starts_with('[') || !l.ends_with(']'))
+            .map(|s| s.as_str())
+            .collect();
+        let action_lines: Vec<&str> = content
+            .lines
+            .iter()
+            .filter(|l| l.starts_with('[') && l.ends_with(']'))
+            .map(|s| s.as_str())
+            .collect();
         lines.push(format!("ai.content.lines: count={} rect={}", content.lines.len(), aic.rect));
-        lines.push("ai.content.actions: []".to_string());
+        if !body_lines.is_empty() {
+            for bl in body_lines.iter().take(3) {
+                lines.push(format!("ai.content.body: {}", bl));
+            }
+        }
+        if !action_lines.is_empty() {
+            lines.push(format!("ai.content.actions: {}", action_lines.join(" ")));
+        } else {
+            lines.push("ai.content.actions: []".to_string());
+        }
         lines.push("ai.content.input: placeholder='Ask anything...'".to_string());
     }
 

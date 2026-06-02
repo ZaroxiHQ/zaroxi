@@ -438,3 +438,57 @@ async fn ai_cancel_clears_proposal() {
     cancel_ai_edit_active(&mut comp, None, None);
     assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_none());
 }
+
+/// Phase 2: after requesting an AI edit, the AI panel content view is populated
+/// from the proposal and the transcript reflects proposal-backed text (not idle).
+#[tokio::test]
+async fn ai_proposal_populates_content_view_and_transcript() {
+    use zaroxi_interface_desktop::gui::{ShellFrame, Size};
+
+    let mut comp = DesktopComposition::new();
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("src/lib.rs"));
+    let view = Arc::new(FakeView::new(buf_id.clone(), Some("fn main() {}".to_string())));
+    let session_id = SessionId(Id::new());
+    let fake_svc = Arc::new(FakeService::new());
+
+    // Request an AI edit — this populates ai_projection and ai_panel_content_view.
+    let res =
+        request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(fake_svc)).await;
+    assert!(res.is_ok(), "request_ai_edit_active failed: {:?}", res);
+
+    // The content view should be present and carry proposal text.
+    let cv = comp
+        .latest_ai_panel_content_view()
+        .expect("ai_panel_content_view must be populated after proposal");
+    assert_eq!(cv.title, "Assistant");
+    assert!(cv.subtitle.contains("Proposal for"));
+    assert!(
+        cv.lines.iter().any(|l| l.contains("AI Edit: proposed change")),
+        "proposal body must appear in content lines"
+    );
+    assert!(
+        cv.lines.iter().any(|l| l.contains("Accept") && l.contains("Reject")),
+        "action labels must appear in content lines"
+    );
+
+    // Transcript: render the shell with composition attached.
+    let shell = ShellFrame::new(Size { width: 1280, height: 800 });
+    let transcript = shell.render_lines(Some(&comp));
+    let joined = transcript.join("\n");
+
+    // Idle placeholder must NOT appear.
+    assert!(
+        !joined.contains("No active AI session"),
+        "idle subtitle must not appear when proposal is live"
+    );
+    // Proposal-backed content must appear.
+    assert!(joined.contains("Proposal for"), "transcript must include proposal subtitle");
+    assert!(
+        joined.contains("AI Edit: proposed change"),
+        "transcript must include proposal body text"
+    );
+    assert!(
+        joined.contains("Accept") && joined.contains("Reject") && joined.contains("Edit"),
+        "transcript must include action labels Accept/Reject/Edit"
+    );
+}

@@ -9,8 +9,36 @@ preserves behaviour exactly (modulo file splitting).
 
 use std::sync::Arc;
 
+use zaroxi_application_ai::panel;
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
 use zaroxi_kernel_types::Id;
+
+/// Synchronise `metadata.ai_panel_content_view` from the current `metadata.ai_projection`.
+/// Call after any direct mutation of `ai_projection` outside `refresh_with_service`.
+fn sync_ai_content_view(comp: &mut super::DesktopComposition) {
+    if let Some(md) = comp.metadata.as_mut() {
+        if let Some(proj) = &md.ai_projection {
+            let target = proj
+                .target_buffer
+                .as_ref()
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            if let Some(proposal_text) = &proj.proposal_text {
+                md.ai_panel_content_view = Some(panel::proposal_content_view(
+                    proposal_text,
+                    &target,
+                    proj.result.as_deref().unwrap_or(""),
+                ));
+            } else if let Some(result) = &proj.result {
+                md.ai_panel_content_view = Some(panel::explain_content_view(result, &target));
+            } else {
+                md.ai_panel_content_view = Some(panel::idle_content_view());
+            }
+        } else {
+            md.ai_panel_content_view = None;
+        }
+    }
+}
 
 /// Refresh the DesktopComposition using a WorkspaceView and optional WorkspaceService.
 ///
@@ -298,6 +326,29 @@ pub async fn refresh_with_service(
         }
     }
 
+    // Build the AI panel ContentView from the projection, if any.
+    let ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView> =
+        if let Some(proj) = &ai_proj {
+            let target = proj
+                .target_buffer
+                .as_ref()
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            if let Some(proposal_text) = &proj.proposal_text {
+                Some(panel::proposal_content_view(
+                    proposal_text,
+                    &target,
+                    proj.result.as_deref().unwrap_or(""),
+                ))
+            } else if let Some(result) = &proj.result {
+                Some(panel::explain_content_view(result, &target))
+            } else {
+                Some(panel::idle_content_view())
+            }
+        } else {
+            None
+        };
+
     // --- Refresh reason detection ---
     //
     // Compute a small set of lightweight change-detections that the shell cares about.
@@ -373,7 +424,15 @@ pub async fn refresh_with_service(
         opened_buffer_count: opened_count,
         opened_buffers: opened_list.clone(),
         active_buffer_details: active_buffer_details.clone(),
-        ai_projection: ai_proj.clone(),
+        // Preserve existing projection / content view when no new AI data arrived
+        // (e.g. refresh with no service). Direct mutations via request/apply/cancel
+        // are covered by sync_ai_content_view.
+        ai_projection: ai_proj
+            .clone()
+            .or_else(|| comp.metadata.as_ref().and_then(|m| m.ai_projection.clone())),
+        ai_panel_content_view: ai_panel_content_view
+            .clone()
+            .or_else(|| comp.metadata.as_ref().and_then(|m| m.ai_panel_content_view.clone())),
         // Surface visible-window projection when we could obtain one from the WorkspaceView.
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
@@ -522,6 +581,7 @@ pub async fn request_ai_edit_active(
                         opened_buffers: Vec::new(),
                         active_buffer_details: None,
                         ai_projection: None,
+                        ai_panel_content_view: None,
                         visible_window: None,
                         last_command_line: None,
                         refresh_reason: None,
@@ -539,6 +599,7 @@ pub async fn request_ai_edit_active(
                 }
 
                 comp.set_status_message("AI edit proposed".to_string());
+                sync_ai_content_view(comp);
                 Ok(())
             }
             Err(e) => {
@@ -568,6 +629,7 @@ pub async fn request_ai_edit_active(
                                                     opened_buffers: Vec::new(),
                                                     active_buffer_details: None,
                                                     ai_projection: None,
+                                                    ai_panel_content_view: None,
                                                     visible_window: None,
                                                     last_command_line: None,
                                                     refresh_reason: None,
@@ -589,6 +651,7 @@ pub async fn request_ai_edit_active(
                                             }
 
                                             comp.set_status_message("AI edit proposed".to_string());
+                                            sync_ai_content_view(comp);
                                             Ok(())
                                         }
                                         Err(e2) => Err(format!(
@@ -626,6 +689,7 @@ pub async fn request_ai_edit_active(
                 opened_buffers: Vec::new(),
                 active_buffer_details: None,
                 ai_projection: None,
+                ai_panel_content_view: None,
                 visible_window: None,
                 last_command_line: None,
                 refresh_reason: None,
@@ -643,6 +707,7 @@ pub async fn request_ai_edit_active(
         }
 
         comp.set_status_message("AI edit proposed".to_string());
+        sync_ai_content_view(comp);
         Ok(())
     }
 }
@@ -710,6 +775,7 @@ pub async fn apply_ai_edit_active(
                         ai_mut.result = Some("AI edit applied (via update_buffer)".to_string());
                     }
                 }
+                sync_ai_content_view(comp);
                 comp.set_status_message("AI edit applied (via update_buffer)".to_string());
             } else {
                 last_err = Some("update_buffer reported failure".to_string());
@@ -732,6 +798,7 @@ pub async fn apply_ai_edit_active(
                             ai_mut.result = Some("AI edit applied".to_string());
                         }
                     }
+                    sync_ai_content_view(comp);
                     comp.set_status_message("AI edit applied".to_string());
                 } else {
                     last_err = Some("apply_ai_edit reported failure".to_string());
@@ -745,6 +812,7 @@ pub async fn apply_ai_edit_active(
 
     if applied {
         // Best-effort refresh; ignore any refresh error but attempt to surface current composition state.
+        sync_ai_content_view(comp);
         let _ = comp.refresh(view, session_id, workspace_id).await;
         Ok(())
     } else {
@@ -756,6 +824,7 @@ pub async fn apply_ai_edit_active(
                 ai_mut.result = Some("AI edit applied (local fallback)".to_string());
             }
         }
+        sync_ai_content_view(comp);
         let status_text = if let Some(err) = last_err {
             format!("AI edit applied (local fallback) — remote error: {}", err)
         } else {
@@ -799,5 +868,6 @@ pub fn cancel_ai_edit_active(
     if let Some(md) = comp.metadata.as_mut() {
         md.ai_projection = None;
     }
+    sync_ai_content_view(comp);
     comp.set_status_message("AI proposal cancelled".to_string());
 }

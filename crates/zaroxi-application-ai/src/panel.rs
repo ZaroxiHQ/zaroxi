@@ -50,3 +50,38 @@ pub fn from_proposal(proposal: &AiEditProposal, buffer_display: Option<&str>) ->
 pub fn idle_content_view() -> ContentView {
     into_content_view(&AiPanelContent::idle())
 }
+
+/// Build a `ContentView` for a proposed AI edit, given the proposal text and
+/// target buffer name. Includes Accept / Reject / Edit action labels.
+pub fn proposal_content_view(
+    proposal_text: &str,
+    target_buffer: &str,
+    summary: &str,
+) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Proposal for {}", target_buffer),
+        kind: Some("edit".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Proposed,
+        summary: summary.to_string(),
+        body_lines: proposal_text.lines().map(|l| l.to_string()).collect(),
+        action_labels: vec!["Accept".into(), "Reject".into(), "Edit".into()],
+    };
+    into_content_view(&content)
+}
+
+/// Build a `ContentView` for an AI explain/analysis result.
+pub fn explain_content_view(result: &str, target_buffer: &str) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Analysis: {}", target_buffer),
+        kind: Some("explain".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Ready,
+        summary: String::new(),
+        body_lines: result.lines().map(|l| l.to_string()).collect(),
+        action_labels: vec![],
+    };
+    into_content_view(&content)
+}

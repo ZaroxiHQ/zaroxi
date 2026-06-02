@@ -133,6 +133,7 @@ pub struct DesktopMetadata {
     pub opened_buffers: Vec<OpenedBufferItem>,
     pub active_buffer_details: Option<ActiveBufferDetails>,
     pub ai_projection: Option<AiProjection>,
+    pub ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView>,
     pub visible_window: Option<crate::desktop::projections::VisibleWindowBasic>,
     pub last_command_line: Option<String>,
     pub refresh_reason: Option<RefreshReason>,
@@ -357,6 +358,10 @@ impl DesktopComposition {
         super::summary::latest_ai_projection_summary(self)
     }
 
+    pub fn latest_ai_panel_content_view(&self) -> Option<zaroxi_core_engine_ui::ContentView> {
+        self.metadata.as_ref().and_then(|m| m.ai_panel_content_view.clone())
+    }
+
     pub fn latest_revision(&self) -> u64 {
         self.revision
     }
@@ -452,6 +457,7 @@ impl DesktopComposition {
                 opened_buffers: Vec::new(),
                 active_buffer_details: None,
                 ai_projection: None,
+                ai_panel_content_view: None,
                 visible_window: None,
                 last_command_line: Some(text),
                 refresh_reason: None,

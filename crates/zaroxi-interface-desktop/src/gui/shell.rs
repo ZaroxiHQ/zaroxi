@@ -92,6 +92,10 @@ pub struct ShellFrame {
     pub size: Size,
     pub theme: Theme,
     pub regions: Vec<ShellRegion>,
+    /// Optional engine-owned content view for the AI panel.
+    /// Populated from DesktopComposition before rendering so the GPU
+    /// draw path can show live proposal/explain content.
+    pub ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView>,
 }
 
 impl ShellFrame {
@@ -279,7 +283,7 @@ impl ShellFrame {
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
 
-        ShellFrame { size, theme, regions }
+        ShellFrame { size, theme, regions, ai_panel_content_view: None }
     }
 
     /// Render a deterministic textual transcript describing each region.
