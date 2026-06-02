@@ -261,6 +261,7 @@ pub fn build_work_content(
     doc: Option<&ActiveDocumentSummary>,
     ctx: Option<&ShellContext>,
     visible_window: Option<&VisibleWindowBasic>,
+    ai_panel_content: Option<ContentView>,
 ) -> ShellWorkContent {
     let active_id = opened.active.clone();
 
@@ -320,6 +321,7 @@ pub fn build_work_content(
         explorer_items,
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
+        ai_panel_content,
     }
 }
 

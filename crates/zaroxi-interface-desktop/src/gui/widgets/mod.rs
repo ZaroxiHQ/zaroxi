@@ -210,15 +210,17 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ai) = regions.iter().find(|r| r.id == "ai_panel_header") {
-        let content =
-            comp.and_then(|c| c.latest_ai_panel_content_view()).unwrap_or_else(idle_content_view);
+        let content = comp
+            .and_then(|c| c.build_work_content().ai_panel_content)
+            .unwrap_or_else(idle_content_view);
         lines.push(format!("ai.header.title: {} rect={}", content.title, ai.rect));
         lines.push("ai.header.actions: [pin,close]".to_string());
     }
 
     if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
-        let content =
-            comp.and_then(|c| c.latest_ai_panel_content_view()).unwrap_or_else(idle_content_view);
+        let content = comp
+            .and_then(|c| c.build_work_content().ai_panel_content)
+            .unwrap_or_else(idle_content_view);
         lines.push(format!("ai.content.title: {} rect={}", content.title, aic.rect));
         if !content.subtitle.is_empty() {
             lines.push(format!("ai.content.subtitle: {} rect={}", content.subtitle, aic.rect));

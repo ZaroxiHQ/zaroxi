@@ -456,10 +456,9 @@ async fn ai_proposal_populates_content_view_and_transcript() {
         request_ai_edit_active(&mut comp, view.clone(), session_id.clone(), Some(fake_svc)).await;
     assert!(res.is_ok(), "request_ai_edit_active failed: {:?}", res);
 
-    // The content view should be present and carry proposal text.
-    let cv = comp
-        .latest_ai_panel_content_view()
-        .expect("ai_panel_content_view must be populated after proposal");
+    // The content view should be present and carry proposal text (via build_work_content).
+    let work = comp.build_work_content();
+    let cv = work.ai_panel_content.expect("ai_panel_content must be populated after proposal");
     assert_eq!(cv.title, "Assistant");
     assert!(cv.subtitle.contains("Proposal for"));
     assert!(

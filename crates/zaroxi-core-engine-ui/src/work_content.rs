@@ -19,6 +19,9 @@ pub struct ShellWorkContent {
     pub explorer_items: Option<Vec<String>>,
     pub active_file: Option<String>,
     pub terminal_tabs: Option<Vec<String>>,
+    /// AI assistant panel content view — built from the current AI projection
+    /// in `DesktopComposition::build_work_content()`.
+    pub ai_panel_content: Option<ContentView>,
 }
 
 impl ShellWorkContent {
@@ -37,6 +40,7 @@ impl ShellWorkContent {
             explorer_items,
             active_file,
             terminal_tabs,
+            ai_panel_content: None,
         }
     }
 }

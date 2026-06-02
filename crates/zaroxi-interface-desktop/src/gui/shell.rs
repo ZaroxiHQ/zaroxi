@@ -92,10 +92,7 @@ pub struct ShellFrame {
     pub size: Size,
     pub theme: Theme,
     pub regions: Vec<ShellRegion>,
-    /// Optional engine-owned content view for the AI panel.
-    pub ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView>,
-    /// Live workspace content snapshot (editor body, tabs, explorer, etc.)
-    /// Populated from DesktopComposition before rendering.
+    /// Live workspace content snapshot (editor body, tabs, explorer, AI panel, etc.)
     pub work_content: Option<crate::gui::ShellWorkContent>,
 }
 
@@ -284,7 +281,7 @@ impl ShellFrame {
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
 
-        ShellFrame { size, theme, regions, ai_panel_content_view: None, work_content: None }
+        ShellFrame { size, theme, regions, work_content: None }
     }
 
     /// Render a deterministic textual transcript describing each region.

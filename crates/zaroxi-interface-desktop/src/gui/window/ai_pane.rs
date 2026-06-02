@@ -13,7 +13,7 @@ use zaroxi_interface_theme::theme::ZaroxiTheme;
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
-    content_view: Option<&zaroxi_core_engine_ui::ContentView>,
+    work_content: Option<&zaroxi_core_engine_ui::ShellWorkContent>,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
@@ -301,10 +301,9 @@ pub fn draw(
 
     // Text labels via engine-owned ContentView
     if r.width > 120 && r.height > 40 {
-        let content = match content_view {
-            Some(cv) => cv.clone(),
-            None => idle_content_view(),
-        };
+        let content = work_content
+            .and_then(|wc| wc.ai_panel_content.clone())
+            .unwrap_or_else(idle_content_view);
         let title_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
         let body_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_secondary));
         let krect =

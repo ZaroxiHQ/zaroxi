@@ -31,7 +31,7 @@ pub fn build_overlay_rects(
                 super::editor::draw(r, &shell.theme, shell.work_content.as_ref())
             }
             "ai_panel_content" => {
-                super::ai_pane::draw(r, &shell.theme, shell.ai_panel_content_view.as_ref())
+                super::ai_pane::draw(r, &shell.theme, shell.work_content.as_ref())
             }
             "bottom_dock" => super::bottom_panel::draw(r, &shell.theme),
             "status_bar" => super::status_bar::draw(r, &shell.theme),

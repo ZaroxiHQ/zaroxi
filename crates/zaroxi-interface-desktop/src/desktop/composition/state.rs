@@ -296,10 +296,6 @@ impl DesktopComposition {
         super::summary::latest_ai_projection_summary(self)
     }
 
-    pub fn latest_ai_panel_content_view(&self) -> Option<zaroxi_core_engine_ui::ContentView> {
-        self.metadata.as_ref().and_then(|m| m.ai_panel_content_view.clone())
-    }
-
     pub fn latest_revision(&self) -> u64 {
         self.revision
     }
