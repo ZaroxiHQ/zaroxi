@@ -278,14 +278,15 @@ impl<'a> Renderer<'a> {
         {
             use std::mem;
             let vertex_size = mem::size_of::<Vertex>();
-            let expected_vertex_size = 32usize; // vec2 + vec2 + vec4 -> (2+2+4)*4 = 32 bytes
+            let expected_vertex_size = size_of::<Vertex>(); // pos(8) + uv(8) + color(16) + corner_radius(4) + _pad(4) = 40 bytes
 
             debug!("text pipeline created: color_format={:?}, blend=ALPHA_BLENDING", config.format);
             debug!("Vertex struct: size_of::<Vertex>() = {}", vertex_size);
             debug!("Vertex buffer layout (Rust -> WGSL):");
-            debug!("  - @location(0) pos : Float32x2  @ offset 0");
-            debug!("  - @location(1) uv  : Float32x2  @ offset 8");
-            debug!("  - @location(2) color: Float32x4 @ offset 16");
+            debug!("  - @location(0) pos           : Float32x2  @ offset 0");
+            debug!("  - @location(1) uv            : Float32x2  @ offset 8");
+            debug!("  - @location(2) color         : Float32x4 @ offset 16");
+            debug!("  - @location(3) corner_radius : Float32   @ offset 32");
             debug!("  - array_stride = {} (bytes)", vertex_size);
 
             // Sanity check: ensure Rust Vertex size matches expected WGSL layout size.
