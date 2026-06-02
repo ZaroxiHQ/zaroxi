@@ -85,3 +85,18 @@ pub fn explain_content_view(result: &str, target_buffer: &str) -> ContentView {
     };
     into_content_view(&content)
 }
+
+/// Build a `ContentView` for an applied AI edit showing the confirmation result.
+pub fn applied_content_view(result: &str, target_buffer: &str) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Applied: {}", target_buffer),
+        kind: Some("edit".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Applied,
+        summary: result.to_string(),
+        body_lines: vec![],
+        action_labels: vec![],
+    };
+    into_content_view(&content)
+}

@@ -19,7 +19,13 @@ impl DesktopComposition {
                 .as_ref()
                 .map(|b| b.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            if let Some(proposal_text) = &proj.proposal_text {
+
+            let is_applied =
+                proj.state.as_ref().map_or(false, |s| matches!(s, super::AiState::Applied));
+
+            if is_applied && proj.result.is_some() {
+                panel::applied_content_view(proj.result.as_deref().unwrap_or(""), &target)
+            } else if let Some(proposal_text) = &proj.proposal_text {
                 panel::proposal_content_view(
                     proposal_text,
                     &target,

@@ -159,3 +159,16 @@ fn build_work_content_handles_explain_result() {
     // Explain content should NOT have action labels
     assert!(!ai.lines.iter().any(|l| l.contains("Accept") || l.contains("Reject")));
 }
+
+/// Phase 22: applied_content_view produces confirmation subtitle without actions.
+#[test]
+fn applied_content_view_shows_confirmation() {
+    let applied = zaroxi_application_ai::panel::applied_content_view(
+        "AI edit applied (via update_buffer)",
+        "src/lib.rs",
+    );
+    assert_eq!(applied.title, "Assistant");
+    assert!(applied.subtitle.contains("Applied:"));
+    assert!(applied.lines.iter().any(|l| l.contains("AI edit applied")));
+    assert!(!applied.lines.iter().any(|l| l.contains("Accept")));
+}
