@@ -521,3 +521,78 @@ pub async fn cancel_command_bar<C: CommandBarContext>(ctx: &mut C) -> Result<Act
     ctx.close_command_bar();
     Ok(ActionResult { success: true, message: None, refreshed: false })
 }
+
+// ── Command dispatch ───────────────────────────────────────────────
+
+/// Confirm the currently-selected command and close the bar on success.
+pub async fn confirm_selected_command<C: CommandBarContext + CloseContext + RefreshContext>(
+    ctx: &mut C,
+    view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+) -> Result<ActionResult, String> {
+    let cb = match ctx.latest_command_bar() {
+        Some(cb) => cb,
+        None => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some("command bar is not open".to_string()),
+                refreshed: false,
+            });
+        }
+    };
+    let idx = cb.selected;
+    let res = execute_command_by_index(ctx, view, service, session_id, workspace_id, idx).await?;
+    if res.success {
+        ctx.close_command_bar();
+    }
+    Ok(res)
+}
+
+/// Shared command dispatch: resolves a command index to an action and executes it.
+///
+/// Close-flow commands are fully handled here via `CloseContext`.  Commands that
+/// require service calls (Refresh, Open buffer, Set active, Explain active) return
+/// `success=false` with message `"delegate"` so the desktop adapter can catch and
+/// handle them with its own service/refresh integration.
+pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + RefreshContext>(
+    ctx: &mut C,
+    _view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    _service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+    _session_id: crate::ports::SessionId,
+    _workspace_id: Option<zaroxi_kernel_types::Id>,
+    index: usize,
+) -> Result<ActionResult, String> {
+    let label: String =
+        match ctx.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
+            Some(l) => l,
+            None => {
+                return Ok(ActionResult {
+                    success: false,
+                    message: Some("no command at index".to_string()),
+                    refreshed: false,
+                });
+            }
+        };
+
+    match label.as_str() {
+        "Refresh" | "Open buffer" | "Set active buffer" | "Explain active buffer" => {
+            Ok(ActionResult {
+                success: false,
+                message: Some("delegate".to_string()),
+                refreshed: false,
+            })
+        }
+
+        "Request close active" => request_close_active(ctx).await,
+        "Confirm close: save" => confirm_save_and_close(ctx).await,
+        "Confirm close: discard" => confirm_discard_and_close(ctx).await,
+        "Confirm close: cancel" => confirm_cancel_close(ctx).await,
+        _ => Ok(ActionResult {
+            success: false,
+            message: Some(format!("unsupported command: {}", label)),
+            refreshed: false,
+        }),
+    }
+}

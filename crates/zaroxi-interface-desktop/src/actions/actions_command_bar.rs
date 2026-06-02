@@ -1,5 +1,8 @@
 /// Command-bar action handlers — thin desktop delegates to shared
 /// orchestration in `zaroxi_application_workspace::workspace_view`.
+///
+/// Service-heavy commands (Refresh, Open buffer, Set active, Explain)
+/// are caught here after the shared function returns `"delegate"`.
 use crate::desktop::DesktopComposition;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -10,9 +13,6 @@ use zaroxi_application_workspace::workspace_view as ws;
 use zaroxi_application_workspace::workspace_view::ActionResult;
 
 use super::actions_buffer::set_active_buffer_and_get_shell_context;
-use super::actions_close_flow::{
-    confirm_cancel_close, confirm_discard_and_close, confirm_save_and_close, request_close_active,
-};
 use super::actions_refresh::refresh_desktop;
 
 pub async fn open_command_bar(comp: &mut DesktopComposition) -> Result<ActionResult, String> {
@@ -46,26 +46,10 @@ pub async fn confirm_selected_command(
     session_id: SessionId,
     workspace_id: Option<zaroxi_kernel_types::Id>,
 ) -> Result<ActionResult, String> {
-    let cb = match comp.latest_command_bar() {
-        Some(cb) => cb,
-        None => {
-            return Ok(ActionResult {
-                success: false,
-                message: Some("command bar is not open".to_string()),
-                refreshed: false,
-            });
-        }
-    };
-
-    let idx = cb.selected;
-    let res = execute_command_by_index(comp, view, service, session_id.clone(), workspace_id, idx)
-        .await?;
-    if res.success {
-        comp.close_command_bar();
-    }
-    Ok(res)
+    ws::confirm_selected_command(comp, view, service, session_id.clone(), workspace_id).await
 }
 
+/// Dispatch then catch service-heavy commands the shared function delegates back.
 pub async fn execute_command_by_index(
     comp: &mut DesktopComposition,
     view: Arc<dyn WorkspaceView>,
@@ -74,23 +58,34 @@ pub async fn execute_command_by_index(
     workspace_id: Option<zaroxi_kernel_types::Id>,
     index: usize,
 ) -> Result<ActionResult, String> {
-    let label: String =
-        match comp.latest_command_bar().and_then(|cb| cb.commands.get(index).cloned()) {
-            Some(l) => l,
-            None => {
-                return Ok(ActionResult {
-                    success: false,
-                    message: Some("no command at index".to_string()),
-                    refreshed: false,
-                });
-            }
-        };
+    let res = ws::execute_command_by_index(
+        comp,
+        view.clone(),
+        service.clone(),
+        session_id.clone(),
+        workspace_id,
+        index,
+    )
+    .await?;
 
-    match label.as_str() {
-        "Refresh" => {
-            let res = refresh_desktop(comp, view, session_id, workspace_id, service).await?;
-            Ok(res)
-        }
+    if res.message.as_deref() == Some("delegate") {
+        let label = ws::command_bar_labels().get(index).cloned().unwrap_or_default();
+        return execute_delegated(comp, view, service, session_id, workspace_id, &label).await;
+    }
+
+    Ok(res)
+}
+
+async fn execute_delegated(
+    comp: &mut DesktopComposition,
+    view: Arc<dyn WorkspaceView>,
+    service: Option<Arc<dyn crate::ports::WorkspaceService>>,
+    session_id: SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    label: &str,
+) -> Result<ActionResult, String> {
+    match label {
+        "Refresh" => refresh_desktop(comp, view, session_id, workspace_id, service).await,
         "Open buffer" => {
             if let Some(s) = service {
                 let open_req = OpenBufferRequest {
@@ -100,7 +95,7 @@ pub async fn execute_command_by_index(
                 match s.open_buffer(open_req).await {
                     Ok(_) => {
                         comp.set_status_message("Opened buffer: new_buffer.rs".to_string());
-                        let _ =
+                        let _res =
                             refresh_desktop(comp, view, session_id, workspace_id, Some(s)).await?;
                         Ok(ActionResult {
                             success: true,
@@ -183,22 +178,6 @@ pub async fn execute_command_by_index(
                     refreshed: false,
                 })
             }
-        }
-        "Request close active" => {
-            let ar = request_close_active(comp, view, session_id).await?;
-            Ok(ar)
-        }
-        "Confirm close: save" => {
-            let ar = confirm_save_and_close(comp).await?;
-            Ok(ar)
-        }
-        "Confirm close: discard" => {
-            let ar = confirm_discard_and_close(comp).await?;
-            Ok(ar)
-        }
-        "Confirm close: cancel" => {
-            let ar = confirm_cancel_close(comp).await?;
-            Ok(ar)
         }
         _ => Ok(ActionResult {
             success: false,
