@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use zaroxi_interface_desktop::gui::{ShellFrame, ShellWorkContent, Size};
+use zaroxi_interface_desktop::gui::{ShellFrame, Size};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let size = Size { width: 1354, height: 720 };
@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // minimal content (terminals tabs only). The architecture wire is correct —
     // any caller can inject a fully populated ShellWorkContent.
     let comp = zaroxi_interface_desktop::DesktopComposition::new();
-    let work = ShellWorkContent::from_composition(&comp);
+    let work = comp.build_work_content();
 
     // If compiled with the "gui_window" feature, attempt to open a native window.
     // The work_content is threaded through so the GPU path renders live data.
