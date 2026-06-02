@@ -169,6 +169,8 @@ async fn main() -> Result<(), String> {
                     message: "mock: warning in main.rs".to_string(),
                     severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Warning,
                     uri: Some("main.rs".to_string()),
+                    line: None,
+                    column: None,
                 }],
             );
 
@@ -845,11 +847,15 @@ async fn main() -> Result<(), String> {
                 message: "mock: error in lib.rs".to_string(),
                 severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Error,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
             zaroxi_interface_desktop::diagnostics::Diagnostic {
                 message: "mock: warning in lib.rs".to_string(),
                 severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Warning,
                 uri: Some("lib.rs".to_string()),
+                line: None,
+                column: None,
             },
         ],
     );
@@ -899,6 +905,8 @@ async fn main() -> Result<(), String> {
                     message: "external: error in lib.rs".to_string(),
                     severity: zaroxi_interface_desktop::diagnostics::DiagnosticSeverity::Error,
                     uri: Some("lib.rs".to_string()),
+                    line: None,
+                    column: None,
                 }],
             );
 
