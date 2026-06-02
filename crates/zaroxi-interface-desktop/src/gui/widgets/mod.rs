@@ -7,7 +7,6 @@ matching the refined IDE shell layout.
 
 use crate::desktop::DesktopComposition;
 use crate::gui::shell::ShellRegion;
-use zaroxi_application_ai::view_model::AiPanelState;
 use zaroxi_application_navigation::view_model::AppRailState;
 use zaroxi_core_engine_ui::ContentView;
 
@@ -38,6 +37,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("app_rail.bottom_icons: [{}] rect={}", bottom, ar.rect));
         let active = rail.active.unwrap_or_else(|| "explorer".to_string());
         lines.push(format!("app_rail.active: {}", active));
+        lines.push(format!("app_rail.avatar_slot: user@zaroxi rect={}", ar.rect));
     }
 
     if let Some(sb) = regions.iter().find(|r| r.id == "sidebar") {
@@ -136,26 +136,22 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ai) = regions.iter().find(|r| r.id == "ai_panel_header") {
-        lines.push(format!("ai.header.title: Assistant rect={}", ai.rect));
+        let content = ContentView::ai_panel();
+        lines.push(format!("ai.header.title: {} rect={}", content.title, ai.rect));
         lines.push("ai.header.actions: [pin,close]".to_string());
     }
 
     if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
-        let ai = AiPanelState::default();
-        if ai.cards.is_empty() {
-            lines.push(format!(
-                "ai.content.cards: [explanation,bullet-list,code-snippet] rect={}",
-                aic.rect
-            ));
-        } else {
-            let titles: Vec<String> = ai.cards.iter().map(|c| c.title.clone()).collect();
-            lines.push(format!("ai.content.cards: [{}] rect={}", titles.join(","), aic.rect));
+        let content = ContentView::ai_panel();
+        lines.push(format!("ai.content.title: {} rect={}", content.title, aic.rect));
+        if !content.subtitle.is_empty() {
+            lines.push(format!("ai.content.subtitle: {} rect={}", content.subtitle, aic.rect));
         }
+        lines.push(format!("ai.content.lines: count={} rect={}", content.lines.len(), aic.rect));
         lines.push("ai.content.actions: [Accept,Reject,Edit]".to_string());
         lines.push(format!(
-            "ai.content.input: placeholder='{}' model='{}'",
-            if ai.composer_text.is_empty() { "Rewrite this..." } else { &ai.composer_text },
-            ai.header
+            "ai.content.input: placeholder='Ask anything...' model='{}'",
+            content.title
         ));
     }
 

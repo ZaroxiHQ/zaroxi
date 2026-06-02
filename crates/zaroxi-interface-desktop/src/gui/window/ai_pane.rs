@@ -1,11 +1,11 @@
 /*!
 AI assistant pane drawing logic.
 
-Phase 4: product-parity assistant panel — header with actions,
-explanation card with left accent border, bullet summary,
-code snippet card with syntax accent, action buttons,
-prompt input, model selector + send footer.
+Phase 7: engine-owned content path — text labels flow through
+ContentView → compose_content_view() → WidgetScene.labels.
+Structural chrome (cards, buttons, separators) remains desktop-owned.
 */
+use zaroxi_core_engine_ui::{ContentView, compose_content_view};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
@@ -296,22 +296,15 @@ pub fn draw(
         });
     }
 
-    // Text labels
+    // Text labels via engine-owned ContentView
     if r.width > 120 && r.height > 40 {
-        let labels = vec![
-            "Assistant".to_string(),
-            "Here are the changes needed to refactor the module:".to_string(),
-            "Extract validation logic".to_string(),
-            "Add error handling".to_string(),
-            "Update tests".to_string(),
-            "fn validate(input: &str) -> Result<()> {".to_string(),
-            "Accept".to_string(),
-            "Reject".to_string(),
-            "Edit".to_string(),
-            "Ask anything...".to_string(),
-            "Claude 3.5 Sonnet".to_string(),
-            "Send".to_string(),
-        ];
+        let content = ContentView::ai_panel();
+        let title_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
+        let body_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_secondary));
+        let krect =
+            zaroxi_kernel_math::Rect::new(r.x as f32, r.y as f32, r.width as f32, r.height as f32);
+        let scene = compose_content_view(&krect, &content, title_c, body_c);
+        let labels: Vec<String> = scene.labels.iter().map(|l| l.label.clone()).collect();
         let mut text_rects = super::text_adapter::layout_and_publish_text(
             r.x.saturating_add(14),
             r.y.saturating_add(10),
@@ -329,4 +322,8 @@ pub fn draw(
 
 fn cmp_w(val: u32, min: u32) -> u32 {
     std::cmp::max(val, min)
+}
+
+fn wgpu_f32(c: wgpu::Color) -> [f32; 4] {
+    [c.r as f32, c.g as f32, c.b as f32, c.a as f32]
 }

@@ -115,13 +115,7 @@ impl ShellFrame {
         let inner_w = size.width.saturating_sub(outer_padding * 2);
         let inner_h = size.height.saturating_sub(outer_padding * 2);
 
-        let bottom_dock_h: u32 = if inner_h >= 600 {
-            150
-        } else if inner_h >= 450 {
-            100
-        } else {
-            0
-        };
+        let bottom_dock_h: u32 = 0;
 
         // ── Responsive horizontal allocation ──────────────────────
         // Sidebar and AI panel shrink at narrower widths so the center
