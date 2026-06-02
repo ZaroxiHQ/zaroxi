@@ -2,8 +2,7 @@ use zaroxi_core_engine_style::{InteractionState, WidgetId};
 use zaroxi_kernel_math::{Rect, Vec2};
 
 use crate::primitives::{
-    Divider, DividerOrientation, HeaderBar, IconSlot, ShellSurfaceSet, StatusPill, Surface,
-    TabChrome,
+    Divider, DividerOrientation, HeaderBar, ShellSurfaceSet, StatusPill, Surface, TabChrome,
 };
 
 // ---------------------------------------------------------------------------
@@ -54,13 +53,14 @@ pub enum ShellWidget {
         state: InteractionState,
     },
 
-    /// Panel header with title (terminal, AI, sidebar, etc.)
+    /// Panel header with title and action button slots
     PanelHeader {
         id: WidgetId,
         rect: Rect,
         label: String,
         fill_color: [f32; 4],
         text_color: [f32; 4],
+        actions: Vec<PanelHeaderAction>,
     },
 
     /// Status pill / segment in the status bar
@@ -72,6 +72,25 @@ pub enum ShellWidget {
         text_color: [f32; 4],
     },
 
+    /// Scrollbar track with proportional thumb
+    ScrollbarTrack {
+        id: WidgetId,
+        track_rect: Rect,
+        thumb_rect: Rect,
+        track_fill: [f32; 4],
+        thumb_fill: [f32; 4],
+        state: InteractionState,
+    },
+
+    /// Toolbar button (minimize, maximize, close, etc.)
+    ToolbarButton {
+        id: WidgetId,
+        rect: Rect,
+        label: String,
+        fill_color: [f32; 4],
+        state: InteractionState,
+    },
+
     /// A region surface (editor bg, sidebar bg, panel bg, etc.)
     RegionSurface {
         rect: Rect,
@@ -81,7 +100,21 @@ pub enum ShellWidget {
     },
 
     /// Thin divider line
-    Divider { rect: Rect, color: [f32; 4], orientation: DividerOrientation },
+    Divider { rect: Rect, color: [f32; 4], orientation: DividerOrientation, subtle: bool },
+}
+
+// ---------------------------------------------------------------------------
+// PanelHeaderAction — action button slot in a panel header
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct PanelHeaderAction {
+    pub id: WidgetId,
+    pub rect: Rect,
+    pub label: String,
+    pub fill_color: [f32; 4],
+    pub hover_fill: [f32; 4],
+    pub state: InteractionState,
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +213,8 @@ impl ShellWidget {
             Self::Tab { rect, .. } => *rect,
             Self::PanelHeader { rect, .. } => *rect,
             Self::StatusSegment { rect, .. } => *rect,
+            Self::ScrollbarTrack { track_rect, .. } => *track_rect,
+            Self::ToolbarButton { rect, .. } => *rect,
             Self::RegionSurface { rect, .. } => *rect,
             Self::Divider { rect, .. } => *rect,
         }
@@ -189,6 +224,8 @@ impl ShellWidget {
         match self {
             Self::RailItem { state: s, .. } => *s = state,
             Self::Tab { state: s, .. } => *s = state,
+            Self::ScrollbarTrack { state: s, .. } => *s = state,
+            Self::ToolbarButton { state: s, .. } => *s = state,
             _ => {}
         }
     }
@@ -197,6 +234,8 @@ impl ShellWidget {
         match self {
             Self::RailItem { state, .. } => *state,
             Self::Tab { state, .. } => *state,
+            Self::ScrollbarTrack { state, .. } => *state,
+            Self::ToolbarButton { state, .. } => *state,
             _ => InteractionState::Normal,
         }
     }
@@ -214,6 +253,14 @@ impl ShellWidget {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
             Self::PanelHeader { id, rect, label, .. } => {
+                Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
+            }
+            Self::ScrollbarTrack { id, thumb_rect, .. } => Some(WidgetHitTarget {
+                id: id.clone(),
+                rect: *thumb_rect,
+                label: "scrollbar".into(),
+            }),
+            Self::ToolbarButton { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
             _ => None,
@@ -236,11 +283,6 @@ impl ShellWidget {
                             .with_fill(*accent),
                     );
                 }
-                set.add_icon(
-                    IconSlot::new(*rect)
-                        .with_fill(*fill_color)
-                        .with_accent(accent_indicator.unwrap_or([0.0; 4])), // accent_indicator already handled above
-                );
                 set.add_surface(Surface::new(*rect).with_fill(*fill_color));
             }
             Self::SidebarSection { rect, fill_color, text_color, label } => {
@@ -259,12 +301,15 @@ impl ShellWidget {
                 }
                 set.add_tab(tab);
             }
-            Self::PanelHeader { rect, fill_color, text_color, label, .. } => {
+            Self::PanelHeader { rect, fill_color, text_color, label, actions, .. } => {
                 set.add_header(
                     HeaderBar::new(*rect, label.as_str())
                         .with_fill(*fill_color)
                         .with_text_color(*text_color),
                 );
+                for action in actions {
+                    set.add_surface(Surface::new(action.rect).with_fill(action.fill_color));
+                }
             }
             Self::StatusSegment { rect, fill_color, text_color, label, .. } => {
                 set.add_pill(
@@ -273,6 +318,13 @@ impl ShellWidget {
                         .with_text_color(*text_color),
                 );
             }
+            Self::ScrollbarTrack { track_rect, thumb_rect, track_fill, thumb_fill, .. } => {
+                set.add_surface(Surface::new(*track_rect).with_fill(*track_fill).with_radius(3.0));
+                set.add_surface(Surface::new(*thumb_rect).with_fill(*thumb_fill).with_radius(2.0));
+            }
+            Self::ToolbarButton { rect, fill_color, .. } => {
+                set.add_surface(Surface::new(*rect).with_fill(*fill_color).with_radius(4.0));
+            }
             Self::RegionSurface { rect, fill_color, border_color, border_width } => {
                 let mut s = Surface::new(*rect).with_fill(*fill_color);
                 if let Some(bc) = border_color {
@@ -280,14 +332,33 @@ impl ShellWidget {
                 }
                 set.add_surface(s);
             }
-            Self::Divider { rect, color, orientation } => match orientation {
-                DividerOrientation::Horizontal => {
-                    set.add_divider(Divider::horizontal(rect.x, rect.y, rect.width, *color));
+            Self::Divider { rect, color, orientation, subtle } => {
+                let adjusted_color = if *subtle {
+                    let mut c = *color;
+                    c[3] *= 0.5;
+                    c
+                } else {
+                    *color
+                };
+                match orientation {
+                    DividerOrientation::Horizontal => {
+                        set.add_divider(Divider::horizontal(
+                            rect.x,
+                            rect.y,
+                            rect.width,
+                            adjusted_color,
+                        ));
+                    }
+                    DividerOrientation::Vertical => {
+                        set.add_divider(Divider::vertical(
+                            rect.x,
+                            rect.y,
+                            rect.height,
+                            adjusted_color,
+                        ));
+                    }
                 }
-                DividerOrientation::Vertical => {
-                    set.add_divider(Divider::vertical(rect.x, rect.y, rect.height, *color));
-                }
-            },
+            }
         }
     }
 }

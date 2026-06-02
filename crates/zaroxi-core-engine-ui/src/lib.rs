@@ -16,7 +16,7 @@ pub use primitives::{
     StatusPill, Surface, TabChrome,
 };
 pub use shell_builder::{build_shell_surface_set, build_shell_widget_tree};
-pub use widgets::{ShellWidget, ShellWidgetTree};
+pub use widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
 pub use work_content::ShellWorkContent;
 pub use zaroxi_core_engine_layout::{ShellLayout, build_shell_ui};
 pub use zaroxi_core_engine_scene::{LabelPrimitive, RectPrimitive, WidgetScene};

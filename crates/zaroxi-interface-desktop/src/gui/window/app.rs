@@ -9,7 +9,7 @@ Phase 28: added cursor hover tracking and widget-tree hit-testing.
 use pollster;
 use winit::{
     dpi::PhysicalPosition,
-    event::{StartCause, WindowEvent},
+    event::{ElementState, MouseButton, StartCause, WindowEvent},
     event_loop::ControlFlow,
     window::WindowAttributes,
 };
@@ -38,6 +38,14 @@ pub struct GuiApp {
     pub hovered_widget_idx: Option<usize>,
     /// Most recent cursor position for hit-testing after resize/redraw.
     pub cursor_pos: Option<PhysicalPosition<f64>>,
+    /// Whether a scrollbar drag is active and its tracked widget index.
+    pub scrollbar_drag: Option<(usize, f32)>,
+    /// Widget index currently pressed (for button activation).
+    pub pressed_widget_idx: Option<usize>,
+    /// Scroll offset for editor scrollbar (0.0..1.0).
+    pub editor_scroll_offset: f32,
+    /// Scroll offset for terminal scrollbar (0.0..1.0).
+    pub terminal_scroll_offset: f32,
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -139,6 +147,43 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_pos = Some(position);
+                // Scrollbar drag: update thumb position from cursor
+                if let Some((drag_idx, start_y)) = self.scrollbar_drag {
+                    let delta = position.y as f32 - start_y;
+                    if let Some(ref tree) = self.widget_tree {
+                        if let Some(w) = tree.widgets.get(drag_idx) {
+                            if let zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                                track_rect,
+                                ..
+                            } = w
+                            {
+                                let track_h = track_rect.height;
+                                let thumb_h = track_h * 0.25;
+                                let travel = (track_h - thumb_h).max(1.0);
+                                let raw_offset = delta / travel;
+                                let clamped = raw_offset.clamp(0.0, 1.0);
+                                // Determine which scrollbar: editor (index 1) or terminal (index 0)
+                                let is_editor = matches!(
+                                    w,
+                                    zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                                        id: zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                        ..
+                                    }
+                                );
+                                if is_editor {
+                                    self.editor_scroll_offset = clamped;
+                                } else {
+                                    self.terminal_scroll_offset = clamped;
+                                }
+                                if let Some(z) = self.maybe_window.as_ref() {
+                                    let _ = z.window().request_redraw();
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+                // Normal hover tracking
                 if let Some(ref tree) = self.widget_tree {
                     let new_hover = tree.hit_test(position.x as f32, position.y as f32);
                     if new_hover != self.hovered_widget_idx {
@@ -163,6 +208,68 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
                 if let Some(z) = self.maybe_window.as_ref() {
                     let _ = z.window().request_redraw();
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == MouseButton::Left {
+                    let hit = self.cursor_pos.and_then(|pos| {
+                        self.widget_tree
+                            .as_ref()
+                            .and_then(|t| t.hit_test(pos.x as f32, pos.y as f32))
+                    });
+                    match state {
+                        ElementState::Pressed => {
+                            self.pressed_widget_idx = hit;
+                            if let Some(idx) = hit {
+                                if let Some(t) = self.widget_tree.as_mut() {
+                                    // Check if scrollbar thumb was pressed
+                                    if let Some(w) = t.widgets.get(idx) {
+                                        if matches!(
+                                            w,
+                                            zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack { .. }
+                                        ) {
+                                            if let Some(pos) = self.cursor_pos {
+                                                self.scrollbar_drag = Some((idx, pos.y as f32));
+                                                t.set_state_at(
+                                                    idx,
+                                                    zaroxi_core_engine_ui::InteractionState::Active,
+                                                );
+                                            }
+                                        } else {
+                                            t.set_state_at(
+                                                idx,
+                                                zaroxi_core_engine_ui::InteractionState::Active,
+                                            );
+                                        }
+                                    }
+                                    if let Some(z) = self.maybe_window.as_ref() {
+                                        let _ = z.window().request_redraw();
+                                    }
+                                }
+                            }
+                        }
+                        ElementState::Released => {
+                            // Button activation: only fire if released on the same widget
+                            if let Some(pressed) = self.pressed_widget_idx.take() {
+                                if let Some(t) = self.widget_tree.as_mut() {
+                                    t.set_state_at(
+                                        pressed,
+                                        zaroxi_core_engine_ui::InteractionState::Normal,
+                                    );
+                                    t.clear_all_hover();
+                                }
+                            }
+                            // End scrollbar drag
+                            if self.scrollbar_drag.take().is_some() {
+                                if let Some(t) = self.widget_tree.as_mut() {
+                                    t.clear_all_hover();
+                                }
+                            }
+                            if let Some(z) = self.maybe_window.as_ref() {
+                                let _ = z.window().request_redraw();
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -283,7 +390,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     rect,
                                     header_color: Some(theme.tab_strip_background.to_array()),
                                     content_color: None,
-                                    corner_radius: 0.0,
+                                    corner_radius: 4.0,
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
@@ -341,7 +448,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     rect,
                                     header_color: Some(theme.panel_header_bg().to_array()),
                                     content_color: Some(theme.bottom_panel_background.to_array()),
-                                    corner_radius: 0.0,
+                                    corner_radius: 4.0,
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: false,
@@ -393,7 +500,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     rect,
                                     header_color: Some(theme.status_bar_background.to_array()),
                                     content_color: None,
-                                    corner_radius: 0.0,
+                                    corner_radius: 4.0,
                                     border_color: Some(
                                         theme.divider_default.adjust_brightness(0.9).to_array(),
                                     ),

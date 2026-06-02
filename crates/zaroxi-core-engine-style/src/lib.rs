@@ -395,6 +395,9 @@ pub enum WidgetId {
     RailItem { index: usize },
     StatusSegment { index: usize },
     PanelHeader { id: &'static str },
+    PanelAction { header_id: &'static str, action: &'static str },
+    Scrollbar { index: usize },
+    ToolbarButton { index: usize },
     Surface { role: SurfaceRole },
 }
 
@@ -410,6 +413,15 @@ impl WidgetId {
     }
     pub fn panel_header(id: &'static str) -> Self {
         Self::PanelHeader { id }
+    }
+    pub fn panel_action(header_id: &'static str, action: &'static str) -> Self {
+        Self::PanelAction { header_id, action }
+    }
+    pub fn scrollbar(idx: usize) -> Self {
+        Self::Scrollbar { index: idx }
+    }
+    pub fn toolbar_button(idx: usize) -> Self {
+        Self::ToolbarButton { index: idx }
     }
     pub fn surface(role: SurfaceRole) -> Self {
         Self::Surface { role }

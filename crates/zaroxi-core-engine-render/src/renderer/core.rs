@@ -58,7 +58,15 @@ impl<'a> FrameContext<'a> {
     }
 
     /// Convenience wrapper delegating to the shared geometry helper.
-    pub fn push_colored_quad(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+    pub fn push_colored_quad(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color: [f32; 4],
+        corner_radius: f32,
+    ) {
         crate::renderer::geometry::push_colored_quad(
             self.panel_verts,
             self.panel_indices,
@@ -69,6 +77,7 @@ impl<'a> FrameContext<'a> {
             color,
             self.screen_w,
             self.screen_h,
+            corner_radius,
         );
     }
 }
@@ -464,6 +473,7 @@ impl<'a> Renderer<'a> {
                 [1.0, 0.0, 0.0, 1.0],
                 width,
                 height,
+                0.0,
             );
             // Middle band - green
             push_colored_quad(
@@ -476,6 +486,7 @@ impl<'a> Renderer<'a> {
                 [0.0, 1.0, 0.0, 1.0],
                 width,
                 height,
+                0.0,
             );
             // Bottom band - blue
             push_colored_quad(
@@ -488,6 +499,7 @@ impl<'a> Renderer<'a> {
                 [0.0, 0.0, 1.0, 1.0],
                 width,
                 height,
+                0.0,
             );
         }
 

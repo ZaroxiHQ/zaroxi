@@ -43,7 +43,7 @@ pub(crate) fn queue_panel_quads(
     // ── Border rendering ──
     if let (Some(border_color), w) = (block.border_color, block.border_width) {
         if w > 0.0 && target.w > 0.0 && target.h > 0.0 {
-            // Top border edge
+            // Border lines are thin; no corner radius needed
             push_colored_quad(
                 verts,
                 indices,
@@ -54,8 +54,8 @@ pub(crate) fn queue_panel_quads(
                 border_color,
                 screen_w,
                 screen_h,
+                0.0,
             );
-            // Bottom border edge
             push_colored_quad(
                 verts,
                 indices,
@@ -66,8 +66,8 @@ pub(crate) fn queue_panel_quads(
                 border_color,
                 screen_w,
                 screen_h,
+                0.0,
             );
-            // Left border edge
             push_colored_quad(
                 verts,
                 indices,
@@ -78,8 +78,8 @@ pub(crate) fn queue_panel_quads(
                 border_color,
                 screen_w,
                 screen_h,
+                0.0,
             );
-            // Right border edge
             push_colored_quad(
                 verts,
                 indices,
@@ -90,6 +90,7 @@ pub(crate) fn queue_panel_quads(
                 border_color,
                 screen_w,
                 screen_h,
+                0.0,
             );
         }
     }
@@ -100,7 +101,6 @@ pub(crate) fn queue_panel_quads(
     let hw = target.w;
     let hh = header_h.min(target.h.max(0.0));
 
-    // Header color is supplied by the UiBlock visual hint; fallback to semantic token.
     let header_color: [f32; 4] = block.header_color.unwrap_or(sem.panel_header_background);
 
     if render_debug_enabled() {
@@ -108,7 +108,18 @@ pub(crate) fn queue_panel_quads(
     }
 
     if hh > 0.0 {
-        push_colored_quad(verts, indices, hx, hy, hw, hh, header_color, screen_w, screen_h);
+        push_colored_quad(
+            verts,
+            indices,
+            hx,
+            hy,
+            hw,
+            hh,
+            header_color,
+            screen_w,
+            screen_h,
+            block.corner_radius,
+        );
     }
 
     // ── Content area ──
@@ -131,7 +142,18 @@ pub(crate) fn queue_panel_quads(
 
     if cw > 0.0 && ch > 0.0 {
         let base_idx = verts.len();
-        push_colored_quad(verts, indices, cx, cy, cw, ch, effective_color, screen_w, screen_h);
+        push_colored_quad(
+            verts,
+            indices,
+            cx,
+            cy,
+            cw,
+            ch,
+            effective_color,
+            screen_w,
+            screen_h,
+            block.corner_radius,
+        );
         Some(base_idx)
     } else {
         None
@@ -160,6 +182,7 @@ pub(crate) fn queue_split_panel_quads(
         [0.25, 0.25, 0.3, 1.0],
         screen_w,
         screen_h,
+        0.0,
     );
 }
 

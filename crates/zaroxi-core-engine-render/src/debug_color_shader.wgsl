@@ -2,6 +2,7 @@ struct VsIn {
     @location(0) pos: vec2<f32>,
     @location(1) uv: vec2<f32>, // preserved for layout compatibility, unused
     @location(2) color: vec4<f32>,
+    @location(3) corner_radius: f32, // preserved for layout compatibility, unused
 }
 
 struct VsOut {

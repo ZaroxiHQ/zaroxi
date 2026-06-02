@@ -8,13 +8,18 @@ use wgpu;
 /// Move-only: these functions are extracted from core.rs to keep geometry
 /// concerns isolated during the refactor.
 
-/// Vertex for textured quad.
+/// Vertex for textured quad (text pipeline) and shaped quad (shape pipeline).
+/// The `uv` field carries texture coordinates for text quads and local quad
+/// coordinates for shape quads. `corner_radius` is used by the shape shader
+/// for rounded-rect SDF rendering; it is zero for text quads.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct Vertex {
     pub pos: [f32; 2],
     pub uv: [f32; 2],
     pub color: [f32; 4],
+    pub corner_radius: f32,
+    pub _pad: f32,
 }
 
 impl Vertex {
@@ -42,6 +47,12 @@ impl Vertex {
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // corner_radius (for shape SDF; zero for text)
+                wgpu::VertexAttribute {
+                    offset: 32,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32,
+                },
             ],
         }
     }
@@ -56,9 +67,8 @@ pub(crate) fn pixel_to_ndc(px: f32, py: f32, sw: f32, sh: f32) -> [f32; 2] {
 }
 
 /// Push a simple axis-aligned colored quad (pixel coords) into the provided
-/// vertex & index vectors. This mirrors the previous nested helper extracted
-/// from core.rs and preserves the exact vertex packing/layout expected by the
-/// shaders.
+/// vertex & index vectors. When `corner_radius > 0`, the shape shader will
+/// apply a rounded-rect SDF in the fragment stage.
 pub(crate) fn push_colored_quad(
     verts: &mut Vec<Vertex>,
     indices: &mut Vec<u16>,
@@ -69,6 +79,7 @@ pub(crate) fn push_colored_quad(
     color: [f32; 4],
     screen_w: f32,
     screen_h: f32,
+    corner_radius: f32,
 ) {
     let base = verts.len() as u16;
     let a = pixel_to_ndc(x, y, screen_w, screen_h);
@@ -76,10 +87,19 @@ pub(crate) fn push_colored_quad(
     let c = pixel_to_ndc(x + w, y + h, screen_w, screen_h);
     let d = pixel_to_ndc(x, y + h, screen_w, screen_h);
 
-    let v0 = Vertex { pos: a, uv: [0.0, 0.0], color };
-    let v1 = Vertex { pos: b, uv: [0.0, 0.0], color };
-    let v2 = Vertex { pos: c, uv: [0.0, 0.0], color };
-    let v3 = Vertex { pos: d, uv: [0.0, 0.0], color };
+    // Local quad coords: (0,0) top-left, (1,0) top-right, (1,1) bottom-right, (0,1) bottom-left
+    // Normalize corner_radius from pixels to local-UV space (0..1 across quad).
+    // Use the smaller dimension so the radius is consistent on both axes.
+    let uv_radius = if corner_radius > 0.0 && w > 0.0 && h > 0.0 {
+        (corner_radius / w.min(h)).min(0.5)
+    } else {
+        0.0
+    };
+
+    let v0 = Vertex { pos: a, uv: [0.0, 0.0], color, corner_radius: uv_radius, _pad: 0.0 };
+    let v1 = Vertex { pos: b, uv: [1.0, 0.0], color, corner_radius: uv_radius, _pad: 0.0 };
+    let v2 = Vertex { pos: c, uv: [1.0, 1.0], color, corner_radius: uv_radius, _pad: 0.0 };
+    let v3 = Vertex { pos: d, uv: [0.0, 1.0], color, corner_radius: uv_radius, _pad: 0.0 };
 
     verts.push(v0);
     verts.push(v1);

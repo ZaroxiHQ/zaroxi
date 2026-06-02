@@ -1,5 +1,5 @@
 use crate::primitives::DividerOrientation;
-use crate::widgets::{ShellWidget, ShellWidgetTree};
+use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
 use zaroxi_core_engine_layout::ShellLayout;
 use zaroxi_core_engine_style::{EngineTheme, InteractionState, WidgetId};
 use zaroxi_kernel_math::Rect;
@@ -24,6 +24,30 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         fill_color: theme.status_bar_background.to_array(),
         brand_label: "Zaroxi".into(),
     });
+
+    // Toolbar window-control buttons (right side)
+    if layout.titlebar.width > 160.0 && layout.titlebar.height > 8.0 {
+        let btn_w = 32.0;
+        let btn_h = layout.titlebar.height - 8.0;
+        let btn_y = layout.titlebar.y + 4.0;
+        let btn_x = layout.titlebar.x + layout.titlebar.width - (btn_w * 3.0 + 18.0);
+        for (idx, (label, accent)) in [("_", false), ("[ ]", false), ("x", true)].iter().enumerate()
+        {
+            let bx = btn_x + idx as f32 * (btn_w + 2.0);
+            tree.push(ShellWidget::ToolbarButton {
+                id: WidgetId::toolbar_button(idx),
+                rect: Rect::new(bx, btn_y, btn_w, btn_h),
+                label: label.to_string(),
+                fill_color: if *accent {
+                    theme.accent.adjust_brightness(0.9).to_array()
+                } else {
+                    theme.text_faint.adjust_brightness(0.15).to_array()
+                },
+                state: InteractionState::Normal,
+            });
+        }
+    }
+
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
             layout.titlebar.x,
@@ -33,6 +57,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         ),
         color: theme.divider_default.to_array(),
         orientation: DividerOrientation::Horizontal,
+        subtle: false,
     });
 
     // Titlebar brand accent
@@ -93,12 +118,13 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
             });
             y += icon_h + gap;
 
-            // Separator after active group
+            // Separator after active group (subtle)
             if idx == 0 && layout.sidebar.height > 200.0 {
                 tree.push(ShellWidget::Divider {
                     rect: Rect::new(rail_rect.x + 12.0, y, rail_w - 24.0, 1.0),
                     color: theme.divider_subtle.to_array(),
                     orientation: DividerOrientation::Horizontal,
+                    subtle: true,
                 });
                 y += gap;
             }
@@ -149,11 +175,12 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         });
         y_off += search_h + 8.0;
 
-        // Subtract divider
+        // Subtle divider below search
         tree.push(ShellWidget::Divider {
             rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 2.0),
             color: theme.divider_subtle.adjust_brightness(0.8).to_array(),
             orientation: DividerOrientation::Horizontal,
+            subtle: true,
         });
         y_off += 12.0;
 
@@ -187,9 +214,26 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
             }
             y_off += 6.0;
         }
+
+        // Sidebar scrollbar (if content overflows)
+        if sidebar_rect.height > 200.0 && sidebar_rect.width > 20.0 {
+            let sb_w = 4.0;
+            let sb_x = sx + sidebar_w - sb_w - 3.0;
+            let track_rect =
+                Rect::new(sb_x, sidebar_rect.y + 8.0, sb_w, sidebar_rect.height - 16.0);
+            let thumb_h = (track_rect.height * 0.5).max(16.0);
+            tree.push(ShellWidget::ScrollbarTrack {
+                id: WidgetId::scrollbar(2),
+                track_rect,
+                thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+                track_fill: theme.divider_subtle.adjust_brightness(0.55).to_array(),
+                thumb_fill: theme.text_faint.adjust_brightness(0.22).to_array(),
+                state: InteractionState::Normal,
+            });
+        }
     }
 
-    // Sidebar right-edge divider
+    // Sidebar right-edge divider (subtle)
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
             layout.sidebar.x + layout.sidebar.width - 1.0,
@@ -199,6 +243,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         ),
         color: theme.divider_default.adjust_brightness(0.85).to_array(),
         orientation: DividerOrientation::Vertical,
+        subtle: true,
     });
 
     // ── 5. Editor tab strip ──
@@ -217,26 +262,45 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         ),
         color: theme.divider_default.to_array(),
         orientation: DividerOrientation::Horizontal,
+        subtle: false,
     });
 
-    // Active tab widget
+    // Tab widgets: active + 2 inactive
     if layout.editor_tab_bar.width > 80.0 && layout.editor_tab_bar.height > 4.0 {
-        let tab_w = 120.0;
-        let tab_rect = Rect::new(
-            layout.editor_tab_bar.x,
-            layout.editor_tab_bar.y - 1.0,
-            tab_w,
-            layout.editor_tab_bar.height + 1.0,
-        );
-        tree.push(ShellWidget::Tab {
-            id: WidgetId::tab(0),
-            rect: tab_rect,
-            label: "main.rs".into(),
-            fill_color: theme.tab_active_background.to_array(),
-            text_color: theme.text_primary.to_array(),
-            accent_strip: Some(theme.accent.to_array()),
-            state: InteractionState::Selected,
-        });
+        let tab_h = layout.editor_tab_bar.height + 1.0;
+        let tab_y = layout.editor_tab_bar.y - 1.0;
+        let tabs: [(&str, bool, usize); 3] =
+            [("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)];
+        let tab_w = 110.0;
+        let mut tx = layout.editor_tab_bar.x;
+
+        for (label, active, idx) in tabs {
+            let tw = if active { tab_w + 10.0 } else { tab_w };
+            if tx + tw > layout.editor_tab_bar.x + layout.editor_tab_bar.width {
+                break;
+            }
+            let tab_rect = Rect::new(tx, tab_y, tw, tab_h);
+            let fill = if active {
+                theme.tab_active_background.to_array()
+            } else {
+                theme.tab_inactive_background.to_array()
+            };
+            let text_c =
+                if active { theme.text_primary.to_array() } else { theme.text_muted.to_array() };
+            let accent = if active { Some(theme.accent.to_array()) } else { None };
+            let state = if active { InteractionState::Selected } else { InteractionState::Normal };
+
+            tree.push(ShellWidget::Tab {
+                id: WidgetId::tab(idx),
+                rect: tab_rect,
+                label: label.into(),
+                fill_color: fill,
+                text_color: text_c,
+                accent_strip: accent,
+                state,
+            });
+            tx += tw;
+        }
     }
 
     // ── 6. Editor breadcrumb ──
@@ -255,6 +319,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         ),
         color: theme.divider_subtle.to_array(),
         orientation: DividerOrientation::Horizontal,
+        subtle: true,
     });
 
     // ── 7. Editor content ──
@@ -264,6 +329,27 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         border_color: None,
         border_width: 0.0,
     });
+
+    // Editor scrollbar (right edge)
+    if layout.editor_content.height > 40.0 && layout.editor_content.width > 20.0 {
+        let sb_w = 6.0;
+        let sb_x = layout.editor_content.x + layout.editor_content.width - sb_w - 3.0;
+        let track_rect = Rect::new(
+            sb_x,
+            layout.editor_content.y + 4.0,
+            sb_w,
+            layout.editor_content.height - 8.0,
+        );
+        let thumb_h = (track_rect.height * 0.25).max(20.0);
+        tree.push(ShellWidget::ScrollbarTrack {
+            id: WidgetId::scrollbar(1),
+            track_rect,
+            thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+            track_fill: theme.divider_subtle.adjust_brightness(0.5).to_array(),
+            thumb_fill: theme.text_faint.adjust_brightness(0.25).to_array(),
+            state: InteractionState::Normal,
+        });
+    }
 
     // ── 8. Editor bottom panel (Terminal) ──
     if layout.editor_bottom_panel.height > 0.0 {
@@ -276,29 +362,68 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
             ),
             color: theme.divider_default.to_array(),
             orientation: DividerOrientation::Horizontal,
+            subtle: false,
         });
+        let header_h = 26.0;
+        let header_rect = Rect::new(
+            layout.editor_bottom_panel.x,
+            layout.editor_bottom_panel.y,
+            layout.editor_bottom_panel.width,
+            header_h,
+        );
+        // Close action button
+        let action_w = 20.0;
+        let action_x = header_rect.x + header_rect.width - action_w - 8.0;
+        let action_y = header_rect.y + 3.0;
+        let action_h = header_rect.height - 6.0;
+        let actions = vec![PanelHeaderAction {
+            id: WidgetId::panel_action("terminal", "close"),
+            rect: Rect::new(action_x, action_y, action_w, action_h),
+            label: "x".into(),
+            fill_color: theme.text_faint.adjust_brightness(0.18).to_array(),
+            hover_fill: theme
+                .hover_bg
+                .blend(theme.text_faint.adjust_brightness(0.18).to_array())
+                .to_array(),
+            state: InteractionState::Normal,
+        }];
         tree.push(ShellWidget::PanelHeader {
             id: WidgetId::panel_header("terminal"),
-            rect: Rect::new(
-                layout.editor_bottom_panel.x,
-                layout.editor_bottom_panel.y,
-                layout.editor_bottom_panel.width,
-                26.0,
-            ),
+            rect: header_rect,
             label: "Terminal".into(),
             fill_color: theme.panel_header_bg().to_array(),
             text_color: theme.text_secondary.to_array(),
+            actions,
         });
         tree.push(ShellWidget::RegionSurface {
             rect: Rect::new(
                 layout.editor_bottom_panel.x,
-                layout.editor_bottom_panel.y + 26.0,
+                layout.editor_bottom_panel.y + header_h,
                 layout.editor_bottom_panel.width,
-                (layout.editor_bottom_panel.height - 26.0).max(0.0),
+                (layout.editor_bottom_panel.height - header_h).max(0.0),
             ),
             fill_color: theme.bottom_panel_background.to_array(),
             border_color: None,
             border_width: 0.0,
+        });
+
+        // Scrollbar on right edge of terminal panel
+        let sb_w = 6.0;
+        let sb_x = layout.editor_bottom_panel.x + layout.editor_bottom_panel.width - sb_w - 2.0;
+        let track_rect = Rect::new(
+            sb_x,
+            layout.editor_bottom_panel.y + header_h + 4.0,
+            sb_w,
+            layout.editor_bottom_panel.height - header_h - 8.0,
+        );
+        let thumb_h = (track_rect.height * 0.3).max(16.0);
+        tree.push(ShellWidget::ScrollbarTrack {
+            id: WidgetId::scrollbar(0),
+            track_rect,
+            thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+            track_fill: theme.divider_subtle.adjust_brightness(0.6).to_array(),
+            thumb_fill: theme.text_faint.adjust_brightness(0.3).to_array(),
+            state: InteractionState::Normal,
         });
     }
 
@@ -313,20 +438,40 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
             ),
             color: theme.divider_default.to_array(),
             orientation: DividerOrientation::Vertical,
+            subtle: false,
         });
+        let header_h = 28.0;
+        let header_rect =
+            Rect::new(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, header_h);
+        let action_w = 20.0;
+        let action_x = header_rect.x + header_rect.width - action_w - 10.0;
+        let action_y = header_rect.y + 4.0;
+        let action_h = header_rect.height - 8.0;
+        let actions = vec![PanelHeaderAction {
+            id: WidgetId::panel_action("ai_assistant", "close"),
+            rect: Rect::new(action_x, action_y, action_w, action_h),
+            label: "x".into(),
+            fill_color: theme.text_faint.adjust_brightness(0.18).to_array(),
+            hover_fill: theme
+                .hover_bg
+                .blend(theme.text_faint.adjust_brightness(0.18).to_array())
+                .to_array(),
+            state: InteractionState::Normal,
+        }];
         tree.push(ShellWidget::PanelHeader {
             id: WidgetId::panel_header("ai_assistant"),
-            rect: Rect::new(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, 28.0),
+            rect: header_rect,
             label: "AI Assistant".into(),
             fill_color: theme.panel_header_bg().to_array(),
             text_color: theme.text_secondary.to_array(),
+            actions,
         });
         tree.push(ShellWidget::RegionSurface {
             rect: Rect::new(
                 layout.ai_panel.x,
-                layout.ai_panel.y + 28.0,
+                layout.ai_panel.y + header_h,
                 layout.ai_panel.width,
-                (layout.ai_panel.height - 28.0).max(0.0),
+                (layout.ai_panel.height - header_h).max(0.0),
             ),
             fill_color: theme.assistant_panel_background.to_array(),
             border_color: None,
@@ -345,6 +490,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         rect: Rect::new(layout.status_bar.x, layout.status_bar.y, layout.status_bar.width, 1.0),
         color: theme.divider_default.adjust_brightness(0.9).to_array(),
         orientation: DividerOrientation::Horizontal,
+        subtle: true,
     });
 
     // Status bar segments (pills)

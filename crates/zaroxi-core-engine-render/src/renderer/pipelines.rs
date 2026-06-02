@@ -185,8 +185,8 @@ pub(crate) fn create_pipelines(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: config.format,
-                // No blending: replace output directly for shape fills.
-                blend: None,
+                // Alpha blending: needed for anti-aliased rounded-rect edges.
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
