@@ -580,3 +580,79 @@ async fn ai_commands_review_apply_reject_via_command_bar() {
     .unwrap();
     assert!(comp.latest_metadata().and_then(|m| m.ai_projection).is_none());
 }
+
+/// Phase 20: explain result reaches the AI panel content model via build_work_content.
+#[tokio::test]
+async fn explain_result_populates_ai_panel_content() {
+    use zaroxi_application_workspace::workspace_view::build_work_content;
+    use zaroxi_interface_desktop::desktop::composition::DesktopComposition;
+
+    let mut comp = DesktopComposition::new();
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("src/lib.rs"));
+
+    if let Some(md) = comp.metadata.as_mut() {
+        md.ai_projection = Some(iface::AiProjection {
+            kind: Some("ExplainExecuted".into()),
+            result: Some("This module exports the main entrypoint.".into()),
+            target_buffer: Some(buf_id),
+            proposal_text: None,
+            state: Some(iface::AiState::Idle),
+        });
+        md.active_buffer = Some(buf_id.clone());
+    }
+
+    let work = build_work_content(
+        &comp.latest_opened_buffers_summary(),
+        comp.latest_active_document_summary().as_ref(),
+        comp.latest_shell_context().as_ref(),
+        comp.latest_metadata().and_then(|m| m.visible_window).as_ref(),
+        comp.build_work_content().ai_panel_content,
+    );
+
+    let ai = work.ai_panel_content.expect("explain projection should produce ai_panel_content");
+    assert_eq!(ai.title, "Assistant");
+    assert!(
+        ai.subtitle.contains("Analysis:"),
+        "explain subtitle should say Analysis: {}",
+        ai.subtitle
+    );
+    assert!(
+        ai.lines.iter().any(|l| l.contains("entrypoint")),
+        "explain body should be in content lines: {:?}",
+        ai.lines
+    );
+    assert!(
+        !ai.lines.iter().any(|l| l.contains("Accept") || l.contains("Reject")),
+        "explain should NOT have action labels"
+    );
+}
+
+/// Phase 20: explain via command bar exercises the dispatch path.
+#[tokio::test]
+async fn explain_via_command_bar_status() {
+    use zaroxi_application_workspace::workspace_view::command_bar_labels;
+    use zaroxi_interface_desktop::actions::{execute_command_by_index, open_command_bar};
+
+    let labels = command_bar_labels();
+    let explain_idx = labels.iter().position(|l| l == "Explain active buffer").unwrap();
+
+    let mut comp = DesktopComposition::new();
+    let buf_id = ports::BufferId::from_path(std::path::Path::new("src/main.rs"));
+    let view = Arc::new(FakeView::new(buf_id.clone(), Some("fn main() {}".to_string())));
+    let session_id = SessionId(Id::new());
+    let fake_svc = Arc::new(FakeService::new());
+
+    let _ = open_command_bar(&mut comp).await;
+    let res = execute_command_by_index(
+        &mut comp,
+        view.clone(),
+        Some(fake_svc),
+        session_id,
+        None,
+        explain_idx,
+    )
+    .await
+    .unwrap();
+    assert!(res.success, "explain command should succeed");
+    assert!(comp.build_work_content().terminal_tabs.is_some());
+}
