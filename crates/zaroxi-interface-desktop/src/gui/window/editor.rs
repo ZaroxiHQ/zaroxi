@@ -4,13 +4,17 @@ Center editor area drawing logic.
 Phase 6: engine content path — text labels flow through
 ContentView → compose_content_view() → WidgetScene.labels.
 Visual styling (gutter, syntax colors, cursor, minimap) remains desktop-owned.
+
+Phase 3: accepts optional ShellWorkContent for live editor body, tabs, breadcrumb.
 */
+use crate::gui::ShellWorkContent;
 use zaroxi_core_engine_ui::{ContentView, compose_content_view};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
+    work_content: Option<&ShellWorkContent>,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     use std::cmp;
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
@@ -650,11 +654,18 @@ pub fn draw(
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             }
             "center_editor" => {
-                let content = ContentView::new(
-                    "main.rs",
-                    "src/app/",
-                    vec!["fn main() {".into(), "    println!(\"hello\");".into(), "}".into()],
-                );
+                let content =
+                    work_content.and_then(|wc| wc.editor_body.clone()).unwrap_or_else(|| {
+                        ContentView::new(
+                            "main.rs",
+                            "src/app/",
+                            vec![
+                                "fn main() {".into(),
+                                "    println!(\"hello\");".into(),
+                                "}".into(),
+                            ],
+                        )
+                    });
                 let title_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
                 let body_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_secondary));
                 let krect = zaroxi_kernel_math::Rect::new(

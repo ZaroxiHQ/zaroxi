@@ -20,12 +20,16 @@ pub fn build_overlay_rects(
     for r in &shell.regions {
         let mut produced: Vec<zaroxi_core_engine_render_backend::DrawRect> = match r.id {
             "toolbar" => super::toolbar::draw(r, &shell.theme),
-            "app_rail" | "sidebar" => super::rail::draw(r, &shell.theme),
+            "app_rail" | "sidebar" => {
+                super::rail::draw(r, &shell.theme, shell.work_content.as_ref())
+            }
             "editor_tabs"
             | "breadcrumb"
             | "center_editor"
             | "minimap_lane"
-            | "center_bottom_panel" => super::editor::draw(r, &shell.theme),
+            | "center_bottom_panel" => {
+                super::editor::draw(r, &shell.theme, shell.work_content.as_ref())
+            }
             "ai_panel_content" => {
                 super::ai_pane::draw(r, &shell.theme, shell.ai_panel_content_view.as_ref())
             }

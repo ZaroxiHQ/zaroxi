@@ -3,12 +3,16 @@ Left column drawing logic (activity rail + sidebar).
 
 Phase 4: product-parity left column — active icon indicator, section
 headers with dividers, tree items with depth, workspace bottom controls.
+
+Phase 3: accepts optional ShellWorkContent for live explorer tree items.
 */
+use crate::gui::ShellWorkContent;
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
+    work_content: Option<&ShellWorkContent>,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
@@ -159,17 +163,42 @@ pub fn draw(
                 });
                 y_off = y_off.saturating_add(section_h).saturating_add(4);
 
-                // Tree items with folder/file colors
-                let items = [
-                    (6u32, true, "src/"),
-                    (16, true, "app/"),
-                    (22, false, "main.rs"),
-                    (22, false, "lib.rs"),
-                    (6, true, "tests/"),
-                    (16, false, "integration.rs"),
-                ];
+                // Tree items: prefer live explorer data, fall back to placeholder.
+                let tree_entries: Vec<(u32, bool, String)> = if let Some(wc) = work_content {
+                    if let Some(ref items) = wc.explorer_items {
+                        items
+                            .iter()
+                            .enumerate()
+                            .map(|(i, name)| {
+                                let is_active = name.ends_with(" *");
+                                let clean_name = name.trim_end_matches(" *");
+                                let indent = if i % 3 == 0 { 6u32 } else { 18u32 };
+                                (indent, is_active, clean_name.to_string())
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+                let items: Vec<(u32, bool, &str)> = if tree_entries.is_empty() {
+                    vec![
+                        (6u32, true, "src/"),
+                        (16, true, "app/"),
+                        (22, false, "main.rs"),
+                        (22, false, "lib.rs"),
+                        (6, true, "tests/"),
+                        (16, false, "integration.rs"),
+                    ]
+                } else {
+                    tree_entries
+                        .iter()
+                        .map(|(i, active, name)| (*i, *active, name.as_str()))
+                        .collect()
+                };
                 let row_h: u32 = 18;
-                for &(indent, is_dir, _name) in &items {
+                for (indent, is_active, _name) in items {
                     if y_off.saturating_add(row_h) > y_limit {
                         break;
                     }
@@ -180,10 +209,10 @@ pub fn draw(
                         y: y_off.saturating_add(4),
                         width: 8,
                         height: 8,
-                        color: if is_dir {
-                            super::theme_adapter::adjust_color(sem.warning, 0.64)
-                        } else {
+                        color: if is_active {
                             super::theme_adapter::adjust_color(sem.accent, 0.68)
+                        } else {
+                            super::theme_adapter::adjust_color(sem.divider, 0.42)
                         },
                     });
                     // Name placeholder

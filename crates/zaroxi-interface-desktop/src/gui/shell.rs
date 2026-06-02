@@ -93,9 +93,10 @@ pub struct ShellFrame {
     pub theme: Theme,
     pub regions: Vec<ShellRegion>,
     /// Optional engine-owned content view for the AI panel.
-    /// Populated from DesktopComposition before rendering so the GPU
-    /// draw path can show live proposal/explain content.
     pub ai_panel_content_view: Option<zaroxi_core_engine_ui::ContentView>,
+    /// Live workspace content snapshot (editor body, tabs, explorer, etc.)
+    /// Populated from DesktopComposition before rendering.
+    pub work_content: Option<crate::gui::ShellWorkContent>,
 }
 
 impl ShellFrame {
@@ -283,7 +284,7 @@ impl ShellFrame {
             ShellRegion { id: "status_bar", name: "status_bar", rect: status },
         ];
 
-        ShellFrame { size, theme, regions, ai_panel_content_view: None }
+        ShellFrame { size, theme, regions, ai_panel_content_view: None, work_content: None }
     }
 
     /// Render a deterministic textual transcript describing each region.
@@ -302,9 +303,6 @@ impl ShellFrame {
         }
 
         // Append chrome/widget-level deterministic placeholders produced by the widgets module.
-        // Keeping widget rendering logic in `gui/widgets` preserves separation of concerns:
-        // - `shell` remains the layout model and region source of truth
-        // - `widgets` provides small, interface-facing chrome transcripts derived from regions
         let widget_lines = super::widgets::render_chrome(&self.regions, comp);
         if !widget_lines.is_empty() {
             lines.push("widgets:".to_string());

@@ -3,6 +3,7 @@ pub mod shell;
 pub mod widgets;
 #[cfg(feature = "gui_window")]
 pub mod window;
+pub mod work_content;
 
 // Re-export commonly used shell types so downstream window modules can refer to
 // crate::gui::Theme (and other types) without importing the internal `shell` path.
@@ -10,3 +11,4 @@ pub use shell::{Rect, ShellFrame, ShellRegion, Size, Theme};
 pub use widgets::render_chrome;
 #[cfg(feature = "gui_window")]
 pub use window::run_shell_window;
+pub use work_content::ShellWorkContent;
