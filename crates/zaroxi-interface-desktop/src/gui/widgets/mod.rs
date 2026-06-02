@@ -7,6 +7,7 @@ matching the refined IDE shell layout.
 
 use crate::desktop::DesktopComposition;
 use crate::gui::shell::ShellRegion;
+use zaroxi_application_ai::panel::idle_content_view;
 use zaroxi_application_navigation::view_model::AppRailState;
 use zaroxi_core_engine_ui::ContentView;
 
@@ -136,23 +137,20 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
     }
 
     if let Some(ai) = regions.iter().find(|r| r.id == "ai_panel_header") {
-        let content = ContentView::ai_panel();
+        let content = idle_content_view();
         lines.push(format!("ai.header.title: {} rect={}", content.title, ai.rect));
         lines.push("ai.header.actions: [pin,close]".to_string());
     }
 
     if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
-        let content = ContentView::ai_panel();
+        let content = idle_content_view();
         lines.push(format!("ai.content.title: {} rect={}", content.title, aic.rect));
         if !content.subtitle.is_empty() {
             lines.push(format!("ai.content.subtitle: {} rect={}", content.subtitle, aic.rect));
         }
         lines.push(format!("ai.content.lines: count={} rect={}", content.lines.len(), aic.rect));
-        lines.push("ai.content.actions: [Accept,Reject,Edit]".to_string());
-        lines.push(format!(
-            "ai.content.input: placeholder='Ask anything...' model='{}'",
-            content.title
-        ));
+        lines.push("ai.content.actions: []".to_string());
+        lines.push("ai.content.input: placeholder='Ask anything...'".to_string());
     }
 
     lines

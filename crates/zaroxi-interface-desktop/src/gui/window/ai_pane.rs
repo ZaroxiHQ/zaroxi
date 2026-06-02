@@ -1,11 +1,13 @@
 /*!
 AI assistant pane drawing logic.
 
-Phase 7: engine-owned content path — text labels flow through
+Phase 1 (architecture): application-owned content path — domain
+AiPanelContent → application mapper (into_content_view) →
 ContentView → compose_content_view() → WidgetScene.labels.
 Structural chrome (cards, buttons, separators) remains desktop-owned.
 */
-use zaroxi_core_engine_ui::{ContentView, compose_content_view};
+use zaroxi_application_ai::panel::idle_content_view;
+use zaroxi_core_engine_ui::compose_content_view;
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
@@ -298,7 +300,7 @@ pub fn draw(
 
     // Text labels via engine-owned ContentView
     if r.width > 120 && r.height > 40 {
-        let content = ContentView::ai_panel();
+        let content = idle_content_view();
         let title_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_primary));
         let body_c = wgpu_f32(super::theme_adapter::parse_hex_color(theme.text_secondary));
         let krect =

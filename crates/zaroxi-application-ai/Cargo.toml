@@ -21,3 +21,5 @@ zaroxi-domain-ai = { workspace = true }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 # Core editor buffer canonical BufferId type (core-owned port)
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
+# Core engine UI: ContentView type for composing panel content into scene primitives.
+zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }

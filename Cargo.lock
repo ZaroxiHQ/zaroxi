@@ -3695,6 +3695,7 @@ dependencies = [
  "tracing",
  "uuid",
  "zaroxi-core-editor-buffer",
+ "zaroxi-core-engine-ui",
  "zaroxi-domain-ai",
  "zaroxi-kernel-types",
 ]

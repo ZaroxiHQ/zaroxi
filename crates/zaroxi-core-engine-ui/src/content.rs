@@ -18,32 +18,6 @@ impl ContentView {
     pub fn new(title: impl Into<String>, subtitle: impl Into<String>, lines: Vec<String>) -> Self {
         Self { title: title.into(), subtitle: subtitle.into(), lines }
     }
-
-    /// Engine-owned AI assistant panel content model.
-    ///
-    /// Returns a `ContentView` preset for the AI panel: a panel title,
-    /// a short status line, plus body/snippet/action text lines.
-    /// Desktop layers structural chrome (cards, buttons) on top; the
-    /// content model owns the text.
-    pub fn ai_panel() -> Self {
-        Self {
-            title: "Assistant".into(),
-            subtitle: "Ready".into(),
-            lines: vec![
-                "Here are the changes needed to refactor the module:".into(),
-                "Extract validation logic".into(),
-                "Add error handling".into(),
-                "Update tests".into(),
-                "fn validate(input: &str) -> Result<()> {".into(),
-                "Accept".into(),
-                "Reject".into(),
-                "Edit".into(),
-                "Ask anything...".into(),
-                "Claude 3.5 Sonnet".into(),
-                "Send".into(),
-            ],
-        }
-    }
 }
 
 impl Default for ContentView {
