@@ -26,10 +26,11 @@ Purpose: A contributor-focused, concise map of the crate ecosystem and guidance 
 
 ## Start-here crates (recommended for new contributors)
 
-- `zaroxi-interface-desktop` / `zaroxi-interface-app` — run the harness and reproduce runtime flows.
-- `zaroxi-application-workspace` — central integration point for workspace lifecycles.
-- `zaroxi-core-editor-buffer` — critical for understanding buffer semantics and transaction models.
-- `zaroxi-core-engine-render*` — GPU shell and render pipeline primitives (useful for UI/rendering work).
+- `zaroxi-interface-desktop` — run the harness and reproduce runtime flows.
+- `zaroxi-application-workspace` — central shared orchestration: `workspace_view` DTOs, `CloseContext`/`CommandBarContext`/`RefreshContext` traits, shared action functions, `build_work_content()`.
+- `zaroxi-core-engine-ui` — `ShellWorkContent`, `ContentView`, `compose_content_view`.
+- `zaroxi-core-editor-buffer` — buffer semantics and transaction models.
+- `zaroxi-domain-ai` — AI panel content models (`AiPanelContent`).
 
 ---
 
