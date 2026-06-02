@@ -1,7 +1,7 @@
 use crate::renderer::core::PanelColors;
 use crate::renderer::debug::{
     DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
-    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, VALIDATION_SCENE, render_debug_enabled,
+    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, render_debug_enabled,
 };
 use crate::renderer::geometry::{Vertex, push_colored_quad};
 use log::{debug, info};

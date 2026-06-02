@@ -24,10 +24,14 @@ pub(crate) const FORCE_MAGENTA_SIDEBAR: bool = false;
 /// When true, skip the text pass entirely (draw shapes only).
 pub(crate) const DISABLE_TEXT_PASS: bool = false;
 
-/// Validation scene toggle (disabled by default to avoid contaminating normal runs).
-/// Re-enable validation scene by default so GPU/shape/text validation geometry
-/// runs during development and surfaces regressions in the renderer.
-pub(crate) const VALIDATION_SCENE: bool = true;
+/// Validation scene enabled via `ZAROXI_VALIDATION_SCENE=1`.
+/// When active, injects three large R/G/B bands across the full window.
+static VALIDATION_SCENE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Return true if the validation scene (RGB bands) should be rendered.
+pub(crate) fn validation_scene_enabled() -> bool {
+    VALIDATION_SCENE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Helper used to decide whether to show render-time diagnostics.
 /// Default is controlled by the compile-time `RENDER_DEBUG` constant, but
@@ -40,4 +44,13 @@ pub(crate) fn render_debug_enabled() -> bool {
     std::env::var("RENDER_DEBUG")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+/// Initialize validation scene flag from `ZAROXI_VALIDATION_SCENE` env var.
+/// Call once at renderer startup.
+pub(crate) fn init_debug_flags() {
+    let enable = std::env::var("ZAROXI_VALIDATION_SCENE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    VALIDATION_SCENE_ACTIVE.store(enable, std::sync::atomic::Ordering::Relaxed);
 }

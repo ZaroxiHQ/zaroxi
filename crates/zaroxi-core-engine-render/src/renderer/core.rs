@@ -23,8 +23,8 @@ pub struct AppState;
 
 use crate::renderer::debug::{
     DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
-    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, VALIDATION_SCENE,
-    render_debug_enabled,
+    LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, init_debug_flags,
+    render_debug_enabled, validation_scene_enabled,
 };
 use crate::renderer::geometry::{Vertex, pixel_to_ndc, push_colored_quad};
 use zaroxi_core_engine_font::load_bundled_monospace;
@@ -324,6 +324,9 @@ impl<'a> Renderer<'a> {
 
         info!("Renderer initialized ({}x{})", config.width, config.height);
 
+        // Initialize runtime debug flags from env vars.
+        init_debug_flags();
+
         Ok(Self {
             _instance: instance,
             surface,
@@ -460,7 +463,7 @@ impl<'a> Renderer<'a> {
 
         // VALIDATION SCENE: when enabled inject three large horizontal bands (R/G/B)
         // at the top of the shape list to validate the shape pipeline end-to-end.
-        if VALIDATION_SCENE {
+        if validation_scene_enabled() {
             // three equal-height horizontal bands covering the full width.
             let band_h = (height as f32) / 3.0;
             // Top band - red
@@ -603,8 +606,8 @@ impl<'a> Renderer<'a> {
             const DEFAULT_FONT_SIZE: f32 = 14.0;
             let title_x = target.x + 8.0;
             let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
-            // Title color (default)
-            let title_color: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
+            // Title color: from block hint or default white
+            let title_color: [f32; 4] = block.text_color.unwrap_or([0.95, 0.95, 0.95, 1.0]);
 
             // Layout title text into glyph placements and convert to vertices/indices.
             // Use the pluggable text backend so shaping/layout logic is isolated from
@@ -646,14 +649,11 @@ impl<'a> Renderer<'a> {
             let content = block.content.trim();
 
             // Structural-only suppression for well-known header regions:
-            // - titlebar and status_bar are header-only and must not render block.content.
-            // This is a renderer-level, structural rule (not application-domain logic).
+            // - titlebar is header-only and must not render block.content.
             let is_titlebar =
                 block.id == "titlebar" || block.id == "title_bar" || block.id == "title-bar";
-            let is_statusbar =
-                block.id == "status_bar" || block.id == "statusbar" || block.id == "status-bar";
 
-            if is_titlebar || is_statusbar {
+            if is_titlebar {
                 if RENDER_DEBUG && !content.is_empty() {
                     debug!(
                         "emit_text: skipping body content for structural header block='{}'",

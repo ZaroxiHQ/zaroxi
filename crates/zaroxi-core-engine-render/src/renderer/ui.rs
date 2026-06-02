@@ -25,6 +25,8 @@ pub struct UiBlock {
     pub border_width: f32,
     /// Whether this block is a header-only structural block.
     pub header_only: bool,
+    /// Optional text color override for title/body text.
+    pub text_color: Option<[f32; 4]>,
 }
 
 use super::core::Rect;
