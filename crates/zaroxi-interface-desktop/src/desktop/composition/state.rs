@@ -607,4 +607,13 @@ impl RefreshContext for DesktopComposition {
     fn latest_shell_context(&self) -> Option<ShellContext> {
         self.latest_shell_context()
     }
+    fn perform_refresh(
+        &mut self,
+        view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+        session_id: crate::ports::SessionId,
+        workspace_id: Option<zaroxi_kernel_types::Id>,
+        service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        Box::pin(self.refresh_with_service(view, session_id, workspace_id, service))
+    }
 }

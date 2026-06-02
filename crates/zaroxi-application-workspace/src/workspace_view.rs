@@ -5,6 +5,8 @@
 /// in `zaroxi-application-workspace` (Application layer) so they can be
 /// shared by any consumer without pulling in interface-specific concerns.
 use crate::ports::BufferId;
+use std::future::Future;
+use std::pin::Pin;
 use zaroxi_core_engine_ui::{ContentView, ShellWorkContent};
 
 /// Small opened-buffer summary item exposed to interface layers.
@@ -134,6 +136,13 @@ pub trait RefreshContext: CloseContext {
     fn set_pending_refresh_reason(&mut self, reason: RefreshReason);
     fn active_buffer(&self) -> Option<BufferId>;
     fn latest_shell_context(&self) -> Option<ShellContext>;
+    fn perform_refresh(
+        &mut self,
+        view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+        session_id: crate::ports::SessionId,
+        workspace_id: Option<zaroxi_kernel_types::Id>,
+        service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
 }
 
 /// Application-facing capability set for command-bar UI state.
@@ -595,4 +604,177 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
             refreshed: false,
         }),
     }
+}
+
+// ── Refresh + buffer + cursor orchestration ────────────────────────
+
+use crate::ports::{
+    ApplyTextTransactionRequest, EditorCursor, GetActiveBufferRequest, SetActiveBufferRequest,
+    SetEditorCursorRequest, TextEdit, WorkspaceView,
+};
+
+pub async fn refresh_desktop<R: RefreshContext>(
+    ctx: &mut R,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+) -> Result<ActionResult, String> {
+    if !ctx.has_pending_refresh_reason() && service.is_none() {
+        ctx.set_pending_refresh_reason(RefreshReason::RefreshAction);
+    }
+
+    match ctx.perform_refresh(view, session_id, workspace_id, service).await {
+        Ok(()) => Ok(ActionResult { success: true, message: None, refreshed: true }),
+        Err(e) => Ok(ActionResult { success: false, message: Some(e), refreshed: false }),
+    }
+}
+
+pub async fn refresh_and_get_shell_context<R: RefreshContext>(
+    ctx: &mut R,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    service: Option<std::sync::Arc<dyn WorkspaceService>>,
+) -> Result<ShellActionResult, String> {
+    let action = refresh_desktop(ctx, view, session_id.clone(), workspace_id, service).await?;
+    let context = ctx.latest_shell_context();
+    Ok(ShellActionResult { action, context })
+}
+
+pub async fn set_active_buffer_and_get_shell_context<R: RefreshContext>(
+    ctx: &mut R,
+    service: std::sync::Arc<dyn WorkspaceService>,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+    buffer_id: BufferId,
+) -> Result<ShellActionResult, String> {
+    match service.get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() }).await
+    {
+        Ok(get_res) => {
+            if get_res.buffer_id == buffer_id {
+                if ctx.active_buffer() != Some(buffer_id.clone()) {
+                    ctx.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+                } else {
+                    ctx.set_pending_refresh_reason(RefreshReason::RefreshAction);
+                }
+            } else {
+                if let Err(e) = service
+                    .set_active_buffer(SetActiveBufferRequest {
+                        session_id: session_id.clone(),
+                        buffer_id: buffer_id.clone(),
+                    })
+                    .await
+                {
+                    return Ok(ShellActionResult {
+                        action: ActionResult {
+                            success: false,
+                            message: Some(e.to_string()),
+                            refreshed: false,
+                        },
+                        context: None,
+                    });
+                }
+                ctx.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+            }
+        }
+        Err(_e) => {
+            if let Err(e) = service
+                .set_active_buffer(SetActiveBufferRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: buffer_id.clone(),
+                })
+                .await
+            {
+                return Ok(ShellActionResult {
+                    action: ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    },
+                    context: None,
+                });
+            }
+            ctx.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
+        }
+    }
+
+    refresh_and_get_shell_context(ctx, view, session_id, workspace_id, Some(service)).await
+}
+
+pub async fn move_cursor_to_start_and_refresh<R: RefreshContext>(
+    ctx: &mut R,
+    service: std::sync::Arc<dyn WorkspaceService>,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+) -> Result<ActionResult, String> {
+    let active_resp = match service
+        .get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some(e.to_string()),
+                refreshed: false,
+            });
+        }
+    };
+
+    let buffer_id = active_resp.buffer_id;
+
+    if let Err(e) = service
+        .set_editor_cursor(SetEditorCursorRequest {
+            session_id: session_id.clone(),
+            buffer_id: buffer_id.clone(),
+            cursor: EditorCursor { line: 0, column: 0 },
+        })
+        .await
+    {
+        return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
+    }
+
+    ctx.set_pending_refresh_reason(RefreshReason::CursorMoved);
+    refresh_desktop(ctx, view, session_id, workspace_id, Some(service)).await
+}
+
+pub async fn insert_line_at_start_and_refresh<R: RefreshContext>(
+    ctx: &mut R,
+    service: std::sync::Arc<dyn WorkspaceService>,
+    view: std::sync::Arc<dyn WorkspaceView>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
+) -> Result<ActionResult, String> {
+    let active_resp = match service
+        .get_active_buffer(GetActiveBufferRequest { session_id: session_id.clone() })
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(ActionResult {
+                success: false,
+                message: Some(e.to_string()),
+                refreshed: false,
+            });
+        }
+    };
+
+    let buffer_id = active_resp.buffer_id;
+
+    if let Err(e) = service
+        .apply_text_transaction(ApplyTextTransactionRequest {
+            session_id: session_id.clone(),
+            buffer_id: buffer_id.clone(),
+            transaction: TextEdit::Insert { index: 0, text: "\n".to_string() },
+        })
+        .await
+    {
+        return Ok(ActionResult { success: false, message: Some(e.to_string()), refreshed: false });
+    }
+
+    ctx.set_pending_refresh_reason(RefreshReason::BufferUpdated);
+    refresh_desktop(ctx, view, session_id, workspace_id, Some(service)).await
 }
