@@ -559,18 +559,15 @@ pub async fn confirm_selected_command<C: CommandBarContext + CloseContext + Refr
     Ok(res)
 }
 
-/// Shared command dispatch: resolves a command index to an action and executes it.
-///
-/// Close-flow commands are fully handled here via `CloseContext`.  Commands that
-/// require service calls (Refresh, Open buffer, Set active, Explain active) return
-/// `success=false` with message `"delegate"` so the desktop adapter can catch and
-/// handle them with its own service/refresh integration.
+/// Shared command dispatch: resolves a command index to an action and executes
+/// every known command fully here.  The function covers close-flow, service,
+/// and refresh commands — no delegate/sentinel fallback needed.
 pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + RefreshContext>(
     ctx: &mut C,
-    _view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
-    _service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
-    _session_id: crate::ports::SessionId,
-    _workspace_id: Option<zaroxi_kernel_types::Id>,
+    view: std::sync::Arc<dyn crate::ports::WorkspaceView>,
+    service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
+    session_id: crate::ports::SessionId,
+    workspace_id: Option<zaroxi_kernel_types::Id>,
     index: usize,
 ) -> Result<ActionResult, String> {
     let label: String =
@@ -586,14 +583,100 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
         };
 
     match label.as_str() {
-        "Refresh" | "Open buffer" | "Set active buffer" | "Explain active buffer" => {
-            Ok(ActionResult {
-                success: false,
-                message: Some("delegate".to_string()),
-                refreshed: false,
-            })
+        "Refresh" => refresh_desktop(ctx, view, session_id, workspace_id, service).await,
+        "Open buffer" => {
+            if let Some(s) = service {
+                let open_req = crate::ports::OpenBufferRequest {
+                    session_id: session_id.clone(),
+                    path: std::path::PathBuf::from("new_buffer.rs"),
+                };
+                match s.open_buffer(open_req).await {
+                    Ok(_) => {
+                        ctx.set_status_message("Opened buffer: new_buffer.rs".to_string());
+                        let ar =
+                            refresh_desktop(ctx, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult {
+                            success: true,
+                            message: Some("opened buffer".to_string()),
+                            refreshed: ar.refreshed,
+                        })
+                    }
+                    Err(e) => Ok(ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    }),
+                }
+            } else {
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("open-buffer requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
+            }
         }
-
+        "Set active buffer" => {
+            if let Some(s) = service {
+                let obs = ctx.latest_opened_buffers_summary();
+                if let Some(item) = obs.items.get(0) {
+                    let buf = item.buffer_id.clone();
+                    let sa = set_active_buffer_and_get_shell_context(
+                        ctx,
+                        s,
+                        view,
+                        session_id,
+                        workspace_id,
+                        buf,
+                    )
+                    .await?;
+                    Ok(sa.action)
+                } else {
+                    Ok(ActionResult {
+                        success: false,
+                        message: Some("no opened buffers to activate".to_string()),
+                        refreshed: false,
+                    })
+                }
+            } else {
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("set-active requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
+            }
+        }
+        "Explain active buffer" => {
+            if let Some(s) = service {
+                match s
+                    .explain_active_buffer(crate::ports::GetActiveBufferRequest {
+                        session_id: session_id.clone(),
+                    })
+                    .await
+                {
+                    Ok(resp) => {
+                        ctx.set_status_message(format!("Explain dispatched: {:?}", resp));
+                        let ar =
+                            refresh_desktop(ctx, view, session_id, workspace_id, Some(s)).await?;
+                        Ok(ActionResult {
+                            success: true,
+                            message: Some("explain dispatched".to_string()),
+                            refreshed: ar.refreshed,
+                        })
+                    }
+                    Err(e) => Ok(ActionResult {
+                        success: false,
+                        message: Some(e.to_string()),
+                        refreshed: false,
+                    }),
+                }
+            } else {
+                Ok(ActionResult {
+                    success: false,
+                    message: Some("explain requires WorkspaceService".to_string()),
+                    refreshed: false,
+                })
+            }
+        }
         "Request close active" => request_close_active(ctx).await,
         "Confirm close: save" => confirm_save_and_close(ctx).await,
         "Confirm close: discard" => confirm_discard_and_close(ctx).await,
