@@ -176,7 +176,8 @@ fn applied_content_view_shows_confirmation() {
 /// Phase 24: diagnostics_content_view produces severity lines when counts > 0.
 #[test]
 fn diagnostics_content_view_shows_severity_counts() {
-    let view = zaroxi_application_ai::panel::diagnostics_content_view(3, 1, 0, 0, "src/lib.rs");
+    let view =
+        zaroxi_application_ai::panel::diagnostics_content_view(3, 1, 0, 0, "src/lib.rs", &[]);
     assert_eq!(view.title, "Problems");
     assert!(view.subtitle.contains("src/lib.rs"));
     assert!(view.lines.iter().any(|l| l.contains("error(s)")));
@@ -186,6 +187,17 @@ fn diagnostics_content_view_shows_severity_counts() {
 /// Phase 24: diagnostics with zero counts returns empty lines.
 #[test]
 fn diagnostics_content_view_zero_counts_is_empty() {
-    let view = zaroxi_application_ai::panel::diagnostics_content_view(0, 0, 0, 0, "src/lib.rs");
+    let view =
+        zaroxi_application_ai::panel::diagnostics_content_view(0, 0, 0, 0, "src/lib.rs", &[]);
     assert_eq!(view.lines.len(), 0);
+}
+
+/// Phase 25: diagnostics with detail lines includes them.
+#[test]
+fn diagnostics_content_view_includes_detail_lines() {
+    let details = vec!["missing `;` at line 42".to_string(), "unused variable `x`".to_string()];
+    let view =
+        zaroxi_application_ai::panel::diagnostics_content_view(2, 0, 0, 0, "src/lib.rs", &details);
+    assert!(view.lines.iter().any(|l| l.contains("missing `;`")));
+    assert!(view.lines.iter().any(|l| l.contains("unused variable")));
 }

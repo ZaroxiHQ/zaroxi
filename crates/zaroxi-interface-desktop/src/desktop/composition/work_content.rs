@@ -44,12 +44,21 @@ impl DesktopComposition {
         if let Some(diag) = self.latest_metadata().and_then(|md| md.diagnostics_snapshot.clone()) {
             let total = diag.errors + diag.warnings + diag.infos + diag.hints;
             if total > 0 {
+                // Fetch individual diagnostic messages for the active buffer.
+                let detail_lines: Vec<String> =
+                    crate::diagnostics::diagnostics_details_for_uri(&diag.active_buffer)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|d| format!("{:?}: {}", d.severity, d.message))
+                        .collect();
+
                 let diag_view = panel::diagnostics_content_view(
                     diag.errors,
                     diag.warnings,
                     diag.infos,
                     diag.hints,
                     &diag.active_buffer,
+                    &detail_lines,
                 );
                 if let Some(ref mut ai) = ai_panel {
                     // Merge diagnostics lines into existing AI content.

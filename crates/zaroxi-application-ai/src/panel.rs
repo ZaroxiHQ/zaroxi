@@ -102,13 +102,14 @@ pub fn applied_content_view(result: &str, target_buffer: &str) -> ContentView {
 }
 
 /// Build a `ContentView` from diagnostics counts for the active buffer.
-/// Produces compact severity-count lines when diagnostics exist.
+/// Produces severity-count lines and optional individual message lines.
 pub fn diagnostics_content_view(
     errors: u32,
     warnings: u32,
     infos: u32,
     hints: u32,
     buffer_display: &str,
+    detail_lines: &[String],
 ) -> ContentView {
     let mut lines = Vec::new();
     if errors > 0 {
@@ -122,6 +123,10 @@ pub fn diagnostics_content_view(
     }
     if hints > 0 {
         lines.push(format!("• {} hint(s)", hints));
+    }
+    // Individual diagnostic messages when available.
+    for dl in detail_lines.iter().take(5) {
+        lines.push(format!("  {}", dl));
     }
     let subtitle = format!("Diagnostics for {}", buffer_display);
     ContentView::new("Problems", &subtitle, lines)
