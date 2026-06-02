@@ -172,3 +172,20 @@ fn applied_content_view_shows_confirmation() {
     assert!(applied.lines.iter().any(|l| l.contains("AI edit applied")));
     assert!(!applied.lines.iter().any(|l| l.contains("Accept")));
 }
+
+/// Phase 24: diagnostics_content_view produces severity lines when counts > 0.
+#[test]
+fn diagnostics_content_view_shows_severity_counts() {
+    let view = zaroxi_application_ai::panel::diagnostics_content_view(3, 1, 0, 0, "src/lib.rs");
+    assert_eq!(view.title, "Problems");
+    assert!(view.subtitle.contains("src/lib.rs"));
+    assert!(view.lines.iter().any(|l| l.contains("error(s)")));
+    assert!(view.lines.iter().any(|l| l.contains("warning(s)")));
+}
+
+/// Phase 24: diagnostics with zero counts returns empty lines.
+#[test]
+fn diagnostics_content_view_zero_counts_is_empty() {
+    let view = zaroxi_application_ai::panel::diagnostics_content_view(0, 0, 0, 0, "src/lib.rs");
+    assert_eq!(view.lines.len(), 0);
+}

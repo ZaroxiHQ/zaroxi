@@ -364,6 +364,13 @@ pub async fn refresh_with_service(
     comp.session_id = Some(session_id.clone());
     comp.workspace_id = workspace_id;
 
+    // Collect diagnostics snapshot for the active buffer (if known).
+    let diagnostics_snapshot: Option<crate::diagnostics::DiagnosticsSnapshot> =
+        authoritative_active.as_ref().and_then(|buf| {
+            let uri = buf.to_string();
+            crate::diagnostics::diagnostics_snapshot_for_uri(&uri)
+        });
+
     // Compute metadata and status snapshots derived from the refresh work above.
     let metadata = super::DesktopMetadata {
         session_id: Some(session_id),
@@ -379,6 +386,9 @@ pub async fn refresh_with_service(
         ai_projection: ai_proj
             .clone()
             .or_else(|| comp.metadata.as_ref().and_then(|m| m.ai_projection.clone())),
+        diagnostics_snapshot: diagnostics_snapshot
+            .clone()
+            .or_else(|| comp.metadata.as_ref().and_then(|m| m.diagnostics_snapshot.clone())),
         // Surface visible-window projection when we could obtain one from the WorkspaceView.
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
@@ -526,6 +536,7 @@ pub async fn request_ai_edit_active(
                         opened_buffers: Vec::new(),
                         active_buffer_details: None,
                         ai_projection: None,
+                        diagnostics_snapshot: None,
                         visible_window: None,
                         last_command_line: None,
                         refresh_reason: None,
@@ -572,6 +583,7 @@ pub async fn request_ai_edit_active(
                                                     opened_buffers: Vec::new(),
                                                     active_buffer_details: None,
                                                     ai_projection: None,
+                                                    diagnostics_snapshot: None,
                                                     visible_window: None,
                                                     last_command_line: None,
                                                     refresh_reason: None,
@@ -630,6 +642,7 @@ pub async fn request_ai_edit_active(
                 opened_buffers: Vec::new(),
                 active_buffer_details: None,
                 ai_projection: None,
+                diagnostics_snapshot: None,
                 visible_window: None,
                 last_command_line: None,
                 refresh_reason: None,
