@@ -3982,6 +3982,9 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-core-engine-style"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zaroxi-core-engine-test"
@@ -4005,6 +4008,7 @@ dependencies = [
  "taffy",
  "zaroxi-core-engine-layout",
  "zaroxi-core-engine-scene",
+ "zaroxi-core-engine-style",
  "zaroxi-kernel-math",
 ]
 

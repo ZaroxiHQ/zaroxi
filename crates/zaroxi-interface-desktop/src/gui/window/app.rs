@@ -163,6 +163,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
+                    // Use engine-owned theme for semantic color resolution.
+                    let theme = zaroxi_core_engine_ui::EngineTheme::dark();
+
                     let find_rect = |id: &str| -> zaroxi_core_engine_render::Rect {
                         if let Some(r) = self.shell.regions.iter().find(|rr| rr.id == id) {
                             zaroxi_core_engine_render::Rect {
@@ -184,34 +187,228 @@ impl winit::application::ApplicationHandler for GuiApp {
                         bottom_panel: find_rect("bottom_dock"),
                         status_bar: find_rect("status_bar"),
                         colors: zaroxi_core_engine_render::PanelColors {
-                            panel_header_background: [0.12, 0.12, 0.14, 1.0],
-                            panel_background: [0.08, 0.09, 0.11, 1.0],
+                            panel_header_background: theme.panel_header_bg().to_array(),
+                            panel_background: theme.surface_default.to_array(),
                         },
                     };
 
-                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = self
-                        .shell
-                        .regions
-                        .iter()
-                        .map(|r| zaroxi_core_engine_render::UiBlock {
-                            id: r.id.to_string(),
-                            title: r.name.to_string(),
-                            content: String::new(),
-                            visible: true,
-                            rect: zaroxi_core_engine_render::Rect {
+                    // Map shell regions to theme-driven UiBlocks.
+                    let region_to_block =
+                        |r: &crate::gui::ShellRegion| -> zaroxi_core_engine_render::UiBlock {
+                            let rect = zaroxi_core_engine_render::Rect {
                                 x: r.rect.x as f32,
                                 y: r.rect.y as f32,
                                 w: r.rect.width as f32,
                                 h: r.rect.height as f32,
-                            },
-                            header_color: None,
-                            content_color: None,
-                        })
-                        .collect();
+                            };
+
+                            match r.id {
+                                // Full-window background
+                                "toolbar" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.status_bar_background.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_width: 1.0,
+                                    header_only: true,
+                                },
+                                // Activity rail
+                                "app_rail" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.activity_rail_background.to_array()),
+                                    content_color: Some(theme.activity_rail_background.to_array()),
+                                    corner_radius: 0.0,
+                                    border_color: Some(
+                                        theme.divider_default.adjust_brightness(0.85).to_array(),
+                                    ),
+                                    border_width: 1.0,
+                                    header_only: false,
+                                },
+                                // Sidebar
+                                "sidebar" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.sidebar_background.to_array()),
+                                    content_color: Some(theme.sidebar_background.to_array()),
+                                    corner_radius: 0.0,
+                                    border_color: None,
+                                    border_width: 0.0,
+                                    header_only: false,
+                                },
+                                // Editor tab strip
+                                "editor_tabs" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.tab_strip_background.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_width: 1.0,
+                                    header_only: true,
+                                },
+                                // Breadcrumb
+                                "breadcrumb" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(
+                                        theme.editor_background.adjust_brightness(0.97).to_array(),
+                                    ),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: Some(theme.divider_subtle.to_array()),
+                                    border_width: 1.0,
+                                    header_only: true,
+                                },
+                                // Editor content
+                                "center_editor" | "editor_content" => {
+                                    zaroxi_core_engine_render::UiBlock {
+                                        id: r.id.to_string(),
+                                        title: r.name.to_string(),
+                                        content: String::new(),
+                                        visible: true,
+                                        rect,
+                                        header_color: Some(theme.editor_background.to_array()),
+                                        content_color: None,
+                                        corner_radius: 0.0,
+                                        border_color: None,
+                                        border_width: 0.0,
+                                        header_only: true,
+                                    }
+                                }
+                                // Minimap lane
+                                "minimap_lane" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(
+                                        theme.editor_background.adjust_brightness(0.95).to_array(),
+                                    ),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: None,
+                                    border_width: 0.0,
+                                    header_only: true,
+                                },
+                                // Center bottom panel (terminal)
+                                "center_bottom_panel" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: "Terminal".to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.panel_header_bg().to_array()),
+                                    content_color: Some(theme.bottom_panel_background.to_array()),
+                                    corner_radius: 0.0,
+                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_width: 1.0,
+                                    header_only: false,
+                                },
+                                // Bottom dock
+                                "bottom_dock" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: r.rect.height > 0,
+                                    rect,
+                                    header_color: Some(theme.surface_default.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: None,
+                                    border_width: 0.0,
+                                    header_only: true,
+                                },
+                                // AI panel header
+                                "ai_panel_header" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: "AI Assistant".to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.panel_header_bg().to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_width: 1.0,
+                                    header_only: true,
+                                },
+                                // AI panel content
+                                "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.assistant_panel_background.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: None,
+                                    border_width: 0.0,
+                                    header_only: true,
+                                },
+                                // Status bar
+                                "status_bar" => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.status_bar_background.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: Some(
+                                        theme.divider_default.adjust_brightness(0.9).to_array(),
+                                    ),
+                                    border_width: 1.0,
+                                    header_only: true,
+                                },
+                                // Unknown regions
+                                _ => zaroxi_core_engine_render::UiBlock {
+                                    id: r.id.to_string(),
+                                    title: r.name.to_string(),
+                                    content: String::new(),
+                                    visible: true,
+                                    rect,
+                                    header_color: Some(theme.surface_default.to_array()),
+                                    content_color: None,
+                                    corner_radius: 0.0,
+                                    border_color: None,
+                                    border_width: 0.0,
+                                    header_only: true,
+                                },
+                            }
+                        };
+
+                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
+                        self.shell.regions.iter().map(region_to_block).collect();
 
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
-                        [0.051, 0.054, 0.062, 1.0],
+                        [
+                            theme.app_background.r as f64,
+                            theme.app_background.g as f64,
+                            theme.app_background.b as f64,
+                            1.0,
+                        ],
                     )) {
                         Ok(mut renderer) => {
                             let app_state = zaroxi_core_engine_render::renderer::core::AppState;

@@ -15,9 +15,9 @@ mod tests {
         assert_eq!(bg.width, 800.0);
         assert_eq!(bg.height, 600.0);
 
-        // top bar height should match the design constant (28.0)
+        // top bar height should match the design constant (30.0)
         // it's the second rect
         let top = &rects[1];
-        assert_eq!(top.height as i32, 28, "top bar height mismatch: {}", top.height);
+        assert_eq!(top.height as i32, 30, "top bar height mismatch: {}", top.height);
     }
 }

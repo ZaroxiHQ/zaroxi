@@ -6,3 +6,4 @@ description = "Styling and theming primitives for engine UI."
 license = "MIT"
 
 [dependencies]
+serde = { workspace = true, features = ["derive"] }

@@ -4,6 +4,10 @@
 /// rectangular UI block with optional header & content visual hints. The
 /// renderer must treat this data as authoritative and not interpret semantic
 /// meanings like "sidebar" or "editor".
+///
+/// Extended for Phase 27: corner radius, border color/width, and surface role
+/// allow the renderer to produce richer geometry without tying it to
+/// application-layer concepts.
 #[derive(Debug, Clone)]
 pub struct UiBlock {
     pub id: String,
@@ -13,6 +17,14 @@ pub struct UiBlock {
     pub rect: Rect,
     pub header_color: Option<[f32; 4]>,
     pub content_color: Option<[f32; 4]>,
+    /// Corner radius for this surface (for future rounded-rect rendering).
+    pub corner_radius: f32,
+    /// Optional border color for this surface.
+    pub border_color: Option<[f32; 4]>,
+    /// Border width in pixels.
+    pub border_width: f32,
+    /// Whether this block is a header-only structural block.
+    pub header_only: bool,
 }
 
 use super::core::Rect;

@@ -11,5 +11,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 zaroxi-core-engine-layout = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
+zaroxi-core-engine-style = { workspace = true }
 zaroxi-kernel-math = { workspace = true }
 # Keep this crate small and engine-owned; no interface/application deps.

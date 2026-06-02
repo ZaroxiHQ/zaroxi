@@ -17,6 +17,9 @@ use wgpu;
 ///
 /// Returns Some(base_idx) where base_idx is the index (usize) of the first
 /// vertex of the content quad if a content quad was pushed, otherwise None.
+///
+/// Extended for Phase 27: draws a border quad around the block when border_color
+/// is set, producing thinner separator-like visual edges.
 pub(crate) fn queue_panel_quads(
     verts: &mut Vec<Vertex>,
     indices: &mut Vec<u16>,
@@ -26,13 +29,72 @@ pub(crate) fn queue_panel_quads(
     screen_h: f32,
 ) -> Option<usize> {
     // Local layout metrics (header + content padding) were previously computed in core.rs.
-    let header_h = 28.0f32;
+    let header_h = if block.header_only {
+        // Header-only blocks use their full height as the "header"
+        block.rect.h
+    } else {
+        28.0f32
+    };
     let content_padding = 8.0f32;
 
     // Use the block rect supplied by the caller (app/runtime owns layout decisions).
     let target = block.rect;
 
-    // Header strip at the top of the block rect
+    // ── Border rendering ──
+    if let (Some(border_color), w) = (block.border_color, block.border_width) {
+        if w > 0.0 && target.w > 0.0 && target.h > 0.0 {
+            // Top border edge
+            push_colored_quad(
+                verts,
+                indices,
+                target.x,
+                target.y,
+                target.w,
+                w,
+                border_color,
+                screen_w,
+                screen_h,
+            );
+            // Bottom border edge
+            push_colored_quad(
+                verts,
+                indices,
+                target.x,
+                target.y + target.h - w,
+                target.w,
+                w,
+                border_color,
+                screen_w,
+                screen_h,
+            );
+            // Left border edge
+            push_colored_quad(
+                verts,
+                indices,
+                target.x,
+                target.y,
+                w,
+                target.h,
+                border_color,
+                screen_w,
+                screen_h,
+            );
+            // Right border edge
+            push_colored_quad(
+                verts,
+                indices,
+                target.x + target.w - w,
+                target.y,
+                w,
+                target.h,
+                border_color,
+                screen_w,
+                screen_h,
+            );
+        }
+    }
+
+    // ── Header strip ──
     let hx = target.x;
     let hy = target.y;
     let hw = target.w;
@@ -45,22 +107,26 @@ pub(crate) fn queue_panel_quads(
         debug!("block '{}' header_color = {:?}", block.id, header_color);
     }
 
-    push_colored_quad(verts, indices, hx, hy, hw, hh, header_color, screen_w, screen_h);
+    if hh > 0.0 {
+        push_colored_quad(verts, indices, hx, hy, hw, hh, header_color, screen_w, screen_h);
+    }
 
-    // Content inset: a smaller block inside the panel for visual differentiation
+    // ── Content area ──
+    if block.header_only {
+        return None;
+    }
+
     let cx = target.x + content_padding;
     let cy = target.y + hh + content_padding;
     let cw = (target.w - content_padding * 2.0).max(0.0);
     let ch = (target.h - hh - content_padding * 2.0).max(0.0);
 
-    // Content color is supplied by the UiBlock visual hint; fallback to semantic token.
     let content_color: [f32; 4] = block.content_color.unwrap_or(sem.panel_background);
 
     if render_debug_enabled() {
         debug!("block '{}' content_color = {:?}", block.id, content_color);
     }
 
-    // Use the content color directly; renderer should not introduce UI role overrides.
     let effective_color: [f32; 4] = content_color;
 
     if cw > 0.0 && ch > 0.0 {
