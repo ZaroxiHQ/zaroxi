@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::ShellLayout;
-    use zaroxi_core_engine_style::test_tokens_dark;
+    use zaroxi_core_engine_style::test_utils::test_tokens_dark;
     use zaroxi_core_engine_ui::build_shell_surface_set;
 
     /// Verify that the shell surface builder produces a deterministic,

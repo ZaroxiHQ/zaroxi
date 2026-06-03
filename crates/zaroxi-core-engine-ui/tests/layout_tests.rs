@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::build_shell_ui;
-    use zaroxi_core_engine_style::test_tokens_dark;
+    use zaroxi_core_engine_style::test_utils::test_tokens_dark;
 
     #[test]
     fn basic_shell_rects_count_and_top_height() {

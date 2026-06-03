@@ -508,7 +508,7 @@ impl<'a> RenderBackend<'a> {
         let ui_rects = zaroxi_core_engine_layout::build_shell_ui(
             width,
             height,
-            &zaroxi_core_engine_style::test_tokens_dark(),
+            &zaroxi_core_engine_style::test_utils::test_tokens_dark(),
         );
 
         // Trace what the backend observes on each frame (adapter marker => adapter_text_ops).

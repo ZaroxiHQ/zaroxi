@@ -353,7 +353,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
-                    let tokens = zaroxi_core_engine_ui::test_tokens_dark();
+                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                    let tokens = super::style_tokens_adapter::resolve_style_tokens(
+                        &sem,
+                        &Default::default(),
+                    );
 
                     // Build the engine-side widget tree for hover tracking.
                     let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);

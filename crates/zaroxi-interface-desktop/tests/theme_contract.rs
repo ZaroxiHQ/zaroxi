@@ -4,7 +4,9 @@
 //! (not an IDE) — verifying the engine style contract is truly app-neutral
 //! and host-provided.
 
-use zaroxi_core_engine_style::{PanelRole, StyleTokens, test_tokens_dark, test_tokens_light};
+use zaroxi_core_engine_style::{
+    PanelRole, StyleTokens, test_utils::test_tokens_dark, test_utils::test_tokens_light,
+};
 
 /// A generic document viewer can resolve panel fills using the style tokens
 /// without any IDE-specific concepts.

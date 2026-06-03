@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::ShellLayout;
-    use zaroxi_core_engine_style::test_tokens_dark;
+    use zaroxi_core_engine_style::test_utils::test_tokens_dark;
     use zaroxi_core_engine_ui::{InteractionState, ShellWidget, build_shell_widget_tree};
 
     #[test]
