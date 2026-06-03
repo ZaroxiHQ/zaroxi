@@ -307,7 +307,8 @@ pub fn build_work_content(
         let lines: Vec<String> = visible_window
             .map(|vw| vw.lines.clone())
             .unwrap_or_else(|| d.current_line_snippet.iter().map(|s| s.to_string()).collect());
-        let mut cv = ContentView::new(&title, &subtitle, lines);
+        let mut cv = ContentView::new(&title, &subtitle, lines)
+            .with_cursor(d.cursor_line.unwrap_or(0), d.cursor_column.unwrap_or(0));
         if cv.lines.is_empty() {
             cv = ContentView::default();
         }

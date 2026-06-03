@@ -715,6 +715,58 @@ impl<'a> Renderer<'a> {
                 debug!("emit_text: no content for block='{}'", block.id);
             }
 
+            // ── Cursor & line-highlight rendering ──
+            if let (Some(line), Some(col)) = (block.cursor_line, block.cursor_col) {
+                let content_x = target.x + content_padding;
+                let content_y = target.y + hh + content_padding;
+                let content_w = (target.w - content_padding * 2.0).max(0.0);
+                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+
+                if content_w > 0.0 && content_h > 0.0 {
+                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let line_y = content_y + line as f32 * line_h;
+
+                    // Active line highlight background
+                    if block.highlight_active_line && line_y + line_h <= content_y + content_h {
+                        let hl_color: [f32; 4] = [1.0, 1.0, 1.0, 0.04];
+                        push_colored_quad(
+                            &mut panel_verts,
+                            &mut panel_indices,
+                            content_x,
+                            line_y,
+                            content_w,
+                            line_h,
+                            hl_color,
+                            width,
+                            height,
+                            0.0,
+                        );
+                    }
+
+                    // Cursor vertical bar
+                    let cursor_x = content_x + col as f32 * 8.0;
+                    let cursor_w = 2.0;
+                    let cursor_h = line_h;
+                    if cursor_x + cursor_w <= content_x + content_w
+                        && line_y + cursor_h <= content_y + content_h
+                    {
+                        let cursor_color: [f32; 4] = [0.95, 0.95, 0.95, 0.8];
+                        push_colored_quad(
+                            &mut panel_verts,
+                            &mut panel_indices,
+                            cursor_x,
+                            line_y,
+                            cursor_w,
+                            cursor_h,
+                            cursor_color,
+                            width,
+                            height,
+                            0.0,
+                        );
+                    }
+                }
+            }
+
             // Log counts per panel
             if RENDER_DEBUG {
                 let quad_count = (panel_verts.len() / 4) as usize;

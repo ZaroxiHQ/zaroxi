@@ -30,6 +30,12 @@ pub struct UiBlock {
     /// Optional per-span colored content. Each entry is (text, color).
     /// When present, overrides the flat `content` field for body-text rendering.
     pub content_spans: Option<Vec<(String, [f32; 4])>>,
+    /// Cursor line (0-based) for rendering the editor caret.
+    pub cursor_line: Option<usize>,
+    /// Cursor column (0-based) for rendering the editor caret.
+    pub cursor_col: Option<usize>,
+    /// Whether to render a line-highlight background on the cursor line.
+    pub highlight_active_line: bool,
 }
 
 use super::core::Rect;

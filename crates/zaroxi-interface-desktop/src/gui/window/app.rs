@@ -347,6 +347,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                         })
                         .unwrap_or_else(|| "fn main() {\n    println!(\"hello\");\n}".to_string());
 
+                    // Extract cursor position from editor content.
+                    let editor_cursor_line = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .map(|cv| cv.cursor_line)
+                        .unwrap_or(0);
+                    let editor_cursor_col = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .map(|cv| cv.cursor_col)
+                        .unwrap_or(0);
+
                     // Produce syntax-colored spans from editor content using tree-sitter.
                     let editor_spans: Option<Vec<(String, [f32; 4])>> = self
                         .shell
@@ -412,6 +428,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "app_rail" => zaroxi_core_engine_render::UiBlock {
@@ -429,6 +448,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: false,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -445,6 +467,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: false,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -461,6 +486,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "breadcrumb" => zaroxi_core_engine_render::UiBlock {
@@ -478,6 +506,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: Some(theme.text_muted.to_array()),
                                 },
                                 "center_editor" | "editor_content" => {
@@ -494,6 +525,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         border_width: 0.0,
                                         header_only: false,
                                         content_spans: editor_spans.clone(),
+                                        cursor_line: Some(editor_cursor_line),
+                                        cursor_col: Some(editor_cursor_col),
+                                        highlight_active_line: true,
                                         text_color: None,
 
                                     }
@@ -513,6 +547,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -529,6 +566,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: false,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -545,6 +585,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -561,6 +604,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
@@ -576,6 +622,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
@@ -594,6 +643,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 1.0,
                                     header_only: false,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: Some(theme.text_secondary.to_array()),
                                 },
                                 _ => zaroxi_core_engine_render::UiBlock {
@@ -609,6 +661,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_width: 0.0,
                                     header_only: true,
                                     content_spans: None,
+                                    cursor_line: None,
+                                    cursor_col: None,
+                                    highlight_active_line: false,
                                     text_color: None,
 
                                 },
