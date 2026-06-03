@@ -178,7 +178,7 @@ impl EditorPanel {
             content: "No terminal session".to_string(),
             visible: true,
             rect,
-            header_color: Some(tokens.panel_header_background.to_array()),
+            header_color: Some(tokens.bottom_panel_header_background.to_array()),
             content_color: Some(tokens.bottom_panel_background.to_array()),
             corner_radius: 4.0,
             border_color: Some(tokens.divider_default.to_array()),

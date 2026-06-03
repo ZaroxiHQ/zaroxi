@@ -25,7 +25,7 @@ impl TopBarPanel {
             content: String::new(),
             visible: true,
             rect,
-            header_color: Some(tokens.status_bar_background.to_array()),
+            header_color: Some(tokens.titlebar_background.to_array()),
             content_color: None,
             corner_radius: 0.0,
             border_color: Some(tokens.divider_default.to_array()),

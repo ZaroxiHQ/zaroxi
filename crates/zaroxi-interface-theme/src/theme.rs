@@ -145,6 +145,9 @@ pub struct SemanticColors {
     pub tab_background: Color,
     pub tab_active_background: Color,
     pub assistant_panel_background: Color,
+    pub bottom_panel_background: Color,
+    pub bottom_panel_header_background: Color,
+    pub assistant_panel_header_background: Color,
 
     // Text colors - hierarchy from most prominent to subtle
     pub text_primary: Color,
@@ -245,6 +248,9 @@ impl SemanticColors {
             tab_background: Color::from_hex("#252830"),           // Inactive tabs
             tab_active_background: Color::from_hex("#1E1F24"),    // Active tab matches editor
             assistant_panel_background: Color::from_hex("#262A32"), // Right utility panel
+            bottom_panel_background: Color::from_hex("#23262D"),  // Bottom terminal/output panel
+            bottom_panel_header_background: Color::from_hex("#252830"), // Bottom panel tab row
+            assistant_panel_header_background: Color::from_hex("#23262D"), // AI panel header
 
             // Text colors - hierarchy from most prominent to subtle
             text_primary: Color::from_hex("#E6EAF2"), // Primary text - bright but not harsh
@@ -347,6 +353,9 @@ impl SemanticColors {
             tab_background: Color::from_hex("#F1EEE8"),           // Inactive tabs
             tab_active_background: Color::from_hex("#FBFAF7"),    // Active tab matches editor
             assistant_panel_background: Color::from_hex("#F2F0EA"), // Right utility panel
+            bottom_panel_background: Color::from_hex("#ECE9E3"),  // Bottom terminal/output panel
+            bottom_panel_header_background: Color::from_hex("#F1EEE8"), // Bottom panel tab row
+            assistant_panel_header_background: Color::from_hex("#ECE9E3"), // AI panel header
 
             // Text colors - hierarchy from most prominent to subtle
             text_primary: Color::from_hex("#22262B"), // Primary text - dark but not black
@@ -489,6 +498,18 @@ impl SemanticColors {
         m.insert(
             "--color-assistant-panel-background".to_string(),
             Value::String(self.assistant_panel_background.to_css_rgba()),
+        );
+        m.insert(
+            "--color-bottom-panel-background".to_string(),
+            Value::String(self.bottom_panel_background.to_css_rgba()),
+        );
+        m.insert(
+            "--color-bottom-panel-header-background".to_string(),
+            Value::String(self.bottom_panel_header_background.to_css_rgba()),
+        );
+        m.insert(
+            "--color-assistant-panel-header-background".to_string(),
+            Value::String(self.assistant_panel_header_background.to_css_rgba()),
         );
 
         // Text colors

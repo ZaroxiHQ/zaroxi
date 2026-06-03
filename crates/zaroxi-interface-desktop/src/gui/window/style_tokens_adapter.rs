@@ -71,10 +71,7 @@ impl Default for AdapterModifiers {
 /// All widget-specific pre-resolved fills are computed here so the engine never
 /// applies its own brightness adjustments. This is the *host's* visual policy.
 pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> StyleTokens {
-    log::debug!(
-        "ZAROXI_STYLE_ADAPTER: resolving StyleTokens from SemanticColors (app_bg_src={:?})",
-        sem.app_background
-    );
+    log::debug!("ZAROXI_STYLE_ADAPTER: resolving StyleTokens from SemanticColors");
     let accent = to_engine(sem.accent);
     let text_faint = to_engine(sem.text_faint);
     let text_secondary = to_engine(sem.text_secondary);
@@ -98,11 +95,13 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
     let asst_bg = to_engine(sem.assistant_panel_background);
     let status_bg = to_engine(sem.status_bar_background);
     let panel_hdr_bg = to_engine(sem.panel_header_background);
+    let bottom_panel_bg = to_engine(sem.bottom_panel_background);
+    let bottom_panel_hdr_bg = to_engine(sem.bottom_panel_header_background);
+    let asst_hdr_bg = to_engine(sem.assistant_panel_header_background);
     let input_bg = to_engine(sem.input_background);
     let tab_strip_bg = to_engine(sem.tab_strip_background);
     let tab_active_bg = to_engine(sem.tab_active_background);
     let tab_inactive_bg = to_engine(sem.tab_background);
-    let bottom_panel_bg = to_engine(sem.panel_background);
 
     // Pre-resolved widget fills
     let toolbar_brand_accent = accent.adjust_brightness(mods.brand_accent_dim);
@@ -144,6 +143,8 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
         editor_content_background: editor_bg,
         assistant_panel_background: asst_bg,
         bottom_panel_background: bottom_panel_bg,
+        bottom_panel_header_background: bottom_panel_hdr_bg,
+        assistant_panel_header_background: asst_hdr_bg,
         status_bar_background: status_bg,
         panel_header_background: panel_hdr_bg,
         tab_strip_background: tab_strip_bg,

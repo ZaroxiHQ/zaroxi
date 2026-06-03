@@ -371,10 +371,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         eprintln!("ZAROXI_DEBUG_THEME: debug theme override ACTIVE");
                     }
 
-                    if !self.first_render_shown {
+                    if !self.first_render_shown && debug_theme_active {
                         eprintln!(
-                            "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?} debug_theme={}",
-                            self.theme_mode, system_is_dark, variant, debug_theme_active
+                            "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?}",
+                            self.theme_mode, system_is_dark, variant
                         );
                         eprintln!(
                             "ZAROXI_THEME_TRACE: sem.shell_background={:?} sem.app_background={:?} sem.editor_background={:?}",
@@ -387,7 +387,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &Default::default(),
                     );
 
-                    if !self.first_render_shown {
+                    if !self.first_render_shown && debug_theme_active {
                         eprintln!(
                             "ZAROXI_STYLE_TOKENS: app_bg={:?} titlebar_bg={:?} editor_bg={:?} sidebar_bg={:?}",
                             tokens.app_background.to_array(),
@@ -680,5 +680,8 @@ fn debug_theme_tokens() -> zaroxi_interface_theme::theme::SemanticColors {
     sem.tab_background = mk(0.08, 0.12, 0.30);
     sem.tab_active_background = mk(0.04, 0.08, 0.18);
     sem.assistant_panel_background = mk(0.22, 0.15, 0.30);
+    sem.bottom_panel_background = mk(0.15, 0.25, 0.50);
+    sem.bottom_panel_header_background = mk(0.20, 0.30, 0.55);
+    sem.assistant_panel_header_background = mk(0.18, 0.12, 0.28);
     sem
 }

@@ -107,6 +107,8 @@ pub struct StyleTokens {
     pub editor_content_background: ThemeColor,
     pub assistant_panel_background: ThemeColor,
     pub bottom_panel_background: ThemeColor,
+    pub bottom_panel_header_background: ThemeColor,
+    pub assistant_panel_header_background: ThemeColor,
     pub status_bar_background: ThemeColor,
     pub panel_header_background: ThemeColor,
 
