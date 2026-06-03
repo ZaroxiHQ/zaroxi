@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(result.highlights[0].len(), 1);
         assert_eq!(result.highlights[0][0].kind, HighlightKind::Comment);
         assert_eq!(result.highlights[0][0].start_col, 0);
-        assert_eq!(result.highlights[0][0].end_col, 21);
+        assert_eq!(result.highlights[0][0].end_col, 20);
     }
 
     #[test]

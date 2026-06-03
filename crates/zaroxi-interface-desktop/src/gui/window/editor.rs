@@ -9,6 +9,7 @@ Phase 3: accepts optional ShellWorkContent for live editor body, tabs, breadcrum
 */
 use crate::gui::ShellWorkContent;
 use crate::gui::region_dispatch::region_role;
+use zaroxi_core_engine_ui::HighlightKind;
 use zaroxi_core_engine_ui::PanelRole;
 use zaroxi_core_engine_ui::{ContentView, compose_content_view};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
@@ -197,8 +198,46 @@ pub fn draw(
             let mut ly = r.y.saturating_add(6);
             let current_line_idx: i32 = 7; // highlight line ~7
 
-            // ---------- Code lines ----------
-            let code_lines: &[&[(f64, &str)]] = &[
+            // Phase 43: build code segments from syntax_highlights when available,
+            // falling back to the hardcoded code_lines array.
+            let dynamic_code_lines: Option<Vec<Vec<(f64, &str)>>> =
+                work_content.and_then(|wc| wc.syntax_highlights.as_ref()).map(|sh| {
+                    sh.highlights
+                        .iter()
+                        .map(|spans| {
+                            if spans.is_empty() {
+                                return vec![(1.0, "default")];
+                            }
+                            let total_chars: f64 = spans
+                                .iter()
+                                .map(|s| (s.end_col - s.start_col) as f64)
+                                .sum::<f64>()
+                                .max(1.0);
+                            spans
+                                .iter()
+                                .map(|s| {
+                                    let pct = (s.end_col - s.start_col) as f64 / total_chars;
+                                    let kind_str: &str = match s.kind {
+                                        HighlightKind::Comment => "comment",
+                                        HighlightKind::String => "string",
+                                        HighlightKind::Keyword => "keyword",
+                                        HighlightKind::Function => "function",
+                                        HighlightKind::Type => "type",
+                                        HighlightKind::Number => "number",
+                                        HighlightKind::Constant => "number",
+                                        HighlightKind::Variable => "default",
+                                        HighlightKind::Operator => "default",
+                                        HighlightKind::Attribute => "default",
+                                        HighlightKind::Plain => "default",
+                                    };
+                                    (pct, kind_str)
+                                })
+                                .collect()
+                        })
+                        .collect()
+                });
+
+            let hardcoded_fallback: &[&[(f64, &str)]] = &[
                 // 0: module-level structure
                 &[
                     (0.06, "keyword"),
@@ -325,7 +364,11 @@ pub fn draw(
                 &[(0.12, "comment")],
             ];
 
-            for (line_idx, segments) in code_lines.iter().enumerate() {
+            let using_dynamic = dynamic_code_lines.is_some();
+            let code_segments: Vec<Vec<(f64, &str)>> = dynamic_code_lines
+                .unwrap_or_else(|| hardcoded_fallback.iter().map(|s| s.to_vec()).collect());
+
+            for (line_idx, segments) in code_segments.iter().enumerate() {
                 if ly + line_h > r.y + r.height || line_idx >= max_lines as usize {
                     break;
                 }
@@ -368,24 +411,28 @@ pub fn draw(
                     });
                 }
 
-                // Code segments
-                let indent_level = match line_idx {
-                    0..=2 => 0,
-                    3..=6 => 1,
-                    7..=8 => 0,
-                    9..=11 => 1,
-                    12 => 1,
-                    13..=14 => 2,
-                    15..=16 => 1,
-                    17..=18 => 0,
-                    19..=20 => 1,
-                    _ => 0,
+                // Code segments (indent derived from content for dynamic, hardcoded for fallback)
+                let indent_level = if using_dynamic {
+                    0 // Dynamic content: no hardcoded indentation
+                } else {
+                    match line_idx {
+                        0..=2 => 0,
+                        3..=6 => 1,
+                        7..=8 => 0,
+                        9..=11 => 1,
+                        12 => 1,
+                        13..=14 => 2,
+                        15..=16 => 1,
+                        17..=18 => 0,
+                        19..=20 => 1,
+                        _ => 0,
+                    }
                 };
                 let indent_px: u32 = indent_level * 16;
                 let mut seg_x = content_x.saturating_add(8).saturating_add(indent_px);
                 let remaining_w = content_w.saturating_sub(16).saturating_sub(indent_px);
 
-                for &(pct, syntax_type) in *segments {
+                for &(pct, syntax_type) in segments.iter() {
                     let seg_w = ((remaining_w as f64) * pct.min(1.0)) as u32;
                     if seg_w == 0 {
                         continue;
@@ -411,8 +458,8 @@ pub fn draw(
 
                 ly = ly.saturating_add(line_h);
 
-                // Block-level separator between logical groups
-                if line_idx == 2 || line_idx == 8 || line_idx == 15 {
+                // Block-level separator (hardcoded fallback only)
+                if !using_dynamic && (line_idx == 2 || line_idx == 8 || line_idx == 15) {
                     if ly < r.y + r.height {
                         rects.push(zaroxi_core_engine_render_backend::DrawRect {
                             x: content_x,

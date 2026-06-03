@@ -837,26 +837,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     selection_range: None,
                                     text_color: Some(theme.text_secondary.to_array()),
                                 },
-                                _ => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: String::new(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(theme.surface_default.to_array()),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: None,
-                                    border_width: 0.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
-
-                                },
                             }
                         };
 
