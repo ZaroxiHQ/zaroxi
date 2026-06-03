@@ -17,7 +17,7 @@ pub struct StatusBarData {
 
 impl Default for StatusBarData {
     fn default() -> Self {
-        Self { status_line: 0, status_col: 0, status_language: "Rust".into() }
+        Self { status_line: 0, status_col: 0, status_language: String::new() }
     }
 }
 

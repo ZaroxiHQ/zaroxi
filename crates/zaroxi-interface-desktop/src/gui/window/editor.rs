@@ -22,10 +22,10 @@ pub struct EditorContentData {
 impl Default for EditorContentData {
     fn default() -> Self {
         Self {
-            tab_title: "main.rs".into(),
-            tab_content: "lib.rs  mod.rs".into(),
-            breadcrumb_label: "src > app > main.rs".into(),
-            editor_body_text: "fn main() {\n    println!(\"hello\");\n}".into(),
+            tab_title: String::new(),
+            tab_content: String::new(),
+            breadcrumb_label: String::new(),
+            editor_body_text: String::new(),
             editor_spans: None,
             cursor_line: 0,
             cursor_col: 0,
@@ -175,8 +175,7 @@ impl EditorPanel {
         UiBlock {
             id: r.id.to_string(),
             title: "Terminal \u{2022} Problems \u{2022} Output".to_string(),
-            content: "$ cargo build\n   Compiling zaroxi v0.1.0\n    Finished dev [unoptimized]"
-                .to_string(),
+            content: "No terminal session".to_string(),
             visible: true,
             rect,
             header_color: Some(tokens.panel_header_background.to_array()),

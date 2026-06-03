@@ -362,12 +362,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .map(|t| matches!(t, winit::window::Theme::Dark))
                         .unwrap_or(true);
                     let variant = self.theme_mode.resolve(system_is_dark);
-                    let sem = variant.colors(false);
+                    let mut sem = variant.colors(false);
+
+                    let debug_theme_active =
+                        std::env::var("ZAROXI_DEBUG_THEME").as_deref() == Ok("1");
+                    if debug_theme_active {
+                        sem = debug_theme_tokens();
+                        eprintln!("ZAROXI_DEBUG_THEME: debug theme override ACTIVE");
+                    }
 
                     if !self.first_render_shown {
                         eprintln!(
-                            "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?}",
-                            self.theme_mode, system_is_dark, variant
+                            "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?} debug_theme={}",
+                            self.theme_mode, system_is_dark, variant, debug_theme_active
                         );
                         eprintln!(
                             "ZAROXI_THEME_TRACE: sem.shell_background={:?} sem.app_background={:?} sem.editor_background={:?}",
@@ -482,65 +489,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     // Extract live work content for dynamic shell text.
-                    let editor_rect = find_rect(zaroxi_core_engine_style::PanelRole::ContentArea);
+                    let _editor_rect = find_rect(zaroxi_core_engine_style::PanelRole::ContentArea);
                     let editor_body_text = self
                         .shell
                         .work_content
                         .as_ref()
                         .and_then(|w| w.editor_body.as_ref())
                         .map(|cv| {
-                            let line_h = 16.0;
-                            let pad = 8.0;
-                            let header_h = 28.0;
-                            let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
-                            let visible_lines = (usable_h / line_h).max(1.0) as usize;
-                            let total_lines = cv.lines.len().max(1);
-                            let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
-                            let first_line =
-                                (self.editor_scroll_offset * max_scroll as f32) as usize;
-                            let mut lines_with_numbers = String::new();
-                            let end = (first_line + visible_lines).min(cv.lines.len());
-                            for i in first_line..end {
-                                let num = i + 1;
-                                if let Some(line) = cv.lines.get(i) {
-                                    lines_with_numbers
-                                        .push_str(&format!("{:>3} │ {}\n", num, line));
-                                }
-                            }
-                            lines_with_numbers
+                            let numbered: String = cv
+                                .lines
+                                .iter()
+                                .enumerate()
+                                .map(|(i, line)| format!("{:>4} │ {}", i + 1, line))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            numbered
                         })
-                        .unwrap_or_else(|| "fn main() {\n    println!(\"hello\");\n}".to_string());
+                        .unwrap_or_else(|| "No file open".to_string());
 
-                    // Auto-scroll: ensure cursor is visible in the viewport.
-                    {
-                        let line_h = 16.0;
-                        let pad = 8.0;
-                        let header_h = 28.0;
-                        let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
-                        let visible_lines = (usable_h / line_h).max(1.0) as usize;
-                        let total_lines = self
-                            .shell
-                            .work_content
-                            .as_ref()
-                            .and_then(|w| w.editor_body.as_ref())
-                            .map(|cv| cv.lines.len().max(1))
-                            .unwrap_or(1);
-                        let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
-                        let first_visible =
-                            (self.editor_scroll_offset * max_scroll as f32) as usize;
-                        let last_visible = first_visible + visible_lines;
-                        let cl = self.editor_cursor_line;
-                        if cl < first_visible {
-                            self.editor_scroll_offset =
-                                (cl as f32 / max_scroll as f32).clamp(0.0, 1.0);
-                        } else if cl >= last_visible {
-                            self.editor_scroll_offset =
-                                ((cl.saturating_sub(visible_lines - 1)) as f32 / max_scroll as f32)
-                                    .clamp(0.0, 1.0);
-                        }
-                    }
-
-                    // Extract cursor position from editor content.
                     let editor_cursor_line = self
                         .shell
                         .work_content
@@ -555,47 +521,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .and_then(|w| w.editor_body.as_ref())
                         .map(|cv| cv.cursor_col)
                         .unwrap_or(0);
-
-                    // Produce syntax-colored spans from editor content using tree-sitter.
-                    // Filter to visible viewport only by slicing lines.
-                    let editor_spans: Option<Vec<(String, [f32; 4])>> =
-                        self.shell.work_content.as_ref().and_then(|w| w.editor_body.as_ref()).map(
-                            |cv| {
-                                let line_h = 16.0;
-                                let pad = 8.0;
-                                let header_h = 28.0;
-                                let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
-                                let visible_lines = (usable_h / line_h).max(1.0) as usize;
-                                let total_lines = cv.lines.len().max(1);
-                                let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
-                                let first_line =
-                                    (self.editor_scroll_offset * max_scroll as f32) as usize;
-                                let end = (first_line + visible_lines).min(cv.lines.len());
-                                // Build a reverse mapping: line index ranges in source text
-                                let mut byte_start = 0usize;
-                                let mut line_bytes: Vec<(usize, usize)> = Vec::new();
-                                for (_i, line) in cv.lines.iter().enumerate() {
-                                    let byte_end = byte_start + line.len();
-                                    line_bytes.push((byte_start, byte_end));
-                                    byte_start = byte_end + 1; // +1 for newline
-                                }
-                                // Colorize only visible lines
-                                let visible_slice: Vec<String> = cv.lines[first_line..end].to_vec();
-                                let all_spans =
-                                    super::syntax_color::colorize_source(&visible_slice, &sem);
-                                all_spans
-                            },
-                        );
+                    let editor_spans: Option<Vec<(String, [f32; 4])>> = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .and_then(|cv| {
+                            if cv.lines.is_empty() {
+                                return None;
+                            }
+                            super::syntax_color::colorize_source(&cv.lines, &sem).into()
+                        });
 
                     let tab_labels = self
                         .shell
                         .work_content
                         .as_ref()
                         .and_then(|w| w.editor_tabs.clone())
-                        .unwrap_or_else(|| {
-                            vec!["main.rs".into(), "lib.rs".into(), "mod.rs".into()]
-                        });
-                    let tab_title = tab_labels.first().cloned().unwrap_or_else(|| "main.rs".into());
+                        .unwrap_or_else(Vec::new);
+                    let tab_title =
+                        tab_labels.first().cloned().unwrap_or_else(|| "No file open".into());
                     let tab_content: String =
                         tab_labels.iter().skip(1).cloned().collect::<Vec<_>>().join("  ");
                     let breadcrumb_label = self
@@ -603,23 +548,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .work_content
                         .as_ref()
                         .and_then(|w| w.editor_breadcrumb.clone())
-                        .unwrap_or_else(|| "src > app > main.rs".into());
+                        .unwrap_or_else(String::new);
                     let sidebar_items = self
                         .shell
                         .work_content
                         .as_ref()
                         .and_then(|w| w.explorer_items.clone())
                         .map(|items| {
-                            let mut text = String::from("PROJECT\n");
+                            let mut text = String::from("EXPLORER\n");
                             for item in &items {
                                 text.push_str(&format!("  {}\n", item));
                             }
-                            text.push_str("GIT\n  clean\nOUTLINE\n  fn main\n  struct App");
                             text
                         })
-                        .unwrap_or_else(|| {
-                            "PROJECT\n  src/main.rs\n  src/lib.rs\n  Cargo.toml\nGIT\n  clean\nOUTLINE\n  fn main\n  struct App".to_string()
-                        });
+                        .unwrap_or_else(|| "No workspace loaded".to_string());
 
                     let status_lang = self
                         .shell
@@ -637,7 +579,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             "ts" => "TypeScript",
                             _ => ext,
                         })
-                        .unwrap_or("Rust");
+                        .unwrap_or("No file");
 
                     let ai_text = self
                         .shell
@@ -715,4 +657,28 @@ impl winit::application::ApplicationHandler for GuiApp {
             _ => {}
         }
     }
+}
+
+/// High-contrast debug theme for proving theme plumbing visually.
+/// Activated by env var `ZAROXI_DEBUG_THEME=1`.
+/// Uses unmistakably different surface colors so any visual change
+/// confirms the theme pipeline is live.
+fn debug_theme_tokens() -> zaroxi_interface_theme::theme::SemanticColors {
+    use zaroxi_interface_theme::colors::Color;
+    let mk = |r: f32, g: f32, b: f32| -> Color { Color::from_rgba(r, g, b, 1.0) };
+    let mut sem = zaroxi_interface_theme::theme::SemanticColors::dark();
+    sem.app_background = mk(0.05, 0.08, 0.22);
+    sem.shell_background = mk(0.06, 0.10, 0.25);
+    sem.panel_background = mk(0.08, 0.12, 0.28);
+    sem.elevated_panel_background = mk(0.10, 0.14, 0.30);
+    sem.editor_background = mk(0.04, 0.08, 0.18);
+    sem.input_background = mk(0.07, 0.11, 0.24);
+    sem.status_bar_background = mk(0.15, 0.30, 0.55);
+    sem.title_bar_background = mk(0.06, 0.10, 0.26);
+    sem.activity_rail_background = mk(0.15, 0.20, 0.40);
+    sem.sidebar_background = mk(0.18, 0.22, 0.42);
+    sem.tab_background = mk(0.08, 0.12, 0.30);
+    sem.tab_active_background = mk(0.04, 0.08, 0.18);
+    sem.assistant_panel_background = mk(0.22, 0.15, 0.30);
+    sem
 }

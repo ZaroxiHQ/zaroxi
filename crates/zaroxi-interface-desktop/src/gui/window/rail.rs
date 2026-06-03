@@ -14,9 +14,7 @@ pub struct ExplorerData {
 
 impl Default for ExplorerData {
     fn default() -> Self {
-        Self {
-            sidebar_items: "PROJECT\n  src/main.rs\n  src/lib.rs\n  Cargo.toml\nGIT\n  clean\nOUTLINE\n  fn main\n  struct App".into(),
-        }
+        Self { sidebar_items: String::new() }
     }
 }
 
