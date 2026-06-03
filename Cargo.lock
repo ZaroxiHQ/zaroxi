@@ -4421,6 +4421,7 @@ dependencies = [
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-render-backend",
  "zaroxi-core-engine-scene",
+ "zaroxi-core-engine-style",
  "zaroxi-core-engine-ui",
  "zaroxi-core-engine-view",
  "zaroxi-core-engine-window",

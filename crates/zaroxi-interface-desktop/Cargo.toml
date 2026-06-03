@@ -44,6 +44,7 @@ zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-editor-view = { path = "../zaroxi-core-editor-view" }
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render", features = ["full_renderer"] }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
+zaroxi-core-engine-style = { path = "../zaroxi-core-engine-style" }
 zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
 zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
 zaroxi-interface-app = { path = "../zaroxi-interface-app" }

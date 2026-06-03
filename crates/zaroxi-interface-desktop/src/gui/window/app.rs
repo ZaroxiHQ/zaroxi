@@ -14,6 +14,7 @@ use winit::{
     window::WindowAttributes,
 };
 
+use crate::gui::region_dispatch::region_role;
 use crate::gui::{ShellFrame, ShellWorkContent};
 
 /// Small application handler that owns the engine window handle and the ShellFrame
@@ -254,7 +255,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // Editor area click: position cursor
                                 if let Some(pos) = self.cursor_pos {
                                     let editor_region =
-                                        self.shell.regions.iter().find(|r| r.id == "center_editor");
+                                        crate::gui::region_dispatch::find_region_by_role(
+                                            &self.shell.regions,
+                                            zaroxi_core_engine_style::PanelRole::ContentArea,
+                                        );
                                     if let Some(ed) = editor_region {
                                         let ex = ed.rect.x as f32;
                                         let ey = ed.rect.y as f32;
@@ -408,8 +412,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
 
-                    let find_rect = |id: &str| -> zaroxi_core_engine_render::Rect {
-                        if let Some(r) = self.shell.regions.iter().find(|rr| rr.id == id) {
+                    let find_rect = |role: zaroxi_core_engine_style::PanelRole| -> zaroxi_core_engine_render::Rect {
+                        if let Some(r) =
+                            crate::gui::region_dispatch::find_region_by_role(&self.shell.regions, role)
+                        {
                             zaroxi_core_engine_render::Rect {
                                 x: r.rect.x as f32,
                                 y: r.rect.y as f32,
@@ -422,12 +428,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     let render_layout = zaroxi_core_engine_render::RenderLayout {
-                        title_bar: find_rect("toolbar"),
-                        sidebar: find_rect("sidebar"),
-                        editor: find_rect("center_editor"),
-                        right_panel: find_rect("ai_panel_content"),
-                        bottom_panel: find_rect("bottom_dock"),
-                        status_bar: find_rect("status_bar"),
+                        title_bar: find_rect(zaroxi_core_engine_style::PanelRole::TopBar),
+                        sidebar: find_rect(zaroxi_core_engine_style::PanelRole::SidePanel),
+                        editor: find_rect(zaroxi_core_engine_style::PanelRole::ContentArea),
+                        right_panel: find_rect(
+                            zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent,
+                        ),
+                        bottom_panel: find_rect(zaroxi_core_engine_style::PanelRole::BottomDock),
+                        status_bar: find_rect(zaroxi_core_engine_style::PanelRole::StatusBar),
                         colors: zaroxi_core_engine_render::PanelColors {
                             panel_header_background: theme.panel_header_bg().to_array(),
                             panel_background: theme.surface_default.to_array(),
@@ -435,7 +443,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     // Extract live work content for dynamic shell text.
-                    let editor_rect = find_rect("center_editor");
+                    let editor_rect = find_rect(zaroxi_core_engine_style::PanelRole::ContentArea);
                     let editor_body_text = self
                         .shell
                         .work_content
@@ -583,8 +591,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 h: r.rect.height as f32,
                             };
 
-                            match r.id {
-                                "toolbar" => zaroxi_core_engine_render::UiBlock {
+                            match region_role(r.id) {
+                                zaroxi_core_engine_style::PanelRole::TopBar => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Zaroxi Studio".to_string(),
                                     content: String::new(),
@@ -603,7 +611,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
-                                "app_rail" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::NavigationRail => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: String::new(),
                                     content: String::new(),
@@ -625,7 +633,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "sidebar" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::SidePanel => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Explorer".to_string(),
                                     content: sidebar_items.clone(),
@@ -645,7 +653,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "editor_tabs" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::ContentTabStrip => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: tab_title.clone(),
                                     content: tab_content.clone(),
@@ -664,7 +672,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
-                                "breadcrumb" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::ContentBreadcrumb => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: breadcrumb_label.clone(),
                                     content: String::new(),
@@ -685,7 +693,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     selection_range: None,
                                     text_color: Some(theme.text_muted.to_array()),
                                 },
-                                "center_editor" | "editor_content" => {
+                                zaroxi_core_engine_style::PanelRole::ContentArea => {
                                     zaroxi_core_engine_render::UiBlock {
                                         id: r.id.to_string(),
                                         title: String::new(),
@@ -707,7 +715,7 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                                     }
                                 }
-                                "minimap_lane" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::MinimapLane => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: String::new(),
                                     content: String::new(),
@@ -729,7 +737,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "center_bottom_panel" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::BottomPanel => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Terminal • Problems • Output".to_string(),
                                     content: "$ cargo build\n   Compiling zaroxi v0.1.0\n    Finished dev [unoptimized]".to_string(),
@@ -749,7 +757,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "bottom_dock" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::BottomDock => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: String::new(),
                                     content: String::new(),
@@ -769,7 +777,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "ai_panel_header" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::AuxiliaryPanelHeader => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "AI Assistant".to_string(),
                                     content: String::new(),
@@ -788,7 +796,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
-                                "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Assistant".to_string(),
                                     content: "No active AI session\nOpen a file and request an AI edit to get started.".to_string(),
@@ -808,7 +816,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     text_color: None,
 
                                 },
-                                "status_bar" => zaroxi_core_engine_render::UiBlock {
+                                zaroxi_core_engine_style::PanelRole::StatusBar => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: String::new(),
                                     content: "Ready  Ln 22, Col 14  UTF-8  LF  Rust".to_string(),

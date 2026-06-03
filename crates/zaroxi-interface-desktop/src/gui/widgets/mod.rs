@@ -8,21 +8,23 @@ panels; otherwise placeholder content is used.
 */
 
 use crate::desktop::DesktopComposition;
+use crate::gui::region_dispatch::find_region_by_role;
 use crate::gui::shell::ShellRegion;
 use zaroxi_application_ai::panel::idle_content_view;
 use zaroxi_application_navigation::view_model::AppRailState;
+use zaroxi_core_engine_style::PanelRole;
 use zaroxi_core_engine_ui::ContentView;
 use zaroxi_core_platform_terminal::view_model::TerminalPanelState;
 
 pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
 
-    if let Some(tb) = regions.iter().find(|r| r.id == "toolbar") {
+    if let Some(tb) = find_region_by_role(regions, PanelRole::TopBar) {
         lines.push(format!("toolbar.brand: Zaroxi rect={}", tb.rect));
         lines.push(format!("toolbar.actions: [minimize,maximize,close] rect={}", tb.rect));
     }
 
-    if let Some(ar) = regions.iter().find(|r| r.id == "app_rail") {
+    if let Some(ar) = find_region_by_role(regions, PanelRole::NavigationRail) {
         // Prefer the application-owned AppRailState for the icon list and active item.
         let rail = AppRailState::default();
         let icons = if rail.icons.is_empty() {
@@ -44,7 +46,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("app_rail.avatar_slot: user@zaroxi rect={}", ar.rect));
     }
 
-    if let Some(sb) = regions.iter().find(|r| r.id == "sidebar") {
+    if let Some(sb) = find_region_by_role(regions, PanelRole::SidePanel) {
         lines.push(format!("sidebar.header: Zaroxi Studio rect={}", sb.rect));
         lines.push(format!("sidebar.search_field: placeholder='Filter files...' rect={}", sb.rect));
         lines.push("sidebar.section: PROJECT".to_string());
@@ -86,7 +88,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("sidebar.rect: {}", sb.rect));
     }
 
-    if let Some(et) = regions.iter().find(|r| r.id == "editor_tabs") {
+    if let Some(et) = find_region_by_role(regions, PanelRole::ContentTabStrip) {
         // Prefer opened-buffer list from DesktopComposition when available.
         if let Some(d) = comp {
             let opened = d.latest_opened_buffers_summary();
@@ -113,7 +115,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         }
     }
 
-    if let Some(bc) = regions.iter().find(|r| r.id == "breadcrumb") {
+    if let Some(bc) = find_region_by_role(regions, PanelRole::ContentBreadcrumb) {
         // Prefer the shell context active_display when available
         let breadcrumb = if let Some(d) = comp {
             if let Some(ctx) = crate::desktop::composition::projections::latest_shell_context(d) {
@@ -127,7 +129,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("editor.breadcrumb: {} rect={}", breadcrumb, bc.rect));
     }
 
-    if let Some(ce) = regions.iter().find(|r| r.id == "center_editor") {
+    if let Some(ce) = find_region_by_role(regions, PanelRole::ContentArea) {
         // Prefer active document summary + visible window from composition.
         let content = if let Some(d) = comp {
             if let Some(doc) = d.latest_active_document_summary() {
@@ -163,11 +165,11 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         }
     }
 
-    if let Some(ml) = regions.iter().find(|r| r.id == "minimap_lane") {
+    if let Some(ml) = find_region_by_role(regions, PanelRole::MinimapLane) {
         lines.push(format!("editor.minimap: code-outline rect={}", ml.rect));
     }
 
-    if let Some(cb) = regions.iter().find(|r| r.id == "center_bottom_panel") {
+    if let Some(cb) = find_region_by_role(regions, PanelRole::BottomPanel) {
         let terminal = TerminalPanelState::default();
         let tabs = if terminal.tabs.is_empty() {
             vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
@@ -182,12 +184,12 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         }
     }
 
-    if let Some(dk) = regions.iter().find(|r| r.id == "bottom_dock") {
+    if let Some(dk) = find_region_by_role(regions, PanelRole::BottomDock) {
         lines.push(format!("bottom_dock.tabs: [Terminal,Problems,Output,Debug] rect={}", dk.rect));
         lines.push("bottom_dock.problems_count: 0".to_string());
     }
 
-    if let Some(st) = regions.iter().find(|r| r.id == "status_bar") {
+    if let Some(st) = find_region_by_role(regions, PanelRole::StatusBar) {
         let line_col = if let Some(d) = comp {
             d.latest_active_document_summary()
                 .map(|doc| {
@@ -209,7 +211,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("status.rect: {}", st.rect));
     }
 
-    if let Some(ai) = regions.iter().find(|r| r.id == "ai_panel_header") {
+    if let Some(ai) = find_region_by_role(regions, PanelRole::AuxiliaryPanelHeader) {
         let content = comp
             .and_then(|c| c.build_work_content().ai_panel_content)
             .unwrap_or_else(idle_content_view);
@@ -217,7 +219,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push("ai.header.actions: [pin,close]".to_string());
     }
 
-    if let Some(aic) = regions.iter().find(|r| r.id == "ai_panel_content") {
+    if let Some(aic) = find_region_by_role(regions, PanelRole::AuxiliaryPanelContent) {
         let content = comp
             .and_then(|c| c.build_work_content().ai_panel_content)
             .unwrap_or_else(idle_content_view);

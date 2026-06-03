@@ -7,6 +7,8 @@ headers with dividers, tree items with depth, workspace bottom controls.
 Phase 3: accepts optional ShellWorkContent for live explorer tree items.
 */
 use crate::gui::ShellWorkContent;
+use crate::gui::region_dispatch::region_role;
+use zaroxi_core_engine_style::PanelRole;
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
 pub fn draw(
@@ -19,8 +21,8 @@ pub fn draw(
     let r = &region.rect;
     let sem = ZaroxiTheme::Dark.colors(false);
 
-    match region.id {
-        "app_rail" => {
+    match region_role(region.id) {
+        PanelRole::NavigationRail => {
             // Rail background
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
@@ -110,7 +112,7 @@ pub fn draw(
             }
         }
 
-        "sidebar" => {
+        PanelRole::SidePanel => {
             // Sidebar background
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
@@ -325,7 +327,7 @@ pub fn draw(
     }
 
     // Text labels for sidebar
-    if r.width > 80 && r.height > 40 && region.id == "sidebar" {
+    if r.width > 80 && r.height > 40 && region_role(region.id) == PanelRole::SidePanel {
         let labels: Vec<String> = vec![
             "Filter files...".to_string(),
             "PROJECT".to_string(),

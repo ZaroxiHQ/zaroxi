@@ -8,6 +8,8 @@ Visual styling (gutter, syntax colors, cursor, minimap) remains desktop-owned.
 Phase 3: accepts optional ShellWorkContent for live editor body, tabs, breadcrumb.
 */
 use crate::gui::ShellWorkContent;
+use crate::gui::region_dispatch::region_role;
+use zaroxi_core_engine_ui::PanelRole;
 use zaroxi_core_engine_ui::{ContentView, compose_content_view};
 use zaroxi_interface_theme::theme::ZaroxiTheme;
 
@@ -22,9 +24,9 @@ pub fn draw(
     let r = &region.rect;
     let sem = ZaroxiTheme::Dark.colors(false);
 
-    match region.id {
+    match region_role(region.id) {
         // ── TAB STRIP ───────────────────────────────────────────────
-        "editor_tabs" => {
+        PanelRole::ContentTabStrip => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -93,7 +95,7 @@ pub fn draw(
         }
 
         // ── BREADCRUMB ──────────────────────────────────────────────
-        "breadcrumb" => {
+        PanelRole::ContentBreadcrumb => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -154,7 +156,7 @@ pub fn draw(
         }
 
         // ── EDITOR CANVAS ───────────────────────────────────────────
-        "center_editor" => {
+        PanelRole::ContentArea => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -425,7 +427,7 @@ pub fn draw(
         }
 
         // ── MINIMAP ─────────────────────────────────────────────────
-        "minimap_lane" => {
+        PanelRole::MinimapLane => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -497,7 +499,7 @@ pub fn draw(
         }
 
         // ── BOTTOM DOCK (terminal) ──────────────────────────────────
-        "center_bottom_panel" => {
+        PanelRole::BottomPanel => {
             rects.push(zaroxi_core_engine_render_backend::DrawRect {
                 x: r.x,
                 y: r.y,
@@ -637,8 +639,8 @@ pub fn draw(
 
     // Label text for tabs / breadcrumb / bottom dock
     if r.width > 40 && r.height > 8 {
-        let labels: Vec<String> = match region.id {
-            "editor_tabs" => {
+        let labels: Vec<String> = match region_role(region.id) {
+            PanelRole::ContentTabStrip => {
                 work_content.and_then(|wc| wc.editor_tabs.clone()).unwrap_or_else(|| {
                     vec![
                         "main.rs".to_string(),
@@ -648,7 +650,7 @@ pub fn draw(
                     ]
                 })
             }
-            "breadcrumb" => work_content
+            PanelRole::ContentBreadcrumb => work_content
                 .and_then(|wc| wc.editor_breadcrumb.clone())
                 .map(|b| b.split(" > ").map(|s| s.to_string()).collect::<Vec<_>>())
                 .unwrap_or_else(|| {
@@ -659,10 +661,10 @@ pub fn draw(
                         "main.rs".to_string(),
                     ]
                 }),
-            "center_bottom_panel" => {
+            PanelRole::BottomPanel => {
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             }
-            "center_editor" => {
+            PanelRole::ContentArea => {
                 let content =
                     work_content.and_then(|wc| wc.editor_body.clone()).unwrap_or_else(|| {
                         ContentView::new(
@@ -689,8 +691,8 @@ pub fn draw(
             _ => vec![],
         };
         if !labels.is_empty() {
-            let (lx, ly) = match region.id {
-                "center_editor" => (r.x.saturating_add(8), r.y.saturating_add(6)),
+            let (lx, ly) = match region_role(region.id) {
+                PanelRole::ContentArea => (r.x.saturating_add(8), r.y.saturating_add(6)),
                 _ => (r.x.saturating_add(8), r.y.saturating_add(2)),
             };
             let mut text_rects = super::text_adapter::layout_and_publish_text(
@@ -700,7 +702,7 @@ pub fn draw(
                 r.height.saturating_sub(6),
                 &labels,
                 theme,
-                if region.id == "center_editor" {
+                if region_role(region.id) == PanelRole::ContentArea {
                     theme.text_secondary
                 } else {
                     theme.text_primary

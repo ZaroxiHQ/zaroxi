@@ -315,6 +315,8 @@ impl ShellFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::region_dispatch::region_role;
+    use zaroxi_core_engine_style::PanelRole;
 
     /// Verify the editor keeps a usable width at every responsive breakpoint
     /// and that side panels shrink instead of squeezing the editor to zero.
@@ -326,7 +328,7 @@ mod tests {
             let editor = shell
                 .regions
                 .iter()
-                .find(|r| r.id == "center_editor")
+                .find(|r| region_role(r.id) == PanelRole::ContentArea)
                 .expect("center_editor region missing");
             assert!(
                 editor.rect.width >= 120,
@@ -341,13 +343,15 @@ mod tests {
     #[test]
     fn no_horizontal_overlap_in_main_band() {
         let shell = ShellFrame::new(Size { width: 960, height: 540 });
-        let find = |id: &str| -> Rect { shell.regions.iter().find(|r| r.id == id).unwrap().rect };
+        let find = |role: PanelRole| -> Rect {
+            crate::gui::region_dispatch::find_region_by_role(&shell.regions, role).unwrap().rect
+        };
 
-        let rail = find("app_rail");
-        let sidebar = find("sidebar");
-        let editor = find("center_editor");
-        let minimap = find("minimap_lane");
-        let ai = find("ai_panel_content");
+        let rail = find(PanelRole::NavigationRail);
+        let sidebar = find(PanelRole::SidePanel);
+        let editor = find(PanelRole::ContentArea);
+        let minimap = find(PanelRole::MinimapLane);
+        let ai = find(PanelRole::AuxiliaryPanelContent);
 
         // Check no gaps between adjacent regions
         assert_eq!(rail.x + rail.width, sidebar.x, "rail/sidebar gap");
@@ -366,10 +370,12 @@ mod tests {
     #[test]
     fn minimap_hidden_at_narrow_widths() {
         let shell = ShellFrame::new(Size { width: 680, height: 400 });
-        let minimap = shell.regions.iter().find(|r| r.id == "minimap_lane").unwrap();
+        let minimap =
+            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::MinimapLane).unwrap();
         assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 680px");
 
-        let sidebar = shell.regions.iter().find(|r| r.id == "sidebar").unwrap();
+        let sidebar =
+            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
         assert_eq!(sidebar.rect.width, 160, "sidebar should shrink to 160 at 680px");
     }
 
@@ -377,10 +383,12 @@ mod tests {
     #[test]
     fn sidebar_collapses_at_extreme_widths() {
         let shell = ShellFrame::new(Size { width: 500, height: 400 });
-        let sidebar = shell.regions.iter().find(|r| r.id == "sidebar").unwrap();
+        let sidebar =
+            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
         assert_eq!(sidebar.rect.width, 56, "sidebar should collapse to 56 at 500px");
 
-        let editor = shell.regions.iter().find(|r| r.id == "center_editor").unwrap();
+        let editor =
+            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::ContentArea).unwrap();
         assert!(
             editor.rect.width >= 200,
             "editor should stay usable at 500px, got {}",
