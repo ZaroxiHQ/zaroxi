@@ -7,6 +7,7 @@
 use crate::ports::BufferId;
 use std::future::Future;
 use std::pin::Pin;
+use zaroxi_core_engine_ui::syntax_tokenizer::tokenize_lines;
 use zaroxi_core_engine_ui::{ContentView, ShellWorkContent};
 
 /// Small opened-buffer summary item exposed to interface layers.
@@ -318,6 +319,17 @@ pub fn build_work_content(
     let terminal_tabs =
         Some(vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]);
 
+    let syntax_lines: Vec<String> =
+        visible_window.map(|vw| vw.lines.clone()).unwrap_or_else(|| {
+            doc.map(|d| d.current_line_snippet.clone())
+                .unwrap_or_default()
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        });
+    let syntax_highlights =
+        if syntax_lines.is_empty() { None } else { Some(tokenize_lines(&syntax_lines)) };
+
     ShellWorkContent {
         editor_body,
         editor_tabs,
@@ -326,7 +338,7 @@ pub fn build_work_content(
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
         ai_panel_content,
-        syntax_highlights: None,
+        syntax_highlights,
     }
 }
 

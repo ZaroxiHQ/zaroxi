@@ -4,6 +4,7 @@ pub mod content;
 pub mod layout;
 pub mod primitives;
 pub mod shell_builder;
+pub mod syntax_tokenizer;
 pub mod ui;
 pub mod widgets;
 pub mod work_content;
