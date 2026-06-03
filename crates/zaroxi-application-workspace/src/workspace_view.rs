@@ -325,6 +325,7 @@ pub fn build_work_content(
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
         ai_panel_content,
+        syntax_highlights: None,
     }
 }
 

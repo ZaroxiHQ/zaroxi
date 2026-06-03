@@ -347,6 +347,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                         })
                         .unwrap_or_else(|| "fn main() {\n    println!(\"hello\");\n}".to_string());
 
+                    // Produce syntax-colored spans from editor content using tree-sitter.
+                    let editor_spans: Option<Vec<(String, [f32; 4])>> = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .map(|cv| super::syntax_color::colorize_source(&cv.lines));
+
                     let tab_labels = self
                         .shell
                         .work_content
@@ -403,6 +411,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "app_rail" => zaroxi_core_engine_render::UiBlock {
@@ -419,7 +428,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     ),
                                     border_width: 1.0,
                                     header_only: false,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "sidebar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -433,7 +444,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: None,
                                     border_width: 0.0,
                                     header_only: false,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "editor_tabs" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -447,6 +460,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "breadcrumb" => zaroxi_core_engine_render::UiBlock {
@@ -463,6 +477,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: Some(theme.divider_subtle.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: Some(theme.text_muted.to_array()),
                                 },
                                 "center_editor" | "editor_content" => {
@@ -478,7 +493,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         border_color: None,
                                         border_width: 0.0,
                                         header_only: false,
-                                    text_color: None,
+                                        content_spans: editor_spans.clone(),
+                                        text_color: None,
+
                                     }
                                 }
                                 "minimap_lane" => zaroxi_core_engine_render::UiBlock {
@@ -495,7 +512,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: None,
                                     border_width: 0.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "center_bottom_panel" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -509,7 +528,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: false,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "bottom_dock" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -523,7 +544,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: None,
                                     border_width: 0.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "ai_panel_header" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -537,6 +560,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: Some(theme.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
@@ -551,7 +575,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: None,
                                     border_width: 0.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                                 "status_bar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -567,6 +593,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     ),
                                     border_width: 1.0,
                                     header_only: false,
+                                    content_spans: None,
                                     text_color: Some(theme.text_secondary.to_array()),
                                 },
                                 _ => zaroxi_core_engine_render::UiBlock {
@@ -581,7 +608,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     border_color: None,
                                     border_width: 0.0,
                                     header_only: true,
+                                    content_spans: None,
                                     text_color: None,
+
                                 },
                             }
                         };

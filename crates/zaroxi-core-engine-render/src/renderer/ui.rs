@@ -27,6 +27,9 @@ pub struct UiBlock {
     pub header_only: bool,
     /// Optional text color override for title/body text.
     pub text_color: Option<[f32; 4]>,
+    /// Optional per-span colored content. Each entry is (text, color).
+    /// When present, overrides the flat `content` field for body-text rendering.
+    pub content_spans: Option<Vec<(String, [f32; 4])>>,
 }
 
 use super::core::Rect;

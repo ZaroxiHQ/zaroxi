@@ -4421,6 +4421,7 @@ dependencies = [
  "zaroxi-core-engine-ui",
  "zaroxi-core-engine-window",
  "zaroxi-core-platform-lsp",
+ "zaroxi-core-platform-syntax",
  "zaroxi-core-platform-terminal",
  "zaroxi-domain-buffer",
  "zaroxi-domain-workspace",

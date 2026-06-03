@@ -667,18 +667,46 @@ impl<'a> Renderer<'a> {
                 let content_w = (target.w - content_padding * 2.0).max(0.0);
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
                 if content_w > 0.0 && content_h > 0.0 {
-                    // Queue content for Glyphon native rendering
-                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                        &block.content,
-                        content_x,
-                        content_y,
-                        title_color,
-                        DEFAULT_FONT_SIZE,
-                        content_x,
-                        content_y,
-                        content_w,
-                        content_h,
-                    ));
+                    // If per-span colored content is provided, emit each span as a
+                    // separate text command with its own color for syntax highlighting.
+                    if let Some(ref spans) = block.content_spans {
+                        let mut cursor_x = content_x;
+                        for (span_text, span_color) in spans {
+                            if span_text == "\n" {
+                                // Newline: reset cursor to start of next line
+                                cursor_x = content_x;
+                                continue;
+                            }
+                            self.text_renderer.queue_text(
+                                crate::renderer::text::TextCommand::new_body(
+                                    span_text,
+                                    cursor_x,
+                                    content_y,
+                                    *span_color,
+                                    DEFAULT_FONT_SIZE,
+                                    content_x,
+                                    content_y,
+                                    content_w,
+                                    content_h,
+                                ),
+                            );
+                        }
+                    } else {
+                        // Queue content for Glyphon native rendering
+                        self.text_renderer.queue_text(
+                            crate::renderer::text::TextCommand::new_body(
+                                &block.content,
+                                content_x,
+                                content_y,
+                                title_color,
+                                DEFAULT_FONT_SIZE,
+                                content_x,
+                                content_y,
+                                content_w,
+                                content_h,
+                            ),
+                        );
+                    }
                     debug!("queued content for block='{}'", block.id);
                 } else if RENDER_DEBUG {
                     info!("emit_text: content area too small for block='{}'", block.id);
