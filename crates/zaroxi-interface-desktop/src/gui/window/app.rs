@@ -331,6 +331,56 @@ impl winit::application::ApplicationHandler for GuiApp {
                         },
                     };
 
+                    // Extract live work content for dynamic shell text.
+                    let editor_body_text = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .map(|cv| {
+                            let mut lines_with_numbers = String::new();
+                            for (i, line) in cv.lines.iter().enumerate() {
+                                let num = i + 1;
+                                lines_with_numbers.push_str(&format!("{:>3} │ {}\n", num, line));
+                            }
+                            lines_with_numbers
+                        })
+                        .unwrap_or_else(|| "fn main() {\n    println!(\"hello\");\n}".to_string());
+
+                    let tab_labels = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_tabs.clone())
+                        .unwrap_or_else(|| {
+                            vec!["main.rs".into(), "lib.rs".into(), "mod.rs".into()]
+                        });
+                    let tab_title = tab_labels.first().cloned().unwrap_or_else(|| "main.rs".into());
+                    let tab_content: String =
+                        tab_labels.iter().skip(1).cloned().collect::<Vec<_>>().join("  ");
+                    let breadcrumb_label = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_breadcrumb.clone())
+                        .unwrap_or_else(|| "src > app > main.rs".into());
+                    let sidebar_items = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.explorer_items.clone())
+                        .map(|items| {
+                            let mut text = String::from("PROJECT\n");
+                            for item in &items {
+                                text.push_str(&format!("  {}\n", item));
+                            }
+                            text.push_str("GIT\n  clean\nOUTLINE\n  fn main\n  struct App");
+                            text
+                        })
+                        .unwrap_or_else(|| {
+                            "PROJECT\n  src/main.rs\n  src/lib.rs\n  Cargo.toml\nGIT\n  clean\nOUTLINE\n  fn main\n  struct App".to_string()
+                        });
+
                     let region_to_block =
                         |r: &crate::gui::ShellRegion| -> zaroxi_core_engine_render::UiBlock {
                             let rect = zaroxi_core_engine_render::Rect {
@@ -374,7 +424,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 "sidebar" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
                                     title: "Explorer".to_string(),
-                                    content: "PROJECT\n  src/main.rs\n  src/lib.rs\n  Cargo.toml\nGIT\n  clean\nOUTLINE\n  fn main\n  struct App".to_string(),
+                                    content: sidebar_items.clone(),
                                     visible: true,
                                     rect,
                                     header_color: Some(theme.sidebar_background.to_array()),
@@ -387,8 +437,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 },
                                 "editor_tabs" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
-                                    title: "main.rs".to_string(),
-                                    content: "lib.rs  mod.rs".to_string(),
+                                    title: tab_title.clone(),
+                                    content: tab_content.clone(),
                                     visible: true,
                                     rect,
                                     header_color: Some(theme.tab_strip_background.to_array()),
@@ -401,7 +451,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 },
                                 "breadcrumb" => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
-                                    title: "src > app > main.rs".to_string(),
+                                    title: breadcrumb_label.clone(),
                                     content: String::new(),
                                     visible: true,
                                     rect,
@@ -419,15 +469,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     zaroxi_core_engine_render::UiBlock {
                                         id: r.id.to_string(),
                                         title: String::new(),
-                                        content: String::new(),
+                                        content: editor_body_text.clone(),
                                         visible: true,
                                         rect,
                                         header_color: Some(theme.editor_background.to_array()),
-                                        content_color: None,
+                                        content_color: Some(theme.editor_background.to_array()),
                                         corner_radius: 0.0,
                                         border_color: None,
                                         border_width: 0.0,
-                                        header_only: true,
+                                        header_only: false,
                                     text_color: None,
                                     }
                                 }

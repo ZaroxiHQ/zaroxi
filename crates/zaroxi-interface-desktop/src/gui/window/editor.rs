@@ -638,18 +638,27 @@ pub fn draw(
     // Label text for tabs / breadcrumb / bottom dock
     if r.width > 40 && r.height > 8 {
         let labels: Vec<String> = match region.id {
-            "editor_tabs" => vec![
-                "main.rs".to_string(),
-                "lib.rs".to_string(),
-                "mod.rs".to_string(),
-                "config.rs".to_string(),
-            ],
-            "breadcrumb" => vec![
-                "src".to_string(),
-                "app".to_string(),
-                "desktop".to_string(),
-                "main.rs".to_string(),
-            ],
+            "editor_tabs" => {
+                work_content.and_then(|wc| wc.editor_tabs.clone()).unwrap_or_else(|| {
+                    vec![
+                        "main.rs".to_string(),
+                        "lib.rs".to_string(),
+                        "mod.rs".to_string(),
+                        "config.rs".to_string(),
+                    ]
+                })
+            }
+            "breadcrumb" => work_content
+                .and_then(|wc| wc.editor_breadcrumb.clone())
+                .map(|b| b.split(" > ").map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap_or_else(|| {
+                    vec![
+                        "src".to_string(),
+                        "app".to_string(),
+                        "desktop".to_string(),
+                        "main.rs".to_string(),
+                    ]
+                }),
             "center_bottom_panel" => {
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             }
