@@ -13,12 +13,9 @@ fn translation_preserves_structure_and_ordering() {
         viewport_summary: Some("ok".into()),
         cursor_line: Some(2),
         cursor_column: Some(5),
-        // Fields required by the ShellSceneModel struct:
         selection_present: true,
         status_text: Some("status".into()),
-        chrome_text: Some("chrome".into()),
-        last_command: Some("cmd".into()),
-        ai_status_present: false,
+        decoration_text: Some("chrome".into()),
     };
 
     let layout = ShellLayoutInput::from(scene);

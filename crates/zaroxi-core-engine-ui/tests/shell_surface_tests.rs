@@ -33,23 +33,23 @@ mod tests {
 
         // Titlebar surface must be present
         let titlebar_present = set.surfaces.iter().any(|s| {
-            (s.rect.y - layout.titlebar.y).abs() < 1.0
-                && (s.rect.height - layout.titlebar.height).abs() < 1.0
-                && s.rect.x == layout.titlebar.x
+            (s.rect.y - layout.top_bar.y).abs() < 1.0
+                && (s.rect.height - layout.top_bar.height).abs() < 1.0
+                && s.rect.x == layout.top_bar.x
         });
         assert!(titlebar_present, "titlebar surface missing");
 
         // Editor content surface must be present
         let editor_present = set.surfaces.iter().any(|s| {
-            (s.rect.y - layout.editor_content.y).abs() < 1.0
-                && (s.rect.x - layout.editor_content.x).abs() < 1.0
+            (s.rect.y - layout.content_area.y).abs() < 1.0
+                && (s.rect.x - layout.content_area.x).abs() < 1.0
         });
         assert!(editor_present, "editor content surface missing");
 
         // Status bar surface must be present
         let status_present = set.surfaces.iter().any(|s| {
-            (s.rect.y - layout.status_bar.y).abs() < 1.0
-                && (s.rect.x - layout.status_bar.x).abs() < 1.0
+            (s.rect.y - layout.bottom_bar.y).abs() < 1.0
+                && (s.rect.x - layout.bottom_bar.x).abs() < 1.0
         });
         assert!(status_present, "status bar surface missing");
 

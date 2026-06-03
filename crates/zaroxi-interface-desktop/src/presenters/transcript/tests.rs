@@ -97,9 +97,7 @@ fn end_to_end_click_and_type_updates_scene_and_transcript() {
         cursor_column: Some(0),
         selection_present: false,
         status_text: None,
-        chrome_text: None,
-        last_command: None,
-        ai_status_present: false,
+        decoration_text: None,
     };
     zaroxi_core_engine_scene::set_current_scene(model);
 

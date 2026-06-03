@@ -20,9 +20,7 @@ fn translation_preserves_semantics() {
         }),
         viewport_summary: Some("1-3/3".to_string()),
         status_text: Some("OK".to_string()),
-        shell_chrome: Some("Shell".to_string()),
-        last_command: Some("last".to_string()),
-        ai_present: true,
+        decoration_text: Some("Shell".to_string()),
     };
 
     let scene: ShellSceneModel = input.into();
@@ -34,9 +32,6 @@ fn translation_preserves_semantics() {
     assert_eq!(scene.cursor_line, Some(2));
     assert_eq!(scene.cursor_column, Some(5));
     assert!(scene.selection_present);
-    // Phase-50 maps semantic text blocks directly where present.
     assert_eq!(scene.status_text, Some("OK".to_string()));
-    assert_eq!(scene.chrome_text, Some("Shell".to_string()));
-    assert_eq!(scene.last_command, Some("last".to_string()));
-    assert!(scene.ai_status_present);
+    assert_eq!(scene.decoration_text, Some("Shell".to_string()));
 }

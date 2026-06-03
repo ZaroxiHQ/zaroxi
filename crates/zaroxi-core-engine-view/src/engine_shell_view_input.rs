@@ -4,9 +4,12 @@
 /// - visible text lines,
 /// - cursor/selection presence,
 /// - viewport/status strings,
-/// - optional shell chrome text,
-/// - optional last command string,
-/// - a small AI presence flag.
+/// - optional decoration text.
+///
+/// Fields that were IDE-specific (last_command, ai_present) have been removed
+/// in Phase 38 to keep the engine contract app-neutral. IDE-specific data
+/// stays in the interface/application layers and is mapped into generic
+/// engine primitives through adapters.
 ///
 /// It MUST NOT contain any geometry, fonts, color, layout, rendering or GPU resources.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,17 +44,11 @@ pub struct EngineShellViewInput {
     /// Compact semantic viewport summary (opaque string).
     pub viewport_summary: Option<String>,
 
-    /// Optional status bar text.
+    /// Optional status text (generic; populated by adapters).
     pub status_text: Option<String>,
 
-    /// Optional rendered shell chrome text (semantic, non-visual).
-    pub shell_chrome: Option<String>,
-
-    /// Optional last command line string when present.
-    pub last_command: Option<String>,
-
-    /// Small flag indicating whether an AI projection is present (semantic).
-    pub ai_present: bool,
+    /// Optional decoration text (generic; populated by adapters).
+    pub decoration_text: Option<String>,
 }
 
 impl EngineShellViewInput {
@@ -66,9 +63,7 @@ impl EngineShellViewInput {
             selection: None,
             viewport_summary: None,
             status_text: None,
-            shell_chrome: None,
-            last_command: None,
-            ai_present: false,
+            decoration_text: None,
         }
     }
 }

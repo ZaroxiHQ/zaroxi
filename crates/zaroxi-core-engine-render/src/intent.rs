@@ -38,9 +38,9 @@ pub enum RenderSection {
     Chrome { chrome: ChromePrimitive },
 }
 
-/// Minimal representation of a single tab suitable for render-stage semantics.
+/// Minimal representation of a single panel tab suitable for render-stage semantics.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChromeTab {
+pub struct PanelTab {
     /// 1-based tab index (keeps presenter's convention).
     pub index: u32,
     /// Stable identifier for the tab (presenter-provided).
@@ -51,17 +51,18 @@ pub struct ChromeTab {
     pub active: bool,
 }
 
-/// Small engine-facing chrome primitive that carries only semantic facts.
+/// Small engine-facing decoration primitive that carries only semantic facts.
 /// Intentionally monospace/minimal: no colors, fonts, or layout.
+///
+/// Phase 38: Renamed from ChromePrimitive. Removed IDE-specific fields
+/// (ai_indicator, content_preview).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChromePrimitive {
     pub chrome_label: Option<String>,
-    pub tabs: Vec<ChromeTab>,
+    pub tabs: Vec<PanelTab>,
     pub active_tab_index: Option<usize>,
-    pub focus_slot: Option<String>,
+    pub active_panel_id: Option<String>,
     pub status_text: Option<String>,
-    pub ai_indicator: Option<String>,
-    pub content_preview: Option<String>,
 }
 
 impl Default for ChromePrimitive {
@@ -70,10 +71,8 @@ impl Default for ChromePrimitive {
             chrome_label: None,
             tabs: Vec::new(),
             active_tab_index: None,
-            focus_slot: None,
+            active_panel_id: None,
             status_text: None,
-            ai_indicator: None,
-            content_preview: None,
         }
     }
 }
@@ -83,17 +82,15 @@ impl From<ShellChrome> for ChromePrimitive {
         let tabs = src
             .tabs
             .into_iter()
-            .map(|t| ChromeTab { index: t.index, id: t.id, label: t.label, active: t.active })
+            .map(|t| PanelTab { index: t.index, id: t.id, label: t.label, active: t.active })
             .collect();
 
         ChromePrimitive {
             chrome_label: src.chrome_label,
             tabs,
             active_tab_index: src.active_tab_index,
-            focus_slot: src.focus_slot,
+            active_panel_id: src.active_panel_id,
             status_text: src.status_text,
-            ai_indicator: src.ai_indicator,
-            content_preview: src.content_preview,
         }
     }
 }
@@ -120,8 +117,8 @@ impl From<ShellLayoutInput> for ShellRenderIntent {
                 LayoutBlock::Status(st) => {
                     sections.push(RenderSection::Status { summary: st.summary });
                 }
-                LayoutBlock::Chrome => {
-                    // Layout-level chrome blocks do not carry presenter chrome data.
+                LayoutBlock::Decoration => {
+                    // Layout-level decoration blocks do not carry presenter chrome data.
                     // Produce an empty engine chrome primitive as a stable, deterministic
                     // placeholder. Presenters that have richer chrome (ShellChrome)
                     // can be converted into RenderSection::from(ShellChrome) elsewhere.

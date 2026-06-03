@@ -231,10 +231,8 @@ impl ShellRenderTranscript {
             chrome_label: view.chrome_label.clone(),
             tabs: scene_tabs,
             active_tab_index: active_index,
-            focus_slot: view.focus_slot.as_ref().map(|s| s.as_str().to_string()),
+            active_panel_id: view.focus_slot.as_ref().map(|s| s.as_str().to_string()),
             status_text: view.status_text.clone(),
-            ai_indicator: view.ai_indicator.clone(),
-            content_preview: view.content_preview.clone(),
         };
 
         let engine_chrome = ChromePrimitive::from(scene_chrome);
@@ -275,9 +273,7 @@ impl ShellRenderTranscript {
                 cursor_column,
                 selection_present,
                 status_text: view.status_text.clone(),
-                chrome_text: view.chrome_label.clone(),
-                last_command: None,
-                ai_status_present: view.ai_indicator.is_some(),
+                decoration_text: view.chrome_label.clone(),
             }
         };
 

@@ -20,17 +20,17 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 2. Titlebar ──
     tree.push(ShellWidget::Titlebar {
-        rect: layout.titlebar,
+        rect: layout.top_bar,
         fill_color: theme.status_bar_background.to_array(),
         brand_label: "Zaroxi".into(),
     });
 
     // Toolbar window-control buttons (right side)
-    if layout.titlebar.width > 160.0 && layout.titlebar.height > 8.0 {
+    if layout.top_bar.width > 160.0 && layout.top_bar.height > 8.0 {
         let btn_w = 32.0;
-        let btn_h = layout.titlebar.height - 8.0;
-        let btn_y = layout.titlebar.y + 4.0;
-        let btn_x = layout.titlebar.x + layout.titlebar.width - (btn_w * 3.0 + 18.0);
+        let btn_h = layout.top_bar.height - 8.0;
+        let btn_y = layout.top_bar.y + 4.0;
+        let btn_x = layout.top_bar.x + layout.top_bar.width - (btn_w * 3.0 + 18.0);
         for (idx, (label, accent)) in [("_", false), ("[ ]", false), ("x", true)].iter().enumerate()
         {
             let bx = btn_x + idx as f32 * (btn_w + 2.0);
@@ -50,9 +50,9 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
-            layout.titlebar.x,
-            layout.titlebar.y + layout.titlebar.height - 1.0,
-            layout.titlebar.width,
+            layout.top_bar.x,
+            layout.top_bar.y + layout.top_bar.height - 1.0,
+            layout.top_bar.width,
             1.0,
         ),
         color: theme.divider_default.to_array(),
@@ -61,13 +61,13 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     });
 
     // Titlebar brand accent
-    if layout.titlebar.width > 60.0 && layout.titlebar.height > 8.0 {
+    if layout.top_bar.width > 60.0 && layout.top_bar.height > 8.0 {
         tree.push(ShellWidget::RegionSurface {
             rect: Rect::new(
-                layout.titlebar.x + 10.0,
-                layout.titlebar.y + 5.0,
+                layout.top_bar.x + 10.0,
+                layout.top_bar.y + 5.0,
                 32.0,
-                layout.titlebar.height - 10.0,
+                layout.top_bar.height - 10.0,
             ),
             fill_color: theme.accent.adjust_brightness(0.82).to_array(),
             border_color: None,
@@ -77,7 +77,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 3. Activity rail + sidebar (left column) ──
     let rail_w = 44.0;
-    let rail_rect = Rect::new(0.0, layout.sidebar.y, rail_w, layout.sidebar.height);
+    let rail_rect = Rect::new(0.0, layout.left_panel.y, rail_w, layout.left_panel.height);
     tree.push(ShellWidget::RegionSurface {
         rect: rail_rect,
         fill_color: theme.activity_rail_background.to_array(),
@@ -86,11 +86,11 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     });
 
     // Rail items (top group)
-    if layout.sidebar.height > 48.0 {
+    if layout.left_panel.height > 48.0 {
         let icon_w = rail_w - 14.0;
         let icon_h: f32 = 28.0;
         let gap: f32 = 4.0;
-        let mut y = layout.sidebar.y + 10.0;
+        let mut y = layout.left_panel.y + 10.0;
         let rail_items: [(usize, &str, bool); 4] = [
             (0, "Explorer", true),
             (1, "Search", false),
@@ -119,7 +119,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
             y += icon_h + gap;
 
             // Separator after active group (subtle)
-            if idx == 0 && layout.sidebar.height > 200.0 {
+            if idx == 0 && layout.left_panel.height > 200.0 {
                 tree.push(ShellWidget::Divider {
                     rect: Rect::new(rail_rect.x + 12.0, y, rail_w - 24.0, 1.0),
                     color: theme.divider_subtle.to_array(),
@@ -131,9 +131,9 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         }
 
         // Bottom rail items (settings, account)
-        if layout.sidebar.height > 120.0 {
+        if layout.left_panel.height > 120.0 {
             let bottom_start =
-                layout.sidebar.y + layout.sidebar.height - (2.0 * (icon_h + gap) + 12.0);
+                layout.left_panel.y + layout.left_panel.height - (2.0 * (icon_h + gap) + 12.0);
             let mut by = bottom_start;
             for (idx, label) in [(4, "Settings"), (5, "Account")].iter() {
                 tree.push(ShellWidget::RailItem {
@@ -150,10 +150,11 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     }
 
     // ── 4. Sidebar (right of rail) ──
-    let sidebar_w = if layout.sidebar.width > 0.0 { layout.sidebar.width - rail_w } else { 0.0 };
+    let sidebar_w =
+        if layout.left_panel.width > 0.0 { layout.left_panel.width - rail_w } else { 0.0 };
     if sidebar_w > 0.0 {
         let sx = 44.0;
-        let sidebar_rect = Rect::new(sx, layout.sidebar.y, sidebar_w, layout.sidebar.height);
+        let sidebar_rect = Rect::new(sx, layout.left_panel.y, sidebar_w, layout.left_panel.height);
         tree.push(ShellWidget::RegionSurface {
             rect: sidebar_rect,
             fill_color: theme.sidebar_background.to_array(),
@@ -164,7 +165,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         let pad = 10.0;
         let search_h = 26.0;
         let inner_w = sidebar_w - pad * 2.0;
-        let mut y_off = layout.sidebar.y + pad;
+        let mut y_off = layout.left_panel.y + pad;
 
         // Search bar area
         tree.push(ShellWidget::RegionSurface {
@@ -188,7 +189,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         let section_h = 20.0;
         let row_h = 16.0;
         for section_label in &["PROJECT", "GIT", "OUTLINE"] {
-            if y_off + section_h > layout.sidebar.y + layout.sidebar.height - 60.0 {
+            if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {
                 break;
             }
             tree.push(ShellWidget::SidebarSection {
@@ -201,7 +202,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
             let items = if *section_label == "PROJECT" { 4 } else { 3 };
             for _ in 0..items {
-                if y_off + row_h > layout.sidebar.y + layout.sidebar.height - 36.0 {
+                if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
                     break;
                 }
                 tree.push(ShellWidget::RegionSurface {
@@ -236,10 +237,10 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     // Sidebar right-edge divider (subtle)
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
-            layout.sidebar.x + layout.sidebar.width - 1.0,
-            layout.sidebar.y,
+            layout.left_panel.x + layout.left_panel.width - 1.0,
+            layout.left_panel.y,
             1.0,
-            layout.sidebar.height,
+            layout.left_panel.height,
         ),
         color: theme.divider_default.adjust_brightness(0.85).to_array(),
         orientation: DividerOrientation::Vertical,
@@ -248,16 +249,16 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 5. Editor tab strip ──
     tree.push(ShellWidget::RegionSurface {
-        rect: layout.editor_tab_bar,
+        rect: layout.content_tab_strip,
         fill_color: theme.tab_strip_background.to_array(),
         border_color: None,
         border_width: 0.0,
     });
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
-            layout.editor_tab_bar.x,
-            layout.editor_tab_bar.y + layout.editor_tab_bar.height - 1.0,
-            layout.editor_tab_bar.width,
+            layout.content_tab_strip.x,
+            layout.content_tab_strip.y + layout.content_tab_strip.height - 1.0,
+            layout.content_tab_strip.width,
             1.0,
         ),
         color: theme.divider_default.to_array(),
@@ -266,17 +267,17 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     });
 
     // Tab widgets: active + 2 inactive
-    if layout.editor_tab_bar.width > 80.0 && layout.editor_tab_bar.height > 4.0 {
-        let tab_h = layout.editor_tab_bar.height + 1.0;
-        let tab_y = layout.editor_tab_bar.y - 1.0;
+    if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
+        let tab_h = layout.content_tab_strip.height + 1.0;
+        let tab_y = layout.content_tab_strip.y - 1.0;
         let tabs: [(&str, bool, usize); 3] =
             [("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)];
         let tab_w = 110.0;
-        let mut tx = layout.editor_tab_bar.x;
+        let mut tx = layout.content_tab_strip.x;
 
         for (label, active, idx) in tabs {
             let tw = if active { tab_w + 10.0 } else { tab_w };
-            if tx + tw > layout.editor_tab_bar.x + layout.editor_tab_bar.width {
+            if tx + tw > layout.content_tab_strip.x + layout.content_tab_strip.width {
                 break;
             }
             let tab_rect = Rect::new(tx, tab_y, tw, tab_h);
@@ -305,16 +306,16 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 6. Editor breadcrumb ──
     tree.push(ShellWidget::RegionSurface {
-        rect: layout.editor_breadcrumb_bar,
+        rect: layout.content_breadcrumb,
         fill_color: theme.editor_background.adjust_brightness(0.97).to_array(),
         border_color: None,
         border_width: 0.0,
     });
     tree.push(ShellWidget::Divider {
         rect: Rect::new(
-            layout.editor_breadcrumb_bar.x,
-            layout.editor_breadcrumb_bar.y + layout.editor_breadcrumb_bar.height - 1.0,
-            layout.editor_breadcrumb_bar.width,
+            layout.content_breadcrumb.x,
+            layout.content_breadcrumb.y + layout.content_breadcrumb.height - 1.0,
+            layout.content_breadcrumb.width,
             1.0,
         ),
         color: theme.divider_subtle.to_array(),
@@ -324,22 +325,18 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 7. Editor content ──
     tree.push(ShellWidget::RegionSurface {
-        rect: layout.editor_content,
+        rect: layout.content_area,
         fill_color: theme.editor_background.to_array(),
         border_color: None,
         border_width: 0.0,
     });
 
     // Editor scrollbar (right edge)
-    if layout.editor_content.height > 40.0 && layout.editor_content.width > 20.0 {
+    if layout.content_area.height > 40.0 && layout.content_area.width > 20.0 {
         let sb_w = 6.0;
-        let sb_x = layout.editor_content.x + layout.editor_content.width - sb_w - 3.0;
-        let track_rect = Rect::new(
-            sb_x,
-            layout.editor_content.y + 4.0,
-            sb_w,
-            layout.editor_content.height - 8.0,
-        );
+        let sb_x = layout.content_area.x + layout.content_area.width - sb_w - 3.0;
+        let track_rect =
+            Rect::new(sb_x, layout.content_area.y + 4.0, sb_w, layout.content_area.height - 8.0);
         let thumb_h = (track_rect.height * 0.25).max(20.0);
         tree.push(ShellWidget::ScrollbarTrack {
             id: WidgetId::scrollbar(1),
@@ -352,12 +349,12 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     }
 
     // ── 8. Editor bottom panel (Terminal) ──
-    if layout.editor_bottom_panel.height > 0.0 {
+    if layout.bottom_panel.height > 0.0 {
         tree.push(ShellWidget::Divider {
             rect: Rect::new(
-                layout.editor_bottom_panel.x,
-                layout.editor_bottom_panel.y - 1.0,
-                layout.editor_bottom_panel.width,
+                layout.bottom_panel.x,
+                layout.bottom_panel.y - 1.0,
+                layout.bottom_panel.width,
                 1.0,
             ),
             color: theme.divider_default.to_array(),
@@ -366,9 +363,9 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         });
         let header_h = 26.0;
         let header_rect = Rect::new(
-            layout.editor_bottom_panel.x,
-            layout.editor_bottom_panel.y,
-            layout.editor_bottom_panel.width,
+            layout.bottom_panel.x,
+            layout.bottom_panel.y,
+            layout.bottom_panel.width,
             header_h,
         );
         // Close action button
@@ -397,10 +394,10 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         });
         tree.push(ShellWidget::RegionSurface {
             rect: Rect::new(
-                layout.editor_bottom_panel.x,
-                layout.editor_bottom_panel.y + header_h,
-                layout.editor_bottom_panel.width,
-                (layout.editor_bottom_panel.height - header_h).max(0.0),
+                layout.bottom_panel.x,
+                layout.bottom_panel.y + header_h,
+                layout.bottom_panel.width,
+                (layout.bottom_panel.height - header_h).max(0.0),
             ),
             fill_color: theme.bottom_panel_background.to_array(),
             border_color: None,
@@ -409,12 +406,12 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
         // Scrollbar on right edge of terminal panel
         let sb_w = 6.0;
-        let sb_x = layout.editor_bottom_panel.x + layout.editor_bottom_panel.width - sb_w - 2.0;
+        let sb_x = layout.bottom_panel.x + layout.bottom_panel.width - sb_w - 2.0;
         let track_rect = Rect::new(
             sb_x,
-            layout.editor_bottom_panel.y + header_h + 4.0,
+            layout.bottom_panel.y + header_h + 4.0,
             sb_w,
-            layout.editor_bottom_panel.height - header_h - 8.0,
+            layout.bottom_panel.height - header_h - 8.0,
         );
         let thumb_h = (track_rect.height * 0.3).max(16.0);
         tree.push(ShellWidget::ScrollbarTrack {
@@ -428,21 +425,25 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
     }
 
     // ── 9. AI panel ──
-    if layout.ai_panel.width > 0.0 {
+    if layout.right_panel.width > 0.0 {
         tree.push(ShellWidget::Divider {
             rect: Rect::new(
-                layout.ai_panel.x - 1.0,
-                layout.ai_panel.y,
+                layout.right_panel.x - 1.0,
+                layout.right_panel.y,
                 1.0,
-                layout.ai_panel.height,
+                layout.right_panel.height,
             ),
             color: theme.divider_default.to_array(),
             orientation: DividerOrientation::Vertical,
             subtle: false,
         });
         let header_h = 28.0;
-        let header_rect =
-            Rect::new(layout.ai_panel.x, layout.ai_panel.y, layout.ai_panel.width, header_h);
+        let header_rect = Rect::new(
+            layout.right_panel.x,
+            layout.right_panel.y,
+            layout.right_panel.width,
+            header_h,
+        );
         let action_w = 20.0;
         let action_x = header_rect.x + header_rect.width - action_w - 10.0;
         let action_y = header_rect.y + 4.0;
@@ -468,10 +469,10 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         });
         tree.push(ShellWidget::RegionSurface {
             rect: Rect::new(
-                layout.ai_panel.x,
-                layout.ai_panel.y + header_h,
-                layout.ai_panel.width,
-                (layout.ai_panel.height - header_h).max(0.0),
+                layout.right_panel.x,
+                layout.right_panel.y + header_h,
+                layout.right_panel.width,
+                (layout.right_panel.height - header_h).max(0.0),
             ),
             fill_color: theme.assistant_panel_background.to_array(),
             border_color: None,
@@ -481,28 +482,28 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
 
     // ── 10. Status bar ──
     tree.push(ShellWidget::RegionSurface {
-        rect: layout.status_bar,
+        rect: layout.bottom_bar,
         fill_color: theme.status_bar_background.to_array(),
         border_color: None,
         border_width: 0.0,
     });
     tree.push(ShellWidget::Divider {
-        rect: Rect::new(layout.status_bar.x, layout.status_bar.y, layout.status_bar.width, 1.0),
+        rect: Rect::new(layout.bottom_bar.x, layout.bottom_bar.y, layout.bottom_bar.width, 1.0),
         color: theme.divider_default.adjust_brightness(0.9).to_array(),
         orientation: DividerOrientation::Horizontal,
         subtle: true,
     });
 
     // Status bar segments (pills)
-    if layout.status_bar.width > 120.0 && layout.status_bar.height > 8.0 {
-        let pill_h = layout.status_bar.height - 6.0;
-        let pill_y = layout.status_bar.y + 3.0;
+    if layout.bottom_bar.width > 120.0 && layout.bottom_bar.height > 8.0 {
+        let pill_h = layout.bottom_bar.height - 6.0;
+        let pill_y = layout.bottom_bar.y + 3.0;
 
         let left_cells: [(&str, f32); 4] =
             [("Ready", 36.0), ("Ln 22, Col 14", 54.0), ("UTF-8", 36.0), ("LF", 28.0)];
-        let mut cx = layout.status_bar.x + 20.0;
+        let mut cx = layout.bottom_bar.x + 20.0;
         for (idx, (label, w)) in left_cells.iter().enumerate() {
-            if cx + *w > layout.status_bar.x + layout.status_bar.width {
+            if cx + *w > layout.bottom_bar.x + layout.bottom_bar.width {
                 break;
             }
             tree.push(ShellWidget::StatusSegment {
@@ -516,9 +517,9 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> She
         }
 
         // Language badge (right)
-        if layout.status_bar.width > 200.0 {
+        if layout.bottom_bar.width > 200.0 {
             let badge_w = 48.0;
-            let badge_x = layout.status_bar.x + layout.status_bar.width - badge_w - 16.0;
+            let badge_x = layout.bottom_bar.x + layout.bottom_bar.width - badge_w - 16.0;
             tree.push(ShellWidget::StatusSegment {
                 id: WidgetId::status_segment(4),
                 rect: Rect::new(badge_x, pill_y, badge_w, pill_h),

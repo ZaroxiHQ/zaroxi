@@ -7,10 +7,8 @@ fn handoff_no_tabs_produces_empty_chrome_primitive() {
         chrome_label: None,
         tabs: vec![],
         active_tab_index: None,
-        focus_slot: None,
+        active_panel_id: None,
         status_text: None,
-        ai_indicator: None,
-        content_preview: None,
     };
 
     let prim = ChromePrimitive::from(chrome);
@@ -28,10 +26,8 @@ fn handoff_one_tab_preserves_label_and_active() {
         chrome_label: Some("Project".to_string()),
         tabs: vec![scene_tab],
         active_tab_index: Some(0),
-        focus_slot: Some("editor".to_string()),
+        active_panel_id: Some("editor".to_string()),
         status_text: Some("ok".to_string()),
-        ai_indicator: None,
-        content_preview: None,
     };
 
     let prim = ChromePrimitive::from(chrome);
@@ -57,19 +53,15 @@ fn handoff_multiple_tabs_preserves_order_and_active() {
         chrome_label: None,
         tabs: tabs.clone(),
         active_tab_index: Some(1),
-        focus_slot: None,
+        active_panel_id: None,
         status_text: None,
-        ai_indicator: None,
-        content_preview: None,
     };
 
     let prim = ChromePrimitive::from(chrome);
     assert_eq!(prim.tabs.len(), 3);
-    // order preserved
     assert_eq!(prim.tabs[0].id, "a");
     assert_eq!(prim.tabs[1].id, "b");
     assert_eq!(prim.tabs[2].id, "c");
-    // active semantics preserved
     assert_eq!(prim.tabs[1].active, true);
     assert_eq!(prim.active_tab_index, Some(1));
 }

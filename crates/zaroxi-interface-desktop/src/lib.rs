@@ -5,6 +5,7 @@ pub mod clipboard;
 pub mod close;
 pub mod commands;
 pub mod desktop;
+pub mod engine_adapter;
 pub mod events;
 pub mod gpu_shell_adapter;
 pub mod gpu_shell_runtime;

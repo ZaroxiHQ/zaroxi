@@ -27,6 +27,9 @@ pub use scene::{
     scroll_by_lines,
     set_current_scene,
 };
+
+pub mod text_span;
+pub use text_span::{SpanKind, SyntaxSpan, TextSpan};
 // NOTE:
 // EditorPrimitiveSet is defined in this crate root (below) and is NOT provided
 // by the `scene` module. Attempting to import it from `scene` caused the

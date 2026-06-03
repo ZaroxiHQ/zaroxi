@@ -9,3 +9,8 @@ pub fn info() -> &'static str {
 
 pub mod engine_shell_view_input;
 pub use engine_shell_view_input::{EngineSelection, EngineShellViewInput};
+
+pub mod document_viewport;
+pub use document_viewport::{
+    CaretModel, DocumentViewport, RenderedDocument, ScrollModel, SelectionModel,
+};

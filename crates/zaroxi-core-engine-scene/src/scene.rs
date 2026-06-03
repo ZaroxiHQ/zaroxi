@@ -12,10 +12,13 @@ use zaroxi_core_engine_view::EngineShellViewInput;
 mod chrome;
 pub use self::chrome::{ShellChrome, Tab};
 
-/// Semantic, read-only scene model for the engine shell.
+/// Semantic, read-only scene model for the engine.
 ///
 /// Keep this tiny and stable: it's a descriptive hand-off to later rendering
 /// phases without any visual/layout concerns.
+///
+/// Phase 38: Removed IDE-specific fields (last_command, ai_status_present).
+/// The engine contract now carries only app-neutral semantic concepts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellSceneModel {
     /// Visible text lines (cloned strings).
@@ -39,23 +42,15 @@ pub struct ShellSceneModel {
     /// Whether a selection is present (semantic flag).
     pub selection_present: bool,
 
-    /// Optional status bar text (semantic).
+    /// Optional status text (generic).
     pub status_text: Option<String>,
 
-    /// Optional shell chrome/header text (semantic).
-    pub chrome_text: Option<String>,
-
-    /// Optional last command string (semantic).
-    pub last_command: Option<String>,
-
-    /// Whether an AI/status indicator is present (semantic flag).
-    pub ai_status_present: bool,
+    /// Optional decoration text (generic; was chrome_text).
+    pub decoration_text: Option<String>,
 }
 
 impl From<EngineShellViewInput> for ShellSceneModel {
     fn from(src: EngineShellViewInput) -> Self {
-        // Minimal semantic mapping from the view model into a scene description.
-        // We purposefully do NOT attempt to compute layout or pixel metrics here.
         Self {
             text_lines: src.lines.clone(),
             viewport_top_line: src.top_line,
@@ -63,13 +58,9 @@ impl From<EngineShellViewInput> for ShellSceneModel {
             viewport_summary: src.viewport_summary.clone(),
             cursor_line: src.cursor_line,
             cursor_column: src.cursor_column,
-            // Selection presence is a semantic signal: either an explicit selection
-            // or at least a cursor line present.
             selection_present: src.selection.is_some() || src.cursor_line.is_some(),
             status_text: src.status_text.clone(),
-            chrome_text: src.shell_chrome.clone(),
-            last_command: src.last_command.clone(),
-            ai_status_present: src.ai_present,
+            decoration_text: src.decoration_text.clone(),
         }
     }
 }
@@ -124,9 +115,7 @@ fn default_scene() -> ShellSceneModel {
         cursor_column: Some(0),
         selection_present: false,
         status_text: None,
-        chrome_text: None,
-        last_command: None,
-        ai_status_present: false,
+        decoration_text: None,
     }
 }
 
@@ -404,9 +393,7 @@ mod tests {
             cursor_column: Some(0),
             selection_present: false,
             status_text: None,
-            chrome_text: None,
-            last_command: None,
-            ai_status_present: false,
+            decoration_text: None,
         };
         set_current_scene(model);
 

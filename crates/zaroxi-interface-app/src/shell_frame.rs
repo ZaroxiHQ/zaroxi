@@ -134,10 +134,7 @@ impl ShellFrameViewModel {
                 selection,
                 viewport_summary: self.viewport(),
                 status_text: self.status_text(),
-                shell_chrome: self.shell_chrome(),
-                last_command: self.last_command(),
-                // Interface-level code knows whether an AI projection is present; for now keep conservative.
-                ai_present: false,
+                decoration_text: self.shell_chrome(),
             }
         } else {
             zaroxi_core_engine_view::EngineShellViewInput::absent()

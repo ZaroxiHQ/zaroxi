@@ -32,8 +32,9 @@ pub enum LayoutBlock {
     /// Optional status summary block (present when the scene provides a viewport summary).
     Status(StatusBlock),
 
-    /// Placeholder for potential chrome UI (kept for future structural use).
-    Chrome,
+    /// Placeholder for potential decorations (kept for future structural use).
+    /// Phase 38: Renamed from Chrome to Decoration.
+    Decoration,
 }
 
 /// Main textual block: an ordered list of visible lines (cloned from the scene).

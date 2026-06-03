@@ -43,6 +43,7 @@ zaroxi-core-platform-terminal = { path = "../zaroxi-core-platform-terminal" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-engine-render = { path = "../zaroxi-core-engine-render", features = ["full_renderer"] }
 zaroxi-core-engine-scene = { path = "../zaroxi-core-engine-scene" }
+zaroxi-core-engine-view = { path = "../zaroxi-core-engine-view" }
 zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
 zaroxi-interface-app = { path = "../zaroxi-interface-app" }
 zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }

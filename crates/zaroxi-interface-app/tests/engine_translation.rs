@@ -7,7 +7,7 @@ use zaroxi_interface_desktop::TextView as DesktopTextView;
 use zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel as DesktopShellFrameModel;
 
 /// Ensure the conversion from ShellFrameViewModel -> EngineShellViewInput preserves
-/// the semantic, non-visual pieces (visible lines, cursor, viewport, status, shell chrome).
+/// the semantic, non-visual pieces (visible lines, cursor, viewport, status, decoration text).
 #[test]
 fn translation_from_shell_frame_view_model_preserves_semantic_data() {
     let tv = DesktopTextView {
@@ -18,7 +18,6 @@ fn translation_from_shell_frame_view_model_preserves_semantic_data() {
         cursor_column: Some(4),
     };
 
-    // Build a desktop projection instance (tests may construct desktop types).
     let desktop_frame = DesktopShellFrameModel {
         session_identity: None,
         shell_chrome: Some("chrome-v1".to_string()),
@@ -30,8 +29,6 @@ fn translation_from_shell_frame_view_model_preserves_semantic_data() {
         last_event: None,
     };
 
-    // Convert the desktop projection into the application-local ShellFrameModel
-    // before supplying it to the application view-model API.
     let app_frame = AppShellFrameModel {
         viewport_summary: desktop_frame.viewport_summary,
         status_text: desktop_frame.status_text,
@@ -62,6 +59,5 @@ fn translation_from_shell_frame_view_model_preserves_semantic_data() {
     assert!(input.selection.is_none());
     assert_eq!(input.viewport_summary, vm.viewport());
     assert_eq!(input.status_text, vm.status_text());
-    assert_eq!(input.shell_chrome, vm.shell_chrome());
-    assert_eq!(input.last_command, vm.last_command());
+    assert_eq!(input.decoration_text, vm.shell_chrome());
 }

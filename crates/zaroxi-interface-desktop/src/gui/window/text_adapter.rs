@@ -112,9 +112,7 @@ pub fn layout_and_publish_text(
         cursor_column: None,
         selection_present: false,
         status_text: None,
-        chrome_text: None,
-        last_command: None,
-        ai_status_present: false,
+        decoration_text: None,
     };
 
     zaroxi_core_engine_scene::set_current_scene(scene_model);

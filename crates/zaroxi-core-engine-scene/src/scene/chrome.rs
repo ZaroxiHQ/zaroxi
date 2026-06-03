@@ -1,8 +1,11 @@
-/// Minimal engine-facing shell chrome description.
+/// Minimal engine-facing panel chrome description.
 ///
 /// This type is intentionally small and semantic-only: it carries the tab strip
 /// labels, active/focused semantics and a few small extras that the engine can
 /// reuse when moving rendering responsibility inward from presenters.
+///
+/// Phase 38: Removed IDE-specific fields (ai_indicator, content_preview).
+/// Renamed focus_slot to active_panel_id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tab {
     /// 1-based index of the tab (kept as u32 to match presenter conventions).
@@ -26,15 +29,9 @@ pub struct ShellChrome {
     /// Index of the active tab within `tabs`, if any.
     pub active_tab_index: Option<usize>,
 
-    /// Optional focus slot name (observational; may be None).
-    pub focus_slot: Option<String>,
+    /// Optional active panel identifier (was focus_slot).
+    pub active_panel_id: Option<String>,
 
     /// Optional status text (semantic).
     pub status_text: Option<String>,
-
-    /// Optional AI indicator text (semantic).
-    pub ai_indicator: Option<String>,
-
-    /// Optional content preview (semantic).
-    pub content_preview: Option<String>,
 }
