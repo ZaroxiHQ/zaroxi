@@ -765,6 +765,38 @@ impl<'a> Renderer<'a> {
                         );
                     }
                 }
+
+                // Selection highlight
+                if let Some((sl, sc, el, ec)) = block.selection_range {
+                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let char_w = 8.0;
+                    let sel_color: [f32; 4] = [0.36, 0.55, 1.0, 0.22];
+                    for line in sl..=el {
+                        let line_y = content_y + line as f32 * line_h;
+                        if line_y + line_h > content_y + content_h {
+                            break;
+                        }
+                        let start_col = if line == sl { sc } else { 0 };
+                        let end_col = if line == el { ec } else { 200 }; // generous max
+                        let sel_x = content_x + start_col as f32 * char_w;
+                        let sel_w = ((end_col.saturating_sub(start_col)) as f32 * char_w)
+                            .min(content_w - (sel_x - content_x));
+                        if sel_w > 0.0 {
+                            push_colored_quad(
+                                &mut panel_verts,
+                                &mut panel_indices,
+                                sel_x,
+                                line_y,
+                                sel_w,
+                                line_h,
+                                sel_color,
+                                width,
+                                height,
+                                0.0,
+                            );
+                        }
+                    }
+                }
             }
 
             // Log counts per panel

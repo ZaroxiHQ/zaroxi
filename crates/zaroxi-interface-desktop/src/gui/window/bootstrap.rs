@@ -56,6 +56,9 @@ pub fn run_shell_window(
         pressed_widget_idx: None,
         editor_scroll_offset: 0.0,
         terminal_scroll_offset: 0.0,
+        editor_cursor_line: 7,
+        editor_cursor_col: 4,
+        selection_anchor: None,
     };
 
     let run_result = event_loop.run_app(&mut app);

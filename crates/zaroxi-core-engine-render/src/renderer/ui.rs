@@ -36,6 +36,8 @@ pub struct UiBlock {
     pub cursor_col: Option<usize>,
     /// Whether to render a line-highlight background on the cursor line.
     pub highlight_active_line: bool,
+    /// Selection range as (start_line, start_col, end_line, end_col), 0-based.
+    pub selection_range: Option<(usize, usize, usize, usize)>,
 }
 
 use super::core::Rect;

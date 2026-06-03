@@ -46,6 +46,11 @@ pub struct GuiApp {
     pub editor_scroll_offset: f32,
     /// Scroll offset for terminal scrollbar (0.0..1.0).
     pub terminal_scroll_offset: f32,
+    /// Manual cursor position set by mouse clicks in the editor area.
+    pub editor_cursor_line: usize,
+    pub editor_cursor_col: usize,
+    /// Drag-start line/col for selection extending.
+    pub selection_anchor: Option<(usize, usize)>,
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -246,6 +251,39 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         let _ = z.window().request_redraw();
                                     }
                                 }
+                                // Editor area click: position cursor
+                                if let Some(pos) = self.cursor_pos {
+                                    let editor_region =
+                                        self.shell.regions.iter().find(|r| r.id == "center_editor");
+                                    if let Some(ed) = editor_region {
+                                        let ex = ed.rect.x as f32;
+                                        let ey = ed.rect.y as f32;
+                                        let px = pos.x as f32;
+                                        let py = pos.y as f32;
+                                        if px >= ex
+                                            && py >= ey
+                                            && px < ex + ed.rect.width as f32
+                                            && py < ey + ed.rect.height as f32
+                                        {
+                                            let content_pad = 8.0;
+                                            let header_h = 28.0;
+                                            let line_h = 16.0;
+                                            let char_w = 8.0;
+                                            let content_x = ex + content_pad;
+                                            let content_y = ey + header_h + content_pad;
+                                            let rel_y = py - content_y;
+                                            let rel_x = px - content_x;
+                                            let line = (rel_y / line_h).max(0.0) as usize;
+                                            let col = (rel_x / char_w).max(0.0) as usize;
+                                            self.editor_cursor_line = line;
+                                            self.editor_cursor_col = col;
+                                            self.selection_anchor = Some((line, col));
+                                            if let Some(z) = self.maybe_window.as_ref() {
+                                                let _ = z.window().request_redraw();
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         ElementState::Released => {
@@ -431,6 +469,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "app_rail" => zaroxi_core_engine_render::UiBlock {
@@ -451,6 +490,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -470,6 +510,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -489,6 +530,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "breadcrumb" => zaroxi_core_engine_render::UiBlock {
@@ -509,6 +551,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: Some(theme.text_muted.to_array()),
                                 },
                                 "center_editor" | "editor_content" => {
@@ -528,6 +571,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         cursor_line: Some(editor_cursor_line),
                                         cursor_col: Some(editor_cursor_col),
                                         highlight_active_line: true,
+                                        selection_range: None,
                                         text_color: None,
 
                                     }
@@ -550,6 +594,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -569,6 +614,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -588,6 +634,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -607,6 +654,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: Some(theme.text_primary.to_array()),
                                 },
                                 "ai_panel_content" => zaroxi_core_engine_render::UiBlock {
@@ -625,6 +673,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
@@ -646,6 +695,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: Some(theme.text_secondary.to_array()),
                                 },
                                 _ => zaroxi_core_engine_render::UiBlock {
@@ -664,6 +714,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_line: None,
                                     cursor_col: None,
                                     highlight_active_line: false,
+                                    selection_range: None,
                                     text_color: None,
 
                                 },
