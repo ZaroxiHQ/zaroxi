@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::ShellLayout;
-    use zaroxi_core_engine_style::EngineTheme;
+    use zaroxi_core_engine_style::test_tokens_dark;
     use zaroxi_core_engine_ui::{InteractionState, ShellWidget, build_shell_widget_tree};
 
     #[test]
     fn widget_tree_preserves_deterministic_order() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         assert!(tree.len() > 10, "expected >10 widgets in tree, got {}", tree.len());
 
@@ -22,8 +22,8 @@ mod tests {
     #[test]
     fn widget_tree_contains_tab_and_rail_items() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         // At least one Tab widget
         let tab_count =
@@ -50,8 +50,8 @@ mod tests {
     #[test]
     fn hit_test_noops_on_non_interactive_regions() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         // Hitting the app background (a RegionSurface) should return None
         // because RegionSurface has no hit_target.
@@ -62,8 +62,8 @@ mod tests {
     #[test]
     fn hover_state_is_stable_and_clears_correctly() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let mut tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let mut tree = build_shell_widget_tree(&layout, &tokens);
 
         // Find a Tab widget and simulate hover
         let tab_idx = tree.widgets.iter().position(|w| matches!(w, ShellWidget::Tab { .. }));
@@ -85,8 +85,8 @@ mod tests {
     #[test]
     fn tab_widget_renders_active_state() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         // Convert to surface set and verify the tab's surface is present
         let set = tree.to_surface_set();
@@ -99,8 +99,8 @@ mod tests {
     #[test]
     fn multiple_tabs_includes_active_and_inactive() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         let tabs: Vec<_> =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::Tab { .. })).collect();
@@ -115,8 +115,8 @@ mod tests {
     #[test]
     fn panel_headers_have_action_slots() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         let header_with_actions: Vec<_> = tree
             .widgets
@@ -134,8 +134,8 @@ mod tests {
     #[test]
     fn scrollbar_tracks_are_present() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         let scrollbar_count =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::ScrollbarTrack { .. })).count();
@@ -145,8 +145,8 @@ mod tests {
     #[test]
     fn toolbar_buttons_are_hittable() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         let btn_hits: Vec<_> = tree
             .widgets
@@ -165,8 +165,8 @@ mod tests {
     #[test]
     fn divider_subtle_flag_propagates_to_surface_set() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let tree = build_shell_widget_tree(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let tree = build_shell_widget_tree(&layout, &tokens);
 
         let set = tree.to_surface_set();
         // Dividers must be present

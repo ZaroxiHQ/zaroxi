@@ -207,12 +207,11 @@ mod tests {
 ///
 /// Computes a `ShellLayout` and converts each major region into a colored
 /// `RectPrimitive` in paint order (background first).
-/// Phase 40: Accepts `&EngineTheme` for semantic color resolution instead of
-/// hardcoded `[r,g,b,a]` literals.
+/// Colors come from host-supplied `StyleTokens`; the engine makes no visual decisions.
 pub fn build_shell_ui(
     window_w: u32,
     window_h: u32,
-    theme: &zaroxi_core_engine_style::EngineTheme,
+    tokens: &zaroxi_core_engine_style::StyleTokens,
 ) -> Vec<zaroxi_core_engine_scene::RectPrimitive> {
     use zaroxi_core_engine_scene::RectPrimitive;
     let layout = super::ShellLayout::from_window_size(window_w, window_h);
@@ -225,7 +224,7 @@ pub fn build_shell_ui(
         0.0,
         layout.window_size.width,
         layout.window_size.height,
-        theme.app_background.to_array(),
+        tokens.app_background.to_array(),
     ));
 
     // Top bar
@@ -234,7 +233,7 @@ pub fn build_shell_ui(
         layout.top_bar.y,
         layout.top_bar.width,
         layout.top_bar.height,
-        theme.surface_elevated.to_array(),
+        tokens.titlebar_background.to_array(),
     ));
 
     // Left panel (sidebar)
@@ -243,7 +242,7 @@ pub fn build_shell_ui(
         layout.left_panel.y,
         layout.left_panel.width,
         layout.left_panel.height,
-        theme.sidebar_background.to_array(),
+        tokens.sidebar_background.to_array(),
     ));
 
     // Center panel (editor area)
@@ -252,7 +251,7 @@ pub fn build_shell_ui(
         layout.center_panel.y,
         layout.center_panel.width,
         layout.center_panel.height,
-        theme.editor_background.to_array(),
+        tokens.editor_content_background.to_array(),
     ));
 
     // Bottom bar (status bar)
@@ -261,7 +260,7 @@ pub fn build_shell_ui(
         layout.bottom_bar.y,
         layout.bottom_bar.width,
         layout.bottom_bar.height,
-        theme.status_bar_background.to_array(),
+        tokens.status_bar_background.to_array(),
     ));
 
     rects

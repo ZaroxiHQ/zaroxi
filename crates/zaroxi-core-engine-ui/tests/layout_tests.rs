@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::build_shell_ui;
-    use zaroxi_core_engine_style::EngineTheme;
+    use zaroxi_core_engine_style::test_tokens_dark;
 
     #[test]
     fn basic_shell_rects_count_and_top_height() {
-        let theme = EngineTheme::dark();
-        let rects = build_shell_ui(800, 600, &theme);
+        let tokens = test_tokens_dark();
+        let rects = build_shell_ui(800, 600, &tokens);
         // paint order: background + top + sidebar + editor + status
         assert!(rects.len() >= 5, "expected at least 5 rects, got {}", rects.len());
 

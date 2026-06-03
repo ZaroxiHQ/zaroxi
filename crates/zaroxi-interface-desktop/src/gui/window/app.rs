@@ -353,12 +353,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
-                    let theme = zaroxi_core_engine_ui::EngineTheme::dark();
+                    let tokens = zaroxi_core_engine_ui::test_tokens_dark();
 
                     // Build the engine-side widget tree for hover tracking.
                     let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
                     let mut widget_tree =
-                        zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &theme);
+                        zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &tokens);
                     // Re-apply hover state if cursor is over a widget.
                     if let Some(pos) = self.cursor_pos {
                         let hit = widget_tree.hit_test(pos.x as f32, pos.y as f32);
@@ -437,8 +437,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         bottom_panel: find_rect(zaroxi_core_engine_style::PanelRole::BottomDock),
                         status_bar: find_rect(zaroxi_core_engine_style::PanelRole::StatusBar),
                         colors: zaroxi_core_engine_render::PanelColors {
-                            panel_header_background: theme.panel_header_bg().to_array(),
-                            panel_background: theme.surface_default.to_array(),
+                            panel_header_background: tokens.panel_header_background.to_array(),
+                            panel_background: tokens.app_background.to_array(),
                         },
                     };
 
@@ -598,10 +598,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: String::new(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.status_bar_background.to_array()),
+                                    header_color: Some(tokens.status_bar_background.to_array()),
                                     content_color: None,
                                     corner_radius: 0.0,
-                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_color: Some(tokens.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
@@ -609,7 +609,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_col: None,
                                     highlight_active_line: false,
                                     selection_range: None,
-                                    text_color: Some(theme.text_primary.to_array()),
+                                    text_color: Some(tokens.text_primary.to_array()),
                                 },
                                 zaroxi_core_engine_style::PanelRole::NavigationRail => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -617,11 +617,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: String::new(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.activity_rail_background.to_array()),
-                                    content_color: Some(theme.activity_rail_background.to_array()),
+                                    header_color: Some(tokens.rail_background.to_array()),
+                                    content_color: Some(tokens.rail_background.to_array()),
                                     corner_radius: 0.0,
                                     border_color: Some(
-                                        theme.divider_default.adjust_brightness(0.85).to_array(),
+                                        tokens.sidebar_border.to_array(),
                                     ),
                                     border_width: 1.0,
                                     header_only: false,
@@ -639,8 +639,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: sidebar_items.clone(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.sidebar_background.to_array()),
-                                    content_color: Some(theme.sidebar_background.to_array()),
+                                    header_color: Some(tokens.sidebar_background.to_array()),
+                                    content_color: Some(tokens.sidebar_background.to_array()),
                                     corner_radius: 0.0,
                                     border_color: None,
                                     border_width: 0.0,
@@ -659,10 +659,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: tab_content.clone(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.tab_strip_background.to_array()),
+                                    header_color: Some(tokens.tab_strip_background.to_array()),
                                     content_color: None,
                                     corner_radius: 4.0,
-                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_color: Some(tokens.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
@@ -670,7 +670,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_col: None,
                                     highlight_active_line: false,
                                     selection_range: None,
-                                    text_color: Some(theme.text_primary.to_array()),
+                                    text_color: Some(tokens.text_primary.to_array()),
                                 },
                                 zaroxi_core_engine_style::PanelRole::ContentBreadcrumb => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -679,11 +679,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     visible: true,
                                     rect,
                                     header_color: Some(
-                                        theme.editor_background.adjust_brightness(0.97).to_array(),
+                                        tokens.editor_breadcrumb_background.to_array(),
                                     ),
                                     content_color: None,
                                     corner_radius: 0.0,
-                                    border_color: Some(theme.divider_subtle.to_array()),
+                                    border_color: Some(tokens.divider_subtle.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
@@ -691,7 +691,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_col: None,
                                     highlight_active_line: false,
                                     selection_range: None,
-                                    text_color: Some(theme.text_muted.to_array()),
+                                    text_color: Some(tokens.text_muted.to_array()),
                                 },
                                 zaroxi_core_engine_style::PanelRole::ContentArea => {
                                     zaroxi_core_engine_render::UiBlock {
@@ -700,8 +700,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         content: editor_body_text.clone(),
                                         visible: true,
                                         rect,
-                                        header_color: Some(theme.editor_background.to_array()),
-                                        content_color: Some(theme.editor_background.to_array()),
+                                        header_color: Some(tokens.editor_content_background.to_array()),
+                                        content_color: Some(tokens.editor_content_background.to_array()),
                                         corner_radius: 0.0,
                                         border_color: None,
                                         border_width: 0.0,
@@ -722,7 +722,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     visible: true,
                                     rect,
                                     header_color: Some(
-                                        theme.editor_background.adjust_brightness(0.95).to_array(),
+                                        tokens.editor_content_background.adjust_brightness(0.95).to_array(),
                                     ),
                                     content_color: None,
                                     corner_radius: 0.0,
@@ -743,10 +743,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: "$ cargo build\n   Compiling zaroxi v0.1.0\n    Finished dev [unoptimized]".to_string(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.panel_header_bg().to_array()),
-                                    content_color: Some(theme.bottom_panel_background.to_array()),
+                                    header_color: Some(tokens.panel_header_background.to_array()),
+                                    content_color: Some(tokens.bottom_panel_background.to_array()),
                                     corner_radius: 4.0,
-                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_color: Some(tokens.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: false,
                                     content_spans: None,
@@ -763,7 +763,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: String::new(),
                                     visible: r.rect.height > 0,
                                     rect,
-                                    header_color: Some(theme.surface_default.to_array()),
+                                    header_color: Some(tokens.app_background.to_array()),
                                     content_color: None,
                                     corner_radius: 0.0,
                                     border_color: None,
@@ -783,10 +783,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: String::new(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.panel_header_bg().to_array()),
+                                    header_color: Some(tokens.panel_header_background.to_array()),
                                     content_color: None,
                                     corner_radius: 0.0,
-                                    border_color: Some(theme.divider_default.to_array()),
+                                    border_color: Some(tokens.divider_default.to_array()),
                                     border_width: 1.0,
                                     header_only: true,
                                     content_spans: None,
@@ -794,7 +794,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_col: None,
                                     highlight_active_line: false,
                                     selection_range: None,
-                                    text_color: Some(theme.text_primary.to_array()),
+                                    text_color: Some(tokens.text_primary.to_array()),
                                 },
                                 zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent => zaroxi_core_engine_render::UiBlock {
                                     id: r.id.to_string(),
@@ -802,7 +802,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: "No active AI session\nOpen a file and request an AI edit to get started.".to_string(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.assistant_panel_background.to_array()),
+                                    header_color: Some(tokens.assistant_panel_background.to_array()),
                                     content_color: None,
                                     corner_radius: 0.0,
                                     border_color: None,
@@ -822,11 +822,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     content: "Ready  Ln 22, Col 14  UTF-8  LF  Rust".to_string(),
                                     visible: true,
                                     rect,
-                                    header_color: Some(theme.status_bar_background.to_array()),
-                                    content_color: Some(theme.status_bar_background.to_array()),
+                                    header_color: Some(tokens.status_bar_background.to_array()),
+                                    content_color: Some(tokens.status_bar_background.to_array()),
                                     corner_radius: 4.0,
                                     border_color: Some(
-                                        theme.divider_default.adjust_brightness(0.9).to_array(),
+                                        tokens.status_divider.to_array(),
                                     ),
                                     border_width: 1.0,
                                     header_only: false,
@@ -835,7 +835,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     cursor_col: None,
                                     highlight_active_line: false,
                                     selection_range: None,
-                                    text_color: Some(theme.text_secondary.to_array()),
+                                    text_color: Some(tokens.text_secondary.to_array()),
                                 },
                             }
                         };
@@ -846,9 +846,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
                         [
-                            theme.app_background.r as f64,
-                            theme.app_background.g as f64,
-                            theme.app_background.b as f64,
+                            tokens.app_background.r as f64,
+                            tokens.app_background.g as f64,
+                            tokens.app_background.b as f64,
                             1.0,
                         ],
                     )) {

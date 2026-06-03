@@ -4418,6 +4418,7 @@ dependencies = [
  "zaroxi-core-editor-buffer",
  "zaroxi-core-editor-view",
  "zaroxi-core-engine-font",
+ "zaroxi-core-engine-layout",
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-render-backend",
  "zaroxi-core-engine-scene",

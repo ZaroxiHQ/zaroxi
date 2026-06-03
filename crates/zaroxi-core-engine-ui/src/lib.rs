@@ -22,5 +22,6 @@ pub use work_content::{HighlightKind, LineHighlight, ShellWorkContent, SyntaxHig
 pub use zaroxi_core_engine_layout::{ShellLayout, build_shell_ui};
 pub use zaroxi_core_engine_scene::{LabelPrimitive, RectPrimitive, WidgetScene};
 pub use zaroxi_core_engine_style::{
-    EngineTheme, InteractionState, PanelRole, SurfaceRole, ThemeColor, ThemeModifiers, WidgetId,
+    InteractionState, PanelRole, StyleTokens, SurfaceRole, ThemeColor, WidgetId, test_tokens_dark,
+    test_tokens_light,
 };

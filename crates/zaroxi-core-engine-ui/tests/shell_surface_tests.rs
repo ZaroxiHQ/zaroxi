@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::ShellLayout;
-    use zaroxi_core_engine_style::EngineTheme;
+    use zaroxi_core_engine_style::test_tokens_dark;
     use zaroxi_core_engine_ui::build_shell_surface_set;
 
     /// Verify that the shell surface builder produces a deterministic,
@@ -10,8 +10,8 @@ mod tests {
     #[test]
     fn shell_surface_set_produces_deterministic_regions() {
         let layout = ShellLayout::from_window_size(1200, 800);
-        let theme = EngineTheme::dark();
-        let set = build_shell_surface_set(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let set = build_shell_surface_set(&layout, &tokens);
 
         // Non-empty
         assert!(!set.is_empty(), "shell surface set must not be empty");
@@ -27,7 +27,7 @@ mod tests {
         assert_eq!(bg.rect.height, layout.window_size.height, "bg height must span window");
         assert_eq!(
             bg.fill_color,
-            theme.app_background.to_array(),
+            tokens.app_background.to_array(),
             "bg must use app_background color"
         );
 
@@ -64,8 +64,8 @@ mod tests {
     #[test]
     fn narrow_window_reduces_sidebar_content() {
         let layout = ShellLayout::from_window_size(200, 600);
-        let theme = EngineTheme::dark();
-        let set = build_shell_surface_set(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let set = build_shell_surface_set(&layout, &tokens);
 
         // At 200px wide, sidebar collapses to zero, so sidebar surface count should be lower
         // Still works without panicking
@@ -76,8 +76,8 @@ mod tests {
     #[test]
     fn to_rect_primitives_preserves_count_and_order() {
         let layout = ShellLayout::from_window_size(1000, 700);
-        let theme = EngineTheme::dark();
-        let set = build_shell_surface_set(&layout, &theme);
+        let tokens = test_tokens_dark();
+        let set = build_shell_surface_set(&layout, &tokens);
 
         let rects = set.to_rect_primitives();
 
