@@ -273,11 +273,34 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             let content_y = ey + header_h + content_pad;
                                             let rel_y = py - content_y;
                                             let rel_x = px - content_x;
-                                            let line = (rel_y / line_h).max(0.0) as usize;
+                                            let visible_line = (rel_y / line_h).max(0.0) as usize;
                                             let col = (rel_x / char_w).max(0.0) as usize;
-                                            self.editor_cursor_line = line;
+
+                                            // Compute usable height and viewport for scroll offset
+                                            let usable_h = ed.rect.height as f32
+                                                - header_h
+                                                - content_pad * 2.0;
+
+                                            // Convert visible line to absolute line using scroll offset
+                                            let total_lines = self
+                                                .shell
+                                                .work_content
+                                                .as_ref()
+                                                .and_then(|w| w.editor_body.as_ref())
+                                                .map(|cv| cv.lines.len().max(1))
+                                                .unwrap_or(1);
+                                            let visible_lines_c =
+                                                (usable_h / line_h).max(1.0) as usize;
+                                            let max_scroll_c = (total_lines
+                                                .saturating_sub(visible_lines_c))
+                                            .max(1);
+                                            let first_visible = (self.editor_scroll_offset
+                                                * max_scroll_c as f32)
+                                                as usize;
+                                            let absolute_line = first_visible + visible_line;
+                                            self.editor_cursor_line = absolute_line;
                                             self.editor_cursor_col = col;
-                                            self.selection_anchor = Some((line, col));
+                                            self.selection_anchor = Some((absolute_line, col));
                                             if let Some(z) = self.maybe_window.as_ref() {
                                                 let _ = z.window().request_redraw();
                                             }
@@ -343,6 +366,48 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     self.widget_tree = Some(widget_tree.clone());
 
+                    // Update scrollbar thumb positions to reflect scroll state.
+                    // Update scrollbar thumb positions to reflect scroll state.
+                    if let Some(ref mut tree) = self.widget_tree {
+                        for i in 0..tree.widgets.len() {
+                            let new_widget = match &tree.widgets[i] {
+                                zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                                    id,
+                                    track_rect,
+                                    thumb_rect,
+                                    track_fill,
+                                    thumb_fill,
+                                    state,
+                                } => {
+                                    let offset = if matches!(
+                                        id,
+                                        zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }
+                                    ) {
+                                        self.editor_scroll_offset
+                                    } else {
+                                        self.terminal_scroll_offset
+                                    };
+                                    let travel = (track_rect.height - thumb_rect.height).max(1.0);
+                                    let new_y = track_rect.y + offset * travel;
+                                    let mut new_thumb = *thumb_rect;
+                                    new_thumb.y = new_y;
+                                    Some(zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                                        id: id.clone(),
+                                        track_rect: *track_rect,
+                                        thumb_rect: new_thumb,
+                                        track_fill: *track_fill,
+                                        thumb_fill: *thumb_fill,
+                                        state: *state,
+                                    })
+                                }
+                                _ => None,
+                            };
+                            if let Some(w) = new_widget {
+                                tree.widgets[i] = w;
+                            }
+                        }
+                    }
+
                     let find_rect = |id: &str| -> zaroxi_core_engine_render::Rect {
                         if let Some(r) = self.shell.regions.iter().find(|rr| rr.id == id) {
                             zaroxi_core_engine_render::Rect {
@@ -370,20 +435,63 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     // Extract live work content for dynamic shell text.
+                    let editor_rect = find_rect("center_editor");
                     let editor_body_text = self
                         .shell
                         .work_content
                         .as_ref()
                         .and_then(|w| w.editor_body.as_ref())
                         .map(|cv| {
+                            let line_h = 16.0;
+                            let pad = 8.0;
+                            let header_h = 28.0;
+                            let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
+                            let visible_lines = (usable_h / line_h).max(1.0) as usize;
+                            let total_lines = cv.lines.len().max(1);
+                            let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
+                            let first_line =
+                                (self.editor_scroll_offset * max_scroll as f32) as usize;
                             let mut lines_with_numbers = String::new();
-                            for (i, line) in cv.lines.iter().enumerate() {
+                            let end = (first_line + visible_lines).min(cv.lines.len());
+                            for i in first_line..end {
                                 let num = i + 1;
-                                lines_with_numbers.push_str(&format!("{:>3} │ {}\n", num, line));
+                                if let Some(line) = cv.lines.get(i) {
+                                    lines_with_numbers
+                                        .push_str(&format!("{:>3} │ {}\n", num, line));
+                                }
                             }
                             lines_with_numbers
                         })
                         .unwrap_or_else(|| "fn main() {\n    println!(\"hello\");\n}".to_string());
+
+                    // Auto-scroll: ensure cursor is visible in the viewport.
+                    {
+                        let line_h = 16.0;
+                        let pad = 8.0;
+                        let header_h = 28.0;
+                        let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
+                        let visible_lines = (usable_h / line_h).max(1.0) as usize;
+                        let total_lines = self
+                            .shell
+                            .work_content
+                            .as_ref()
+                            .and_then(|w| w.editor_body.as_ref())
+                            .map(|cv| cv.lines.len().max(1))
+                            .unwrap_or(1);
+                        let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
+                        let first_visible =
+                            (self.editor_scroll_offset * max_scroll as f32) as usize;
+                        let last_visible = first_visible + visible_lines;
+                        let cl = self.editor_cursor_line;
+                        if cl < first_visible {
+                            self.editor_scroll_offset =
+                                (cl as f32 / max_scroll as f32).clamp(0.0, 1.0);
+                        } else if cl >= last_visible {
+                            self.editor_scroll_offset =
+                                ((cl.saturating_sub(visible_lines - 1)) as f32 / max_scroll as f32)
+                                    .clamp(0.0, 1.0);
+                        }
+                    }
 
                     // Extract cursor position from editor content.
                     let editor_cursor_line = self
@@ -402,12 +510,35 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .unwrap_or(0);
 
                     // Produce syntax-colored spans from editor content using tree-sitter.
-                    let editor_spans: Option<Vec<(String, [f32; 4])>> = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .map(|cv| super::syntax_color::colorize_source(&cv.lines));
+                    // Filter to visible viewport only by slicing lines.
+                    let editor_spans: Option<Vec<(String, [f32; 4])>> =
+                        self.shell.work_content.as_ref().and_then(|w| w.editor_body.as_ref()).map(
+                            |cv| {
+                                let line_h = 16.0;
+                                let pad = 8.0;
+                                let header_h = 28.0;
+                                let usable_h = (editor_rect.h - header_h - pad * 2.0).max(0.0);
+                                let visible_lines = (usable_h / line_h).max(1.0) as usize;
+                                let total_lines = cv.lines.len().max(1);
+                                let max_scroll = (total_lines.saturating_sub(visible_lines)).max(1);
+                                let first_line =
+                                    (self.editor_scroll_offset * max_scroll as f32) as usize;
+                                let end = (first_line + visible_lines).min(cv.lines.len());
+                                // Build a reverse mapping: line index ranges in source text
+                                let mut byte_start = 0usize;
+                                let mut line_bytes: Vec<(usize, usize)> = Vec::new();
+                                for (_i, line) in cv.lines.iter().enumerate() {
+                                    let byte_end = byte_start + line.len();
+                                    line_bytes.push((byte_start, byte_end));
+                                    byte_start = byte_end + 1; // +1 for newline
+                                }
+                                // Colorize only visible lines
+                                let visible_slice: Vec<String> = cv.lines[first_line..end].to_vec();
+                                let all_spans =
+                                    super::syntax_color::colorize_source(&visible_slice);
+                                all_spans
+                            },
+                        );
 
                     let tab_labels = self
                         .shell
