@@ -10,7 +10,6 @@ mod bottom_panel;
 mod editor;
 #[cfg(feature = "gui_window")]
 mod frame;
-pub mod panel_blocks;
 #[cfg(feature = "gui_window")]
 mod rail;
 #[cfg(feature = "gui_window")]
@@ -18,10 +17,6 @@ mod status_bar;
 pub mod style_tokens_adapter;
 #[cfg(feature = "gui_window")]
 mod syntax_color;
-#[cfg(feature = "gui_window")]
-mod text_adapter;
-#[cfg(feature = "gui_window")]
-mod theme_adapter;
 #[cfg(feature = "gui_window")]
 mod toolbar;
 

@@ -1,54 +1,66 @@
 /*!
-frame.rs coordinator (pre-GUI-8 refactor)
+frame.rs — shell composition coordinator.
 
-This file is now a thin coordinator: it computes nothing itself beyond
-delegating each ShellRegion to the appropriate per-panel module. All panel
-placeholder drawing logic has been moved into dedicated modules so each panel
-owns its own draw behavior.
-
-Behavior is preserved exactly by delegating the same region ids to the
-corresponding module draw functions and concatenating their returned rects.
+Phase 50: dispatches each ShellRegion to the owning panel module for
+UiBlock construction. Each panel module is the source of its own content.
+app.rs only calls compose_blocks() with tokens + live state.
 */
 
-/// Build the small set of overlay rects used for the one-shot clear+present.
-/// Uses PanelRole-based dispatch instead of string-matching on region IDs.
-pub fn build_overlay_rects(
-    shell: &crate::gui::ShellFrame,
-    sem: &zaroxi_interface_theme::theme::SemanticColors,
-) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
-    let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+use crate::gui::ShellRegion;
+use crate::gui::region_dispatch::region_role;
+use zaroxi_core_engine_render::UiBlock;
+use zaroxi_core_engine_style::{PanelRole, StyleTokens};
 
-    for r in &shell.regions {
-        let role = crate::gui::region_dispatch::region_role(r.id);
-        let mut produced: Vec<zaroxi_core_engine_render_backend::DrawRect> = match role {
-            zaroxi_core_engine_style::PanelRole::TopBar => {
-                super::toolbar::draw(r, &shell.theme, sem)
-            }
-            zaroxi_core_engine_style::PanelRole::NavigationRail
-            | zaroxi_core_engine_style::PanelRole::SidePanel => {
-                super::rail::draw(r, &shell.theme, shell.work_content.as_ref(), sem)
-            }
-            zaroxi_core_engine_style::PanelRole::ContentTabStrip
-            | zaroxi_core_engine_style::PanelRole::ContentBreadcrumb
-            | zaroxi_core_engine_style::PanelRole::ContentArea
-            | zaroxi_core_engine_style::PanelRole::MinimapLane
-            | zaroxi_core_engine_style::PanelRole::BottomPanel => {
-                super::editor::draw(r, &shell.theme, shell.work_content.as_ref(), sem)
-            }
-            zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent => {
-                super::ai_pane::draw(r, &shell.theme, shell.work_content.as_ref(), sem)
-            }
-            zaroxi_core_engine_style::PanelRole::BottomDock => {
-                super::bottom_panel::draw(r, &shell.theme, sem)
-            }
-            zaroxi_core_engine_style::PanelRole::StatusBar => {
-                super::status_bar::draw(r, &shell.theme, sem)
-            }
-            _ => Vec::new(),
-        };
+use super::ai_pane::{AiPanel, AiPanelData};
+use super::bottom_panel::BottomDockPanel;
+use super::editor::{EditorContentData, EditorPanel};
+use super::rail::{ExplorerData, RailPanel};
+use super::status_bar::{StatusBarData, StatusBarPanel};
+use super::toolbar::TopBarPanel;
 
-        rects.append(&mut produced);
-    }
+pub struct ShellBlockContext {
+    pub editor_data: EditorContentData,
+    pub explorer_data: ExplorerData,
+    pub status_bar_data: StatusBarData,
+    pub ai_data: AiPanelData,
+}
 
-    rects
+/// Compose all shell regions into UiBlocks by delegating to panel modules.
+pub fn compose_blocks(
+    regions: &[ShellRegion],
+    tokens: &StyleTokens,
+    ctx: &ShellBlockContext,
+) -> Vec<UiBlock> {
+    regions
+        .iter()
+        .map(|r| {
+            let role = region_role(r.id);
+            match role {
+                PanelRole::TopBar => TopBarPanel::build_block(r, tokens),
+                PanelRole::NavigationRail => RailPanel::build_rail_block(r, tokens),
+                PanelRole::SidePanel => {
+                    RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data)
+                }
+                PanelRole::ContentTabStrip => {
+                    EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data)
+                }
+                PanelRole::ContentBreadcrumb => {
+                    EditorPanel::build_breadcrumb_block(r, tokens, &ctx.editor_data)
+                }
+                PanelRole::ContentArea => {
+                    EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data)
+                }
+                PanelRole::MinimapLane => EditorPanel::build_minimap_block(r, tokens),
+                PanelRole::BottomPanel => EditorPanel::build_bottom_panel_block(r, tokens),
+                PanelRole::BottomDock => BottomDockPanel::build_block(r, tokens),
+                PanelRole::AuxiliaryPanelHeader => AiPanel::build_header_block(r, tokens),
+                PanelRole::AuxiliaryPanelContent => {
+                    AiPanel::build_content_block(r, tokens, &ctx.ai_data)
+                }
+                PanelRole::StatusBar => {
+                    StatusBarPanel::build_block(r, tokens, &ctx.status_bar_data)
+                }
+            }
+        })
+        .collect()
 }

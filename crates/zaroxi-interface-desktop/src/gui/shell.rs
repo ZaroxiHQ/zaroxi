@@ -51,8 +51,8 @@ pub struct Theme {
 }
 
 impl Theme {
-    pub fn from_variant(theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
-        let variant = theme_mode.resolve(true);
+    pub fn from_variant(resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
+        let variant = resolved_theme;
         let sem = variant.colors(false);
         let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
 
@@ -102,8 +102,8 @@ impl ShellFrame {
     /// Removes outer padding (chrome regions self-inset), tightens header/separator
     /// heights, narrows the activity rail, and gives the center editor unambiguous
     /// visual dominance.
-    pub fn new(size: Size, theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
-        let theme = Theme::from_variant(theme_mode);
+    pub fn new(size: Size, resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
+        let theme = Theme::from_variant(resolved_theme);
 
         // Chrome dimensions — responsive horizontal allocation.
         let outer_padding: u32 = 0;

@@ -345,8 +345,14 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     let (sw, sh) = z.size();
                     if sw > 0 && sh > 0 {
+                        let system_is_dark = z
+                            .window()
+                            .theme()
+                            .map(|t| matches!(t, winit::window::Theme::Dark))
+                            .unwrap_or(true);
+                        let resolved = self.theme_mode.resolve(system_is_dark);
                         let actual = crate::gui::Size { width: sw, height: sh };
-                        self.shell = crate::gui::ShellFrame::new(actual, self.theme_mode);
+                        self.shell = crate::gui::ShellFrame::new(actual, resolved);
                     }
 
                     self.shell.work_content = self.work_content.clone();
@@ -358,9 +364,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .unwrap_or(true);
                     let variant = self.theme_mode.resolve(system_is_dark);
                     let sem = variant.colors(false);
-
-                    let rects = super::frame::build_overlay_rects(&self.shell, &sem);
-                    let backend_text_ops = rects.len();
 
                     let tokens = super::style_tokens_adapter::resolve_style_tokens(
                         &sem,
@@ -619,27 +622,27 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .and_then(|w| w.ai_panel_content.as_ref())
                         .map(|cv| cv.lines.join("\n"));
 
-                    let panel_data = super::panel_blocks::PanelContentData {
-                        tab_title,
-                        tab_content,
-                        breadcrumb_label,
-                        sidebar_items,
-                        editor_body_text,
-                        editor_spans,
-                        editor_cursor_line,
-                        editor_cursor_col,
-                        status_line: self.editor_cursor_line,
-                        status_col: self.editor_cursor_col,
-                        status_language: status_lang.to_string(),
-                        ai_content: ai_text,
+                    let ctx = super::frame::ShellBlockContext {
+                        editor_data: super::editor::EditorContentData {
+                            tab_title,
+                            tab_content,
+                            breadcrumb_label,
+                            editor_body_text,
+                            editor_spans,
+                            cursor_line: editor_cursor_line,
+                            cursor_col: editor_cursor_col,
+                        },
+                        explorer_data: super::rail::ExplorerData { sidebar_items },
+                        status_bar_data: super::status_bar::StatusBarData {
+                            status_line: self.editor_cursor_line,
+                            status_col: self.editor_cursor_col,
+                            status_language: status_lang.to_string(),
+                        },
+                        ai_data: super::ai_pane::AiPanelData { ai_content: ai_text },
                     };
 
-                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = self
-                        .shell
-                        .regions
-                        .iter()
-                        .map(|r| super::panel_blocks::region_to_block(r, &tokens, &panel_data))
-                        .collect();
+                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
+                        super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
 
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
@@ -678,10 +681,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     eprintln!(
-                        "GUI_TEXT_FRAME_SUMMARY: surface={}x{} overlay_rects={} render_blocks={}",
+                        "GUI_TEXT_FRAME_SUMMARY: surface={}x{} render_blocks={}",
                         sw,
                         sh,
-                        backend_text_ops,
                         render_blocks.len()
                     );
                 }
