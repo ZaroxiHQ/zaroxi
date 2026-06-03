@@ -15,6 +15,7 @@ Responsibilities:
 use bytemuck;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
+use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_window::ZaroxiWindow;
 
 static GUI_TEXT_FALLBACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -37,6 +38,8 @@ pub struct RenderBackend<'a> {
     pub surface_format: wgpu::TextureFormat,
     /// Simple pipeline used to render solid rectangles for the shell regions.
     pub pipeline: Option<wgpu::RenderPipeline>,
+    /// Host-supplied style tokens for UI overlay color resolution.
+    pub style_tokens: StyleTokens,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -68,7 +71,8 @@ impl<'a> RenderBackend<'a> {
     /// Create a new RenderBackend for the supplied window.
     ///
     /// This is async because wgpu adapter / device requests are async.
-    pub async fn new(window: &'a ZaroxiWindow) -> Self {
+    /// Accepts host-supplied `StyleTokens` for UI overlay color resolution.
+    pub async fn new(window: &'a ZaroxiWindow, style_tokens: StyleTokens) -> Self {
         // Create instance using the wgpu default constructor for the resolved local API.
         // This avoids constructing InstanceDescriptor by hand and matches the local wgpu.
         let instance = wgpu::Instance::default();
@@ -153,7 +157,9 @@ impl<'a> RenderBackend<'a> {
                 overlay_rects: Option<&[DrawRect]>,
             ) -> Result<(), Box<dyn std::error::Error>> {
                 // Create a temporary backend (async init).
-                let backend = Self::new(window).await;
+                let backend =
+                    Self::new(window, zaroxi_core_engine_style::test_utils::test_tokens_dark())
+                        .await;
 
                 // Acquire next surface texture.
                 let surface_texture = match backend.surface.get_current_texture() {
@@ -451,6 +457,7 @@ impl<'a> RenderBackend<'a> {
             surface_config,
             surface_format,
             pipeline,
+            style_tokens,
             _marker: std::marker::PhantomData,
         }
     }
@@ -505,11 +512,7 @@ impl<'a> RenderBackend<'a> {
         // Build UI via the engine UI composer and convert to vertices.
         let width = self.surface_config.width;
         let height = self.surface_config.height;
-        let ui_rects = zaroxi_core_engine_layout::build_shell_ui(
-            width,
-            height,
-            &zaroxi_core_engine_style::test_utils::test_tokens_dark(),
-        );
+        let ui_rects = zaroxi_core_engine_layout::build_shell_ui(width, height, &self.style_tokens);
 
         // Trace what the backend observes on each frame (adapter marker => adapter_text_ops).
         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");

@@ -41,8 +41,13 @@ async fn main() {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     let mut zwin = ZaroxiWindow::new(&event_loop);
 
-    // Initialize the render backend
-    let mut backend: RenderBackend<'_> = RenderBackend::new(&zwin).await;
+    // Initialize the render backend with host-resolved style tokens.
+    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+    let tokens = zaroxi_interface_desktop::gui::window::style_tokens_adapter::resolve_style_tokens(
+        &sem,
+        &Default::default(),
+    );
+    let mut backend: RenderBackend<'_> = RenderBackend::new(&zwin, tokens).await;
 
     // Request an initial redraw to start rendering
     zwin.window().request_redraw();

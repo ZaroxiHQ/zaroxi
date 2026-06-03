@@ -51,18 +51,16 @@ pub struct Theme {
     pub text_secondary: &'static str,
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        // Source canonical tokens from the workspace theme crate so the desktop
-        // crate does not own or hardcode theme values. Use the resolved dark
-        // variant for deterministic rendering in tests/harnesses.
-        let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+impl Theme {
+    pub fn from_variant(light: bool) -> Self {
+        let variant = if light {
+            zaroxi_interface_theme::theme::ZaroxiTheme::Light
+        } else {
+            zaroxi_interface_theme::theme::ZaroxiTheme::Dark
+        };
+        let sem = variant.colors(false);
         let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
 
-        // Convert colors to hex strings and leak them to 'static so existing
-        // interfaces that expect &'static str continue to work without wide
-        // changes across the crate. This is a narrow shim and avoids creating
-        // a second theme representation inside the desktop crate.
         let surface_s = sem.shell_background.to_hex();
         let border_s = sem.border.to_hex();
         let text_primary_s = sem.text_primary.to_hex();
@@ -81,6 +79,12 @@ impl Default for Theme {
             text_primary: text_primary_static,
             text_secondary: text_secondary_static,
         }
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::from_variant(false)
     }
 }
 
@@ -103,8 +107,8 @@ impl ShellFrame {
     /// Removes outer padding (chrome regions self-inset), tightens header/separator
     /// heights, narrows the activity rail, and gives the center editor unambiguous
     /// visual dominance.
-    pub fn new(size: Size) -> Self {
-        let theme = Theme::default();
+    pub fn new(size: Size, light_theme: bool) -> Self {
+        let theme = Theme::from_variant(light_theme);
 
         // Chrome dimensions — responsive horizontal allocation.
         let outer_padding: u32 = 0;
@@ -324,7 +328,7 @@ mod tests {
     fn editor_never_collapses_at_any_width() {
         let widths = [1354u32, 960, 850, 680, 650, 500, 400];
         for &w in &widths {
-            let shell = ShellFrame::new(Size { width: w, height: 400 });
+            let shell = ShellFrame::new(Size { width: w, height: 400 }, false);
             let editor = shell
                 .regions
                 .iter()
@@ -342,7 +346,7 @@ mod tests {
     /// Regions occupying the same horizontal band must not overlap.
     #[test]
     fn no_horizontal_overlap_in_main_band() {
-        let shell = ShellFrame::new(Size { width: 960, height: 540 });
+        let shell = ShellFrame::new(Size { width: 960, height: 540 }, false);
         let find = |role: PanelRole| -> Rect {
             crate::gui::region_dispatch::find_region_by_role(&shell.regions, role).unwrap().rect
         };
@@ -369,7 +373,7 @@ mod tests {
     /// At narrow widths, the minimap is hidden and sidebar shrinks.
     #[test]
     fn minimap_hidden_at_narrow_widths() {
-        let shell = ShellFrame::new(Size { width: 680, height: 400 });
+        let shell = ShellFrame::new(Size { width: 680, height: 400 }, false);
         let minimap =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::MinimapLane).unwrap();
         assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 680px");
@@ -382,7 +386,7 @@ mod tests {
     /// Sidebar collapses to rail-width at very narrow shells.
     #[test]
     fn sidebar_collapses_at_extreme_widths() {
-        let shell = ShellFrame::new(Size { width: 500, height: 400 });
+        let shell = ShellFrame::new(Size { width: 500, height: 400 }, false);
         let sidebar =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
         assert_eq!(sidebar.rect.width, 56, "sidebar should collapse to 56 at 500px");

@@ -16,7 +16,6 @@ mod rail;
 mod redraw;
 #[cfg(feature = "gui_window")]
 mod status_bar;
-#[cfg(feature = "gui_window")]
 pub mod style_tokens_adapter;
 #[cfg(feature = "gui_window")]
 mod syntax_color;

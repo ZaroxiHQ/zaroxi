@@ -52,6 +52,8 @@ pub struct GuiApp {
     pub editor_cursor_col: usize,
     /// Drag-start line/col for selection extending.
     pub selection_anchor: Option<(usize, usize)>,
+    /// Whether to use the light theme variant (false = dark).
+    pub use_light_theme: bool,
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -345,7 +347,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let (sw, sh) = z.size();
                     if sw > 0 && sh > 0 {
                         let actual = crate::gui::Size { width: sw, height: sh };
-                        self.shell = crate::gui::ShellFrame::new(actual);
+                        self.shell = crate::gui::ShellFrame::new(actual, self.use_light_theme);
                     }
 
                     self.shell.work_content = self.work_content.clone();
@@ -353,7 +355,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let rects = super::frame::build_overlay_rects(&self.shell);
                     let backend_text_ops = rects.len();
 
-                    let sem = zaroxi_interface_theme::theme::ZaroxiTheme::Dark.colors(false);
+                    let variant = if self.use_light_theme {
+                        zaroxi_interface_theme::theme::ZaroxiTheme::Light
+                    } else {
+                        zaroxi_interface_theme::theme::ZaroxiTheme::Dark
+                    };
+                    let sem = variant.colors(false);
                     let tokens = super::style_tokens_adapter::resolve_style_tokens(
                         &sem,
                         &Default::default(),
