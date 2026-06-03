@@ -11,6 +11,7 @@ vello = { workspace = true }
 winit = { workspace = true }
 zaroxi-core-engine-window = { workspace = true }
 zaroxi-core-engine-layout = { workspace = true }
+zaroxi-core-engine-style = { workspace = true }
 zaroxi-kernel-math = { workspace = true }
 zaroxi-core-engine-font = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }

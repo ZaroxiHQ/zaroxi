@@ -8,4 +8,5 @@ license = "MIT"
 [dependencies]
 # Engine-internal workspace deps — the workspace root is the single source of truth.
 zaroxi-core-engine-scene = { workspace = true }
+zaroxi-core-engine-style = { workspace = true }
 zaroxi-kernel-math = { workspace = true }

@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
     use zaroxi_core_engine_layout::build_shell_ui;
+    use zaroxi_core_engine_style::EngineTheme;
 
     #[test]
     fn basic_shell_rects_count_and_top_height() {
-        let rects = build_shell_ui(800, 600);
+        let theme = EngineTheme::dark();
+        let rects = build_shell_ui(800, 600, &theme);
         // paint order: background + top + sidebar + editor + status
         assert!(rects.len() >= 5, "expected at least 5 rects, got {}", rects.len());
 
@@ -16,7 +18,6 @@ mod tests {
         assert_eq!(bg.height, 600.0);
 
         // top bar height should match the design constant (30.0)
-        // it's the second rect
         let top = &rects[1];
         assert_eq!(top.height as i32, 30, "top bar height mismatch: {}", top.height);
     }

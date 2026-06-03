@@ -5,7 +5,6 @@
 //! gutter labels, and scroll consistency.
 
 use zaroxi_core_editor_view::{EditorRenderContract, EditorRenderMetrics};
-use zaroxi_core_engine_scene::{CaretItem, EditorPrimitiveSet, SelectionRect, TextPrimitive};
 use zaroxi_interface_desktop::presenters::transcript::build_primitives_from_contract;
 
 /// Verify caret position is correct for cursor on the first visible line.

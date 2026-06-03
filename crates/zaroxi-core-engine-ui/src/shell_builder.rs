@@ -1,7 +1,7 @@
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
 use zaroxi_core_engine_layout::ShellLayout;
-use zaroxi_core_engine_style::{EngineTheme, InteractionState, WidgetId};
+use zaroxi_core_engine_style::{EngineTheme, InteractionState, ThemeModifiers, WidgetId};
 use zaroxi_kernel_math::Rect;
 
 /// Build a complete `ShellWidgetTree` from the deterministic shell layout and
@@ -11,6 +11,7 @@ use zaroxi_kernel_math::Rect;
 pub fn build_shell_widget_tree(layout: &ShellLayout, theme: &EngineTheme) -> ShellWidgetTree {
     let mut tree = ShellWidgetTree::new();
     let _dt = zaroxi_core_engine_style::EngineDesignTokens::default();
+    let _md = ThemeModifiers::default();
 
     // ── 1. App background ──
     tree.push(ShellWidget::AppBackground {

@@ -505,7 +505,11 @@ impl<'a> RenderBackend<'a> {
         // Build UI via the engine UI composer and convert to vertices.
         let width = self.surface_config.width;
         let height = self.surface_config.height;
-        let ui_rects = zaroxi_core_engine_layout::build_shell_ui(width, height);
+        let ui_rects = zaroxi_core_engine_layout::build_shell_ui(
+            width,
+            height,
+            &zaroxi_core_engine_style::EngineTheme::dark(),
+        );
 
         // Trace what the backend observes on each frame (adapter marker => adapter_text_ops).
         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");

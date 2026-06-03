@@ -158,20 +158,20 @@ impl EngineTheme {
     pub fn dark() -> Self {
         Self {
             variant: ThemeVariant::Dark,
-            app_background: ThemeColor::from_hex("#1B1D22"),
-            shell_background: ThemeColor::from_hex("#1E2025"),
-            surface_default: ThemeColor::from_hex("#252931"),
-            surface_elevated: ThemeColor::from_hex("#2A2E37"),
-            editor_background: ThemeColor::from_hex("#1E1F24"),
-            input_background: ThemeColor::from_hex("#2A2E37"),
-            status_bar_background: ThemeColor::from_hex("#23262D"),
-            activity_rail_background: ThemeColor::from_hex("#20232A"),
-            sidebar_background: ThemeColor::from_hex("#252931"),
-            tab_strip_background: ThemeColor::from_hex("#20232A"),
-            tab_active_background: ThemeColor::from_hex("#1E1F24"),
-            tab_inactive_background: ThemeColor::from_hex("#252830"),
-            assistant_panel_background: ThemeColor::from_hex("#262A32"),
-            bottom_panel_background: ThemeColor::from_hex("#23262D"),
+            app_background: ThemeColor::from_hex("#0D0E11"),
+            shell_background: ThemeColor::from_hex("#121318"),
+            surface_default: ThemeColor::from_hex("#1A1B21"),
+            surface_elevated: ThemeColor::from_hex("#1E1F25"),
+            editor_background: ThemeColor::from_hex("#15161A"),
+            input_background: ThemeColor::from_hex("#1E1F25"),
+            status_bar_background: ThemeColor::from_hex("#1A1B21"),
+            activity_rail_background: ThemeColor::from_hex("#16171C"),
+            sidebar_background: ThemeColor::from_hex("#1A1B21"),
+            tab_strip_background: ThemeColor::from_hex("#121318"),
+            tab_active_background: ThemeColor::from_hex("#15161A"),
+            tab_inactive_background: ThemeColor::from_hex("#18191F"),
+            assistant_panel_background: ThemeColor::from_hex("#1C1D23"),
+            bottom_panel_background: ThemeColor::from_hex("#1A1B21"),
 
             text_primary: ThemeColor::from_hex("#E6EAF2"),
             text_secondary: ThemeColor::from_hex("#C8CDD6"),
@@ -264,7 +264,7 @@ impl EngineTheme {
     /// Resolve a panel header background: slightly elevated from the surface below.
     pub fn panel_header_bg(&self) -> ThemeColor {
         match self.variant {
-            ThemeVariant::Dark => ThemeColor::from_hex("#282C35"),
+            ThemeVariant::Dark => ThemeColor::from_hex("#1E1F25"),
             ThemeVariant::Light => ThemeColor::from_hex("#E8E5DE"),
         }
     }
@@ -323,6 +323,139 @@ impl Default for EngineDesignTokens {
             font_size_lg: 16.0,
             font_size_xl: 20.0,
             font_size_xxl: 24.0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ThemeModifiers — brightness/alpha factors for derived theme colors
+// ---------------------------------------------------------------------------
+
+/// Named brightness and alpha factors used across the engine shell builder
+/// and renderer to derive variant colors from theme tokens.
+///
+/// Phase 40: Consolidates all `adjust_brightness(N.M)` magic numbers spread
+/// across shell_builder.rs, editor.rs, and app.rs into a single contract.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ThemeModifiers {
+    /// How much to dim the accent color for brand labels / pressed states.
+    pub accent_dim: f32,
+
+    /// Brightness for brand label accent fill (titlebar brand label).
+    pub brand_accent_dim: f32,
+
+    /// Dim factor for titlebar close/minimize/... button fills.
+    pub titlebar_button_dim: f32,
+
+    /// Brightness for selected background text for active items.
+    pub selected_brighten: f32,
+
+    /// Brightness for inactive rail/action fills derived from text_faint.
+    pub rail_inactive_fill: f32,
+    /// Brightness for bottom-rail fills.
+    pub rail_bottom_fill: f32,
+
+    /// Brightness for sidebar file item placeholder fills.
+    pub sidebar_file_fill: f32,
+
+    /// Brightness for scrollbar track fills.
+    pub scrollbar_track_fill: f32,
+    /// Brightness for scrollbar thumb fills.
+    pub scrollbar_thumb_fill: f32,
+
+    /// Brightness for breadcrumb background.
+    pub breadcrumb_bg: f32,
+    /// Alpha multiplier for subtle dividers.
+    pub divider_subtle_alpha: f32,
+
+    /// Brightness for status segment pill backgrounds.
+    pub status_pill_fill: f32,
+    /// Brightness for status language badge backgrounds.
+    pub status_badge_brighten: f32,
+
+    /// Brightness for panel action button fills.
+    pub panel_action_fill: f32,
+
+    /// Dim factor for tab accent strips.
+    pub tab_accent_dim: f32,
+    /// Active tab bottom separator factor.
+    pub tab_separator_dim: f32,
+
+    /// Minimap bar fill factors.
+    pub minimap_function_bar: f32,
+    pub minimap_type_bar: f32,
+    pub minimap_other_bar: f32,
+    pub minimap_viewport_fill: f32,
+}
+
+impl Default for ThemeModifiers {
+    fn default() -> Self {
+        Self {
+            accent_dim: 0.9,
+            brand_accent_dim: 0.82,
+            titlebar_button_dim: 0.15,
+            selected_brighten: 1.6,
+            rail_inactive_fill: 0.18,
+            rail_bottom_fill: 0.16,
+            sidebar_file_fill: 0.20,
+            scrollbar_track_fill: 0.55,
+            scrollbar_thumb_fill: 0.25,
+            breadcrumb_bg: 0.97,
+            divider_subtle_alpha: 0.5,
+            status_pill_fill: 0.14,
+            status_badge_brighten: 2.2,
+            panel_action_fill: 0.18,
+            tab_accent_dim: 0.9,
+            tab_separator_dim: 0.88,
+            minimap_function_bar: 0.40,
+            minimap_type_bar: 0.40,
+            minimap_other_bar: 0.22,
+            minimap_viewport_fill: 0.06,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PanelStyleTable — role-to-color mapping for generic UI regions
+// ---------------------------------------------------------------------------
+
+/// Resolves fill colors for a generic UI surface role without region-name
+/// string matching. Interface layers map IDE-specific concepts onto these
+/// generic roles; the engine stays app-neutral.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PanelRole {
+    TopBar,
+    NavigationRail,
+    SidePanel,
+    ContentTabStrip,
+    ContentBreadcrumb,
+    ContentArea,
+    AuxiliaryPanelHeader,
+    AuxiliaryPanelContent,
+    BottomPanel,
+    StatusBar,
+    MinimapLane,
+    BottomDock,
+}
+
+impl PanelRole {
+    /// Resolve the primary fill color for this panel role from the theme.
+    pub fn fill(&self, theme: &EngineTheme, mods: &ThemeModifiers) -> ThemeColor {
+        match self {
+            Self::TopBar => theme.surface_elevated,
+            Self::NavigationRail => theme.activity_rail_background,
+            Self::SidePanel => theme.sidebar_background,
+            Self::ContentTabStrip => theme.tab_strip_background,
+            Self::ContentBreadcrumb => {
+                theme.editor_background.adjust_brightness(mods.breadcrumb_bg)
+            }
+            Self::ContentArea => theme.editor_background,
+            Self::AuxiliaryPanelHeader => theme.panel_header_bg(),
+            Self::AuxiliaryPanelContent => theme.assistant_panel_background,
+            Self::BottomPanel => theme.bottom_panel_background,
+            Self::StatusBar => theme.status_bar_background,
+            Self::MinimapLane => theme.editor_background,
+            Self::BottomDock => theme.surface_default,
         }
     }
 }
