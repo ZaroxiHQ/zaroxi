@@ -4,7 +4,7 @@ use zaroxi_interface_desktop::gui::{ShellFrame, Size};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let size = Size { width: 1354, height: 720 };
-    let mut shell = ShellFrame::new(size, false);
+    let mut shell = ShellFrame::new(size, zaroxi_interface_theme::theme::ZaroxiTheme::Dark);
 
     // Populate workspace content from DesktopComposition.
     let comp = zaroxi_interface_desktop::DesktopComposition::new();

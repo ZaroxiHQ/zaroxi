@@ -14,7 +14,6 @@ use winit::{
     window::WindowAttributes,
 };
 
-use crate::gui::region_dispatch::region_role;
 use crate::gui::{ShellFrame, ShellWorkContent};
 
 /// Small application handler that owns the engine window handle and the ShellFrame
@@ -52,8 +51,8 @@ pub struct GuiApp {
     pub editor_cursor_col: usize,
     /// Drag-start line/col for selection extending.
     pub selection_anchor: Option<(usize, usize)>,
-    /// Whether to use the light theme variant (false = dark).
-    pub use_light_theme: bool,
+    /// Theme mode: Dark, Light, or System (default).
+    pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -347,20 +346,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let (sw, sh) = z.size();
                     if sw > 0 && sh > 0 {
                         let actual = crate::gui::Size { width: sw, height: sh };
-                        self.shell = crate::gui::ShellFrame::new(actual, self.use_light_theme);
+                        self.shell = crate::gui::ShellFrame::new(actual, self.theme_mode);
                     }
 
                     self.shell.work_content = self.work_content.clone();
 
-                    let rects = super::frame::build_overlay_rects(&self.shell);
+                    let system_is_dark = z
+                        .window()
+                        .theme()
+                        .map(|t| matches!(t, winit::window::Theme::Dark))
+                        .unwrap_or(true);
+                    let variant = self.theme_mode.resolve(system_is_dark);
+                    let sem = variant.colors(false);
+
+                    let rects = super::frame::build_overlay_rects(&self.shell, &sem);
                     let backend_text_ops = rects.len();
 
-                    let variant = if self.use_light_theme {
-                        zaroxi_interface_theme::theme::ZaroxiTheme::Light
-                    } else {
-                        zaroxi_interface_theme::theme::ZaroxiTheme::Dark
-                    };
-                    let sem = variant.colors(false);
                     let tokens = super::style_tokens_adapter::resolve_style_tokens(
                         &sem,
                         &Default::default(),
@@ -554,7 +555,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // Colorize only visible lines
                                 let visible_slice: Vec<String> = cv.lines[first_line..end].to_vec();
                                 let all_spans =
-                                    super::syntax_color::colorize_source(&visible_slice);
+                                    super::syntax_color::colorize_source(&visible_slice, &sem);
                                 all_spans
                             },
                         );
@@ -593,266 +594,52 @@ impl winit::application::ApplicationHandler for GuiApp {
                             "PROJECT\n  src/main.rs\n  src/lib.rs\n  Cargo.toml\nGIT\n  clean\nOUTLINE\n  fn main\n  struct App".to_string()
                         });
 
-                    let region_to_block =
-                        |r: &crate::gui::ShellRegion| -> zaroxi_core_engine_render::UiBlock {
-                            let rect = zaroxi_core_engine_render::Rect {
-                                x: r.rect.x as f32,
-                                y: r.rect.y as f32,
-                                w: r.rect.width as f32,
-                                h: r.rect.height as f32,
-                            };
+                    let status_lang = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.active_file.as_ref())
+                        .and_then(|f| f.rsplit('.').next())
+                        .map(|ext| match ext {
+                            "rs" => "Rust",
+                            "toml" => "TOML",
+                            "md" => "Markdown",
+                            "json" => "JSON",
+                            "py" => "Python",
+                            "js" => "JavaScript",
+                            "ts" => "TypeScript",
+                            _ => ext,
+                        })
+                        .unwrap_or("Rust");
 
-                            match region_role(r.id) {
-                                zaroxi_core_engine_style::PanelRole::TopBar => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: "Zaroxi Studio".to_string(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.status_bar_background.to_array()),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: Some(tokens.divider_default.to_array()),
-                                    border_width: 1.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: Some(tokens.text_primary.to_array()),
-                                },
-                                zaroxi_core_engine_style::PanelRole::NavigationRail => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: String::new(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.rail_background.to_array()),
-                                    content_color: Some(tokens.rail_background.to_array()),
-                                    corner_radius: 0.0,
-                                    border_color: Some(
-                                        tokens.sidebar_border.to_array(),
-                                    ),
-                                    border_width: 1.0,
-                                    header_only: false,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
+                    let ai_text = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.ai_panel_content.as_ref())
+                        .map(|cv| cv.lines.join("\n"));
 
-                                },
-                                zaroxi_core_engine_style::PanelRole::SidePanel => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: "Explorer".to_string(),
-                                    content: sidebar_items.clone(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.sidebar_background.to_array()),
-                                    content_color: Some(tokens.sidebar_background.to_array()),
-                                    corner_radius: 0.0,
-                                    border_color: None,
-                                    border_width: 0.0,
-                                    header_only: false,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
+                    let panel_data = super::panel_blocks::PanelContentData {
+                        tab_title,
+                        tab_content,
+                        breadcrumb_label,
+                        sidebar_items,
+                        editor_body_text,
+                        editor_spans,
+                        editor_cursor_line,
+                        editor_cursor_col,
+                        status_line: self.editor_cursor_line,
+                        status_col: self.editor_cursor_col,
+                        status_language: status_lang.to_string(),
+                        ai_content: ai_text,
+                    };
 
-                                },
-                                zaroxi_core_engine_style::PanelRole::ContentTabStrip => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: tab_title.clone(),
-                                    content: tab_content.clone(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.tab_strip_background.to_array()),
-                                    content_color: None,
-                                    corner_radius: 4.0,
-                                    border_color: Some(tokens.divider_default.to_array()),
-                                    border_width: 1.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: Some(tokens.text_primary.to_array()),
-                                },
-                                zaroxi_core_engine_style::PanelRole::ContentBreadcrumb => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: breadcrumb_label.clone(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(
-                                        tokens.editor_breadcrumb_background.to_array(),
-                                    ),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: Some(tokens.divider_subtle.to_array()),
-                                    border_width: 1.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: Some(tokens.text_muted.to_array()),
-                                },
-                                zaroxi_core_engine_style::PanelRole::ContentArea => {
-                                    zaroxi_core_engine_render::UiBlock {
-                                        id: r.id.to_string(),
-                                        title: String::new(),
-                                        content: editor_body_text.clone(),
-                                        visible: true,
-                                        rect,
-                                        header_color: Some(tokens.editor_content_background.to_array()),
-                                        content_color: Some(tokens.editor_content_background.to_array()),
-                                        corner_radius: 0.0,
-                                        border_color: None,
-                                        border_width: 0.0,
-                                        header_only: false,
-                                        content_spans: editor_spans.clone(),
-                                        cursor_line: Some(editor_cursor_line),
-                                        cursor_col: Some(editor_cursor_col),
-                                        highlight_active_line: true,
-                                        selection_range: None,
-                                        text_color: None,
-
-                                    }
-                                }
-                                zaroxi_core_engine_style::PanelRole::MinimapLane => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: String::new(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(
-                                        tokens.editor_content_background.adjust_brightness(0.95).to_array(),
-                                    ),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: None,
-                                    border_width: 0.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
-
-                                },
-                                zaroxi_core_engine_style::PanelRole::BottomPanel => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: "Terminal • Problems • Output".to_string(),
-                                    content: "$ cargo build\n   Compiling zaroxi v0.1.0\n    Finished dev [unoptimized]".to_string(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.panel_header_background.to_array()),
-                                    content_color: Some(tokens.bottom_panel_background.to_array()),
-                                    corner_radius: 4.0,
-                                    border_color: Some(tokens.divider_default.to_array()),
-                                    border_width: 1.0,
-                                    header_only: false,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
-
-                                },
-                                zaroxi_core_engine_style::PanelRole::BottomDock => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: String::new(),
-                                    content: String::new(),
-                                    visible: r.rect.height > 0,
-                                    rect,
-                                    header_color: Some(tokens.app_background.to_array()),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: None,
-                                    border_width: 0.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
-
-                                },
-                                zaroxi_core_engine_style::PanelRole::AuxiliaryPanelHeader => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: "AI Assistant".to_string(),
-                                    content: String::new(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.panel_header_background.to_array()),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: Some(tokens.divider_default.to_array()),
-                                    border_width: 1.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: Some(tokens.text_primary.to_array()),
-                                },
-                                zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: "Assistant".to_string(),
-                                    content: "No active AI session\nOpen a file and request an AI edit to get started.".to_string(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.assistant_panel_background.to_array()),
-                                    content_color: None,
-                                    corner_radius: 0.0,
-                                    border_color: None,
-                                    border_width: 0.0,
-                                    header_only: true,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: None,
-
-                                },
-                                zaroxi_core_engine_style::PanelRole::StatusBar => zaroxi_core_engine_render::UiBlock {
-                                    id: r.id.to_string(),
-                                    title: String::new(),
-                                    content: "Ready  Ln 22, Col 14  UTF-8  LF  Rust".to_string(),
-                                    visible: true,
-                                    rect,
-                                    header_color: Some(tokens.status_bar_background.to_array()),
-                                    content_color: Some(tokens.status_bar_background.to_array()),
-                                    corner_radius: 4.0,
-                                    border_color: Some(
-                                        tokens.status_divider.to_array(),
-                                    ),
-                                    border_width: 1.0,
-                                    header_only: false,
-                                    content_spans: None,
-                                    cursor_line: None,
-                                    cursor_col: None,
-                                    highlight_active_line: false,
-                                    selection_range: None,
-                                    text_color: Some(tokens.text_secondary.to_array()),
-                                },
-                            }
-                        };
-
-                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
-                        self.shell.regions.iter().map(region_to_block).collect();
+                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> = self
+                        .shell
+                        .regions
+                        .iter()
+                        .map(|r| super::panel_blocks::region_to_block(r, &tokens, &panel_data))
+                        .collect();
 
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),

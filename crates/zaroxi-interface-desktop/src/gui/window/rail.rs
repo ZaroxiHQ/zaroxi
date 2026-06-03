@@ -9,17 +9,17 @@ Phase 3: accepts optional ShellWorkContent for live explorer tree items.
 use crate::gui::ShellWorkContent;
 use crate::gui::region_dispatch::region_role;
 use zaroxi_core_engine_style::PanelRole;
-use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_interface_theme::theme::SemanticColors;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
     work_content: Option<&ShellWorkContent>,
+    sem: &SemanticColors,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
     let r = &region.rect;
-    let sem = ZaroxiTheme::Dark.colors(false);
 
     match region_role(region.id) {
         PanelRole::NavigationRail => {

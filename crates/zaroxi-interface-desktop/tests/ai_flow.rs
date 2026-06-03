@@ -471,7 +471,10 @@ async fn ai_proposal_populates_content_view_and_transcript() {
     );
 
     // Transcript: render the shell with composition attached.
-    let shell = ShellFrame::new(Size { width: 1280, height: 800 }, false);
+    let shell = ShellFrame::new(
+        Size { width: 1280, height: 800 },
+        zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
+    );
     let transcript = shell.render_lines(Some(&comp));
     let joined = transcript.join("\n");
 

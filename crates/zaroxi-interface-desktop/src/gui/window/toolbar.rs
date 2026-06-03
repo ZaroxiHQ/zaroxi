@@ -4,16 +4,16 @@ Top toolbar / titlebar drawing logic.
 Phase 4: product-parity titlebar — brand left, action icons center row,
 window control dots right, thin bottom separator.
 */
-use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_interface_theme::theme::SemanticColors;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
+    sem: &SemanticColors,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
     let r = &region.rect;
-    let sem = ZaroxiTheme::Dark.colors(false);
 
     // Title bar background
     rects.push(zaroxi_core_engine_render_backend::DrawRect {

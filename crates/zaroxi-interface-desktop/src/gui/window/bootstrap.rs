@@ -59,7 +59,7 @@ pub fn run_shell_window(
         editor_cursor_line: 7,
         editor_cursor_col: 4,
         selection_anchor: None,
-        use_light_theme: false,
+        theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
     };
 
     let run_result = event_loop.run_app(&mut app);

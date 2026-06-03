@@ -1,13 +1,12 @@
 use zaroxi_core_platform_syntax::highlight::{Highlight, HighlightEngine};
 use zaroxi_core_platform_syntax::language::LanguageId;
 use zaroxi_core_platform_syntax::parser::ParserPool;
-use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_interface_theme::theme::SemanticColors;
 
 /// Colorize editor source lines using tree-sitter syntax highlighting.
 /// Returns per-line colored spans as `(text, [r, g, b, a])`.
-pub fn colorize_source(lines: &[String]) -> Vec<(String, [f32; 4])> {
+pub fn colorize_source(lines: &[String], sem: &SemanticColors) -> Vec<(String, [f32; 4])> {
     let source = lines.join("\n");
-    let sem = ZaroxiTheme::Dark.colors(false);
 
     // Parse with tree-sitter
     let pool = ParserPool::new();
@@ -63,7 +62,7 @@ pub fn colorize_source(lines: &[String]) -> Vec<(String, [f32; 4])> {
             for span in &line_spans {
                 let seg_start = span.start.max(pos);
                 let seg_end = span.end.min(line_end);
-                if seg_start > pos && pos < seg_start {
+                if seg_start > pos {
                     let before = &source[pos..seg_start];
                     if !before.is_empty() {
                         result.push((before.to_string(), default_color));

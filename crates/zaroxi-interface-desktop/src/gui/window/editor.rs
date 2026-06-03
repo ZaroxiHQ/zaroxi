@@ -12,18 +12,18 @@ use crate::gui::region_dispatch::region_role;
 use zaroxi_core_engine_ui::HighlightKind;
 use zaroxi_core_engine_ui::PanelRole;
 use zaroxi_core_engine_ui::{ContentView, compose_content_view};
-use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_interface_theme::theme::SemanticColors;
 
 pub fn draw(
     region: &crate::gui::ShellRegion,
     theme: &crate::gui::Theme,
     work_content: Option<&ShellWorkContent>,
+    sem: &SemanticColors,
 ) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
     use std::cmp;
     let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
     let r = &region.rect;
-    let sem = ZaroxiTheme::Dark.colors(false);
 
     match region_role(region.id) {
         // ── TAB STRIP ───────────────────────────────────────────────

@@ -7,14 +7,17 @@ Desktop owns only visual styling (separator, divider dots).
 */
 use zaroxi_core_engine_render_backend::DrawRect;
 use zaroxi_core_engine_ui::{Bar, compose_bars_scene};
-use zaroxi_interface_theme::theme::ZaroxiTheme;
+use zaroxi_interface_theme::theme::SemanticColors;
 use zaroxi_kernel_math::Rect;
 
-pub fn draw(region: &crate::gui::ShellRegion, theme: &crate::gui::Theme) -> Vec<DrawRect> {
+pub fn draw(
+    region: &crate::gui::ShellRegion,
+    theme: &crate::gui::Theme,
+    sem: &SemanticColors,
+) -> Vec<DrawRect> {
     let mut rects: Vec<DrawRect> = Vec::new();
     let bt: u32 = theme.border_thickness as u32;
     let r = &region.rect;
-    let sem = ZaroxiTheme::Dark.colors(false);
 
     // ── status bar background ──
     let bg = super::theme_adapter::adjust_color(sem.status_bar_background, 1.0);
