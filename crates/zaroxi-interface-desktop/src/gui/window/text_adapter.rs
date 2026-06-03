@@ -24,6 +24,7 @@ use zaroxi_core_engine_font::load_bundled_monospace;
 use zaroxi_core_engine_render::layout_plain_lines;
 use zaroxi_core_engine_scene;
 use zaroxi_core_engine_scene::{EditorPrimitiveSet, ShellSceneModel, TextPrimitive};
+use zaroxi_core_engine_ui::SyntaxHighlights;
 
 /// Layout `lines` inside the rectangle (x,y,width,height) using the existing
 /// Cosmic Text layout path and publish a minimal scene snapshot. Returns a set
@@ -186,4 +187,98 @@ pub fn layout_and_publish_text(
     }
 
     rects
+}
+
+/// Layout lines with syntax-highlighted spans, producing per-span colored
+/// DrawRects that the minimal backend can render as discrete colored blocks.
+///
+/// Phase 44: Wires the `SyntaxHighlights` pipeline into the text-adapter path
+/// so syntax-colored text appears even through the minimal rect-render backend.
+pub fn layout_text_with_syntax(
+    x: u32,
+    y: u32,
+    lines: &[String],
+    syntax: Option<&SyntaxHighlights>,
+    _theme: &Theme,
+) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
+    let font = load_bundled_monospace();
+    let line_h = font.line_height;
+
+    let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+
+    for (line_idx, line) in lines.iter().enumerate() {
+        let row_y = y.saturating_add((line_idx as u32).saturating_mul(line_h));
+
+        let line_spans: Option<&[zaroxi_core_engine_ui::LineHighlight]> =
+            syntax.and_then(|sh| sh.highlights.get(line_idx)).map(|v| v.as_slice());
+
+        let segments = split_line_with_spans(line, line_spans, font.char_width, x, row_y, line_h);
+
+        rects.extend(segments);
+    }
+
+    let scene_model = ShellSceneModel {
+        text_lines: lines.to_vec(),
+        viewport_top_line: 1,
+        viewport_total_lines: lines.len() as u32,
+        viewport_summary: None,
+        cursor_line: None,
+        cursor_column: None,
+        selection_present: false,
+        status_text: None,
+        decoration_text: None,
+    };
+    zaroxi_core_engine_scene::set_current_scene(scene_model);
+
+    rects
+}
+
+fn split_line_with_spans(
+    line: &str,
+    highlights: Option<&[zaroxi_core_engine_ui::LineHighlight]>,
+    char_width: u32,
+    base_x: u32,
+    row_y: u32,
+    line_h: u32,
+) -> Vec<zaroxi_core_engine_render_backend::DrawRect> {
+    if let Some(spans) = highlights {
+        if !spans.is_empty() {
+            let mut rects: Vec<zaroxi_core_engine_render_backend::DrawRect> = Vec::new();
+            for span in spans {
+                let start = span.start_col;
+                let end = span.end_col.min(line.chars().count());
+                if start >= end || start >= line.chars().count() {
+                    continue;
+                }
+                let seg_text: String = line.chars().skip(start).take(end - start).collect();
+                let seg_w = (seg_text.chars().count() as u32).saturating_mul(char_width).max(1);
+                let seg_x = base_x.saturating_add((start as u32).saturating_mul(char_width));
+
+                let span_kind: zaroxi_core_engine_scene::SpanKind = span.kind.into();
+                let color = span_kind.color();
+                rects.push(zaroxi_core_engine_render_backend::DrawRect {
+                    x: seg_x,
+                    y: row_y,
+                    width: seg_w,
+                    height: line_h,
+                    color: wgpu_color_from_slice(color),
+                });
+            }
+            return rects;
+        }
+    }
+
+    // Fallback: plain-text rect for the whole line
+    let w = (line.chars().count() as u32).saturating_mul(char_width).max(1);
+    vec![zaroxi_core_engine_render_backend::DrawRect {
+        x: base_x,
+        y: row_y,
+        width: w,
+        height: line_h,
+        color: super::theme_adapter::parse_hex_color("#C8CDD6"),
+    }]
+}
+
+fn wgpu_color_from_slice(c: [f32; 4]) -> wgpu::Color {
+    wgpu::Color { r: c[0] as f64, g: c[1] as f64, b: c[2] as f64, a: c[3] as f64 }
 }

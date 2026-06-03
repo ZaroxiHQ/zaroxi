@@ -742,19 +742,9 @@ pub fn draw(
                 PanelRole::ContentArea => (r.x.saturating_add(8), r.y.saturating_add(6)),
                 _ => (r.x.saturating_add(8), r.y.saturating_add(2)),
             };
-            let mut text_rects = super::text_adapter::layout_and_publish_text(
-                lx,
-                ly,
-                r.width.saturating_sub(16),
-                r.height.saturating_sub(6),
-                &labels,
-                theme,
-                if region_role(region.id) == PanelRole::ContentArea {
-                    theme.text_secondary
-                } else {
-                    theme.text_primary
-                },
-            );
+            let syntax = work_content.and_then(|wc| wc.syntax_highlights.as_ref());
+            let mut text_rects =
+                super::text_adapter::layout_text_with_syntax(lx, ly, &labels, syntax, theme);
             rects.append(&mut text_rects);
         }
     }
