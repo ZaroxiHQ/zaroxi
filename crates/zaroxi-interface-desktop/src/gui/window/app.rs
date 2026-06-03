@@ -339,7 +339,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::RedrawRequested => {
-                eprintln!("GuiApp: RedrawRequested received");
                 if let Some(z) = self.maybe_window.as_mut() {
                     let _ = z.window().pre_present_notify();
 
@@ -365,10 +364,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let variant = self.theme_mode.resolve(system_is_dark);
                     let sem = variant.colors(false);
 
+                    if !self.first_render_shown {
+                        eprintln!(
+                            "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?}",
+                            self.theme_mode, system_is_dark, variant
+                        );
+                        eprintln!(
+                            "ZAROXI_THEME_TRACE: sem.shell_background={:?} sem.app_background={:?} sem.editor_background={:?}",
+                            sem.shell_background, sem.app_background, sem.editor_background
+                        );
+                    }
+
                     let tokens = super::style_tokens_adapter::resolve_style_tokens(
                         &sem,
                         &Default::default(),
                     );
+
+                    if !self.first_render_shown {
+                        eprintln!(
+                            "ZAROXI_STYLE_TOKENS: app_bg={:?} titlebar_bg={:?} editor_bg={:?} sidebar_bg={:?}",
+                            tokens.app_background.to_array(),
+                            tokens.titlebar_background.to_array(),
+                            tokens.editor_content_background.to_array(),
+                            tokens.sidebar_background.to_array(),
+                        );
+                    }
 
                     // Build the engine-side widget tree for hover tracking.
                     let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
@@ -454,6 +474,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         colors: zaroxi_core_engine_render::PanelColors {
                             panel_header_background: tokens.panel_header_background.to_array(),
                             panel_background: tokens.app_background.to_array(),
+                            editor_cursor: tokens.editor_cursor.to_array(),
+                            editor_selection: tokens.editor_selection.to_array(),
+                            editor_line_highlight: tokens.editor_line_highlight.to_array(),
+                            text_default: tokens.text_primary.to_array(),
                         },
                     };
 

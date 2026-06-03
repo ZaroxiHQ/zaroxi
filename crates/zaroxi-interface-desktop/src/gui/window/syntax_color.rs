@@ -8,25 +8,24 @@ use zaroxi_interface_theme::theme::SemanticColors;
 pub fn colorize_source(lines: &[String], sem: &SemanticColors) -> Vec<(String, [f32; 4])> {
     let source = lines.join("\n");
 
+    let to_f32 = |c: &zaroxi_interface_theme::Color| -> [f32; 4] { [c.r, c.g, c.b, c.a] };
+    let default_color: [f32; 4] = to_f32(&sem.text_primary);
+
     // Parse with tree-sitter
     let pool = ParserPool::new();
     let mut parser = match pool.acquire(&LanguageId::Rust) {
         Some(p) => p,
-        None => return lines.iter().map(|l| (l.clone(), [0.9, 0.9, 0.9, 1.0])).collect(),
+        None => return lines.iter().map(|l| (l.clone(), default_color)).collect(),
     };
 
     let tree = match parser.parse(&source, None) {
         Some(t) => t,
-        None => return lines.iter().map(|l| (l.clone(), [0.9, 0.9, 0.9, 1.0])).collect(),
+        None => return lines.iter().map(|l| (l.clone(), default_color)).collect(),
     };
 
     // Highlight
     let engine = HighlightEngine::new();
     let spans = engine.highlight(LanguageId::Rust, &source, &tree).unwrap_or_default();
-
-    // Build byte-offset → color map
-    let to_f32 = |c: &zaroxi_interface_theme::Color| -> [f32; 4] { [c.r, c.g, c.b, c.a] };
-    let default_color: [f32; 4] = to_f32(&sem.text_primary);
 
     let highlight_color = |h: Highlight| -> [f32; 4] {
         match h {

@@ -71,6 +71,10 @@ impl Default for AdapterModifiers {
 /// All widget-specific pre-resolved fills are computed here so the engine never
 /// applies its own brightness adjustments. This is the *host's* visual policy.
 pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> StyleTokens {
+    log::debug!(
+        "ZAROXI_STYLE_ADAPTER: resolving StyleTokens from SemanticColors (app_bg_src={:?})",
+        sem.app_background
+    );
     let accent = to_engine(sem.accent);
     let text_faint = to_engine(sem.text_faint);
     let text_secondary = to_engine(sem.text_secondary);

@@ -100,6 +100,10 @@ pub struct Rect {
 pub struct PanelColors {
     pub panel_header_background: [f32; 4],
     pub panel_background: [f32; 4],
+    pub editor_cursor: [f32; 4],
+    pub editor_selection: [f32; 4],
+    pub editor_line_highlight: [f32; 4],
+    pub text_default: [f32; 4],
 }
 
 /// Resolved layout passed into the renderer. Layout is owned by the app
@@ -607,7 +611,7 @@ impl<'a> Renderer<'a> {
             let title_x = target.x + 8.0;
             let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
             // Title color: from block hint or default white
-            let title_color: [f32; 4] = block.text_color.unwrap_or([0.95, 0.95, 0.95, 1.0]);
+            let title_color: [f32; 4] = block.text_color.unwrap_or(layout.colors.text_default);
 
             // Layout title text into glyph placements and convert to vertices/indices.
             // Use the pluggable text backend so shaping/layout logic is isolated from
@@ -728,7 +732,7 @@ impl<'a> Renderer<'a> {
 
                     // Active line highlight background
                     if block.highlight_active_line && line_y + line_h <= content_y + content_h {
-                        let hl_color: [f32; 4] = [1.0, 1.0, 1.0, 0.04];
+                        let hl_color: [f32; 4] = layout.colors.editor_line_highlight;
                         push_colored_quad(
                             &mut panel_verts,
                             &mut panel_indices,
@@ -750,7 +754,7 @@ impl<'a> Renderer<'a> {
                     if cursor_x + cursor_w <= content_x + content_w
                         && line_y + cursor_h <= content_y + content_h
                     {
-                        let cursor_color: [f32; 4] = [0.95, 0.95, 0.95, 0.8];
+                        let cursor_color: [f32; 4] = layout.colors.editor_cursor;
                         push_colored_quad(
                             &mut panel_verts,
                             &mut panel_indices,
@@ -770,7 +774,7 @@ impl<'a> Renderer<'a> {
                 if let Some((sl, sc, el, ec)) = block.selection_range {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let char_w = 8.0;
-                    let sel_color: [f32; 4] = [0.36, 0.55, 1.0, 0.22];
+                    let sel_color: [f32; 4] = layout.colors.editor_selection;
                     for line in sl..=el {
                         let line_y = content_y + line as f32 * line_h;
                         if line_y + line_h > content_y + content_h {

@@ -31,11 +31,11 @@ pub fn compose_blocks(
     tokens: &StyleTokens,
     ctx: &ShellBlockContext,
 ) -> Vec<UiBlock> {
-    regions
+    let blocks: Vec<UiBlock> = regions
         .iter()
         .map(|r| {
             let role = region_role(r.id);
-            match role {
+            let block = match role {
                 PanelRole::TopBar => TopBarPanel::build_block(r, tokens),
                 PanelRole::NavigationRail => RailPanel::build_rail_block(r, tokens),
                 PanelRole::SidePanel => {
@@ -60,7 +60,11 @@ pub fn compose_blocks(
                 PanelRole::StatusBar => {
                     StatusBarPanel::build_block(r, tokens, &ctx.status_bar_data)
                 }
-            }
+            };
+            block
         })
-        .collect()
+        .collect();
+
+    log::debug!("ZAROXI_PANEL_COMPOSE: built {} blocks from panel modules", blocks.len());
+    blocks
 }
