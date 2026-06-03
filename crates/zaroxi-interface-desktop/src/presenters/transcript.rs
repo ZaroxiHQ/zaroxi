@@ -5,7 +5,7 @@ mod scene_snapshot;
 #[cfg(test)]
 mod tests;
 
-pub use editor_projection::EditorLayoutSpec;
+pub use editor_projection::{EditorLayoutSpec, build_primitives_from_contract};
 pub use input_bridge::{
     handle_arrow_down, handle_arrow_left, handle_arrow_right, handle_arrow_up, handle_backspace,
     handle_key_char, handle_mouse_click_and_place_cursor, handle_scroll_lines,

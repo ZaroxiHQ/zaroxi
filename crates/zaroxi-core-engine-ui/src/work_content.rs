@@ -1,4 +1,5 @@
 use crate::ContentView;
+use zaroxi_core_engine_scene::SpanKind;
 
 /// A syntax highlight span within a single line (column range + kind).
 #[derive(Debug, Clone)]
@@ -9,6 +10,11 @@ pub struct LineHighlight {
 }
 
 /// Highlight categories used for color resolution in the renderer.
+///
+/// Phase 39: Adds `From<HighlightKind>` impl mapping each variant to the
+/// app-neutral `SpanKind` in `zaroxi-core-engine-scene`. This allows syntax
+/// highlight data to flow through the engine extraction seam without
+/// IDE-specific concepts leaking into the renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighlightKind {
     Comment,
@@ -22,6 +28,24 @@ pub enum HighlightKind {
     Operator,
     Attribute,
     Plain,
+}
+
+impl From<HighlightKind> for SpanKind {
+    fn from(k: HighlightKind) -> Self {
+        match k {
+            HighlightKind::Comment => SpanKind::Comment,
+            HighlightKind::String => SpanKind::String,
+            HighlightKind::Keyword => SpanKind::Keyword,
+            HighlightKind::Function => SpanKind::Function,
+            HighlightKind::Type => SpanKind::Type,
+            HighlightKind::Number => SpanKind::Number,
+            HighlightKind::Constant => SpanKind::Constant,
+            HighlightKind::Variable => SpanKind::Variable,
+            HighlightKind::Operator => SpanKind::Operator,
+            HighlightKind::Attribute => SpanKind::Attribute,
+            HighlightKind::Plain => SpanKind::Plain,
+        }
+    }
 }
 
 /// Per-line syntax highlights for editor content.

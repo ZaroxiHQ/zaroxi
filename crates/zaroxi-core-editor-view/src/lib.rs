@@ -4,7 +4,10 @@
 // layout for the editor content region and visible-line positions.
 
 mod view;
-pub use view::{EditorView, EditorViewLayout};
+pub use view::{EditorView, EditorViewLayout, EditorViewState};
+
+pub mod render_contract;
+pub use render_contract::{EditorRenderContract, EditorRenderMetrics};
 
 #[cfg(test)]
 mod tests {

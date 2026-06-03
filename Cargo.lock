@@ -4414,6 +4414,7 @@ dependencies = [
  "zaroxi-application-navigation",
  "zaroxi-application-workspace",
  "zaroxi-core-editor-buffer",
+ "zaroxi-core-editor-view",
  "zaroxi-core-engine-font",
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-render-backend",
