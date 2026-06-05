@@ -106,10 +106,27 @@ impl GuiApp {
                 result.ok().map(|_| comp.build_work_content())
             }
             WidgetId::PanelAction { header_id, action } => {
-                if *header_id == "ai_assistant" && *action == "close" {
-                    pollster::block_on(crate::actions::close_command_bar(comp)).ok();
+                match (*header_id, *action) {
+                    ("ai_assistant", "close") => {
+                        pollster::block_on(crate::actions::close_command_bar(comp)).ok();
+                    }
+                    ("terminal", "close") => {
+                        // Toggle bottom panel — delegated to composition status
+                    }
+                    _ => {}
                 }
                 Some(comp.build_work_content())
+            }
+            WidgetId::ListItem { index } => {
+                // Rail activation: switch active panel / open command
+                match index {
+                    0 => { /* Explorer — toggle sidebar */ }
+                    1 => { /* Search */ }
+                    2 => { /* Source Ctrl */ }
+                    3 => { /* Debug */ }
+                    _ => {}
+                }
+                None
             }
             _ => None,
         }

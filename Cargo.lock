@@ -4209,6 +4209,7 @@ dependencies = [
  "zaroxi-infrastructure-memory",
  "zaroxi-interface-app",
  "zaroxi-interface-desktop",
+ "zaroxi-interface-theme",
 ]
 
 [[package]]

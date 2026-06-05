@@ -1255,5 +1255,26 @@ async fn main() -> Result<(), String> {
         println!("Harness: no status banner present after keyboard command");
     }
 
+    // ── GUI mode (ZAROXI_GUI=1) ──────────────────────────────────
+    if std::env::var("ZAROXI_GUI").as_deref() == Ok("1") {
+        println!("Harness: opening GUI window with live composition...");
+        let work = composition.build_work_content();
+        let size = zaroxi_interface_desktop::gui::Size { width: 1354, height: 720 };
+        let shell = zaroxi_interface_desktop::gui::ShellFrame::new(
+            size,
+            zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
+        );
+
+        let _ = zaroxi_interface_desktop::gui::run_shell_window(
+            shell,
+            Some(work),
+            Some(composition),
+            Some(view_dyn),
+            Some(service_dyn),
+            Some(boot_res.session.session_id.clone()),
+            Some(boot_res.session.workspace_id),
+        );
+    }
+
     Ok(())
 }

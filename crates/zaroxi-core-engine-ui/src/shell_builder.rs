@@ -198,35 +198,76 @@ pub fn build_shell_widget_tree(
         });
         y_off += 12.0;
 
-        // Sections: PROJECT, GIT, OUTLINE — composed as ListSectionHeader + Surface items
+        // Explorer sections — driven by ShellWorkContent.explorer_items, with fallback
         let section_h = 20.0;
         let row_h = 16.0;
-        for section_label in &["PROJECT", "GIT", "OUTLINE"] {
-            if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {
-                break;
+        let explorer_items: Option<&[String]> = content.and_then(|c| c.explorer_items.as_deref());
+        if let Some(items) = explorer_items {
+            if !items.is_empty() {
+                tree.push(ShellWidget::ListSectionHeader {
+                    rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
+                    label: "PROJECT".into(),
+                    fill_color: tokens.panel_header_background.to_array(),
+                    text_color: tokens.panel_header_text.to_array(),
+                });
+                y_off += section_h + 2.0;
+                for item in items {
+                    if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
+                        break;
+                    }
+                    tree.push(ShellWidget::TextLabel {
+                        rect: Rect::new(
+                            sidebar_rect.x + pad + 14.0,
+                            y_off + 2.0,
+                            inner_w - 20.0,
+                            12.0,
+                        ),
+                        label: item.clone(),
+                        text_color: tokens.text_secondary.to_array(),
+                    });
+                    y_off += row_h;
+                }
+            } else {
+                tree.push(ShellWidget::EmptyState {
+                    rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 24.0),
+                    message: "No files".into(),
+                    fill_color: [0.0, 0.0, 0.0, 0.0],
+                    text_color: tokens.text_muted.to_array(),
+                });
             }
-            tree.push(ShellWidget::ListSectionHeader {
-                rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
-                label: section_label.to_string(),
-                fill_color: tokens.panel_header_background.to_array(),
-                text_color: tokens.panel_header_text.to_array(),
-            });
-            y_off += section_h + 2.0;
-
-            let items = if *section_label == "PROJECT" { 4 } else { 3 };
-            for _ in 0..items {
-                if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
+        } else {
+            for section_label in &["PROJECT", "GIT", "OUTLINE"] {
+                if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {
                     break;
                 }
-                tree.push(ShellWidget::Surface {
-                    rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 2.0, inner_w - 20.0, 12.0),
-                    fill_color: tokens.sidebar_file_item.to_array(),
-                    border_color: None,
-                    border_width: 0.0,
+                tree.push(ShellWidget::ListSectionHeader {
+                    rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
+                    label: section_label.to_string(),
+                    fill_color: tokens.panel_header_background.to_array(),
+                    text_color: tokens.panel_header_text.to_array(),
                 });
-                y_off += row_h;
+                y_off += section_h + 2.0;
+
+                let items = if *section_label == "PROJECT" { 4 } else { 3 };
+                for _ in 0..items {
+                    if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
+                        break;
+                    }
+                    tree.push(ShellWidget::Surface {
+                        rect: Rect::new(
+                            sidebar_rect.x + pad + 14.0,
+                            y_off + 2.0,
+                            inner_w - 20.0,
+                            12.0,
+                        ),
+                        fill_color: tokens.sidebar_file_item.to_array(),
+                        border_color: None,
+                        border_width: 0.0,
+                    });
+                    y_off += row_h;
+                }
+                y_off += 6.0;
             }
-            y_off += 6.0;
         }
 
         // Sidebar scrollbar (if content overflows)
@@ -349,6 +390,22 @@ pub fn build_shell_widget_tree(
         border_color: None,
         border_width: 0.0,
     });
+
+    // Empty state when no editor body
+    let has_editor = content.and_then(|c| c.editor_body.as_ref()).is_some();
+    if !has_editor {
+        tree.push(ShellWidget::EmptyState {
+            rect: Rect::new(
+                layout.content_area.x + 40.0,
+                layout.content_area.y + 60.0,
+                200.0,
+                40.0,
+            ),
+            message: "No file open".into(),
+            fill_color: [0.0, 0.0, 0.0, 0.0],
+            text_color: tokens.text_muted.to_array(),
+        });
+    }
 
     // Editor scrollbar (right edge)
     if layout.content_area.height > 40.0 && layout.content_area.width > 20.0 {
@@ -491,6 +548,22 @@ pub fn build_shell_widget_tree(
             border_color: None,
             border_width: 0.0,
         });
+
+        // Empty state when no AI content
+        let has_ai = content.and_then(|c| c.ai_panel_content.as_ref()).is_some();
+        if !has_ai {
+            tree.push(ShellWidget::EmptyState {
+                rect: Rect::new(
+                    layout.right_panel.x + 16.0,
+                    layout.right_panel.y + header_h + 32.0,
+                    layout.right_panel.width - 32.0,
+                    40.0,
+                ),
+                message: "No AI session".into(),
+                fill_color: [0.0, 0.0, 0.0, 0.0],
+                text_color: tokens.text_muted.to_array(),
+            });
+        }
     }
 
     // ── 10. Status bar ──
