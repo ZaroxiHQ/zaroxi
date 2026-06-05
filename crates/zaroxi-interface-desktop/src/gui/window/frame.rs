@@ -23,6 +23,7 @@ pub struct ShellBlockContext {
     pub explorer_data: ExplorerData,
     pub status_bar_data: StatusBarData,
     pub ai_data: AiPanelData,
+    pub terminal_tabs: Option<Vec<String>>,
 }
 
 /// Compose all shell regions into UiBlocks by delegating to panel modules.
@@ -51,7 +52,9 @@ pub fn compose_blocks(
                     EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data)
                 }
                 PanelRole::MinimapLane => EditorPanel::build_minimap_block(r, tokens),
-                PanelRole::BottomPanel => EditorPanel::build_bottom_panel_block(r, tokens),
+                PanelRole::BottomPanel => {
+                    EditorPanel::build_bottom_panel_block(r, tokens, ctx.terminal_tabs.as_deref())
+                }
                 PanelRole::BottomDock => BottomDockPanel::build_block(r, tokens),
                 PanelRole::AuxiliaryPanelHeader => AiPanel::build_header_block(r, tokens),
                 PanelRole::AuxiliaryPanelContent => {

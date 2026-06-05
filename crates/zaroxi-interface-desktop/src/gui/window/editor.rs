@@ -17,6 +17,7 @@ pub struct EditorContentData {
     pub editor_spans: Option<Vec<(String, [f32; 4])>>,
     pub cursor_line: usize,
     pub cursor_col: usize,
+    pub body_title: String,
 }
 
 impl Default for EditorContentData {
@@ -29,6 +30,7 @@ impl Default for EditorContentData {
             editor_spans: None,
             cursor_line: 0,
             cursor_col: 0,
+            body_title: String::new(),
         }
     }
 }
@@ -116,7 +118,7 @@ impl EditorPanel {
 
         UiBlock {
             id: r.id.to_string(),
-            title: String::new(),
+            title: data.body_title.clone(),
             content: data.editor_body_text.clone(),
             visible: true,
             rect,
@@ -164,7 +166,11 @@ impl EditorPanel {
         }
     }
 
-    pub fn build_bottom_panel_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
+    pub fn build_bottom_panel_block(
+        r: &ShellRegion,
+        tokens: &StyleTokens,
+        terminal_tabs: Option<&[String]>,
+    ) -> UiBlock {
         let rect = zaroxi_core_engine_render::Rect {
             x: r.rect.x as f32,
             y: r.rect.y as f32,
@@ -172,10 +178,20 @@ impl EditorPanel {
             h: r.rect.height as f32,
         };
 
+        let title = terminal_tabs
+            .filter(|t| !t.is_empty())
+            .map(|tabs| tabs.join(" \u{2022} "))
+            .unwrap_or_else(|| "Terminal \u{2022} Problems \u{2022} Output".to_string());
+
+        let content = terminal_tabs
+            .filter(|t| !t.is_empty())
+            .map(|_tabs| "Ready".to_string())
+            .unwrap_or_else(|| "No terminal session".to_string());
+
         UiBlock {
             id: r.id.to_string(),
-            title: "Terminal \u{2022} Problems \u{2022} Output".to_string(),
-            content: "No terminal session".to_string(),
+            title,
+            content,
             visible: true,
             rect,
             header_color: Some(tokens.bottom_panel_header_background.to_array()),

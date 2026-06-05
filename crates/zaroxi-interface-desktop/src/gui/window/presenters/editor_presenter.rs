@@ -4,8 +4,8 @@ use zaroxi_interface_theme::theme::SemanticColors;
 use super::super::editor::EditorContentData;
 
 /// Shape live editor content from work_content into `EditorContentData`.
-/// Includes line numbering, tab/breadcrumb extraction, syntax coloring,
-/// and cursor position.
+/// Uses the syntax_color module for syntax highlighting, and includes
+/// ContentView title for the editor body header.
 pub fn shape_editor_content(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
@@ -19,19 +19,21 @@ pub fn shape_editor_content(
 
     let editor_body_text = editor_body
         .map(|cv| {
-            let numbered: String = cv
-                .lines
+            cv.lines
                 .iter()
                 .enumerate()
                 .map(|(i, line)| format!("{:>4} │ {}", i + 1, line))
                 .collect::<Vec<_>>()
-                .join("\n");
-            numbered
+                .join("\n")
         })
         .unwrap_or_else(|| "No file open".to_string());
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
     let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
+
+    let body_title = editor_body
+        .map(|cv| if cv.title.is_empty() { cv.subtitle.clone() } else { cv.title.clone() })
+        .unwrap_or_default();
 
     let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.and_then(|cv| {
         if cv.lines.is_empty() {
@@ -54,5 +56,6 @@ pub fn shape_editor_content(
         editor_spans,
         cursor_line,
         cursor_col,
+        body_title,
     }
 }

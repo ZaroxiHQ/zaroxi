@@ -3,6 +3,7 @@ use zaroxi_core_engine_ui::ShellWorkContent;
 use super::super::rail::ExplorerData;
 
 /// Shape explorer sidebar text from work_content into `ExplorerData`.
+/// Renders each item on its own line with an indented tree prefix.
 pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> ExplorerData {
     let wc = match work_content {
         Some(w) => w,
@@ -12,6 +13,7 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
     let sidebar_items = wc
         .explorer_items
         .clone()
+        .filter(|items| !items.is_empty())
         .map(|items| {
             let mut text = String::from("EXPLORER\n");
             for item in &items {

@@ -430,6 +430,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         explorer_data,
                         status_bar_data: status_data,
                         ai_data,
+                        terminal_tabs: self
+                            .work_content
+                            .as_ref()
+                            .and_then(|wc| wc.terminal_tabs.clone()),
                     };
 
                     let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =

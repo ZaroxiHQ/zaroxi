@@ -1,7 +1,7 @@
 /*!
 AI assistant panel.
 
-Phase 50: panel-owned UiBlock construction.
+Phase 61: fixed header_only to render body text from ai_panel_content.
 Content flows from ai_panel_content in ShellWorkContent.
 */
 
@@ -11,11 +11,13 @@ use zaroxi_core_engine_style::StyleTokens;
 
 pub struct AiPanelData {
     pub ai_content: Option<String>,
+    pub ai_title: Option<String>,
+    pub ai_subtitle: Option<String>,
 }
 
 impl Default for AiPanelData {
     fn default() -> Self {
-        Self { ai_content: None }
+        Self { ai_content: None, ai_title: None, ai_subtitle: None }
     }
 }
 
@@ -63,13 +65,19 @@ impl AiPanel {
             h: r.rect.height as f32,
         };
 
+        let title = data
+            .ai_title
+            .clone()
+            .or_else(|| data.ai_subtitle.clone())
+            .unwrap_or_else(|| "Assistant".to_string());
+
         let content = data.ai_content.clone().unwrap_or_else(|| {
             "No active AI session\nOpen a file and request an AI edit to get started.".to_string()
         });
 
         UiBlock {
             id: r.id.to_string(),
-            title: "Assistant".to_string(),
+            title,
             content,
             visible: true,
             rect,
@@ -78,7 +86,7 @@ impl AiPanel {
             corner_radius: 0.0,
             border_color: None,
             border_width: 0.0,
-            header_only: true,
+            header_only: false,
             content_spans: None,
             cursor_line: None,
             cursor_col: None,
