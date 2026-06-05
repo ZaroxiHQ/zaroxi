@@ -3,7 +3,9 @@ GuiApp implementation and winit ApplicationHandler lifecycle methods.
 This file contains the GuiApp struct and its ApplicationHandler impl
 (moved out of the large `window.rs` to make the module tree clearer).
 
-Phase 28: added cursor hover tracking and widget-tree hit-testing.
+Phase 57: slimmed to a thin winit-to-engine bridge; widget interaction
+(hit-testing, hover, press, scrollbar drag, focus) now lives in
+`zaroxi_core_engine_ui::WidgetInteractionModel`.
 */
 
 use pollster;
@@ -34,18 +36,8 @@ pub struct GuiApp {
     pub first_render_shown: bool,
     /// Cached widget tree built on each redraw, used for hit-testing.
     pub widget_tree: Option<zaroxi_core_engine_ui::ShellWidgetTree>,
-    /// Index of the currently hovered widget in the tree, if any.
-    pub hovered_widget_idx: Option<usize>,
-    /// Most recent cursor position for hit-testing after resize/redraw.
-    pub cursor_pos: Option<PhysicalPosition<f64>>,
-    /// Whether a scrollbar drag is active and its tracked widget index.
-    pub scrollbar_drag: Option<(usize, f32)>,
-    /// Widget index currently pressed (for button activation).
-    pub pressed_widget_idx: Option<usize>,
-    /// Scroll offset for editor scrollbar (0.0..1.0).
-    pub editor_scroll_offset: f32,
-    /// Scroll offset for terminal scrollbar (0.0..1.0).
-    pub terminal_scroll_offset: f32,
+    /// Engine-owned interaction state: hover, press, focus, scroll offsets.
+    pub interaction: zaroxi_core_engine_ui::WidgetInteractionModel,
     /// Manual cursor position set by mouse clicks in the editor area.
     pub editor_cursor_line: usize,
     pub editor_cursor_col: usize,
@@ -53,6 +45,36 @@ pub struct GuiApp {
     pub selection_anchor: Option<(usize, usize)>,
     /// Theme mode: Dark, Light, or System (default).
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
+}
+
+impl GuiApp {
+    /// Dispatch engine-emitted widget actions into app-specific effects.
+    fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
+        let mut needs_redraw = false;
+        for action in actions {
+            match action {
+                zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw => {
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::ScrollOffsetChanged(id, offset) => {
+                    self.interaction.set_scroll_offset(&id, offset);
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::Activated(_id) => {
+                    // Future: dispatch domain-specific widget activation
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::HoverChanged(_)
+                | zaroxi_core_engine_ui::WidgetAction::FocusChanged(_)
+                | zaroxi_core_engine_ui::WidgetAction::Nothing => {}
+            }
+        }
+        if needs_redraw {
+            if let Some(z) = self.maybe_window.as_ref() {
+                let _ = z.window().request_redraw();
+            }
+        }
+    }
 }
 
 impl winit::application::ApplicationHandler for GuiApp {
@@ -153,142 +175,74 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_pos = Some(position);
-                // Scrollbar drag: update thumb position from cursor
-                if let Some((drag_idx, start_y)) = self.scrollbar_drag {
-                    let delta = position.y as f32 - start_y;
-                    if let Some(ref tree) = self.widget_tree {
-                        if let Some(w) = tree.widgets.get(drag_idx) {
-                            if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
-                                track_rect,
-                                ..
-                            } = w
-                            {
-                                let track_h = track_rect.height;
-                                let thumb_h = track_h * 0.25;
-                                let travel = (track_h - thumb_h).max(1.0);
-                                let raw_offset = delta / travel;
-                                let clamped = raw_offset.clamp(0.0, 1.0);
-                                let is_editor = matches!(
-                                    w,
-                                    zaroxi_core_engine_ui::ShellWidget::ScrollBar {
-                                        id: zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
-                                        ..
-                                    }
-                                );
-                                if is_editor {
-                                    self.editor_scroll_offset = clamped;
-                                } else {
-                                    self.terminal_scroll_offset = clamped;
-                                }
-                                if let Some(z) = self.maybe_window.as_ref() {
-                                    let _ = z.window().request_redraw();
-                                }
-                                return;
-                            }
-                        }
-                    }
-                }
-                // Normal hover tracking
-                if let Some(ref tree) = self.widget_tree {
-                    let new_hover = tree.hit_test(position.x as f32, position.y as f32);
-                    if new_hover != self.hovered_widget_idx {
-                        if let Some(t) = self.widget_tree.as_mut() {
-                            t.clear_all_hover();
-                            if let Some(idx) = new_hover {
-                                t.set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
-                            }
-                        }
-                        self.hovered_widget_idx = new_hover;
-                        if let Some(z) = self.maybe_window.as_ref() {
-                            let _ = z.window().request_redraw();
-                        }
-                    }
+                if let Some(ref mut tree) = self.widget_tree {
+                    let actions = self.interaction.on_pointer_moved(
+                        tree,
+                        position.x as f32,
+                        position.y as f32,
+                    );
+                    self.handle_actions(actions);
                 }
             }
             WindowEvent::CursorLeft { .. } => {
-                self.hovered_widget_idx = None;
-                self.cursor_pos = None;
-                if let Some(t) = self.widget_tree.as_mut() {
-                    t.clear_all_hover();
-                }
-                if let Some(z) = self.maybe_window.as_ref() {
-                    let _ = z.window().request_redraw();
+                if let Some(ref mut tree) = self.widget_tree {
+                    let actions = self.interaction.on_pointer_leave(tree);
+                    self.handle_actions(actions);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
-                    let hit = self.cursor_pos.and_then(|pos| {
-                        self.widget_tree
-                            .as_ref()
-                            .and_then(|t| t.hit_test(pos.x as f32, pos.y as f32))
-                    });
-                    match state {
+                    let (x, y) = match self.interaction.cursor_pos_f32() {
+                        Some(pos) => pos,
+                        None => return,
+                    };
+                    let actions = match state {
                         ElementState::Pressed => {
-                            self.pressed_widget_idx = hit;
-                            if let Some(idx) = hit {
-                                if let Some(t) = self.widget_tree.as_mut() {
-                                    // Check if scrollbar thumb was pressed
-                                    if let Some(w) = t.widgets.get(idx) {
-                                        if matches!(
-                                            w,
-                                            zaroxi_core_engine_ui::ShellWidget::ScrollBar { .. }
-                                        ) {
-                                            if let Some(pos) = self.cursor_pos {
-                                                self.scrollbar_drag = Some((idx, pos.y as f32));
-                                                t.set_state_at(
-                                                    idx,
-                                                    zaroxi_core_engine_ui::InteractionState::Active,
-                                                );
-                                            }
-                                        } else {
-                                            t.set_state_at(
-                                                idx,
-                                                zaroxi_core_engine_ui::InteractionState::Active,
-                                            );
-                                        }
-                                    }
-                                    if let Some(z) = self.maybe_window.as_ref() {
-                                        let _ = z.window().request_redraw();
-                                    }
-                                }
-                                // Editor area click: position cursor
-                                if let Some(pos) = self.cursor_pos {
-                                    if let Some((line, col)) = project_editor_cursor(
-                                        pos,
-                                        &self.shell.regions,
-                                        &self.shell.work_content,
-                                        self.editor_scroll_offset,
-                                    ) {
-                                        self.editor_cursor_line = line;
-                                        self.editor_cursor_col = col;
-                                        self.selection_anchor = Some((line, col));
-                                        if let Some(z) = self.maybe_window.as_ref() {
-                                            let _ = z.window().request_redraw();
-                                        }
-                                    }
-                                }
+                            if let Some(ref mut tree) = self.widget_tree {
+                                let actions = self.interaction.on_pointer_down(
+                                    tree,
+                                    x,
+                                    y,
+                                    zaroxi_core_engine_ui::PointerButton::Primary,
+                                );
+                                actions
+                            } else {
+                                Vec::new()
                             }
                         }
                         ElementState::Released => {
-                            // Button activation: only fire if released on the same widget
-                            if let Some(pressed) = self.pressed_widget_idx.take() {
-                                if let Some(t) = self.widget_tree.as_mut() {
-                                    t.set_state_at(
-                                        pressed,
-                                        zaroxi_core_engine_ui::InteractionState::Normal,
-                                    );
-                                    t.clear_all_hover();
-                                }
+                            if let Some(ref mut tree) = self.widget_tree {
+                                let actions = self.interaction.on_pointer_up(
+                                    tree,
+                                    x,
+                                    y,
+                                    zaroxi_core_engine_ui::PointerButton::Primary,
+                                );
+                                actions
+                            } else {
+                                Vec::new()
                             }
-                            // End scrollbar drag
-                            if self.scrollbar_drag.take().is_some() {
-                                if let Some(t) = self.widget_tree.as_mut() {
-                                    t.clear_all_hover();
+                        }
+                    };
+                    self.handle_actions(actions);
+
+                    if let ElementState::Pressed = state {
+                        if let Some(pos) = self.interaction.cursor_pos_f32() {
+                            let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
+                            if let Some((line, col)) = project_editor_cursor(
+                                phys,
+                                &self.shell.regions,
+                                &self.shell.work_content,
+                                self.interaction.get_scroll_offset(
+                                    &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                ),
+                            ) {
+                                self.editor_cursor_line = line;
+                                self.editor_cursor_col = col;
+                                self.selection_anchor = Some((line, col));
+                                if let Some(z) = self.maybe_window.as_ref() {
+                                    let _ = z.window().request_redraw();
                                 }
-                            }
-                            if let Some(z) = self.maybe_window.as_ref() {
-                                let _ = z.window().request_redraw();
                             }
                         }
                     }
@@ -356,21 +310,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
                     let mut widget_tree =
                         zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &tokens);
-                    if let Some(pos) = self.cursor_pos {
-                        let hit = widget_tree.hit_test(pos.x as f32, pos.y as f32);
-                        if let Some(idx) = hit {
-                            widget_tree
-                                .set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
-                        }
-                        self.hovered_widget_idx = hit;
-                    }
+                    self.interaction.apply_to_tree(&mut widget_tree);
+                    self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
-
-                    update_scrollbar_thumbs(
-                        &mut self.widget_tree,
-                        self.editor_scroll_offset,
-                        self.terminal_scroll_offset,
-                    );
 
                     let render_layout =
                         super::renderbridge::build_render_layout(&self.shell.regions, &tokens);
@@ -441,53 +383,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             _ => {}
-        }
-    }
-}
-
-fn update_scrollbar_thumbs(
-    widget_tree: &mut Option<zaroxi_core_engine_ui::ShellWidgetTree>,
-    editor_scroll_offset: f32,
-    terminal_scroll_offset: f32,
-) {
-    let tree = match widget_tree.as_mut() {
-        Some(t) => t,
-        None => return,
-    };
-
-    for i in 0..tree.widgets.len() {
-        let new_widget = match &tree.widgets[i] {
-            zaroxi_core_engine_ui::ShellWidget::ScrollBar {
-                id,
-                track_rect,
-                thumb_rect,
-                track_fill,
-                thumb_fill,
-                state,
-            } => {
-                let offset =
-                    if matches!(id, zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }) {
-                        editor_scroll_offset
-                    } else {
-                        terminal_scroll_offset
-                    };
-                let travel = (track_rect.height - thumb_rect.height).max(1.0);
-                let new_y = track_rect.y + offset * travel;
-                let mut new_thumb = *thumb_rect;
-                new_thumb.y = new_y;
-                Some(zaroxi_core_engine_ui::ShellWidget::ScrollBar {
-                    id: id.clone(),
-                    track_rect: *track_rect,
-                    thumb_rect: new_thumb,
-                    track_fill: *track_fill,
-                    thumb_fill: *thumb_fill,
-                    state: *state,
-                })
-            }
-            _ => None,
-        };
-        if let Some(w) = new_widget {
-            tree.widgets[i] = w;
         }
     }
 }

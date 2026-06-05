@@ -1,6 +1,7 @@
 pub mod bar;
 pub mod composer;
 pub mod content;
+pub mod interaction;
 pub mod layout;
 pub mod primitives;
 pub mod shell_builder;
@@ -12,6 +13,7 @@ pub mod work_content;
 pub use bar::Bar;
 pub use composer::{compose_bar_labels, compose_bars, compose_bars_scene, compose_content_view};
 pub use content::ContentView;
+pub use interaction::{PointerButton, WidgetAction, WidgetInteractionModel};
 pub use primitives::{
     Divider, DividerOrientation, HeaderBar, IconSlot, Inset, PanelFrame, ShellSurfaceSet,
     StatusPill, Surface, TabChrome,
