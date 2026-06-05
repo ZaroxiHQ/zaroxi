@@ -687,17 +687,19 @@ impl<'a> Renderer<'a> {
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
                         let mut cursor_x = content_x;
+                        let mut cursor_y = content_y;
+                        let line_h = DEFAULT_FONT_SIZE + 2.0;
                         for (span_text, span_color) in spans {
                             if span_text == "\n" {
-                                // Newline: reset cursor to start of next line
                                 cursor_x = content_x;
+                                cursor_y += line_h;
                                 continue;
                             }
                             self.text_renderer.queue_text(
                                 crate::renderer::text::TextCommand::new_body(
                                     span_text,
                                     cursor_x,
-                                    content_y,
+                                    cursor_y,
                                     *span_color,
                                     DEFAULT_FONT_SIZE,
                                     content_x,

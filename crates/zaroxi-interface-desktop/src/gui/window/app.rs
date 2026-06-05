@@ -46,8 +46,11 @@ pub struct GuiApp {
     pub editor_cursor_line: usize,
     pub editor_cursor_col: usize,
     pub selection_anchor: Option<(usize, usize)>,
+    pub selection_range: Option<(usize, usize, usize, usize)>,
+    pub selection_active: bool,
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
     pub shift_held: bool,
+    pub ctrl_held: bool,
     /// Optional override handler for widget activation. When set, it is tried
     /// before the built-in `dispatch_activation` method.
     pub on_widget_activated: Option<WidgetActivationHandler>,
@@ -276,6 +279,33 @@ impl winit::application::ApplicationHandler for GuiApp {
                         position.y as f32,
                     );
                     self.handle_actions(actions);
+
+                    // Drag-selection: extend selection range while mouse is held
+                    if self.selection_active {
+                        if let Some(anchor) = self.selection_anchor {
+                            if let Some((line, col)) = project_editor_cursor(
+                                position,
+                                &self.shell.regions,
+                                &self.shell.work_content,
+                                self.interaction.get_scroll_offset(
+                                    &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                ),
+                            ) {
+                                let (sl, sc) =
+                                    if line < anchor.0 || (line == anchor.0 && col < anchor.1) {
+                                        (line, col)
+                                    } else {
+                                        anchor
+                                    };
+                                let (el, ec) =
+                                    if (line, col) > anchor { (line, col) } else { anchor };
+                                self.selection_range = Some((sl, sc, el, ec));
+                                if let Some(z) = self.maybe_window.as_ref() {
+                                    let _ = z.window().request_redraw();
+                                }
+                            }
+                        }
+                    }
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -334,11 +364,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 self.editor_cursor_line = line;
                                 self.editor_cursor_col = col;
                                 self.selection_anchor = Some((line, col));
+                                self.selection_active = true;
+                                self.selection_range = None;
                                 if let Some(z) = self.maybe_window.as_ref() {
                                     let _ = z.window().request_redraw();
                                 }
                             }
                         }
+                    }
+                    if let ElementState::Released = state {
+                        self.selection_active = false;
                     }
                 }
             }
@@ -436,8 +471,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .and_then(|wc| wc.terminal_tabs.clone()),
                     };
 
-                    let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
+                    let mut render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
+
+                    // Apply live editor cursor and selection to the ContentArea block
+                    for block in &mut render_blocks {
+                        if block.id.contains("ContentArea") || block.id.contains("content_area") {
+                            block.cursor_line = Some(self.editor_cursor_line);
+                            block.cursor_col = Some(self.editor_cursor_col);
+                            block.selection_range = self.selection_range;
+                        }
+                    }
 
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
@@ -487,6 +531,7 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
+                self.ctrl_held = modifiers.state().control_key();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
@@ -528,6 +573,34 @@ impl winit::application::ApplicationHandler for GuiApp {
                             Vec::new()
                         }
                     }
+                    ref key if self.ctrl_held => match key {
+                        Key::Character(c) if c == "c" => {
+                            if let Some((sl, sc, el, ec)) = self.selection_range {
+                                eprintln!(
+                                    "ZAROXI_CLIPBOARD: copy selection lines={}-{} cols={}-{}",
+                                    sl, el, sc, ec
+                                );
+                            }
+                            Vec::new()
+                        }
+                        Key::Character(c) if c == "x" => {
+                            if let Some((sl, sc, el, ec)) = self.selection_range {
+                                eprintln!(
+                                    "ZAROXI_CLIPBOARD: cut selection lines={}-{} cols={}-{}",
+                                    sl, el, sc, ec
+                                );
+                            }
+                            Vec::new()
+                        }
+                        Key::Character(c) if c == "v" => {
+                            eprintln!(
+                                "ZAROXI_CLIPBOARD: paste at cursor line={} col={}",
+                                self.editor_cursor_line, self.editor_cursor_col
+                            );
+                            Vec::new()
+                        }
+                        _ => Vec::new(),
+                    },
                     _ => Vec::new(),
                 };
                 self.handle_actions(actions);
