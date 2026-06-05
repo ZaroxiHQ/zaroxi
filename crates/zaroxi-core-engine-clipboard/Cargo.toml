@@ -6,3 +6,4 @@ description = "Clipboard integration for the engine."
 license = "MIT"
 
 [dependencies]
+arboard = "3.6.1"

@@ -25,6 +25,8 @@ zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
 # construct RenderLayout colors compatible with the renderer.
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
 
+zaroxi-core-engine-clipboard = { path = "../zaroxi-core-engine-clipboard" }
+
 # Local workspace crates
 zaroxi-core-engine-window = { path = "../zaroxi-core-engine-window" }
 zaroxi-core-engine-render-backend = { path = "../zaroxi-core-engine-render-backend" }

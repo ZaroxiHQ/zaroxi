@@ -135,6 +135,32 @@ impl GuiApp {
         }
     }
 
+    /// Extract selected text from editor_body lines using the live selection range.
+    fn copy_selected_text(&self) -> Option<String> {
+        let (sl, sc, el, ec) = self.selection_range?;
+        let wc = self.work_content.as_ref()?;
+        let body = wc.editor_body.as_ref()?;
+        if body.lines.is_empty() {
+            return None;
+        }
+        let mut selected = String::new();
+        for line_idx in sl..=el {
+            if line_idx >= body.lines.len() {
+                break;
+            }
+            let line = &body.lines[line_idx];
+            let start = if line_idx == sl { sc } else { 0 };
+            let end = if line_idx == el { ec.min(line.len()) } else { line.len() };
+            if start < end && start <= line.len() {
+                selected.push_str(&line[start..end.min(line.len())]);
+            }
+            if line_idx < el {
+                selected.push('\n');
+            }
+        }
+        if selected.is_empty() { None } else { Some(selected) }
+    }
+
     /// Dispatch engine-emitted widget actions into app-specific effects.
     pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
         let mut needs_redraw = false;
@@ -575,26 +601,43 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     ref key if self.ctrl_held => match key {
                         Key::Character(c) if c == "c" => {
-                            if let Some((sl, sc, el, ec)) = self.selection_range {
-                                eprintln!(
-                                    "ZAROXI_CLIPBOARD: copy selection lines={}-{} cols={}-{}",
-                                    sl, el, sc, ec
-                                );
+                            if let Some(text) = self.copy_selected_text() {
+                                let _ = zaroxi_core_engine_clipboard::copy_text(&text);
                             }
                             Vec::new()
                         }
                         Key::Character(c) if c == "x" => {
-                            if let Some((sl, sc, el, ec)) = self.selection_range {
-                                eprintln!(
-                                    "ZAROXI_CLIPBOARD: cut selection lines={}-{} cols={}-{}",
-                                    sl, el, sc, ec
-                                );
+                            if let Some(text) = self.copy_selected_text() {
+                                let _ = zaroxi_core_engine_clipboard::copy_text(&text);
                             }
                             Vec::new()
                         }
                         Key::Character(c) if c == "v" => {
+                            match zaroxi_core_engine_clipboard::get_text() {
+                                Ok(text) => {
+                                    eprintln!(
+                                        "ZAROXI_CLIPBOARD: paste at line={} col={} len={}",
+                                        self.editor_cursor_line,
+                                        self.editor_cursor_col,
+                                        text.len()
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("ZAROXI_CLIPBOARD: paste failed: {}", e);
+                                }
+                            }
+                            Vec::new()
+                        }
+                        Key::Character(c) if c == "z" => {
                             eprintln!(
-                                "ZAROXI_CLIPBOARD: paste at cursor line={} col={}",
+                                "ZAROXI_UNDO: undo at cursor line={} col={}",
+                                self.editor_cursor_line, self.editor_cursor_col
+                            );
+                            Vec::new()
+                        }
+                        Key::Character(c) if c == "y" => {
+                            eprintln!(
+                                "ZAROXI_REDO: redo at cursor line={} col={}",
                                 self.editor_cursor_line, self.editor_cursor_col
                             );
                             Vec::new()

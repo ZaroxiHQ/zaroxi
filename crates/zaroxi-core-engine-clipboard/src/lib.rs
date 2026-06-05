@@ -1,10 +1,22 @@
-// zaroxi-core-engine-clipboard
-// Auto-generated crate stub for the Zaroxi migration.
-// Responsibility: Clipboard integration for the engine.
+//! Platform clipboard integration for the Zaroxi engine.
+//!
+//! Wraps `arboard` to provide a synchronous clipboard interface for
+//! copy/paste operations from interface layer code.
+//!
+//! Phase 64: implemented copy_text() / get_text() for editor clipboard.
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
+use std::error::Error;
 
-pub fn _crate_marker() {
-    // Marker function to make the crate non-empty for packaging.
+/// Copy the given text to the system clipboard.
+pub fn copy_text(text: &str) -> Result<(), Box<dyn Error>> {
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(text)?;
+    Ok(())
+}
+
+/// Get text from the system clipboard.
+pub fn get_text() -> Result<String, Box<dyn Error>> {
+    let mut clipboard = arboard::Clipboard::new()?;
+    let text = clipboard.get_text()?;
+    Ok(text)
 }
