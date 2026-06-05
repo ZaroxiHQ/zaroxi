@@ -17,20 +17,22 @@ pub struct WidgetHitTarget {
 }
 
 // ---------------------------------------------------------------------------
-// ShellWidget — enum over all widget variants in the shell tree
+// ShellWidget — enum over all app-neutral widget variants in the shell tree
 // ---------------------------------------------------------------------------
 
 /// A single shell widget. Each variant carries its geometry, label, and state.
+/// Widgets are app-neutral: IDE concepts are mapped onto these primitives by
+/// the shell builder; the engine owns no business terminology.
 #[derive(Debug, Clone)]
 pub enum ShellWidget {
-    /// Full-window background
+    /// Full-window background surface
     AppBackground { rect: Rect, fill_color: [f32; 4] },
 
-    /// Titlebar strip
+    /// Titlebar strip (brand label + window-control buttons)
     Titlebar { rect: Rect, fill_color: [f32; 4], brand_label: String },
 
-    /// Activity rail icon item (explorer, search, git, debug, settings...)
-    RailItem {
+    /// An item in a list or rail (selectable, with optional accent indicator)
+    ListItem {
         id: WidgetId,
         rect: Rect,
         label: String,
@@ -39,11 +41,11 @@ pub enum ShellWidget {
         state: InteractionState,
     },
 
-    /// Sidebar section header (PROJECT, GIT, OUTLINE...)
-    SidebarSection { rect: Rect, label: String, fill_color: [f32; 4], text_color: [f32; 4] },
+    /// Section header within a list (e.g. "PROJECT", "GIT", "OUTLINE")
+    ListSectionHeader { rect: Rect, label: String, fill_color: [f32; 4], text_color: [f32; 4] },
 
-    /// Tab in the editor tab strip
-    Tab {
+    /// A tab item inside a tab strip
+    TabItem {
         id: WidgetId,
         rect: Rect,
         label: String,
@@ -53,7 +55,7 @@ pub enum ShellWidget {
         state: InteractionState,
     },
 
-    /// Panel header with title and action button slots
+    /// Panel header with title label and optional action button slots
     PanelHeader {
         id: WidgetId,
         rect: Rect,
@@ -63,7 +65,7 @@ pub enum ShellWidget {
         actions: Vec<PanelHeaderAction>,
     },
 
-    /// Status pill / segment in the status bar
+    /// Status pill / segment (status bar label, language badge, etc.)
     StatusSegment {
         id: WidgetId,
         rect: Rect,
@@ -72,8 +74,8 @@ pub enum ShellWidget {
         text_color: [f32; 4],
     },
 
-    /// Scrollbar track with proportional thumb
-    ScrollbarTrack {
+    /// Scrollbar with track and proportional thumb
+    ScrollBar {
         id: WidgetId,
         track_rect: Rect,
         thumb_rect: Rect,
@@ -82,8 +84,8 @@ pub enum ShellWidget {
         state: InteractionState,
     },
 
-    /// Toolbar button (minimize, maximize, close, etc.)
-    ToolbarButton {
+    /// A generic clickable / interactive button
+    Button {
         id: WidgetId,
         rect: Rect,
         label: String,
@@ -91,16 +93,17 @@ pub enum ShellWidget {
         state: InteractionState,
     },
 
-    /// A region surface (editor bg, sidebar bg, panel bg, etc.)
-    RegionSurface {
-        rect: Rect,
-        fill_color: [f32; 4],
-        border_color: Option<[f32; 4]>,
-        border_width: f32,
-    },
+    /// A filled rectangular surface (panel background, fill region, etc.)
+    Surface { rect: Rect, fill_color: [f32; 4], border_color: Option<[f32; 4]>, border_width: f32 },
 
-    /// Thin divider line
+    /// Thin separator line (horizontal or vertical)
     Divider { rect: Rect, color: [f32; 4], orientation: DividerOrientation, subtle: bool },
+
+    /// Empty content placeholder ("No files open", "No results", etc.)
+    EmptyState { rect: Rect, message: String, fill_color: [f32; 4], text_color: [f32; 4] },
+
+    /// Standalone text label (unattached to larger widget chrome)
+    TextLabel { rect: Rect, label: String, text_color: [f32; 4] },
 }
 
 // ---------------------------------------------------------------------------
@@ -208,34 +211,36 @@ impl ShellWidget {
         match self {
             Self::AppBackground { rect, .. } => *rect,
             Self::Titlebar { rect, .. } => *rect,
-            Self::RailItem { rect, .. } => *rect,
-            Self::SidebarSection { rect, .. } => *rect,
-            Self::Tab { rect, .. } => *rect,
+            Self::ListItem { rect, .. } => *rect,
+            Self::ListSectionHeader { rect, .. } => *rect,
+            Self::TabItem { rect, .. } => *rect,
             Self::PanelHeader { rect, .. } => *rect,
             Self::StatusSegment { rect, .. } => *rect,
-            Self::ScrollbarTrack { track_rect, .. } => *track_rect,
-            Self::ToolbarButton { rect, .. } => *rect,
-            Self::RegionSurface { rect, .. } => *rect,
+            Self::ScrollBar { track_rect, .. } => *track_rect,
+            Self::Button { rect, .. } => *rect,
+            Self::Surface { rect, .. } => *rect,
             Self::Divider { rect, .. } => *rect,
+            Self::EmptyState { rect, .. } => *rect,
+            Self::TextLabel { rect, .. } => *rect,
         }
     }
 
     pub fn set_state(&mut self, state: InteractionState) {
         match self {
-            Self::RailItem { state: s, .. } => *s = state,
-            Self::Tab { state: s, .. } => *s = state,
-            Self::ScrollbarTrack { state: s, .. } => *s = state,
-            Self::ToolbarButton { state: s, .. } => *s = state,
+            Self::ListItem { state: s, .. } => *s = state,
+            Self::TabItem { state: s, .. } => *s = state,
+            Self::ScrollBar { state: s, .. } => *s = state,
+            Self::Button { state: s, .. } => *s = state,
             _ => {}
         }
     }
 
     pub fn get_state(&self) -> InteractionState {
         match self {
-            Self::RailItem { state, .. } => *state,
-            Self::Tab { state, .. } => *state,
-            Self::ScrollbarTrack { state, .. } => *state,
-            Self::ToolbarButton { state, .. } => *state,
+            Self::ListItem { state, .. } => *state,
+            Self::TabItem { state, .. } => *state,
+            Self::ScrollBar { state, .. } => *state,
+            Self::Button { state, .. } => *state,
             _ => InteractionState::Normal,
         }
     }
@@ -243,10 +248,10 @@ impl ShellWidget {
     /// Returns a hit target if this widget is interactive.
     pub fn hit_target(&self) -> Option<WidgetHitTarget> {
         match self {
-            Self::RailItem { id, rect, label, .. } => {
+            Self::ListItem { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
-            Self::Tab { id, rect, label, .. } => {
+            Self::TabItem { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
             Self::StatusSegment { id, rect, label, .. } => {
@@ -255,12 +260,12 @@ impl ShellWidget {
             Self::PanelHeader { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
-            Self::ScrollbarTrack { id, thumb_rect, .. } => Some(WidgetHitTarget {
+            Self::ScrollBar { id, thumb_rect, .. } => Some(WidgetHitTarget {
                 id: id.clone(),
                 rect: *thumb_rect,
                 label: "scrollbar".into(),
             }),
-            Self::ToolbarButton { id, rect, label, .. } => {
+            Self::Button { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
             }
             _ => None,
@@ -276,23 +281,21 @@ impl ShellWidget {
             Self::Titlebar { rect, fill_color, .. } => {
                 set.add_surface(Surface::new(*rect).with_fill(*fill_color));
             }
-            Self::RailItem { rect, fill_color, accent_indicator, .. } => {
+            Self::ListItem { rect, fill_color, accent_indicator, .. } => {
                 if let Some(accent) = accent_indicator {
-                    set.add_surface(
-                        Surface::new(Rect::new(rect.x + 2.0, rect.y + 2.0, 3.0, rect.height - 4.0))
-                            .with_fill(*accent),
-                    );
+                    let accent_rect = Rect::new(rect.x + 2.0, rect.y + 2.0, 3.0, rect.height - 4.0);
+                    set.add_surface(Surface::new(accent_rect).with_fill(*accent));
                 }
                 set.add_surface(Surface::new(*rect).with_fill(*fill_color));
             }
-            Self::SidebarSection { rect, fill_color, text_color, label } => {
+            Self::ListSectionHeader { rect, fill_color, text_color, label } => {
                 set.add_header(
                     HeaderBar::new(*rect, label.as_str())
                         .with_fill(*fill_color)
                         .with_text_color(*text_color),
                 );
             }
-            Self::Tab { rect, fill_color, text_color, accent_strip, label, .. } => {
+            Self::TabItem { rect, fill_color, text_color, accent_strip, label, .. } => {
                 let mut tab = TabChrome::new(*rect, label.as_str())
                     .with_fill(*fill_color)
                     .with_text_color(*text_color);
@@ -318,14 +321,14 @@ impl ShellWidget {
                         .with_text_color(*text_color),
                 );
             }
-            Self::ScrollbarTrack { track_rect, thumb_rect, track_fill, thumb_fill, .. } => {
+            Self::ScrollBar { track_rect, thumb_rect, track_fill, thumb_fill, .. } => {
                 set.add_surface(Surface::new(*track_rect).with_fill(*track_fill).with_radius(3.0));
                 set.add_surface(Surface::new(*thumb_rect).with_fill(*thumb_fill).with_radius(2.0));
             }
-            Self::ToolbarButton { rect, fill_color, .. } => {
+            Self::Button { rect, fill_color, .. } => {
                 set.add_surface(Surface::new(*rect).with_fill(*fill_color).with_radius(4.0));
             }
-            Self::RegionSurface { rect, fill_color, border_color, border_width } => {
+            Self::Surface { rect, fill_color, border_color, border_width } => {
                 let mut s = Surface::new(*rect).with_fill(*fill_color);
                 if let Some(bc) = border_color {
                     s = s.with_border(*bc, *border_width);
@@ -359,6 +362,10 @@ impl ShellWidget {
                     }
                 }
             }
+            Self::EmptyState { rect, fill_color, .. } => {
+                set.add_surface(Surface::new(*rect).with_fill(*fill_color));
+            }
+            Self::TextLabel { .. } => {}
         }
     }
 }

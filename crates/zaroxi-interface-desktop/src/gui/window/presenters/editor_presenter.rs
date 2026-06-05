@@ -40,25 +40,11 @@ pub fn shape_editor_content(
         super::super::syntax_color::colorize_source(&cv.lines, sem).into()
     });
 
-    let tab_labels = wc
-        .editor_tabs
-        .clone()
-        .unwrap_or_else(Vec::new);
-    let tab_title = tab_labels
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "No file open".into());
-    let tab_content: String = tab_labels
-        .iter()
-        .skip(1)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("  ");
+    let tab_labels = wc.editor_tabs.clone().unwrap_or_else(Vec::new);
+    let tab_title = tab_labels.first().cloned().unwrap_or_else(|| "No file open".into());
+    let tab_content: String = tab_labels.iter().skip(1).cloned().collect::<Vec<_>>().join("  ");
 
-    let breadcrumb_label = wc
-        .editor_breadcrumb
-        .clone()
-        .unwrap_or_else(String::new);
+    let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
 
     EditorContentData {
         tab_title,

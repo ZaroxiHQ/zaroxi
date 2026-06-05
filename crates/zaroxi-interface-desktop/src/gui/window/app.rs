@@ -159,7 +159,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let delta = position.y as f32 - start_y;
                     if let Some(ref tree) = self.widget_tree {
                         if let Some(w) = tree.widgets.get(drag_idx) {
-                            if let zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                            if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
                                 track_rect,
                                 ..
                             } = w
@@ -169,10 +169,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 let travel = (track_h - thumb_h).max(1.0);
                                 let raw_offset = delta / travel;
                                 let clamped = raw_offset.clamp(0.0, 1.0);
-                                // Determine which scrollbar: editor (index 1) or terminal (index 0)
                                 let is_editor = matches!(
                                     w,
-                                    zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                                    zaroxi_core_engine_ui::ShellWidget::ScrollBar {
                                         id: zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
                                         ..
                                     }
@@ -233,7 +232,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     if let Some(w) = t.widgets.get(idx) {
                                         if matches!(
                                             w,
-                                            zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack { .. }
+                                            zaroxi_core_engine_ui::ShellWidget::ScrollBar { .. }
                                         ) {
                                             if let Some(pos) = self.cursor_pos {
                                                 self.scrollbar_drag = Some((idx, pos.y as f32));
@@ -307,10 +306,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|t| matches!(t, winit::window::Theme::Dark))
                             .unwrap_or(true);
                         let resolved = self.theme_mode.resolve(system_is_dark);
-                        let actual = crate::gui::Size {
-                            width: sw,
-                            height: sh,
-                        };
+                        let actual = crate::gui::Size { width: sw, height: sh };
                         self.shell = crate::gui::ShellFrame::new(actual, resolved);
                     }
 
@@ -357,17 +353,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
-                    let layout =
-                        zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
+                    let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
                     let mut widget_tree =
                         zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &tokens);
                     if let Some(pos) = self.cursor_pos {
                         let hit = widget_tree.hit_test(pos.x as f32, pos.y as f32);
                         if let Some(idx) = hit {
-                            widget_tree.set_state_at(
-                                idx,
-                                zaroxi_core_engine_ui::InteractionState::Hover,
-                            );
+                            widget_tree
+                                .set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
                         }
                         self.hovered_widget_idx = hit;
                     }
@@ -380,21 +373,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
 
                     let render_layout =
-                        super::renderbridge::build_render_layout(
-                            &self.shell.regions,
-                            &tokens,
-                        );
+                        super::renderbridge::build_render_layout(&self.shell.regions, &tokens);
 
-                    let editor_data = super::presenters::shape_editor_content(
-                        &self.shell.work_content,
-                        &sem,
-                    );
-                    let explorer_data = super::presenters::shape_explorer_content(
-                        &self.shell.work_content,
-                    );
-                    let ai_data = super::presenters::shape_ai_content(
-                        &self.shell.work_content,
-                    );
+                    let editor_data =
+                        super::presenters::shape_editor_content(&self.shell.work_content, &sem);
+                    let explorer_data =
+                        super::presenters::shape_explorer_content(&self.shell.work_content);
+                    let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
                     let status_data = super::presenters::shape_status_content(
                         &self.shell.work_content,
                         self.editor_cursor_line,
@@ -411,20 +396,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
 
-                    match pollster::block_on(
-                        zaroxi_core_engine_render::Renderer::new(
-                            z.window(),
-                            [
-                                tokens.app_background.r as f64,
-                                tokens.app_background.g as f64,
-                                tokens.app_background.b as f64,
-                                1.0,
-                            ],
-                        ),
-                    ) {
+                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
+                        z.window(),
+                        [
+                            tokens.app_background.r as f64,
+                            tokens.app_background.g as f64,
+                            tokens.app_background.b as f64,
+                            1.0,
+                        ],
+                    )) {
                         Ok(mut renderer) => {
-                            let app_state =
-                                zaroxi_core_engine_render::renderer::core::AppState;
+                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
                             match renderer.render_with_layout(
                                 &app_state,
                                 &render_layout,
@@ -441,10 +423,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!(
-                                        "GuiApp: render_with_layout failed: {:?}",
-                                        e
-                                    );
+                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
                                 }
                             }
                         }
@@ -478,7 +457,7 @@ fn update_scrollbar_thumbs(
 
     for i in 0..tree.widgets.len() {
         let new_widget = match &tree.widgets[i] {
-            zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+            zaroxi_core_engine_ui::ShellWidget::ScrollBar {
                 id,
                 track_rect,
                 thumb_rect,
@@ -486,19 +465,17 @@ fn update_scrollbar_thumbs(
                 thumb_fill,
                 state,
             } => {
-                let offset = if matches!(
-                    id,
-                    zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }
-                ) {
-                    editor_scroll_offset
-                } else {
-                    terminal_scroll_offset
-                };
+                let offset =
+                    if matches!(id, zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }) {
+                        editor_scroll_offset
+                    } else {
+                        terminal_scroll_offset
+                    };
                 let travel = (track_rect.height - thumb_rect.height).max(1.0);
                 let new_y = track_rect.y + offset * travel;
                 let mut new_thumb = *thumb_rect;
                 new_thumb.y = new_y;
-                Some(zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                Some(zaroxi_core_engine_ui::ShellWidget::ScrollBar {
                     id: id.clone(),
                     track_rect: *track_rect,
                     thumb_rect: new_thumb,

@@ -9,10 +9,7 @@ pub fn shape_ai_content(work_content: &Option<ShellWorkContent>) -> AiPanelData 
         None => return AiPanelData::default(),
     };
 
-    let ai_text = wc
-        .ai_panel_content
-        .as_ref()
-        .map(|cv| cv.lines.join("\n"));
+    let ai_text = wc.ai_panel_content.as_ref().map(|cv| cv.lines.join("\n"));
 
     AiPanelData { ai_content: ai_text }
 }

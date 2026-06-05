@@ -10,6 +10,11 @@ use zaroxi_kernel_math::Rect;
 /// Each widget carries a `WidgetId` for hit-testing and state mutation.
 /// All color values come from the pre-resolved `StyleTokens`; the engine makes
 /// no visual policy decisions.
+///
+/// App-neutral mapping: IDE concepts (explorer, tabs, terminal, AI assistant,
+/// status bar) are recomposed from generic widgets (ListItem, ListSectionHeader,
+/// TabItem, PanelHeader, Surface, ScrollBar, Button, Divider, EmptyState,
+/// StatusSegment) without changing the visible layout contract.
 pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> ShellWidgetTree {
     let mut tree = ShellWidgetTree::new();
     let _dt = zaroxi_core_engine_style::EngineDesignTokens::default();
@@ -36,8 +41,8 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         for (idx, (label, accent)) in [("_", false), ("[ ]", false), ("x", true)].iter().enumerate()
         {
             let bx = btn_x + idx as f32 * (btn_w + 2.0);
-            tree.push(ShellWidget::ToolbarButton {
-                id: WidgetId::toolbar_button(idx),
+            tree.push(ShellWidget::Button {
+                id: WidgetId::button(idx),
                 rect: Rect::new(bx, btn_y, btn_w, btn_h),
                 label: label.to_string(),
                 fill_color: if *accent {
@@ -64,7 +69,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
 
     // Titlebar brand accent
     if layout.top_bar.width > 60.0 && layout.top_bar.height > 8.0 {
-        tree.push(ShellWidget::RegionSurface {
+        tree.push(ShellWidget::Surface {
             rect: Rect::new(
                 layout.top_bar.x + 10.0,
                 layout.top_bar.y + 5.0,
@@ -80,14 +85,14 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     // ── 3. Activity rail + sidebar (left column) ──
     let rail_w = 44.0;
     let rail_rect = Rect::new(0.0, layout.left_panel.y, rail_w, layout.left_panel.height);
-    tree.push(ShellWidget::RegionSurface {
+    tree.push(ShellWidget::Surface {
         rect: rail_rect,
         fill_color: tokens.rail_background.to_array(),
         border_color: None,
         border_width: 0.0,
     });
 
-    // Rail items (top group)
+    // Rail items (top group) — composed as ListItem widgets
     if layout.left_panel.height > 48.0 {
         let icon_w = rail_w - 14.0;
         let icon_h: f32 = 28.0;
@@ -111,8 +116,8 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
                 if active { Some(tokens.rail_item_active_accent.to_array()) } else { None };
             let state = if active { InteractionState::Selected } else { InteractionState::Normal };
 
-            tree.push(ShellWidget::RailItem {
-                id: WidgetId::rail_item(idx),
+            tree.push(ShellWidget::ListItem {
+                id: WidgetId::list_item(idx),
                 rect: icon_rect,
                 label: label.into(),
                 fill_color: fill,
@@ -133,14 +138,14 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             }
         }
 
-        // Bottom rail items (settings, account)
+        // Bottom rail items (settings, account) — composed as ListItem widgets
         if layout.left_panel.height > 120.0 {
             let bottom_start =
                 layout.left_panel.y + layout.left_panel.height - (2.0 * (icon_h + gap) + 12.0);
             let mut by = bottom_start;
             for (idx, label) in [(4, "Settings"), (5, "Account")].iter() {
-                tree.push(ShellWidget::RailItem {
-                    id: WidgetId::rail_item(*idx),
+                tree.push(ShellWidget::ListItem {
+                    id: WidgetId::list_item(*idx),
                     rect: Rect::new(rail_rect.x + 7.0, by, icon_w, icon_h),
                     label: label.to_string(),
                     fill_color: tokens.rail_item_bottom.to_array(),
@@ -158,7 +163,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     if sidebar_w > 0.0 {
         let sx = 44.0;
         let sidebar_rect = Rect::new(sx, layout.left_panel.y, sidebar_w, layout.left_panel.height);
-        tree.push(ShellWidget::RegionSurface {
+        tree.push(ShellWidget::Surface {
             rect: sidebar_rect,
             fill_color: tokens.sidebar_background.to_array(),
             border_color: None,
@@ -171,7 +176,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         let mut y_off = layout.left_panel.y + pad;
 
         // Search bar area
-        tree.push(ShellWidget::RegionSurface {
+        tree.push(ShellWidget::Surface {
             rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, search_h),
             fill_color: tokens.sidebar_input.to_array(),
             border_color: None,
@@ -188,14 +193,14 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         });
         y_off += 12.0;
 
-        // Sections: PROJECT, GIT, OUTLINE
+        // Sections: PROJECT, GIT, OUTLINE — composed as ListSectionHeader + Surface items
         let section_h = 20.0;
         let row_h = 16.0;
         for section_label in &["PROJECT", "GIT", "OUTLINE"] {
             if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {
                 break;
             }
-            tree.push(ShellWidget::SidebarSection {
+            tree.push(ShellWidget::ListSectionHeader {
                 rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
                 label: section_label.to_string(),
                 fill_color: tokens.panel_header_background.to_array(),
@@ -208,7 +213,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
                 if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
                     break;
                 }
-                tree.push(ShellWidget::RegionSurface {
+                tree.push(ShellWidget::Surface {
                     rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 2.0, inner_w - 20.0, 12.0),
                     fill_color: tokens.sidebar_file_item.to_array(),
                     border_color: None,
@@ -226,7 +231,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             let track_rect =
                 Rect::new(sb_x, sidebar_rect.y + 8.0, sb_w, sidebar_rect.height - 16.0);
             let thumb_h = (track_rect.height * 0.5).max(16.0);
-            tree.push(ShellWidget::ScrollbarTrack {
+            tree.push(ShellWidget::ScrollBar {
                 id: WidgetId::scrollbar(2),
                 track_rect,
                 thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
@@ -251,7 +256,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     });
 
     // ── 5. Editor tab strip ──
-    tree.push(ShellWidget::RegionSurface {
+    tree.push(ShellWidget::Surface {
         rect: layout.content_tab_strip,
         fill_color: tokens.tab_strip_background.to_array(),
         border_color: None,
@@ -269,7 +274,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         subtle: false,
     });
 
-    // Tab widgets: active + 2 inactive
+    // TabItem widgets: active + 2 inactive
     if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
         let tab_h = layout.content_tab_strip.height + 1.0;
         let tab_y = layout.content_tab_strip.y - 1.0;
@@ -294,7 +299,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             let accent = if active { Some(tokens.accent.to_array()) } else { None };
             let state = if active { InteractionState::Selected } else { InteractionState::Normal };
 
-            tree.push(ShellWidget::Tab {
+            tree.push(ShellWidget::TabItem {
                 id: WidgetId::tab(idx),
                 rect: tab_rect,
                 label: label.into(),
@@ -308,7 +313,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     }
 
     // ── 6. Editor breadcrumb ──
-    tree.push(ShellWidget::RegionSurface {
+    tree.push(ShellWidget::Surface {
         rect: layout.content_breadcrumb,
         fill_color: tokens.editor_breadcrumb_background.to_array(),
         border_color: None,
@@ -327,7 +332,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     });
 
     // ── 7. Editor content ──
-    tree.push(ShellWidget::RegionSurface {
+    tree.push(ShellWidget::Surface {
         rect: layout.content_area,
         fill_color: tokens.editor_content_background.to_array(),
         border_color: None,
@@ -341,7 +346,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         let track_rect =
             Rect::new(sb_x, layout.content_area.y + 4.0, sb_w, layout.content_area.height - 8.0);
         let thumb_h = (track_rect.height * 0.25).max(20.0);
-        tree.push(ShellWidget::ScrollbarTrack {
+        tree.push(ShellWidget::ScrollBar {
             id: WidgetId::scrollbar(1),
             track_rect,
             thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
@@ -392,7 +397,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             text_color: tokens.panel_header_text.to_array(),
             actions,
         });
-        tree.push(ShellWidget::RegionSurface {
+        tree.push(ShellWidget::Surface {
             rect: Rect::new(
                 layout.bottom_panel.x,
                 layout.bottom_panel.y + header_h,
@@ -414,7 +419,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             layout.bottom_panel.height - header_h - 8.0,
         );
         let thumb_h = (track_rect.height * 0.3).max(16.0);
-        tree.push(ShellWidget::ScrollbarTrack {
+        tree.push(ShellWidget::ScrollBar {
             id: WidgetId::scrollbar(0),
             track_rect,
             thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
@@ -464,7 +469,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
             text_color: tokens.panel_header_text.to_array(),
             actions,
         });
-        tree.push(ShellWidget::RegionSurface {
+        tree.push(ShellWidget::Surface {
             rect: Rect::new(
                 layout.right_panel.x,
                 layout.right_panel.y + header_h,
@@ -478,7 +483,7 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
     }
 
     // ── 10. Status bar ──
-    tree.push(ShellWidget::RegionSurface {
+    tree.push(ShellWidget::Surface {
         rect: layout.bottom_bar,
         fill_color: tokens.status_bar_background.to_array(),
         border_color: None,

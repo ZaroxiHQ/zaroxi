@@ -343,12 +343,12 @@ impl InteractionState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WidgetId {
     Tab { index: usize },
-    RailItem { index: usize },
+    ListItem { index: usize },
     StatusSegment { index: usize },
     PanelHeader { id: &'static str },
     PanelAction { header_id: &'static str, action: &'static str },
     Scrollbar { index: usize },
-    ToolbarButton { index: usize },
+    Button { index: usize },
     Surface { role: SurfaceRole },
 }
 
@@ -356,8 +356,8 @@ impl WidgetId {
     pub fn tab(idx: usize) -> Self {
         Self::Tab { index: idx }
     }
-    pub fn rail_item(idx: usize) -> Self {
-        Self::RailItem { index: idx }
+    pub fn list_item(idx: usize) -> Self {
+        Self::ListItem { index: idx }
     }
     pub fn status_segment(idx: usize) -> Self {
         Self::StatusSegment { index: idx }
@@ -371,11 +371,22 @@ impl WidgetId {
     pub fn scrollbar(idx: usize) -> Self {
         Self::Scrollbar { index: idx }
     }
-    pub fn toolbar_button(idx: usize) -> Self {
-        Self::ToolbarButton { index: idx }
+    pub fn button(idx: usize) -> Self {
+        Self::Button { index: idx }
     }
     pub fn surface(role: SurfaceRole) -> Self {
         Self::Surface { role }
+    }
+
+    /// Legacy alias kept for transitional compatibility.
+    #[deprecated(note = "use `list_item()` instead")]
+    pub fn rail_item(idx: usize) -> Self {
+        Self::ListItem { index: idx }
+    }
+    /// Legacy alias kept for transitional compatibility.
+    #[deprecated(note = "use `button()` instead")]
+    pub fn toolbar_button(idx: usize) -> Self {
+        Self::Button { index: idx }
     }
 }
 

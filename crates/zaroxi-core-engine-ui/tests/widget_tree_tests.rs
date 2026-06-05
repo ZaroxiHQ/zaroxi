@@ -20,22 +20,19 @@ mod tests {
     }
 
     #[test]
-    fn widget_tree_contains_tab_and_rail_items() {
+    fn widget_tree_contains_tab_and_list_items() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
         let tree = build_shell_widget_tree(&layout, &tokens);
 
-        // At least one Tab widget
         let tab_count =
-            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::Tab { .. })).count();
-        assert!(tab_count >= 1, "expected >=1 Tab widget, got {}", tab_count);
+            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::TabItem { .. })).count();
+        assert!(tab_count >= 1, "expected >=1 TabItem widget, got {}", tab_count);
 
-        // At least one RailItem widget
-        let rail_count =
-            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::RailItem { .. })).count();
-        assert!(rail_count >= 4, "expected >=4 RailItems, got {}", rail_count);
+        let list_count =
+            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::ListItem { .. })).count();
+        assert!(list_count >= 4, "expected >=4 ListItems, got {}", list_count);
 
-        // At least one StatusSegment
         let seg_count =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::StatusSegment { .. })).count();
         assert!(seg_count >= 1, "expected >=1 StatusSegment, got {}", seg_count);
@@ -53,8 +50,8 @@ mod tests {
         let tokens = test_tokens_dark();
         let tree = build_shell_widget_tree(&layout, &tokens);
 
-        // Hitting the app background (a RegionSurface) should return None
-        // because RegionSurface has no hit_target.
+        // Hitting the app background (a Surface widget) should return None
+        // because Surface has no hit_target.
         let hit_at_origin = tree.hit_test(5.0, 5.0);
         assert!(hit_at_origin.is_none(), "app background should not be hittable");
     }
@@ -65,15 +62,13 @@ mod tests {
         let tokens = test_tokens_dark();
         let mut tree = build_shell_widget_tree(&layout, &tokens);
 
-        // Find a Tab widget and simulate hover
-        let tab_idx = tree.widgets.iter().position(|w| matches!(w, ShellWidget::Tab { .. }));
-        assert!(tab_idx.is_some(), "must have a Tab widget");
+        let tab_idx = tree.widgets.iter().position(|w| matches!(w, ShellWidget::TabItem { .. }));
+        assert!(tab_idx.is_some(), "must have a TabItem widget");
 
         let idx = tab_idx.unwrap();
         tree.set_state_at(idx, InteractionState::Hover);
         assert_eq!(tree.widgets[idx].get_state(), InteractionState::Hover);
 
-        // Clear all hover
         tree.clear_all_hover();
         assert_eq!(
             tree.widgets[idx].get_state(),
@@ -88,7 +83,6 @@ mod tests {
         let tokens = test_tokens_dark();
         let tree = build_shell_widget_tree(&layout, &tokens);
 
-        // Convert to surface set and verify the tab's surface is present
         let set = tree.to_surface_set();
         assert!(!set.tabs.is_empty(), "tabs must be present in surface set");
 
@@ -103,11 +97,10 @@ mod tests {
         let tree = build_shell_widget_tree(&layout, &tokens);
 
         let tabs: Vec<_> =
-            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::Tab { .. })).collect();
+            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::TabItem { .. })).collect();
         assert!(tabs.len() >= 3, "expected >=3 tabs, got {}", tabs.len());
 
-        // First tab should be Selected
-        if let ShellWidget::Tab { state, .. } = tabs[0] {
+        if let ShellWidget::TabItem { state, .. } = tabs[0] {
             assert_eq!(*state, InteractionState::Selected, "first tab must be selected");
         }
     }
@@ -138,28 +131,24 @@ mod tests {
         let tree = build_shell_widget_tree(&layout, &tokens);
 
         let scrollbar_count =
-            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::ScrollbarTrack { .. })).count();
+            tree.widgets.iter().filter(|w| matches!(w, ShellWidget::ScrollBar { .. })).count();
         assert!(scrollbar_count >= 1, "expected >=1 scrollbar, got {}", scrollbar_count);
     }
 
     #[test]
-    fn toolbar_buttons_are_hittable() {
+    fn buttons_are_hittable() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
         let tree = build_shell_widget_tree(&layout, &tokens);
 
-        let btn_hits: Vec<_> = tree
-            .widgets
-            .iter()
-            .filter_map(|w| {
-                if matches!(w, ShellWidget::ToolbarButton { .. }) { w.hit_target() } else { None }
-            })
-            .collect();
-        assert!(
-            btn_hits.len() >= 3,
-            "expected >=3 toolbar button hit targets, got {}",
-            btn_hits.len()
-        );
+        let btn_hits: Vec<_> =
+            tree.widgets
+                .iter()
+                .filter_map(|w| {
+                    if matches!(w, ShellWidget::Button { .. }) { w.hit_target() } else { None }
+                })
+                .collect();
+        assert!(btn_hits.len() >= 3, "expected >=3 button hit targets, got {}", btn_hits.len());
     }
 
     #[test]
