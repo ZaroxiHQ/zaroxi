@@ -6,6 +6,10 @@ This file contains the GuiApp struct and its ApplicationHandler impl
 Phase 57: slimmed to a thin winit-to-engine bridge; widget interaction
 (hit-testing, hover, press, scrollbar drag, focus) now lives in
 `zaroxi_core_engine_ui::WidgetInteractionModel`.
+
+Phase 58: added keyboard focus traversal (Tab/Shift+Tab/Enter/Escape) and
+`on_widget_activated` callback so callers can wire WidgetAction::Activated
+to domain behavior without embedding DesktopComposition in GuiApp.
 */
 
 use pollster;
@@ -13,10 +17,17 @@ use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, MouseButton, StartCause, WindowEvent},
     event_loop::ControlFlow,
+    keyboard::{Key, NamedKey},
     window::WindowAttributes,
 };
 
 use crate::gui::{ShellFrame, ShellWorkContent};
+
+/// Callback invoked when a widget is activated (clicked or keyboard-entered).
+/// Returns `Some(ShellWorkContent)` to trigger a shell content refresh, or
+/// `None` if no refresh is needed.
+pub type WidgetActivationHandler =
+    Box<dyn FnMut(&zaroxi_core_engine_ui::WidgetId) -> Option<ShellWorkContent>>;
 
 /// Small application handler that owns the engine window handle and the ShellFrame
 /// snapshot. Lifecycle methods handle window creation and redraw requests.
@@ -27,45 +38,45 @@ pub struct GuiApp {
     pub title: String,
     pub maybe_window: Option<zaroxi_core_engine_window::ZaroxiWindow>,
     pub shell: ShellFrame,
-    /// Live workspace content snapshot built from DesktopComposition.
-    /// Applied to `shell.work_content` before each redraw so the GPU
-    /// window renders live session data (editor body, tabs, explorer, etc.).
     pub work_content: Option<ShellWorkContent>,
     pub requested_initial_frame: bool,
     pub already_logged_existing: bool,
     pub first_render_shown: bool,
-    /// Cached widget tree built on each redraw, used for hit-testing.
     pub widget_tree: Option<zaroxi_core_engine_ui::ShellWidgetTree>,
-    /// Engine-owned interaction state: hover, press, focus, scroll offsets.
     pub interaction: zaroxi_core_engine_ui::WidgetInteractionModel,
-    /// Manual cursor position set by mouse clicks in the editor area.
     pub editor_cursor_line: usize,
     pub editor_cursor_col: usize,
-    /// Drag-start line/col for selection extending.
     pub selection_anchor: Option<(usize, usize)>,
-    /// Theme mode: Dark, Light, or System (default).
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
+    pub shift_held: bool,
+    pub on_widget_activated: Option<WidgetActivationHandler>,
 }
 
 impl GuiApp {
     /// Dispatch engine-emitted widget actions into app-specific effects.
-    fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
+    pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
         let mut needs_redraw = false;
         for action in actions {
             match action {
                 zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw => {
                     needs_redraw = true;
                 }
+                zaroxi_core_engine_ui::WidgetAction::FocusChanged(_) => {
+                    needs_redraw = true;
+                }
                 zaroxi_core_engine_ui::WidgetAction::ScrollOffsetChanged(id, offset) => {
                     self.interaction.set_scroll_offset(&id, offset);
                     needs_redraw = true;
                 }
-                zaroxi_core_engine_ui::WidgetAction::Activated(_id) => {
-                    // Future: dispatch domain-specific widget activation
+                zaroxi_core_engine_ui::WidgetAction::Activated(ref id) => {
+                    if let Some(ref mut handler) = self.on_widget_activated {
+                        if let Some(wc) = handler(id) {
+                            self.work_content = Some(wc);
+                        }
+                    }
                     needs_redraw = true;
                 }
                 zaroxi_core_engine_ui::WidgetAction::HoverChanged(_)
-                | zaroxi_core_engine_ui::WidgetAction::FocusChanged(_)
                 | zaroxi_core_engine_ui::WidgetAction::Nothing => {}
             }
         }
@@ -381,6 +392,53 @@ impl winit::application::ApplicationHandler for GuiApp {
                         render_blocks.len()
                     );
                 }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.shift_held = modifiers.state().shift_key();
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state != ElementState::Pressed {
+                    return;
+                }
+                let actions = match event.logical_key {
+                    Key::Named(NamedKey::Tab) => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            if self.shift_held {
+                                self.interaction.focus_previous(tree)
+                            } else {
+                                self.interaction.focus_next(tree)
+                            }
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            self.interaction.activate_focused(tree)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            if let Some(old) = self.interaction.focused_widget_idx {
+                                tree.set_state_at(
+                                    old,
+                                    zaroxi_core_engine_ui::InteractionState::Normal,
+                                );
+                            }
+                            self.interaction.focused_widget_idx = None;
+                            vec![
+                                zaroxi_core_engine_ui::WidgetAction::FocusChanged(None),
+                                zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw,
+                            ]
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                self.handle_actions(actions);
             }
             _ => {}
         }
