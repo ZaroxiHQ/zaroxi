@@ -21,8 +21,26 @@ pub(crate) static LOGGED_SIDEBAR_PACKED: AtomicBool = AtomicBool::new(false);
 /// Experiment flags:
 /// When true, force the sidebar content quad to magenta for quick visual verification.
 pub(crate) const FORCE_MAGENTA_SIDEBAR: bool = false;
-/// When true, skip the text pass entirely (draw shapes only).
+/// Compile-time default for text pass. Override at runtime with
+/// `ZAROXI_DISABLE_TEXT_PASS=1` to skip all text rendering.
 pub(crate) const DISABLE_TEXT_PASS: bool = false;
+
+/// Runtime text-pass disable via `ZAROXI_DISABLE_TEXT_PASS=1` env var.
+pub(crate) fn text_pass_disabled() -> bool {
+    if DISABLE_TEXT_PASS {
+        return true;
+    }
+    std::env::var("ZAROXI_DISABLE_TEXT_PASS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Return true when `ZAROXI_RENDER_TIMING=1` env var is set.
+pub(crate) fn render_timing_enabled() -> bool {
+    std::env::var("ZAROXI_RENDER_TIMING")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
 
 /// Validation scene enabled via `ZAROXI_VALIDATION_SCENE=1`.
 /// When active, injects three large R/G/B bands across the full window.

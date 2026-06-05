@@ -24,7 +24,7 @@ pub struct AppState;
 use crate::renderer::debug::{
     DISABLE_TEXT_PASS, FIRST_GLYPH_LOGGED, FORCE_MAGENTA_SIDEBAR, LOGGED_EDITOR, LOGGED_SIDEBAR,
     LOGGED_SIDEBAR_PACKED, LOGGED_TITLEBAR, RENDER_DEBUG, TEXT_SAMPLER_NEAREST, init_debug_flags,
-    render_debug_enabled, validation_scene_enabled,
+    render_debug_enabled, render_timing_enabled, text_pass_disabled, validation_scene_enabled,
 };
 use crate::renderer::geometry::{Vertex, pixel_to_ndc, push_colored_quad};
 use zaroxi_core_engine_font::load_bundled_monospace;
@@ -148,6 +148,9 @@ pub struct Renderer<'a> {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+
+    /// Frame render start time (set when ZAROXI_RENDER_TIMING=1).
+    frame_start: Option<std::time::Instant>,
 }
 
 impl<'a> Renderer<'a> {
@@ -354,6 +357,7 @@ impl<'a> Renderer<'a> {
             vertex_buffer,
             index_buffer,
             index_count: 0,
+            frame_start: None,
         })
     }
 
@@ -419,10 +423,18 @@ impl<'a> Renderer<'a> {
         if RENDER_DEBUG {
             for p in render_blocks.iter() {
                 debug!(
-                    "renderer received render_panel id='{}' title='{}' visible={}",
-                    p.id, p.title, p.visible
+                    "renderer received render_panel id='{}' title='{}' visible={} content_len={} spans={}",
+                    p.id,
+                    p.title,
+                    p.visible,
+                    p.content.len(),
+                    p.content_spans.as_ref().map(|s| s.len()).unwrap_or(0)
                 );
             }
+        }
+
+        if render_timing_enabled() {
+            self.frame_start = Some(std::time::Instant::now());
         }
 
         // Build draw lists from app_state into vertex/index buffers.
@@ -1012,18 +1024,18 @@ impl<'a> Renderer<'a> {
                     );
                     if total_indices_len > panel_indices_len || self.text_renderer.queued_len() > 0
                     {
-                        if DISABLE_TEXT_PASS {
+                        if text_pass_disabled() {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "DISABLE_TEXT_PASS enabled: skipping text pass (would draw {} indices)",
+                                    "DISABLE_TEXT_PASS: skipping text pass (would draw {} indices)",
                                     total_indices_len.saturating_sub(panel_indices_len)
                                 );
                             }
                         } else {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "binding text pipeline and font_atlas bind_group for text pass (false={})",
-                                    false
+                                    "binding text pipeline and font_atlas bind_group for text pass (queued={})",
+                                    self.text_renderer.queued_len()
                                 );
                             }
 
@@ -1140,7 +1152,7 @@ impl<'a> Renderer<'a> {
                 // cosmic_present computed earlier
                 let cosmic_prepare_called = cosmic_present;
                 // pipeline_render_called: infer from whether we attempted a text pass (backend_text_ops>0 or core_text_ops>0) and DISABLE_TEXT_PASS flag
-                let pipeline_render_called = (!DISABLE_TEXT_PASS)
+                let pipeline_render_called = (!text_pass_disabled())
                     && (backend_text_ops > 0 || core_text_ops > 0)
                     && cosmic_prepare_called;
                 // overlay rects marker: read fallback marker if present
@@ -1187,6 +1199,16 @@ impl<'a> Renderer<'a> {
                 crate::renderer::surface::submit_and_present(&self.queue, encoder, frame);
                 if render_debug_enabled() {
                     log::debug!("submitted frame");
+                }
+                if render_timing_enabled() {
+                    if let Some(start) = self.frame_start.take() {
+                        let elapsed = start.elapsed();
+                        eprintln!(
+                            "GUI_RENDER_TIMING: frame={} duration_ms={:.2}",
+                            frame_idx,
+                            elapsed.as_secs_f64() * 1000.0
+                        );
+                    }
                 }
                 Ok(())
             }
@@ -1258,18 +1280,18 @@ impl<'a> Renderer<'a> {
 
                     // TEXT PASS
                     if total_indices_len > panel_indices_len {
-                        if DISABLE_TEXT_PASS {
+                        if text_pass_disabled() {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "DISABLE_TEXT_PASS enabled (suboptimal path): skipping text pass (would draw {} indices)",
+                                    "DISABLE_TEXT_PASS (suboptimal path): skipping text pass (would draw {} indices)",
                                     total_indices_len - panel_indices_len
                                 );
                             }
                         } else {
                             if render_debug_enabled() {
                                 log::debug!(
-                                    "binding text pipeline and font_atlas bind_group for text pass (suboptimal path, false={})",
-                                    false
+                                    "binding text pipeline and font_atlas bind_group for text pass (suboptimal path, queued={})",
+                                    self.text_renderer.queued_len()
                                 );
                             }
 
