@@ -11,7 +11,11 @@ mod editor;
 #[cfg(feature = "gui_window")]
 mod frame;
 #[cfg(feature = "gui_window")]
+mod presenters;
+#[cfg(feature = "gui_window")]
 mod rail;
+#[cfg(feature = "gui_window")]
+mod renderbridge;
 #[cfg(feature = "gui_window")]
 mod status_bar;
 pub mod style_tokens_adapter;

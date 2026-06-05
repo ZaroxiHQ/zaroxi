@@ -89,6 +89,7 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
 
     let editor_bg = to_engine(sem.editor_background);
     let app_bg = to_engine(sem.app_background);
+    let panel_bg = to_engine(sem.panel_background);
     let titlebar_bg = to_engine(sem.title_bar_background);
     let rail_bg = to_engine(sem.activity_rail_background);
     let sidebar_bg = to_engine(sem.sidebar_background);
@@ -147,6 +148,7 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
         assistant_panel_header_background: asst_hdr_bg,
         status_bar_background: status_bg,
         panel_header_background: panel_hdr_bg,
+        panel_background: panel_bg,
         tab_strip_background: tab_strip_bg,
         tab_active_background: tab_active_bg,
         tab_inactive_background: tab_inactive_bg,

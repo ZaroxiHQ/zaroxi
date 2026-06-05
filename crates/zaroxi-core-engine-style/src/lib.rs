@@ -111,6 +111,7 @@ pub struct StyleTokens {
     pub assistant_panel_header_background: ThemeColor,
     pub status_bar_background: ThemeColor,
     pub panel_header_background: ThemeColor,
+    pub panel_background: ThemeColor,
 
     // ── Tab strip ──
     pub tab_strip_background: ThemeColor,

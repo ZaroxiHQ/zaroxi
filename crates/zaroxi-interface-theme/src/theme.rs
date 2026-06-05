@@ -335,6 +335,31 @@ impl SemanticColors {
         }
     }
 
+    /// High-contrast debug theme for proving theme plumbing visually.
+    /// Activated by env var `ZAROXI_DEBUG_THEME=1` on the host side.
+    /// Uses unmistakably different surface colors so any visual change
+    /// confirms the theme pipeline is live end-to-end.
+    pub fn debug() -> Self {
+        let mut sem = Self::dark();
+        sem.app_background = Color::from_hex("#0D142D");
+        sem.shell_background = Color::from_hex("#0F1A3C");
+        sem.panel_background = Color::from_hex("#141F44");
+        sem.elevated_panel_background = Color::from_hex("#1A254A");
+        sem.editor_background = Color::from_hex("#0A142E");
+        sem.input_background = Color::from_hex("#121C3D");
+        sem.status_bar_background = Color::from_hex("#26408A");
+        sem.title_bar_background = Color::from_hex("#0F1A42");
+        sem.activity_rail_background = Color::from_hex("#264466");
+        sem.sidebar_background = Color::from_hex("#2E3866");
+        sem.tab_background = Color::from_hex("#141F4A");
+        sem.tab_active_background = Color::from_hex("#0A142E");
+        sem.assistant_panel_background = Color::from_hex("#382648");
+        sem.bottom_panel_background = Color::from_hex("#264080");
+        sem.bottom_panel_header_background = Color::from_hex("#33558C");
+        sem.assistant_panel_header_background = Color::from_hex("#2E1E3D");
+        sem
+    }
+
     /// Light theme semantic colors - Professional IDE with warm-neutral light tones
     /// Designed for long coding sessions with clear surface hierarchy and restrained blue accent
     pub fn light() -> Self {

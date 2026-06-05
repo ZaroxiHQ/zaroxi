@@ -135,6 +135,7 @@ fn custom_style_tokens_drive_engine_without_zaroxi_theme() {
         assistant_panel_header_background: ThemeColor::from_hex("#383838"),
         status_bar_background: ThemeColor::from_hex("#333333"),
         panel_header_background: ThemeColor::from_hex("#383838"),
+        panel_background: ThemeColor::from_hex("#2d2d2d"),
         tab_strip_background: ThemeColor::from_hex("#2a2a2a"),
         tab_active_background: ThemeColor::from_hex("#282828"),
         tab_inactive_background: ThemeColor::from_hex("#303030"),

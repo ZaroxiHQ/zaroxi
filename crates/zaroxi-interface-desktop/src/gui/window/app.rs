@@ -255,60 +255,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 }
                                 // Editor area click: position cursor
                                 if let Some(pos) = self.cursor_pos {
-                                    let editor_region =
-                                        crate::gui::region_dispatch::find_region_by_role(
-                                            &self.shell.regions,
-                                            zaroxi_core_engine_style::PanelRole::ContentArea,
-                                        );
-                                    if let Some(ed) = editor_region {
-                                        let ex = ed.rect.x as f32;
-                                        let ey = ed.rect.y as f32;
-                                        let px = pos.x as f32;
-                                        let py = pos.y as f32;
-                                        if px >= ex
-                                            && py >= ey
-                                            && px < ex + ed.rect.width as f32
-                                            && py < ey + ed.rect.height as f32
-                                        {
-                                            let content_pad = 8.0;
-                                            let header_h = 28.0;
-                                            let line_h = 16.0;
-                                            let char_w = 8.0;
-                                            let content_x = ex + content_pad;
-                                            let content_y = ey + header_h + content_pad;
-                                            let rel_y = py - content_y;
-                                            let rel_x = px - content_x;
-                                            let visible_line = (rel_y / line_h).max(0.0) as usize;
-                                            let col = (rel_x / char_w).max(0.0) as usize;
-
-                                            // Compute usable height and viewport for scroll offset
-                                            let usable_h = ed.rect.height as f32
-                                                - header_h
-                                                - content_pad * 2.0;
-
-                                            // Convert visible line to absolute line using scroll offset
-                                            let total_lines = self
-                                                .shell
-                                                .work_content
-                                                .as_ref()
-                                                .and_then(|w| w.editor_body.as_ref())
-                                                .map(|cv| cv.lines.len().max(1))
-                                                .unwrap_or(1);
-                                            let visible_lines_c =
-                                                (usable_h / line_h).max(1.0) as usize;
-                                            let max_scroll_c = (total_lines
-                                                .saturating_sub(visible_lines_c))
-                                            .max(1);
-                                            let first_visible = (self.editor_scroll_offset
-                                                * max_scroll_c as f32)
-                                                as usize;
-                                            let absolute_line = first_visible + visible_line;
-                                            self.editor_cursor_line = absolute_line;
-                                            self.editor_cursor_col = col;
-                                            self.selection_anchor = Some((absolute_line, col));
-                                            if let Some(z) = self.maybe_window.as_ref() {
-                                                let _ = z.window().request_redraw();
-                                            }
+                                    if let Some((line, col)) = project_editor_cursor(
+                                        pos,
+                                        &self.shell.regions,
+                                        &self.shell.work_content,
+                                        self.editor_scroll_offset,
+                                    ) {
+                                        self.editor_cursor_line = line;
+                                        self.editor_cursor_col = col;
+                                        self.selection_anchor = Some((line, col));
+                                        if let Some(z) = self.maybe_window.as_ref() {
+                                            let _ = z.window().request_redraw();
                                         }
                                     }
                                 }
@@ -350,7 +307,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|t| matches!(t, winit::window::Theme::Dark))
                             .unwrap_or(true);
                         let resolved = self.theme_mode.resolve(system_is_dark);
-                        let actual = crate::gui::Size { width: sw, height: sh };
+                        let actual = crate::gui::Size {
+                            width: sw,
+                            height: sh,
+                        };
                         self.shell = crate::gui::ShellFrame::new(actual, resolved);
                     }
 
@@ -367,7 +327,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let debug_theme_active =
                         std::env::var("ZAROXI_DEBUG_THEME").as_deref() == Ok("1");
                     if debug_theme_active {
-                        sem = debug_theme_tokens();
+                        sem = zaroxi_interface_theme::theme::SemanticColors::debug();
                         eprintln!("ZAROXI_DEBUG_THEME: debug theme override ACTIVE");
                     }
 
@@ -397,230 +357,74 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
-                    // Build the engine-side widget tree for hover tracking.
-                    let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
+                    let layout =
+                        zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
                     let mut widget_tree =
                         zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &tokens);
-                    // Re-apply hover state if cursor is over a widget.
                     if let Some(pos) = self.cursor_pos {
                         let hit = widget_tree.hit_test(pos.x as f32, pos.y as f32);
                         if let Some(idx) = hit {
-                            widget_tree
-                                .set_state_at(idx, zaroxi_core_engine_ui::InteractionState::Hover);
+                            widget_tree.set_state_at(
+                                idx,
+                                zaroxi_core_engine_ui::InteractionState::Hover,
+                            );
                         }
                         self.hovered_widget_idx = hit;
                     }
                     self.widget_tree = Some(widget_tree.clone());
 
-                    // Update scrollbar thumb positions to reflect scroll state.
-                    // Update scrollbar thumb positions to reflect scroll state.
-                    if let Some(ref mut tree) = self.widget_tree {
-                        for i in 0..tree.widgets.len() {
-                            let new_widget = match &tree.widgets[i] {
-                                zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
-                                    id,
-                                    track_rect,
-                                    thumb_rect,
-                                    track_fill,
-                                    thumb_fill,
-                                    state,
-                                } => {
-                                    let offset = if matches!(
-                                        id,
-                                        zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }
-                                    ) {
-                                        self.editor_scroll_offset
-                                    } else {
-                                        self.terminal_scroll_offset
-                                    };
-                                    let travel = (track_rect.height - thumb_rect.height).max(1.0);
-                                    let new_y = track_rect.y + offset * travel;
-                                    let mut new_thumb = *thumb_rect;
-                                    new_thumb.y = new_y;
-                                    Some(zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
-                                        id: id.clone(),
-                                        track_rect: *track_rect,
-                                        thumb_rect: new_thumb,
-                                        track_fill: *track_fill,
-                                        thumb_fill: *thumb_fill,
-                                        state: *state,
-                                    })
-                                }
-                                _ => None,
-                            };
-                            if let Some(w) = new_widget {
-                                tree.widgets[i] = w;
-                            }
-                        }
-                    }
+                    update_scrollbar_thumbs(
+                        &mut self.widget_tree,
+                        self.editor_scroll_offset,
+                        self.terminal_scroll_offset,
+                    );
 
-                    let find_rect = |role: zaroxi_core_engine_style::PanelRole| -> zaroxi_core_engine_render::Rect {
-                        if let Some(r) =
-                            crate::gui::region_dispatch::find_region_by_role(&self.shell.regions, role)
-                        {
-                            zaroxi_core_engine_render::Rect {
-                                x: r.rect.x as f32,
-                                y: r.rect.y as f32,
-                                w: r.rect.width as f32,
-                                h: r.rect.height as f32,
-                            }
-                        } else {
-                            zaroxi_core_engine_render::Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }
-                        }
-                    };
+                    let render_layout =
+                        super::renderbridge::build_render_layout(
+                            &self.shell.regions,
+                            &tokens,
+                        );
 
-                    let render_layout = zaroxi_core_engine_render::RenderLayout {
-                        title_bar: find_rect(zaroxi_core_engine_style::PanelRole::TopBar),
-                        sidebar: find_rect(zaroxi_core_engine_style::PanelRole::SidePanel),
-                        editor: find_rect(zaroxi_core_engine_style::PanelRole::ContentArea),
-                        right_panel: find_rect(
-                            zaroxi_core_engine_style::PanelRole::AuxiliaryPanelContent,
-                        ),
-                        bottom_panel: find_rect(zaroxi_core_engine_style::PanelRole::BottomDock),
-                        status_bar: find_rect(zaroxi_core_engine_style::PanelRole::StatusBar),
-                        colors: zaroxi_core_engine_render::PanelColors {
-                            panel_header_background: tokens.panel_header_background.to_array(),
-                            panel_background: tokens.app_background.to_array(),
-                            editor_cursor: tokens.editor_cursor.to_array(),
-                            editor_selection: tokens.editor_selection.to_array(),
-                            editor_line_highlight: tokens.editor_line_highlight.to_array(),
-                            text_default: tokens.text_primary.to_array(),
-                        },
-                    };
-
-                    // Extract live work content for dynamic shell text.
-                    let _editor_rect = find_rect(zaroxi_core_engine_style::PanelRole::ContentArea);
-                    let editor_body_text = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .map(|cv| {
-                            let numbered: String = cv
-                                .lines
-                                .iter()
-                                .enumerate()
-                                .map(|(i, line)| format!("{:>4} │ {}", i + 1, line))
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            numbered
-                        })
-                        .unwrap_or_else(|| "No file open".to_string());
-
-                    let editor_cursor_line = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .map(|cv| cv.cursor_line)
-                        .unwrap_or(0);
-                    let editor_cursor_col = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .map(|cv| cv.cursor_col)
-                        .unwrap_or(0);
-                    let editor_spans: Option<Vec<(String, [f32; 4])>> = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .and_then(|cv| {
-                            if cv.lines.is_empty() {
-                                return None;
-                            }
-                            super::syntax_color::colorize_source(&cv.lines, &sem).into()
-                        });
-
-                    let tab_labels = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_tabs.clone())
-                        .unwrap_or_else(Vec::new);
-                    let tab_title =
-                        tab_labels.first().cloned().unwrap_or_else(|| "No file open".into());
-                    let tab_content: String =
-                        tab_labels.iter().skip(1).cloned().collect::<Vec<_>>().join("  ");
-                    let breadcrumb_label = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_breadcrumb.clone())
-                        .unwrap_or_else(String::new);
-                    let sidebar_items = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.explorer_items.clone())
-                        .map(|items| {
-                            let mut text = String::from("EXPLORER\n");
-                            for item in &items {
-                                text.push_str(&format!("  {}\n", item));
-                            }
-                            text
-                        })
-                        .unwrap_or_else(|| "No workspace loaded".to_string());
-
-                    let status_lang = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.active_file.as_ref())
-                        .and_then(|f| f.rsplit('.').next())
-                        .map(|ext| match ext {
-                            "rs" => "Rust",
-                            "toml" => "TOML",
-                            "md" => "Markdown",
-                            "json" => "JSON",
-                            "py" => "Python",
-                            "js" => "JavaScript",
-                            "ts" => "TypeScript",
-                            _ => ext,
-                        })
-                        .unwrap_or("No file");
-
-                    let ai_text = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.ai_panel_content.as_ref())
-                        .map(|cv| cv.lines.join("\n"));
+                    let editor_data = super::presenters::shape_editor_content(
+                        &self.shell.work_content,
+                        &sem,
+                    );
+                    let explorer_data = super::presenters::shape_explorer_content(
+                        &self.shell.work_content,
+                    );
+                    let ai_data = super::presenters::shape_ai_content(
+                        &self.shell.work_content,
+                    );
+                    let status_data = super::presenters::shape_status_content(
+                        &self.shell.work_content,
+                        self.editor_cursor_line,
+                        self.editor_cursor_col,
+                    );
 
                     let ctx = super::frame::ShellBlockContext {
-                        editor_data: super::editor::EditorContentData {
-                            tab_title,
-                            tab_content,
-                            breadcrumb_label,
-                            editor_body_text,
-                            editor_spans,
-                            cursor_line: editor_cursor_line,
-                            cursor_col: editor_cursor_col,
-                        },
-                        explorer_data: super::rail::ExplorerData { sidebar_items },
-                        status_bar_data: super::status_bar::StatusBarData {
-                            status_line: self.editor_cursor_line,
-                            status_col: self.editor_cursor_col,
-                            status_language: status_lang.to_string(),
-                        },
-                        ai_data: super::ai_pane::AiPanelData { ai_content: ai_text },
+                        editor_data,
+                        explorer_data,
+                        status_bar_data: status_data,
+                        ai_data,
                     };
 
                     let render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
 
-                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
-                        z.window(),
-                        [
-                            tokens.app_background.r as f64,
-                            tokens.app_background.g as f64,
-                            tokens.app_background.b as f64,
-                            1.0,
-                        ],
-                    )) {
+                    match pollster::block_on(
+                        zaroxi_core_engine_render::Renderer::new(
+                            z.window(),
+                            [
+                                tokens.app_background.r as f64,
+                                tokens.app_background.g as f64,
+                                tokens.app_background.b as f64,
+                                1.0,
+                            ],
+                        ),
+                    ) {
                         Ok(mut renderer) => {
-                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
+                            let app_state =
+                                zaroxi_core_engine_render::renderer::core::AppState;
                             match renderer.render_with_layout(
                                 &app_state,
                                 &render_layout,
@@ -637,7 +441,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
+                                    eprintln!(
+                                        "GuiApp: render_with_layout failed: {:?}",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -659,29 +466,101 @@ impl winit::application::ApplicationHandler for GuiApp {
     }
 }
 
-/// High-contrast debug theme for proving theme plumbing visually.
-/// Activated by env var `ZAROXI_DEBUG_THEME=1`.
-/// Uses unmistakably different surface colors so any visual change
-/// confirms the theme pipeline is live.
-fn debug_theme_tokens() -> zaroxi_interface_theme::theme::SemanticColors {
-    use zaroxi_interface_theme::colors::Color;
-    let mk = |r: f32, g: f32, b: f32| -> Color { Color::from_rgba(r, g, b, 1.0) };
-    let mut sem = zaroxi_interface_theme::theme::SemanticColors::dark();
-    sem.app_background = mk(0.05, 0.08, 0.22);
-    sem.shell_background = mk(0.06, 0.10, 0.25);
-    sem.panel_background = mk(0.08, 0.12, 0.28);
-    sem.elevated_panel_background = mk(0.10, 0.14, 0.30);
-    sem.editor_background = mk(0.04, 0.08, 0.18);
-    sem.input_background = mk(0.07, 0.11, 0.24);
-    sem.status_bar_background = mk(0.15, 0.30, 0.55);
-    sem.title_bar_background = mk(0.06, 0.10, 0.26);
-    sem.activity_rail_background = mk(0.15, 0.20, 0.40);
-    sem.sidebar_background = mk(0.18, 0.22, 0.42);
-    sem.tab_background = mk(0.08, 0.12, 0.30);
-    sem.tab_active_background = mk(0.04, 0.08, 0.18);
-    sem.assistant_panel_background = mk(0.22, 0.15, 0.30);
-    sem.bottom_panel_background = mk(0.15, 0.25, 0.50);
-    sem.bottom_panel_header_background = mk(0.20, 0.30, 0.55);
-    sem.assistant_panel_header_background = mk(0.18, 0.12, 0.28);
-    sem
+fn update_scrollbar_thumbs(
+    widget_tree: &mut Option<zaroxi_core_engine_ui::ShellWidgetTree>,
+    editor_scroll_offset: f32,
+    terminal_scroll_offset: f32,
+) {
+    let tree = match widget_tree.as_mut() {
+        Some(t) => t,
+        None => return,
+    };
+
+    for i in 0..tree.widgets.len() {
+        let new_widget = match &tree.widgets[i] {
+            zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                id,
+                track_rect,
+                thumb_rect,
+                track_fill,
+                thumb_fill,
+                state,
+            } => {
+                let offset = if matches!(
+                    id,
+                    zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }
+                ) {
+                    editor_scroll_offset
+                } else {
+                    terminal_scroll_offset
+                };
+                let travel = (track_rect.height - thumb_rect.height).max(1.0);
+                let new_y = track_rect.y + offset * travel;
+                let mut new_thumb = *thumb_rect;
+                new_thumb.y = new_y;
+                Some(zaroxi_core_engine_ui::ShellWidget::ScrollbarTrack {
+                    id: id.clone(),
+                    track_rect: *track_rect,
+                    thumb_rect: new_thumb,
+                    track_fill: *track_fill,
+                    thumb_fill: *thumb_fill,
+                    state: *state,
+                })
+            }
+            _ => None,
+        };
+        if let Some(w) = new_widget {
+            tree.widgets[i] = w;
+        }
+    }
+}
+
+fn project_editor_cursor(
+    cursor_pos: winit::dpi::PhysicalPosition<f64>,
+    regions: &[crate::gui::ShellRegion],
+    work_content: &Option<crate::gui::ShellWorkContent>,
+    editor_scroll_offset: f32,
+) -> Option<(usize, usize)> {
+    let editor_region = crate::gui::region_dispatch::find_region_by_role(
+        regions,
+        zaroxi_core_engine_style::PanelRole::ContentArea,
+    )?;
+
+    let ex = editor_region.rect.x as f32;
+    let ey = editor_region.rect.y as f32;
+    let px = cursor_pos.x as f32;
+    let py = cursor_pos.y as f32;
+
+    if px < ex
+        || py < ey
+        || px >= ex + editor_region.rect.width as f32
+        || py >= ey + editor_region.rect.height as f32
+    {
+        return None;
+    }
+
+    let content_pad = 8.0;
+    let header_h = 28.0;
+    let line_h = 16.0;
+    let char_w = 8.0;
+    let content_x = ex + content_pad;
+    let content_y = ey + header_h + content_pad;
+    let rel_y = py - content_y;
+    let rel_x = px - content_x;
+    let visible_line = (rel_y / line_h).max(0.0) as usize;
+    let col = (rel_x / char_w).max(0.0) as usize;
+
+    let usable_h = editor_region.rect.height as f32 - header_h - content_pad * 2.0;
+
+    let total_lines = work_content
+        .as_ref()
+        .and_then(|w| w.editor_body.as_ref())
+        .map(|cv| cv.lines.len().max(1))
+        .unwrap_or(1);
+    let visible_lines_c = (usable_h / line_h).max(1.0) as usize;
+    let max_scroll_c = (total_lines.saturating_sub(visible_lines_c)).max(1);
+    let first_visible = (editor_scroll_offset * max_scroll_c as f32) as usize;
+    let absolute_line = first_visible + visible_line;
+
+    Some((absolute_line, col))
 }
