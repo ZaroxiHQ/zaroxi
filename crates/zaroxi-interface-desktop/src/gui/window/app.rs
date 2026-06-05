@@ -30,6 +30,20 @@ use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, Workspace
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_kernel_types::Id;
 
+fn gui_debug(msg: &str) {
+    if std::env::var("ZAROXI_DEBUG_GUI").as_deref() == Ok("1") {
+        eprintln!("{}", msg);
+    }
+}
+
+macro_rules! gui_debug_fmt {
+    ($($arg:tt)*) => {
+        if std::env::var("ZAROXI_DEBUG_GUI").as_deref() == Ok("1") {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 pub type WidgetActivationHandler = Box<dyn FnMut(&WidgetId) -> Option<ShellWorkContent>>;
 
 pub struct GuiApp {
@@ -202,14 +216,13 @@ impl GuiApp {
 
 impl winit::application::ApplicationHandler for GuiApp {
     fn new_events(&mut self, active_loop: &winit::event_loop::ActiveEventLoop, cause: StartCause) {
-        // Create the window once on Init (or when resumed on some platforms).
         if self.maybe_window.is_none() && matches!(cause, StartCause::Init) {
-            eprintln!("GuiApp: attempting to create window (StartCause::Init)");
+            gui_debug("GuiApp: attempting to create window (StartCause::Init)");
             match active_loop.create_window(self.window_attributes.clone()) {
                 Ok(w) => {
                     let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                     let wid = zaroxi_w.window().id();
-                    eprintln!("GuiApp: created engine window id={:?}", wid);
+                    gui_debug_fmt!("GuiApp: created engine window id={:?}", wid);
                     zaroxi_w.window().set_title(&self.title);
                     let _ = zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
                     self.maybe_window = Some(zaroxi_w);
@@ -218,7 +231,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let _ = z.window().request_redraw();
                     }
                     active_loop.set_control_flow(ControlFlow::Wait);
-                    eprintln!("GuiApp: window created (hidden); initial redraw requested");
+                    gui_debug("GuiApp: window created (hidden); initial redraw requested");
                 }
                 Err(e) => {
                     eprintln!("GuiApp: failed to create window: {}", e);
@@ -227,29 +240,29 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
         } else if self.maybe_window.is_some() {
             if !self.already_logged_existing {
-                eprintln!("GuiApp: new_events called but window already created");
+                gui_debug("GuiApp: new_events called but window already created");
                 self.already_logged_existing = true;
             }
         } else {
-            eprintln!("GuiApp: new_events called with cause={:?} (no creation)", cause);
+            gui_debug_fmt!("GuiApp: new_events called with cause={:?} (no creation)", cause);
         }
     }
 
     fn resumed(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
         if self.maybe_window.is_none() {
-            eprintln!("GuiApp: resumed -> attempting to create window");
+            gui_debug("GuiApp: resumed -> attempting to create window");
             match active_loop.create_window(self.window_attributes.clone()) {
                 Ok(w) => {
                     let zaroxi_w = zaroxi_core_engine_window::ZaroxiWindow::from_window(w);
                     let wid = zaroxi_w.window().id();
-                    eprintln!("GuiApp: created engine window on resumed id={:?}", wid);
+                    gui_debug_fmt!("GuiApp: created engine window on resumed id={:?}", wid);
                     self.maybe_window = Some(zaroxi_w);
 
                     if let Some(z) = self.maybe_window.as_ref() {
                         let _ = z.window().request_redraw();
                     }
-                    eprintln!(
-                        "GuiApp: window created on resumed (hidden); initial redraw requested"
+                    gui_debug(
+                        "GuiApp: window created on resumed (hidden); initial redraw requested",
                     );
                 }
                 Err(e) => {
@@ -258,19 +271,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
         } else {
-            eprintln!("GuiApp: resumed called but window already created");
+            gui_debug("GuiApp: resumed called but window already created");
         }
     }
 
     fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
         if self.requested_initial_frame {
             if let Some(z) = self.maybe_window.as_ref() {
-                eprintln!("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
+                gui_debug("GuiApp: about_to_wait -> requesting initial redraw (engine window)");
                 let _ = z.window().request_redraw();
             }
             self.requested_initial_frame = false;
             active_loop.set_control_flow(ControlFlow::Wait);
-            eprintln!("GuiApp: about_to_wait -> switched control flow back to Wait");
+            gui_debug("GuiApp: about_to_wait -> switched control flow back to Wait");
         }
     }
 
@@ -287,13 +300,15 @@ impl winit::application::ApplicationHandler for GuiApp {
             WindowEvent::Resized(size) => {
                 if let Some(z) = self.maybe_window.as_mut() {
                     z.update_size(size.width, size.height);
-                    eprintln!("GuiApp: Resized -> {size:?}, requesting redraw (engine window)");
+                    gui_debug_fmt!(
+                        "GuiApp: Resized -> {size:?}, requesting redraw (engine window)"
+                    );
                     let _ = z.window().request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(z) = self.maybe_window.as_ref() {
-                    eprintln!("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
+                    gui_debug("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
                     let _ = z.window().request_redraw();
                 }
             }
@@ -433,17 +448,21 @@ impl winit::application::ApplicationHandler for GuiApp {
                         std::env::var("ZAROXI_DEBUG_THEME").as_deref() == Ok("1");
                     if debug_theme_active {
                         sem = zaroxi_interface_theme::theme::SemanticColors::debug();
-                        eprintln!("ZAROXI_DEBUG_THEME: debug theme override ACTIVE");
+                        gui_debug("ZAROXI_DEBUG_THEME: debug theme override ACTIVE");
                     }
 
                     if !self.first_render_shown && debug_theme_active {
-                        eprintln!(
+                        gui_debug_fmt!(
                             "ZAROXI_THEME_TRACE: mode={:?} system_is_dark={} resolved={:?}",
-                            self.theme_mode, system_is_dark, variant
+                            self.theme_mode,
+                            system_is_dark,
+                            variant
                         );
-                        eprintln!(
+                        gui_debug_fmt!(
                             "ZAROXI_THEME_TRACE: sem.shell_background={:?} sem.app_background={:?} sem.editor_background={:?}",
-                            sem.shell_background, sem.app_background, sem.editor_background
+                            sem.shell_background,
+                            sem.app_background,
+                            sem.editor_background
                         );
                     }
 
@@ -453,7 +472,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
 
                     if !self.first_render_shown && debug_theme_active {
-                        eprintln!(
+                        gui_debug_fmt!(
                             "ZAROXI_STYLE_TOKENS: app_bg={:?} titlebar_bg={:?} editor_bg={:?} sidebar_bg={:?}",
                             tokens.app_background.to_array(),
                             tokens.titlebar_background.to_array(),
@@ -615,7 +634,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         Key::Character(c) if c == "v" => {
                             match zaroxi_core_engine_clipboard::get_text() {
                                 Ok(text) => {
-                                    eprintln!(
+                                    gui_debug_fmt!(
                                         "ZAROXI_CLIPBOARD: paste at line={} col={} len={}",
                                         self.editor_cursor_line,
                                         self.editor_cursor_col,
@@ -629,16 +648,18 @@ impl winit::application::ApplicationHandler for GuiApp {
                             Vec::new()
                         }
                         Key::Character(c) if c == "z" => {
-                            eprintln!(
+                            gui_debug_fmt!(
                                 "ZAROXI_UNDO: undo at cursor line={} col={}",
-                                self.editor_cursor_line, self.editor_cursor_col
+                                self.editor_cursor_line,
+                                self.editor_cursor_col
                             );
                             Vec::new()
                         }
                         Key::Character(c) if c == "y" => {
-                            eprintln!(
+                            gui_debug_fmt!(
                                 "ZAROXI_REDO: redo at cursor line={} col={}",
-                                self.editor_cursor_line, self.editor_cursor_col
+                                self.editor_cursor_line,
+                                self.editor_cursor_col
                             );
                             Vec::new()
                         }
@@ -677,10 +698,11 @@ fn project_editor_cursor(
         return None;
     }
 
-    let content_pad = 8.0;
-    let header_h = 28.0;
-    let line_h = 16.0;
-    let char_w = 8.0;
+    let dt = zaroxi_interface_theme::theme::DesignTokens::default();
+    let content_pad = dt.spacing_sm; // 8.0
+    let header_h = dt.spacing_md + dt.spacing_lg; // 28.0
+    let line_h = dt.font_size_md + 2.0; // 16.0
+    let char_w = dt.font_size_sm / 1.5; // 8.0
     let content_x = ex + content_pad;
     let content_y = ey + header_h + content_pad;
     let rel_y = py - content_y;

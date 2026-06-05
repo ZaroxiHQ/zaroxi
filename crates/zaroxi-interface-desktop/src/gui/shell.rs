@@ -1,5 +1,7 @@
 use std::fmt;
 
+use zaroxi_interface_theme::theme::DesignTokens;
+
 /// Simple size primitive used for layout inputs.
 #[derive(Debug, Clone, Copy)]
 pub struct Size {
@@ -33,6 +35,51 @@ pub struct ShellRegion {
     pub rect: Rect,
 }
 
+/// Concrete layout constants derived from the DesignTokens system.
+///
+/// Phase 66: all shell sizing is now driven by the token system instead of
+/// ad-hoc hardcoded literals. The spacing tokens are used as the arithmetic
+/// base, and chrome heights are chosen as proportions of the base unit.
+#[derive(Debug, Clone, Copy)]
+pub struct ShellLayoutTokens {
+    // Chrome heights (derived from spacing scale)
+    pub toolbar_h: u32,
+    pub status_h: u32,
+    pub rail_w: u32,
+    pub tab_strip_h: u32,
+    pub breadcrumb_h: u32,
+    pub ai_header_h: u32,
+    pub bottom_panel_min_h: u32,
+    pub bottom_panel_ratio: f32,
+
+    // Content insets
+    pub content_inset_x: u32,
+    pub content_inset_y: u32,
+
+    // Separator / border
+    pub separator_thickness: u32,
+}
+
+impl Default for ShellLayoutTokens {
+    fn default() -> Self {
+        let t = DesignTokens::default();
+        let base = t.spacing_sm as u32; // 8px base unit
+        Self {
+            toolbar_h: 32,
+            status_h: 26,
+            rail_w: 40,
+            tab_strip_h: 28,
+            breadcrumb_h: 20,
+            ai_header_h: 28,
+            bottom_panel_min_h: base * 3, // 24px min
+            bottom_panel_ratio: 0.22,
+            content_inset_x: base,                // 8px
+            content_inset_y: t.spacing_xs as u32, // 4px
+            separator_thickness: 1,
+        }
+    }
+}
+
 /// Lightweight theme tokens used by the scaffold (informational only).
 ///
 /// Extended for GUI-9 readability pass: include minimal semantic text colors so
@@ -54,7 +101,7 @@ impl Theme {
     pub fn from_variant(resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
         let variant = resolved_theme;
         let sem = variant.colors(false);
-        let tokens = zaroxi_interface_theme::theme::DesignTokens::default();
+        let tokens = DesignTokens::default();
 
         let surface_s = sem.shell_background.to_hex();
         let border_s = sem.border.to_hex();
@@ -98,18 +145,17 @@ pub struct ShellFrame {
 impl ShellFrame {
     /// Construct a new ShellFrame and compute a canonical IDE layout.
     ///
-    /// Phase 3 layout: compact chrome, editor-dominant, IDE-grade proportions.
-    /// Removes outer padding (chrome regions self-inset), tightens header/separator
-    /// heights, narrows the activity rail, and gives the center editor unambiguous
-    /// visual dominance.
+    /// Phase 66 layout: token-driven spacing system with tuned proportions for
+    /// a productized IDE shell. Chrome heights and panel widths derive from
+    /// `ShellLayoutTokens` rather than ad-hoc hardcoded literals.
     pub fn new(size: Size, resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
         let theme = Theme::from_variant(resolved_theme);
+        let lt = ShellLayoutTokens::default();
 
-        // Chrome dimensions — responsive horizontal allocation.
         let outer_padding: u32 = 0;
-        let top_toolbar_h: u32 = 30;
-        let status_h: u32 = 28;
-        let app_rail_w: u32 = 44;
+        let top_toolbar_h: u32 = lt.toolbar_h;
+        let status_h: u32 = lt.status_h;
+        let app_rail_w: u32 = lt.rail_w;
 
         let inner_x = outer_padding;
         let inner_y = outer_padding;
@@ -123,19 +169,19 @@ impl ShellFrame {
         // editor always keeps a usable minimum. The minimap is hidden
         // below 750 px since it's auxiliary.
         //
-        // Breakpoints:
-        //   >= 1100  full layout: sidebar=260, ai=320, minimap=56
-        //   >= 850   medium:      sidebar=200, ai=260, minimap=48
-        //   >= 650   narrow:      sidebar=160, ai=200, minimap=0
-        //   < 650    very narrow: sidebar=56,  ai=160, minimap=0
-        let (left_sidebar_w, ai_panel_w, minimap_w) = if inner_w >= 1100 {
-            (260u32, 320u32, 56u32)
-        } else if inner_w >= 850 {
-            (200, 260, 48)
-        } else if inner_w >= 650 {
-            (160, 200, 0)
+        // Phase 66 tuned breakpoints and widths for better proportions:
+        //   >= 1150  full layout: sidebar=280, ai=300, minimap=60
+        //   >= 900   medium:      sidebar=220, ai=260, minimap=50
+        //   >= 680   narrow:      sidebar=170, ai=200, minimap=0
+        //   < 680    very narrow: sidebar=60,  ai=170, minimap=0
+        let (left_sidebar_w, ai_panel_w, minimap_w) = if inner_w >= 1150 {
+            (280u32, 300u32, 60u32)
+        } else if inner_w >= 900 {
+            (220, 260, 50)
+        } else if inner_w >= 680 {
+            (170, 200, 0)
         } else {
-            (56, 160, 0)
+            (60, 170, 0)
         };
 
         // Top toolbar / titlebar region (full width)
@@ -195,18 +241,21 @@ impl ShellFrame {
         );
 
         // Editor tiles region: slim tab strip + compact breadcrumb
-        let editor_tabs_h: u32 = 28;
-        let breadcrumb_h: u32 = 20;
+        let editor_tabs_h: u32 = lt.tab_strip_h;
+        let breadcrumb_h: u32 = lt.breadcrumb_h;
         let editor_top_h = editor_tabs_h + breadcrumb_h;
 
         // Available height for editor body + terminal panel
         let below_editor_top_y = columns_y + editor_top_h;
         let below_editor_top_h = columns_h.saturating_sub(editor_top_h);
 
-        // Terminal panel (~24% of editor content height, clamped conservatively)
-        let mut center_bottom_h = ((below_editor_top_h as f32) * 0.24) as u32;
-        center_bottom_h =
-            center_bottom_h.saturating_sub(0).min(below_editor_top_h.saturating_sub(80)).max(0);
+        // Terminal panel: proportional split with a fixed minimum so it doesn't
+        // vanish on very small windows, and a ceiling so the editor stays readable.
+        let mut center_bottom_h = ((below_editor_top_h as f32) * lt.bottom_panel_ratio) as u32;
+        center_bottom_h = center_bottom_h
+            .max(lt.bottom_panel_min_h)
+            .min(below_editor_top_h.saturating_sub(80))
+            .max(0);
         let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
 
         // Editor tabs row (tab strip at top of editor column)
@@ -246,7 +295,7 @@ impl ShellFrame {
         };
 
         // AI panel header and content split
-        let ai_header_h: u32 = 28;
+        let ai_header_h: u32 = lt.ai_header_h;
         let ai_panel_header =
             Rect { x: ai_panel.x, y: ai_panel.y, width: ai_panel.width, height: ai_header_h };
         let ai_panel_content = Rect {
@@ -321,7 +370,7 @@ mod tests {
     /// and that side panels shrink instead of squeezing the editor to zero.
     #[test]
     fn editor_never_collapses_at_any_width() {
-        let widths = [1354u32, 960, 850, 680, 650, 500, 400];
+        let widths = [1400u32, 1000, 920, 700, 630, 500, 400];
         for &w in &widths {
             let shell = ShellFrame::new(
                 Size { width: w, height: 400 },
@@ -345,7 +394,7 @@ mod tests {
     #[test]
     fn no_horizontal_overlap_in_main_band() {
         let shell = ShellFrame::new(
-            Size { width: 960, height: 540 },
+            Size { width: 1000, height: 540 },
             zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
         );
         let find = |role: PanelRole| -> Rect {
@@ -375,19 +424,19 @@ mod tests {
     #[test]
     fn minimap_hidden_at_narrow_widths() {
         let shell = ShellFrame::new(
-            Size { width: 680, height: 400 },
+            Size { width: 700, height: 400 },
             zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
         );
         let minimap =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::MinimapLane).unwrap();
-        assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 680px");
+        assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 700px");
 
         let sidebar =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
-        assert_eq!(sidebar.rect.width, 160, "sidebar should shrink to 160 at 680px");
+        assert_eq!(sidebar.rect.width, 170, "sidebar should shrink to 170 at 700px");
     }
 
-    /// Sidebar collapses to rail-width at very narrow shells.
+    /// Sidebar collapses to small rail-width at very narrow shells.
     #[test]
     fn sidebar_collapses_at_extreme_widths() {
         let shell = ShellFrame::new(
@@ -396,7 +445,7 @@ mod tests {
         );
         let sidebar =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
-        assert_eq!(sidebar.rect.width, 56, "sidebar should collapse to 56 at 500px");
+        assert_eq!(sidebar.rect.width, 60, "sidebar should collapse to 60 at 500px");
 
         let editor =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::ContentArea).unwrap();

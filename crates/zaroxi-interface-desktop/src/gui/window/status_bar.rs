@@ -47,7 +47,7 @@ impl StatusBarPanel {
             rect,
             header_color: Some(tokens.status_bar_background.to_array()),
             content_color: Some(tokens.status_bar_background.to_array()),
-            corner_radius: 4.0,
+            corner_radius: 0.0,
             border_color: Some(tokens.status_divider.to_array()),
             border_width: 1.0,
             header_only: false,

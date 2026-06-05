@@ -231,26 +231,29 @@ pub struct SemanticColors {
 
 impl SemanticColors {
     /// Dark theme semantic colors - Professional IDE with cool-neutral dark tones
-    /// Designed for long coding sessions with clear surface hierarchy and restrained blue accent
+    /// Designed for long coding sessions with clear surface hierarchy and restrained blue accent.
+    ///
+    /// Phase 66 hierarchy: app_background (deepest) → rail → sidebar → AI panel → editor (brightest).
+    /// Status bar and bottom panel sit between rail and sidebar in luminance.
     pub fn dark() -> Self {
         Self {
-            // Background surfaces - clear hierarchy from deepest shell to brightest editor
-            app_background: Color::from_hex("#1B1D22"), // Deepest shell
-            shell_background: Color::from_hex("#1E2025"), // Slightly lighter shell
-            panel_background: Color::from_hex("#252931"), // Side panels
-            elevated_panel_background: Color::from_hex("#2A2E37"), // Elevated panels (modals, dropdowns)
-            editor_background: Color::from_hex("#1E1F24"), // Editor - slightly lighter than shell
-            input_background: Color::from_hex("#2A2E37"),  // Input fields
-            status_bar_background: Color::from_hex("#23262D"), // Status bar - distinct from panels
-            title_bar_background: Color::from_hex("#23262D"), // Title bar matches status bar
-            activity_rail_background: Color::from_hex("#20232A"), // Activity rail - own distinct role
-            sidebar_background: Color::from_hex("#252931"),       // Sidebar matches panels
-            tab_background: Color::from_hex("#252830"),           // Inactive tabs
-            tab_active_background: Color::from_hex("#1E1F24"),    // Active tab matches editor
-            assistant_panel_background: Color::from_hex("#262A32"), // Right utility panel
-            bottom_panel_background: Color::from_hex("#23262D"),  // Bottom terminal/output panel
-            bottom_panel_header_background: Color::from_hex("#252830"), // Bottom panel tab row
-            assistant_panel_header_background: Color::from_hex("#23262D"), // AI panel header
+            // Background surfaces — clear hierarchy from deepest shell to brightest editor
+            app_background: Color::from_hex("#181A1F"), // Deepest shell — recessive backdrop
+            shell_background: Color::from_hex("#1B1D22"), // Slightly lighter shell
+            panel_background: Color::from_hex("#21242B"), // Side panels — medium
+            elevated_panel_background: Color::from_hex("#262B34"), // Elevated panels (modals, dropdowns)
+            editor_background: Color::from_hex("#1C1E23"), // Editor — slightly brighter than shell
+            input_background: Color::from_hex("#24272E"),  // Input fields
+            status_bar_background: Color::from_hex("#1F2128"), // Status bar — distinct, near-app
+            title_bar_background: Color::from_hex("#1C1E23"), // Title bar — subtle
+            activity_rail_background: Color::from_hex("#1B1D22"), // Activity rail — darkest side
+            sidebar_background: Color::from_hex("#20232A"), // Sidebar — slightly above rail
+            tab_background: Color::from_hex("#20232A"),    // Inactive tabs
+            tab_active_background: Color::from_hex("#1C1E23"), // Active tab matches editor
+            assistant_panel_background: Color::from_hex("#1F2228"), // Right utility panel
+            bottom_panel_background: Color::from_hex("#1D1F25"), // Bottom terminal/output panel
+            bottom_panel_header_background: Color::from_hex("#1F2228"), // Bottom panel tab row
+            assistant_panel_header_background: Color::from_hex("#1C1E23"), // AI panel header
 
             // Text colors - hierarchy from most prominent to subtle
             text_primary: Color::from_hex("#E6EAF2"), // Primary text - bright but not harsh
@@ -263,18 +266,18 @@ impl SemanticColors {
             text_link: Color::from_hex("#5B8CFF"),    // Link blue matches accent
 
             // UI elements - restrained borders and dividers
-            border: Color::from_hex("#343944"), // Borders - visible but not harsh
-            border_subtle: Color::from_rgba(0.20, 0.22, 0.27, 0.5), // Subtle borders
-            divider: Color::from_hex("#343944"), // Dividers match borders
-            divider_subtle: Color::from_rgba(0.20, 0.22, 0.27, 0.3), // Very soft divider, less visible
-            panel_header_background: Color::from_hex("#282C35"), // Slightly lighter than panel background
-            nested_surface_background: Color::from_hex("#2D313A"), // For cards, input bars
-            app_chrome_background: Color::from_hex("#1B1D22"),   // Matches app_background (shell)
-            tab_strip_background: Color::from_hex("#20232A"), // Same as activity-rail for consistency
-            accent: Color::from_hex("#5B8CFF"),               // Restrained blue accent
-            accent_hover: Color::from_hex("#6B9CFF"),         // Hover accent - slightly brighter
-            accent_soft: Color::from_rgba(0.36, 0.55, 1.0, 0.15), // Soft accent background
-            accent_soft_background: Color::from_rgba(0.36, 0.55, 1.0, 0.08), // Very soft accent
+            border: Color::from_hex("#2A2D35"), // Borders — visible but not harsh
+            border_subtle: Color::from_rgba(0.16, 0.18, 0.21, 0.5), // Subtle borders
+            divider: Color::from_hex("#2A2D35"), // Dividers match borders
+            divider_subtle: Color::from_rgba(0.16, 0.18, 0.21, 0.35), // Very soft divider
+            panel_header_background: Color::from_hex("#24272E"), // Slightly lighter than panel background
+            nested_surface_background: Color::from_hex("#282D35"), // For cards, input bars
+            app_chrome_background: Color::from_hex("#181A1F"),   // Matches app_background (shell)
+            tab_strip_background: Color::from_hex("#1B1D22"), // Same as activity-rail for consistency
+            accent: Color::from_hex("#528BFF"),               // Restrained blue accent
+            accent_hover: Color::from_hex("#649CFF"),         // Hover accent — slightly brighter
+            accent_soft: Color::from_rgba(0.32, 0.55, 1.0, 0.14), // Soft accent background
+            accent_soft_background: Color::from_rgba(0.32, 0.55, 1.0, 0.07), // Very soft accent
 
             // States - subtle but clear
             hover_background: Color::from_rgba(1.0, 1.0, 1.0, 0.06), // Hover states
