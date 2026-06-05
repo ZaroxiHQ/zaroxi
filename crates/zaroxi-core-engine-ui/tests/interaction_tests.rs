@@ -10,7 +10,7 @@ mod tests {
     fn hover_tracks_widget_and_emits_action() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let actions = model.on_pointer_moved(&mut tree, 5.0, 5.0);
@@ -34,7 +34,7 @@ mod tests {
     fn hover_same_widget_does_not_reemit() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let tab_x = layout.content_tab_strip.x + 10.0;
@@ -51,7 +51,7 @@ mod tests {
     fn pointer_leave_clears_hover_and_emits() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let tab_x = layout.content_tab_strip.x + 10.0;
@@ -71,7 +71,7 @@ mod tests {
     fn press_and_release_on_same_widget_emits_activated() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let tab_x = layout.content_tab_strip.x + 10.0;
@@ -91,7 +91,7 @@ mod tests {
     fn press_and_release_on_different_widgets_does_not_activate() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let tab_x = layout.content_tab_strip.x + 10.0;
@@ -111,7 +111,7 @@ mod tests {
     fn focus_traversal_wraps_and_changes_focused_widget() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         assert!(model.focused_widget_idx.is_none());
@@ -140,7 +140,7 @@ mod tests {
     fn activate_focused_emits_activated_for_focusable_widget() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let _ = model.focus_next(&mut tree);
@@ -185,7 +185,7 @@ mod tests {
     fn scroll_offset_application_updates_thumb_positions() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let original_thumbs: Vec<_> = tree
@@ -231,14 +231,14 @@ mod tests {
     fn apply_to_tree_restores_hover_and_press() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
         let tab_x = layout.content_tab_strip.x + 10.0;
         let tab_y = layout.content_tab_strip.y + 5.0;
         let _ = model.on_pointer_down(&mut tree, tab_x, tab_y, PointerButton::Primary);
 
-        let mut fresh_tree = build_shell_widget_tree(&layout, &tokens);
+        let mut fresh_tree = build_shell_widget_tree(&layout, &tokens, None);
         model.apply_to_tree(&mut fresh_tree);
 
         if let Some(idx) = model.pressed_widget_idx {
@@ -254,7 +254,7 @@ mod tests {
     fn focusable_indices_are_deterministic() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let focusables: Vec<usize> = tree
             .widgets

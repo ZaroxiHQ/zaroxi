@@ -8,7 +8,7 @@ mod tests {
     fn widget_tree_preserves_deterministic_order() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         assert!(tree.len() > 10, "expected >10 widgets in tree, got {}", tree.len());
 
@@ -23,7 +23,7 @@ mod tests {
     fn widget_tree_contains_tab_and_list_items() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let tab_count =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::TabItem { .. })).count();
@@ -48,7 +48,7 @@ mod tests {
     fn hit_test_noops_on_non_interactive_regions() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         // Hitting the app background (a Surface widget) should return None
         // because Surface has no hit_target.
@@ -60,7 +60,7 @@ mod tests {
     fn hover_state_is_stable_and_clears_correctly() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let mut tree = build_shell_widget_tree(&layout, &tokens);
+        let mut tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let tab_idx = tree.widgets.iter().position(|w| matches!(w, ShellWidget::TabItem { .. }));
         assert!(tab_idx.is_some(), "must have a TabItem widget");
@@ -81,7 +81,7 @@ mod tests {
     fn tab_widget_renders_active_state() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let set = tree.to_surface_set();
         assert!(!set.tabs.is_empty(), "tabs must be present in surface set");
@@ -94,7 +94,7 @@ mod tests {
     fn multiple_tabs_includes_active_and_inactive() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let tabs: Vec<_> =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::TabItem { .. })).collect();
@@ -109,7 +109,7 @@ mod tests {
     fn panel_headers_have_action_slots() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let header_with_actions: Vec<_> = tree
             .widgets
@@ -128,7 +128,7 @@ mod tests {
     fn scrollbar_tracks_are_present() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let scrollbar_count =
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::ScrollBar { .. })).count();
@@ -139,7 +139,7 @@ mod tests {
     fn buttons_are_hittable() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let btn_hits: Vec<_> =
             tree.widgets
@@ -155,7 +155,7 @@ mod tests {
     fn divider_subtle_flag_propagates_to_surface_set() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();
-        let tree = build_shell_widget_tree(&layout, &tokens);
+        let tree = build_shell_widget_tree(&layout, &tokens, None);
 
         let set = tree.to_surface_set();
         // Dividers must be present

@@ -1,16 +1,19 @@
 /*!
 GuiApp implementation and winit ApplicationHandler lifecycle methods.
-This file contains the GuiApp struct and its ApplicationHandler impl
-(moved out of the large `window.rs` to make the module tree clearer).
 
 Phase 57: slimmed to a thin winit-to-engine bridge; widget interaction
 (hit-testing, hover, press, scrollbar drag, focus) now lives in
 `zaroxi_core_engine_ui::WidgetInteractionModel`.
 
 Phase 58: added keyboard focus traversal (Tab/Shift+Tab/Enter/Escape) and
-`on_widget_activated` callback so callers can wire WidgetAction::Activated
-to domain behavior without embedding DesktopComposition in GuiApp.
+`on_widget_activated` callback.
+
+Phase 59: built-in `dispatch_activation` method that routes WidgetId to
+DesktopComposition actions (set active buffer, window controls, etc.).
+The callback remains as an override capability.
 */
+
+use std::sync::Arc;
 
 use pollster;
 use winit::{
@@ -21,18 +24,14 @@ use winit::{
     window::WindowAttributes,
 };
 
+use crate::DesktopComposition;
 use crate::gui::{ShellFrame, ShellWorkContent};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_core_engine_ui::WidgetId;
+use zaroxi_kernel_types::Id;
 
-/// Callback invoked when a widget is activated (clicked or keyboard-entered).
-/// Returns `Some(ShellWorkContent)` to trigger a shell content refresh, or
-/// `None` if no refresh is needed.
-pub type WidgetActivationHandler =
-    Box<dyn FnMut(&zaroxi_core_engine_ui::WidgetId) -> Option<ShellWorkContent>>;
+pub type WidgetActivationHandler = Box<dyn FnMut(&WidgetId) -> Option<ShellWorkContent>>;
 
-/// Small application handler that owns the engine window handle and the ShellFrame
-/// snapshot. Lifecycle methods handle window creation and redraw requests.
-/// The window stays hidden until the first full renderer frame completes,
-/// avoiding any visible bootstrap/fallback composition flicker.
 pub struct GuiApp {
     pub window_attributes: WindowAttributes,
     pub title: String,
@@ -49,10 +48,73 @@ pub struct GuiApp {
     pub selection_anchor: Option<(usize, usize)>,
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
     pub shift_held: bool,
+    /// Optional override handler for widget activation. When set, it is tried
+    /// before the built-in `dispatch_activation` method.
     pub on_widget_activated: Option<WidgetActivationHandler>,
+    /// DesktopComposition for domain activation dispatch (set by harness).
+    pub composition: Option<DesktopComposition>,
+    pub workspace_view: Option<Arc<dyn WorkspaceView>>,
+    pub workspace_service: Option<Arc<dyn WorkspaceService>>,
+    pub session_id: Option<SessionId>,
+    pub workspace_id: Option<Id>,
 }
 
 impl GuiApp {
+    /// Dispatch a WidgetId activation to DesktopComposition domain actions.
+    /// Returns updated ShellWorkContent if the shell should refresh.
+    pub fn dispatch_activation(&mut self, id: &WidgetId) -> Option<ShellWorkContent> {
+        match id {
+            WidgetId::Button { index: 2 } => {
+                std::process::exit(0);
+            }
+            WidgetId::Button { index: 0 } => {
+                if let Some(z) = self.maybe_window.as_ref() {
+                    z.window().set_minimized(true);
+                }
+                return None;
+            }
+            WidgetId::Button { index: 1 } => {
+                if let Some(z) = self.maybe_window.as_ref() {
+                    let maximized = z.window().is_maximized();
+                    z.window().set_maximized(!maximized);
+                }
+                return None;
+            }
+            _ => {}
+        }
+
+        let comp = self.composition.as_mut()?;
+        let view = self.workspace_view.as_ref()?;
+        let service = self.workspace_service.as_ref()?;
+        let session = self.session_id.clone()?;
+
+        match id {
+            WidgetId::Tab { index } => {
+                let items = comp.latest_opened_buffers_summary().items;
+                let entry = items.get(*index)?;
+                let buffer_id = entry.buffer_id.clone();
+
+                let result =
+                    pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
+                        comp,
+                        service.clone(),
+                        view.clone(),
+                        session,
+                        self.workspace_id,
+                        buffer_id,
+                    ));
+                result.ok().map(|_| comp.build_work_content())
+            }
+            WidgetId::PanelAction { header_id, action } => {
+                if *header_id == "ai_assistant" && *action == "close" {
+                    pollster::block_on(crate::actions::close_command_bar(comp)).ok();
+                }
+                Some(comp.build_work_content())
+            }
+            _ => None,
+        }
+    }
+
     /// Dispatch engine-emitted widget actions into app-specific effects.
     pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
         let mut needs_redraw = false;
@@ -69,10 +131,14 @@ impl GuiApp {
                     needs_redraw = true;
                 }
                 zaroxi_core_engine_ui::WidgetAction::Activated(ref id) => {
-                    if let Some(ref mut handler) = self.on_widget_activated {
-                        if let Some(wc) = handler(id) {
-                            self.work_content = Some(wc);
-                        }
+                    let content = self
+                        .on_widget_activated
+                        .as_mut()
+                        .and_then(|handler| handler(id))
+                        .or_else(|| self.dispatch_activation(id));
+
+                    if let Some(wc) = content {
+                        self.work_content = Some(wc);
                     }
                     needs_redraw = true;
                 }
@@ -319,8 +385,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
-                    let mut widget_tree =
-                        zaroxi_core_engine_ui::build_shell_widget_tree(&layout, &tokens);
+                    let mut widget_tree = zaroxi_core_engine_ui::build_shell_widget_tree(
+                        &layout,
+                        &tokens,
+                        self.work_content.as_ref(),
+                    );
                     self.interaction.apply_to_tree(&mut widget_tree);
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
@@ -385,12 +454,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
 
-                    eprintln!(
-                        "GUI_TEXT_FRAME_SUMMARY: surface={}x{} render_blocks={}",
-                        sw,
-                        sh,
-                        render_blocks.len()
-                    );
+                    if std::env::var("ZAROXI_DEBUG_RENDER").as_deref() == Ok("1") {
+                        eprintln!(
+                            "GUI_TEXT_FRAME_SUMMARY: surface={}x{} render_blocks={}",
+                            sw,
+                            sh,
+                            render_blocks.len()
+                        );
+                    }
                 }
             }
             WindowEvent::ModifiersChanged(modifiers) => {

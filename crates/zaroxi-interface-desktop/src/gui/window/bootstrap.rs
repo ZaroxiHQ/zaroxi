@@ -3,27 +3,33 @@ Bootstrap and public runner for the GUI window.
 This file contains run_shell_window which creates the EventLoop, attributes,
 instantiates the GuiApp and hands it to run_app.
 
-Phase 4: accepts optional ShellWorkContent so live DesktopComposition
-data flows through the native GPU window path.
+Phase 59: accepts optional DesktopComposition + service handles so widget
+activations dispatch to real domain behavior inside the event loop.
 */
 
+use std::sync::Arc;
+
+use crate::DesktopComposition;
 use crate::gui::ShellFrame;
 use crate::gui::ShellWorkContent;
 use std::error::Error;
 use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::WindowAttributes};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_kernel_types::Id;
 
 /// Public runner: open a native window and run a basic winit event loop.
 ///
-/// `work_content` carries live editor/explorer/terminal content built from
-/// DesktopComposition. When `Some`, the GPU window renders real session data;
-/// when `None`, panels render with placeholder content.
-///
-/// This function will start the event loop and (on supported platforms) will
-/// not return. It returns Err only if the window cannot be created so callers
-/// may fall back to the transcript output in that case.
+/// When `composition` is `Some`, the activation handler will dispatch
+/// `WidgetAction::Activated` events to DesktopComposition actions using
+/// the provided service handles and session/workspace ids.
 pub fn run_shell_window(
     shell: ShellFrame,
     work_content: Option<ShellWorkContent>,
+    composition: Option<DesktopComposition>,
+    workspace_view: Option<Arc<dyn WorkspaceView>>,
+    workspace_service: Option<Arc<dyn WorkspaceService>>,
+    session_id: Option<SessionId>,
+    workspace_id: Option<Id>,
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
@@ -38,7 +44,7 @@ pub fn run_shell_window(
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
         .with_resizable(true);
 
-    let title = format!("Zaroxi - GUI Shell ({:?}x{:?})", shell.size.width, shell.size.height);
+    let title = format!("Zaroxi - GUI Shell ({}x{})", shell.size.width, shell.size.height);
 
     let mut app = super::app::GuiApp {
         window_attributes: window_attributes.clone(),
@@ -57,6 +63,11 @@ pub fn run_shell_window(
         theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
         shift_held: false,
         on_widget_activated: None,
+        composition,
+        workspace_view,
+        workspace_service,
+        session_id,
+        workspace_id,
     };
 
     let run_result = event_loop.run_app(&mut app);

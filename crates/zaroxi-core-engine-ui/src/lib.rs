@@ -1,5 +1,6 @@
 pub mod bar;
 pub mod composer;
+pub mod composite;
 pub mod content;
 pub mod interaction;
 pub mod layout;
@@ -12,6 +13,7 @@ pub mod work_content;
 
 pub use bar::Bar;
 pub use composer::{compose_bar_labels, compose_bars, compose_bars_scene, compose_content_view};
+pub use composite::{CommandListRow, CommandListView, ExplorerListSection, ExplorerListView};
 pub use content::ContentView;
 pub use interaction::{PointerButton, WidgetAction, WidgetInteractionModel};
 pub use primitives::{

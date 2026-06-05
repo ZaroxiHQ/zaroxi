@@ -1,3 +1,4 @@
+use crate::ShellWorkContent;
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
 use zaroxi_core_engine_layout::ShellLayout;
@@ -7,15 +8,19 @@ use zaroxi_kernel_math::Rect;
 /// Build a complete `ShellWidgetTree` from the deterministic shell layout and
 /// host-supplied style tokens. Returns ordered widgets in paint order (bg first).
 ///
-/// Each widget carries a `WidgetId` for hit-testing and state mutation.
-/// All color values come from the pre-resolved `StyleTokens`; the engine makes
-/// no visual policy decisions.
+/// When `content` is `Some`, tab labels, explorer items, and panel content
+/// are driven by the live workspace snapshot. When `None`, hardcoded
+/// placeholders are used.
 ///
 /// App-neutral mapping: IDE concepts (explorer, tabs, terminal, AI assistant,
 /// status bar) are recomposed from generic widgets (ListItem, ListSectionHeader,
 /// TabItem, PanelHeader, Surface, ScrollBar, Button, Divider, EmptyState,
 /// StatusSegment) without changing the visible layout contract.
-pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> ShellWidgetTree {
+pub fn build_shell_widget_tree(
+    layout: &ShellLayout,
+    tokens: &StyleTokens,
+    content: Option<&ShellWorkContent>,
+) -> ShellWidgetTree {
     let mut tree = ShellWidgetTree::new();
     let _dt = zaroxi_core_engine_style::EngineDesignTokens::default();
 
@@ -274,12 +279,18 @@ pub fn build_shell_widget_tree(layout: &ShellLayout, tokens: &StyleTokens) -> Sh
         subtle: false,
     });
 
-    // TabItem widgets: active + 2 inactive
+    // TabItem widgets: driven by ShellWorkContent.editor_tabs, with fallback
     if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
         let tab_h = layout.content_tab_strip.height + 1.0;
         let tab_y = layout.content_tab_strip.y - 1.0;
-        let tabs: [(&str, bool, usize); 3] =
-            [("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)];
+        let tabs: Vec<(&str, bool, usize)> = content
+            .and_then(|c| c.editor_tabs.as_ref())
+            .map(|tabs| {
+                tabs.iter().enumerate().map(|(i, label)| (label.as_str(), i == 0, i)).collect()
+            })
+            .unwrap_or_else(|| {
+                vec![("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)]
+            });
         let tab_w = 110.0;
         let mut tx = layout.content_tab_strip.x;
 
@@ -543,5 +554,5 @@ pub fn build_shell_surface_set(
     layout: &ShellLayout,
     tokens: &StyleTokens,
 ) -> crate::primitives::ShellSurfaceSet {
-    build_shell_widget_tree(layout, tokens).to_surface_set()
+    build_shell_widget_tree(layout, tokens, None).to_surface_set()
 }

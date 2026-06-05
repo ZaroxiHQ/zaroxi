@@ -27,7 +27,7 @@ mod tests {
             requested_initial_frame: false,
             already_logged_existing: true,
             first_render_shown: true,
-            widget_tree: Some(build_shell_widget_tree(&layout, &tokens)),
+            widget_tree: Some(build_shell_widget_tree(&layout, &tokens, None)),
             interaction: WidgetInteractionModel::new(),
             editor_cursor_line: 0,
             editor_cursor_col: 0,
@@ -35,6 +35,11 @@ mod tests {
             theme_mode: ZaroxiTheme::Dark,
             shift_held: false,
             on_widget_activated: None,
+            composition: None,
+            workspace_view: None,
+            workspace_service: None,
+            session_id: None,
+            workspace_id: None,
         }
     }
 
