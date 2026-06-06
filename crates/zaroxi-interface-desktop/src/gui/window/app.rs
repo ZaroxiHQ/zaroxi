@@ -519,6 +519,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let mut render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
 
+                    // Append scrollbar blocks from the widget tree so scrollbars
+                    // are visible in the GUI path (previously interaction-only).
+                    if let Some(ref tree) = self.widget_tree {
+                        let scroll_blocks = super::frame::extract_scrollbar_blocks(tree);
+                        render_blocks.extend(scroll_blocks);
+                    }
+
                     // Apply live editor cursor and selection to the ContentArea block
                     for block in &mut render_blocks {
                         if block.id.contains("ContentArea") || block.id.contains("content_area") {

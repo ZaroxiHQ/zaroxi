@@ -23,6 +23,7 @@ pub fn region_role(id: &str) -> PanelRole {
         "sidebar" => PanelRole::SidePanel,
         "editor_tabs" => PanelRole::ContentTabStrip,
         "breadcrumb" => PanelRole::ContentBreadcrumb,
+        "gutter_lane" => PanelRole::GutterLane,
         "editor_content" | "center_editor" => PanelRole::ContentArea,
         "minimap_lane" => PanelRole::MinimapLane,
         "center_bottom_panel" => PanelRole::BottomPanel,

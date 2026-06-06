@@ -49,6 +49,7 @@ pub struct ShellLayoutTokens {
     pub tab_strip_h: u32,
     pub breadcrumb_h: u32,
     pub ai_header_h: u32,
+    pub gutter_w: u32,
     pub bottom_panel_min_h: u32,
     pub bottom_panel_ratio: f32,
 
@@ -71,6 +72,7 @@ impl Default for ShellLayoutTokens {
             tab_strip_h: 28,
             breadcrumb_h: 20,
             ai_header_h: 28,
+            gutter_w: 52,
             bottom_panel_min_h: base * 3, // 24px min
             bottom_panel_ratio: 0.22,
             content_inset_x: base,                // 8px
@@ -226,13 +228,12 @@ impl ShellFrame {
             height: columns_h,
         };
 
-        // Editor main column sits between sidebar and AI panel
+        // Editor main column sits between sidebar and AI panel.
+        // The editor column is split into: gutter + code content + minimap.
         let editor_x = sidebar.x + sidebar.width;
         let editor_w = ai_panel.x.saturating_sub(editor_x);
-        let editor_content_w = editor_w.saturating_sub(minimap_w);
-        // Invariant: editor content width must be at least 120 px so tabs/breadcrumb
-        // and code viewport remain functional. This is guaranteed by the responsive
-        // sidebar/ai/minimap selection above.
+        let gutter_w = if editor_w >= 200 { lt.gutter_w } else { 0 };
+        let editor_content_w = editor_w.saturating_sub(gutter_w).saturating_sub(minimap_w);
         debug_assert!(
             editor_content_w >= 120 || editor_w == 0,
             "editor_content_w={} too narrow at inner_w={}",
@@ -240,7 +241,9 @@ impl ShellFrame {
             inner_w
         );
 
-        // Editor tiles region: slim tab strip + compact breadcrumb
+        // Editor tiles region: slim tab strip + compact breadcrumb.
+        // Tabs and breadcrumb span the full editor column (gutter + code).
+        let editor_full_w = editor_w.saturating_sub(minimap_w);
         let editor_tabs_h: u32 = lt.tab_strip_h;
         let breadcrumb_h: u32 = lt.breadcrumb_h;
         let editor_top_h = editor_tabs_h + breadcrumb_h;
@@ -258,21 +261,30 @@ impl ShellFrame {
             .max(0);
         let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
 
-        // Editor tabs row (tab strip at top of editor column)
+        // Editor tabs row (tab strip at top of editor column, full width)
         let editor_tabs =
-            Rect { x: editor_x, y: columns_y, width: editor_content_w, height: editor_tabs_h };
+            Rect { x: editor_x, y: columns_y, width: editor_full_w, height: editor_tabs_h };
 
-        // Breadcrumb / path row below tabs
+        // Breadcrumb / path row below tabs (full width)
         let breadcrumb = Rect {
             x: editor_x,
             y: columns_y + editor_tabs_h,
-            width: editor_content_w,
+            width: editor_full_w,
             height: breadcrumb_h,
         };
 
-        // Center editor canvas (code area)
-        let center_editor = Rect {
+        // Gutter lane — line-number column, between sidebar and code content
+        let gutter_lane = Rect {
             x: editor_x,
+            y: below_editor_top_y,
+            width: gutter_w,
+            height: below_editor_top_h,
+        };
+
+        // Center editor canvas (code area, to the right of gutter)
+        let editor_code_x = editor_x + gutter_w;
+        let center_editor = Rect {
+            x: editor_code_x,
             y: below_editor_top_y,
             width: editor_content_w,
             height: editor_body_h,
@@ -280,7 +292,7 @@ impl ShellFrame {
 
         // Terminal panel below editor body
         let center_bottom_panel = Rect {
-            x: editor_x,
+            x: editor_code_x,
             y: below_editor_top_y + editor_body_h,
             width: editor_content_w,
             height: center_bottom_h,
@@ -288,7 +300,7 @@ impl ShellFrame {
 
         // Minimap lane to the right of editor content (full column height)
         let minimap_lane = Rect {
-            x: editor_x + editor_content_w,
+            x: editor_code_x + editor_content_w,
             y: columns_y,
             width: minimap_w,
             height: columns_h,
@@ -311,6 +323,7 @@ impl ShellFrame {
             ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
             ShellRegion { id: "editor_tabs", name: "editor_tabs", rect: editor_tabs },
             ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: breadcrumb },
+            ShellRegion { id: "gutter_lane", name: "gutter_lane", rect: gutter_lane },
             ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
             ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
@@ -403,13 +416,21 @@ mod tests {
 
         let rail = find(PanelRole::NavigationRail);
         let sidebar = find(PanelRole::SidePanel);
+        let gutter = find(PanelRole::GutterLane);
         let editor = find(PanelRole::ContentArea);
         let minimap = find(PanelRole::MinimapLane);
         let ai = find(PanelRole::AuxiliaryPanelContent);
 
-        // Check no gaps between adjacent regions
+        // Check no gaps between adjacent regions in x-order
         assert_eq!(rail.x + rail.width, sidebar.x, "rail/sidebar gap");
-        assert_eq!(sidebar.x + sidebar.width, editor.x, "sidebar/editor gap");
+
+        // Tabs/breadcrumb abuts sidebar; gutter fills the gap below header level
+        if gutter.width > 0 {
+            assert_eq!(sidebar.x + sidebar.width, gutter.x, "sidebar/gutter gap");
+            assert_eq!(gutter.x + gutter.width, editor.x, "gutter/editor gap");
+        } else {
+            assert_eq!(sidebar.x + sidebar.width, editor.x, "sidebar/editor gap");
+        }
 
         // Minimap sits between editor content and AI panel (or has zero width)
         if minimap.width > 0 {
@@ -450,9 +471,12 @@ mod tests {
         let editor =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::ContentArea).unwrap();
         assert!(
-            editor.rect.width >= 200,
+            editor.rect.width >= 160,
             "editor should stay usable at 500px, got {}",
             editor.rect.width
         );
+        let gutter =
+            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::GutterLane).unwrap();
+        assert!(gutter.rect.width > 0, "gutter should be present at 500px");
     }
 }

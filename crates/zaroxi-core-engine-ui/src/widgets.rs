@@ -365,7 +365,13 @@ impl ShellWidget {
             Self::EmptyState { rect, fill_color, .. } => {
                 set.add_surface(Surface::new(*rect).with_fill(*fill_color));
             }
-            Self::TextLabel { .. } => {}
+            Self::TextLabel { rect, text_color, .. } => {
+                let mut c = *text_color;
+                c[3] *= 0.08;
+                set.add_surface(
+                    Surface::new(Rect::new(rect.x, rect.y, rect.width, rect.height)).with_fill(c),
+                );
+            }
         }
     }
 }

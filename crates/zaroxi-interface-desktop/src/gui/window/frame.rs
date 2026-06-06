@@ -26,6 +26,77 @@ pub struct ShellBlockContext {
     pub terminal_tabs: Option<Vec<String>>,
 }
 
+/// Extract scrollbar widgets from the ShellWidgetTree and convert to UiBlocks
+/// so they are rendered in the GUI path (scrollbars were previously interaction-only).
+pub fn extract_scrollbar_blocks(
+    widget_tree: &zaroxi_core_engine_ui::ShellWidgetTree,
+) -> Vec<UiBlock> {
+    let mut blocks = Vec::new();
+    for widget in &widget_tree.widgets {
+        if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
+            id: _,
+            track_rect,
+            thumb_rect,
+            track_fill,
+            thumb_fill,
+            state: _,
+        } = widget
+        {
+            // Track
+            blocks.push(UiBlock {
+                id: "scrollbar_track".to_string(),
+                title: String::new(),
+                content: String::new(),
+                visible: true,
+                rect: zaroxi_core_engine_render::Rect {
+                    x: track_rect.x,
+                    y: track_rect.y,
+                    w: track_rect.width,
+                    h: track_rect.height,
+                },
+                header_color: Some(*track_fill),
+                content_color: None,
+                corner_radius: 3.0,
+                border_color: None,
+                border_width: 0.0,
+                header_only: true,
+                content_spans: None,
+                cursor_line: None,
+                cursor_col: None,
+                highlight_active_line: false,
+                selection_range: None,
+                text_color: None,
+            });
+            // Thumb
+            blocks.push(UiBlock {
+                id: "scrollbar_thumb".to_string(),
+                title: String::new(),
+                content: String::new(),
+                visible: true,
+                rect: zaroxi_core_engine_render::Rect {
+                    x: thumb_rect.x,
+                    y: thumb_rect.y,
+                    w: thumb_rect.width,
+                    h: thumb_rect.height,
+                },
+                header_color: Some(*thumb_fill),
+                content_color: None,
+                corner_radius: 2.0,
+                border_color: None,
+                border_width: 0.0,
+                header_only: true,
+                content_spans: None,
+                cursor_line: None,
+                cursor_col: None,
+                highlight_active_line: false,
+                selection_range: None,
+                text_color: None,
+            });
+        }
+    }
+    blocks
+}
+
 /// Compose all shell regions into UiBlocks by delegating to panel modules.
 pub fn compose_blocks(
     regions: &[ShellRegion],
@@ -41,6 +112,10 @@ pub fn compose_blocks(
                 PanelRole::NavigationRail => RailPanel::build_rail_block(r, tokens),
                 PanelRole::SidePanel => {
                     RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data)
+                }
+                PanelRole::GutterLane => {
+                    let line_count = ctx.editor_data.cursor_line.max(1);
+                    EditorPanel::build_gutter_block(r, tokens, line_count)
                 }
                 PanelRole::ContentTabStrip => {
                     EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data)

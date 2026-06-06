@@ -169,6 +169,10 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         lines.push(format!("editor.minimap: code-outline rect={}", ml.rect));
     }
 
+    if let Some(gl) = find_region_by_role(regions, PanelRole::GutterLane) {
+        lines.push(format!("editor.gutter: line-numbers rect={}", gl.rect));
+    }
+
     if let Some(cb) = find_region_by_role(regions, PanelRole::BottomPanel) {
         let terminal = TerminalPanelState::default();
         let tabs = if terminal.tabs.is_empty() {
