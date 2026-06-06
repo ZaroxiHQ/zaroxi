@@ -542,13 +542,59 @@ impl winit::application::ApplicationHandler for GuiApp {
                             (usable_h / line_h).max(1.0) as usize
                         })
                         .unwrap_or(1);
+
+                    let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
+                        &self.shell.regions,
+                        zaroxi_core_engine_style::PanelRole::SidePanel,
+                    );
+                    let sidebar_visible = sidebar_region
+                        .map(|r| (r.rect.height as f32 / line_h).max(1.0) as usize)
+                        .unwrap_or(1);
+
+                    let bottom_region = crate::gui::region_dispatch::find_region_by_role(
+                        &self.shell.regions,
+                        zaroxi_core_engine_style::PanelRole::BottomPanel,
+                    );
+                    let bottom_visible = bottom_region
+                        .map(|r| {
+                            let usable_h = r.rect.height as f32 - header_h - content_pad * 2.0;
+                            (usable_h / line_h).max(1.0) as usize
+                        })
+                        .unwrap_or(1);
+
                     let scroll_blocks = super::frame::compute_scrollbar_blocks(
                         &self.shell.regions,
                         &tokens,
                         editor_total_lines,
                         editor_visible_lines,
+                        0, // sidebar_items (static placeholder, no overflow)
+                        sidebar_visible,
+                        0, // bottom_lines (static placeholder, no overflow)
+                        bottom_visible,
                     );
                     render_blocks.extend(scroll_blocks);
+
+                    // Phase 72: gated debug — log vertical block positions at
+                    // every frame when ZAROXI_DEBUG_SEAMS=1 so seam positions
+                    // can be compared across window sizes.
+                    if std::env::var("ZAROXI_DEBUG_SEAMS").as_deref() == Ok("1") {
+                        for blk in &render_blocks {
+                            let narrow_or_tall =
+                                blk.rect.w <= 10.0 || blk.rect.h > blk.rect.w * 2.0;
+                            if narrow_or_tall {
+                                eprintln!(
+                                    "ZAROXI_SEAM: win={}x{} id='{}' x={:.1} y={:.1} w={:.1} h={:.1}",
+                                    self.shell.size.width,
+                                    self.shell.size.height,
+                                    blk.id,
+                                    blk.rect.x,
+                                    blk.rect.y,
+                                    blk.rect.w,
+                                    blk.rect.h,
+                                );
+                            }
+                        }
+                    }
 
                     // Apply live editor cursor and selection to the ContentArea block
                     for block in &mut render_blocks {

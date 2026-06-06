@@ -32,18 +32,18 @@ pub struct ShellBlockContext {
 
 /// Compute scrollbar UiBlocks directly from ShellFrame regions.
 ///
-/// This replaces the old `extract_scrollbar_blocks` which extracted scrollbar
-/// positions from the widget tree (which uses a different layout system).
-/// Computing from ShellFrame regions guarantees scrollbars align with the
-/// same panel boundaries used by `compose_blocks`.
-///
-/// `editor_total_lines` and `editor_visible_lines` control whether the editor
-/// scrollbar is emitted (only when content overflows the visible area).
+/// Each scrollbar is only emitted when the corresponding content overflows
+/// its visible region (`items > visible_items`). This prevents phantom
+/// full-height track quads from appearing when no scrolling is needed.
 pub fn compute_scrollbar_blocks(
     regions: &[ShellRegion],
     tokens: &StyleTokens,
     editor_total_lines: usize,
     editor_visible_lines: usize,
+    sidebar_items: usize,
+    sidebar_visible: usize,
+    bottom_lines: usize,
+    bottom_visible: usize,
 ) -> Vec<UiBlock> {
     let mut blocks = Vec::new();
 
@@ -122,7 +122,8 @@ pub fn compute_scrollbar_blocks(
 
     // ── Sidebar scrollbar ──
     if let Some(sidebar) = sidebar_region {
-        if sidebar.rect.width > 20 && sidebar.rect.height > 200 {
+        let needs_scroll = sidebar_items > sidebar_visible.max(1);
+        if needs_scroll && sidebar.rect.width > 20 && sidebar.rect.height > 200 {
             let sb_w = 4.0;
             let sx = sidebar.rect.x as f32;
             let sy = sidebar.rect.y as f32;
@@ -187,7 +188,8 @@ pub fn compute_scrollbar_blocks(
 
     // ── Bottom panel scrollbar ──
     if let Some(bottom) = bottom_panel_region {
-        if bottom.rect.width > 20 && bottom.rect.height > 40 {
+        let needs_scroll = bottom_lines > bottom_visible.max(1);
+        if needs_scroll && bottom.rect.width > 20 && bottom.rect.height > 40 {
             let sb_w = 6.0;
             let bx = bottom.rect.x as f32;
             let by = bottom.rect.y as f32;

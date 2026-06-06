@@ -324,7 +324,6 @@ impl ShellFrame {
             ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: breadcrumb },
             ShellRegion { id: "gutter_lane", name: "gutter_lane", rect: gutter_lane },
             ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
-            ShellRegion { id: "center_editor", name: "center_editor", rect: center_editor },
             ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
             ShellRegion {
                 id: "center_bottom_panel",

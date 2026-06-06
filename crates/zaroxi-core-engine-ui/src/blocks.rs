@@ -8,6 +8,7 @@
 //! use color contrast for visual hierarchy. Explicit dividers should be placed
 //! via the `Divider` primitive when needed.
 
+use zaroxi_core_editor_gutter::GutterModel;
 use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::StyleTokens;
 
@@ -48,9 +49,10 @@ pub fn make_panel_block(
 
 /// Build the editor gutter lane block.
 ///
-/// The gutter uses the same background as the editor surface so it blends
-/// seamlessly. Line numbers in `text_faint` provide the only visual distinction.
-/// No border is emitted — the gutter is integrated into the editor column.
+/// Delegates line‑number formatting to `GutterModel` from the `zaroxi-core-editor-gutter`
+/// crate so the gutter crate owns the layout math and label policy. The block
+/// constructor only wires the formatted text into a `UiBlock` with the correct
+/// background color and no border — the gutter blends seamlessly into the editor.
 pub fn make_gutter_block(
     x: f32,
     y: f32,
@@ -59,8 +61,11 @@ pub fn make_gutter_block(
     line_count: usize,
     tokens: &StyleTokens,
 ) -> UiBlock {
-    let gutter_text =
-        (1..=line_count.max(1)).map(|n| format!("{:>4}", n)).collect::<Vec<_>>().join("\n");
+    let model = GutterModel::new(w as u32);
+    let gutter_text: String = (1..=line_count.max(1))
+        .map(|n| model.line_number_string(n as u32))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     UiBlock {
         id: "gutter_lane".to_string(),

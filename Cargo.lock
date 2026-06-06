@@ -4150,6 +4150,7 @@ dependencies = [
  "serde",
  "serde_json",
  "taffy",
+ "zaroxi-core-editor-gutter",
  "zaroxi-core-engine-layout",
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-scene",

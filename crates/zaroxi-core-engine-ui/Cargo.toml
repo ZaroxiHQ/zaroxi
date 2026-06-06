@@ -13,5 +13,6 @@ zaroxi-core-engine-layout = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
 zaroxi-core-engine-style = { workspace = true }
 zaroxi-kernel-math = { workspace = true }
+zaroxi-core-editor-gutter = { workspace = true }
 zaroxi-core-engine-render = { workspace = true, features = ["full_renderer"] }
 # Keep this crate small and engine-owned; no interface/application deps.
