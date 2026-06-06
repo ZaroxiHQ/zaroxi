@@ -28,7 +28,7 @@ impl TopBarPanel {
             header_color: Some(tokens.titlebar_background.to_array()),
             content_color: None,
             corner_radius: 0.0,
-            border_color: Some(tokens.divider_default.to_array()),
+            border_color: Some(tokens.divider_subtle.to_array()),
             border_width: 1.0,
             header_only: true,
             content_spans: None,

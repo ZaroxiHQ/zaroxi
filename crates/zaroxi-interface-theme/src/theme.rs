@@ -237,23 +237,24 @@ impl SemanticColors {
     /// Status bar and bottom panel sit between rail and sidebar in luminance.
     pub fn dark() -> Self {
         Self {
-            // Background surfaces — clear hierarchy from deepest shell to brightest editor
+            // Background surfaces — clear hierarchy from deepest shell to brightest editor.
+            // Phase 68: flattened headers to match content surfaces, tighter tonal layering.
             app_background: Color::from_hex("#181A1F"), // Deepest shell — recessive backdrop
-            shell_background: Color::from_hex("#1B1D22"), // Slightly lighter shell
-            panel_background: Color::from_hex("#21242B"), // Side panels — medium
-            elevated_panel_background: Color::from_hex("#262B34"), // Elevated panels (modals, dropdowns)
+            shell_background: Color::from_hex("#1A1C21"), // Slightly lighter shell
+            panel_background: Color::from_hex("#20232A"), // Side panels — medium
+            elevated_panel_background: Color::from_hex("#252930"), // Elevated panels (modals, dropdowns)
             editor_background: Color::from_hex("#1C1E23"), // Editor — slightly brighter than shell
-            input_background: Color::from_hex("#24272E"),  // Input fields
-            status_bar_background: Color::from_hex("#1F2128"), // Status bar — distinct, near-app
+            input_background: Color::from_hex("#22252B"),  // Input fields
+            status_bar_background: Color::from_hex("#1D1F25"), // Status bar — distinct, near-app
             title_bar_background: Color::from_hex("#1C1E23"), // Title bar — subtle
             activity_rail_background: Color::from_hex("#1B1D22"), // Activity rail — darkest side
-            sidebar_background: Color::from_hex("#20232A"), // Sidebar — slightly above rail
-            tab_background: Color::from_hex("#20232A"),    // Inactive tabs
+            sidebar_background: Color::from_hex("#1F2228"), // Sidebar — slightly above rail
+            tab_background: Color::from_hex("#1F2228"),    // Inactive tabs
             tab_active_background: Color::from_hex("#1C1E23"), // Active tab matches editor
-            assistant_panel_background: Color::from_hex("#1F2228"), // Right utility panel
+            assistant_panel_background: Color::from_hex("#1E2127"), // Right utility panel
             bottom_panel_background: Color::from_hex("#1D1F25"), // Bottom terminal/output panel
-            bottom_panel_header_background: Color::from_hex("#1F2228"), // Bottom panel tab row
-            assistant_panel_header_background: Color::from_hex("#1C1E23"), // AI panel header
+            bottom_panel_header_background: Color::from_hex("#1D1F25"), // Flattened — match body
+            assistant_panel_header_background: Color::from_hex("#1E2127"), // Flattened — match body
 
             // Text colors - hierarchy from most prominent to subtle
             text_primary: Color::from_hex("#E6EAF2"), // Primary text - bright but not harsh
@@ -266,12 +267,12 @@ impl SemanticColors {
             text_link: Color::from_hex("#5B8CFF"),    // Link blue matches accent
 
             // UI elements - restrained borders and dividers
-            border: Color::from_hex("#2A2D35"), // Borders — visible but not harsh
-            border_subtle: Color::from_rgba(0.16, 0.18, 0.21, 0.5), // Subtle borders
-            divider: Color::from_hex("#2A2D35"), // Dividers match borders
-            divider_subtle: Color::from_rgba(0.16, 0.18, 0.21, 0.35), // Very soft divider
-            panel_header_background: Color::from_hex("#24272E"), // Slightly lighter than panel background
-            nested_surface_background: Color::from_hex("#282D35"), // For cards, input bars
+            border: Color::from_hex("#282B32"), // Borders — visible but quiet
+            border_subtle: Color::from_rgba(0.16, 0.17, 0.20, 0.45), // Subtle borders
+            divider: Color::from_hex("#282B32"), // Dividers match borders
+            divider_subtle: Color::from_rgba(0.16, 0.17, 0.20, 0.28), // Very soft divider
+            panel_header_background: Color::from_hex("#22252B"), // Slightly lighter than panel background
+            nested_surface_background: Color::from_hex("#262932"), // For cards, input bars
             app_chrome_background: Color::from_hex("#181A1F"),   // Matches app_background (shell)
             tab_strip_background: Color::from_hex("#1B1D22"), // Same as activity-rail for consistency
             accent: Color::from_hex("#528BFF"),               // Restrained blue accent
@@ -296,9 +297,10 @@ impl SemanticColors {
             focus_ring: Color::from_rgba(0.36, 0.55, 1.0, 0.30), // Focus ring
 
             // Editor specific
-            // Make gutter background match the editor background so the gutter visually
-            // blends with the code surface (requested UX refinement).
-            editor_gutter_background: Color::from_hex("#1E1F24"), // Use editor_background
+            // Gutter bg matches editor bg so the gutter blends into the code surface.
+            // A 1px subtle-divider right border (set by the gutter block) provides
+            // the only visual separation.
+            editor_gutter_background: Color::from_hex("#1C1E23"), // same as editor_background
             editor_line_highlight: Color::from_rgba(1.0, 1.0, 1.0, 0.03), // Line highlight
             editor_cursor: Color::from_hex("#E6EAF2"),            // Cursor matches primary text
             editor_selection: Color::from_rgba(0.36, 0.55, 1.0, 0.22), // Editor selection
@@ -426,8 +428,8 @@ impl SemanticColors {
             focus_ring: Color::from_rgba(0.26, 0.43, 0.86, 0.25), // Focus ring
 
             // Editor specific
-            // Make gutter background match the editor background for visual consistency.
-            editor_gutter_background: Color::from_hex("#FBFAF7"), // Use editor_background
+            // Gutter bg matches editor bg so the gutter blends into the code surface.
+            editor_gutter_background: Color::from_hex("#FBFAF7"), // same as editor_background
             editor_line_highlight: Color::from_rgba(0.26, 0.43, 0.86, 0.03), // Line highlight
             editor_cursor: Color::from_hex("#22262B"),            // Cursor matches primary text
             editor_selection: Color::from_rgba(0.26, 0.43, 0.86, 0.14), // Editor selection
