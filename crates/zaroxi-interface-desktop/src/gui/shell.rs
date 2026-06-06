@@ -273,13 +273,11 @@ impl ShellFrame {
             height: breadcrumb_h,
         };
 
-        // Gutter lane — line-number column, between sidebar and code content
-        let gutter_lane = Rect {
-            x: editor_x,
-            y: below_editor_top_y,
-            width: gutter_w,
-            height: below_editor_top_h,
-        };
+        // Gutter lane — line-number column, between sidebar and code content.
+        // Only spans the editor body (not the terminal panel) so the terminal
+        // can use the full editor column width below.
+        let gutter_lane =
+            Rect { x: editor_x, y: below_editor_top_y, width: gutter_w, height: editor_body_h };
 
         // Center editor canvas (code area, to the right of gutter)
         let editor_code_x = editor_x + gutter_w;
@@ -290,11 +288,12 @@ impl ShellFrame {
             height: editor_body_h,
         };
 
-        // Terminal panel below editor body
+        // Terminal panel below editor body — fills the full editor column
+        // width (editor_x to minimap), matching the editor tabs/breadcrumb width.
         let center_bottom_panel = Rect {
-            x: editor_code_x,
+            x: editor_x,
             y: below_editor_top_y + editor_body_h,
-            width: editor_content_w,
+            width: editor_full_w,
             height: center_bottom_h,
         };
 
