@@ -104,6 +104,17 @@ pub enum ShellWidget {
 
     /// Standalone text label (unattached to larger widget chrome)
     TextLabel { rect: Rect, label: String, text_color: [f32; 4] },
+
+    /// Editable text input field
+    TextInput {
+        id: WidgetId,
+        rect: Rect,
+        text: String,
+        placeholder: String,
+        fill_color: [f32; 4],
+        text_color: [f32; 4],
+        focused: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +233,7 @@ impl ShellWidget {
             Self::Divider { rect, .. } => *rect,
             Self::EmptyState { rect, .. } => *rect,
             Self::TextLabel { rect, .. } => *rect,
+            Self::TextInput { rect, .. } => *rect,
         }
     }
 
@@ -267,6 +279,9 @@ impl ShellWidget {
             }),
             Self::Button { id, rect, label, .. } => {
                 Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: label.clone() })
+            }
+            Self::TextInput { id, rect, text, .. } => {
+                Some(WidgetHitTarget { id: id.clone(), rect: *rect, label: text.clone() })
             }
             _ => None,
         }
@@ -371,6 +386,9 @@ impl ShellWidget {
                 set.add_surface(
                     Surface::new(Rect::new(rect.x, rect.y, rect.width, rect.height)).with_fill(c),
                 );
+            }
+            Self::TextInput { rect, fill_color, .. } => {
+                set.add_surface(Surface::new(*rect).with_fill(*fill_color).with_radius(3.0));
             }
         }
     }

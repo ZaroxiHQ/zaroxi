@@ -352,6 +352,7 @@ pub enum WidgetId {
     Scrollbar { index: usize },
     Button { index: usize },
     Surface { role: SurfaceRole },
+    TextInput { index: usize },
 }
 
 impl WidgetId {
@@ -375,6 +376,9 @@ impl WidgetId {
     }
     pub fn button(idx: usize) -> Self {
         Self::Button { index: idx }
+    }
+    pub fn text_input(idx: usize) -> Self {
+        Self::TextInput { index: idx }
     }
     pub fn surface(role: SurfaceRole) -> Self {
         Self::Surface { role }

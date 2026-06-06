@@ -211,11 +211,12 @@ pub fn build_shell_widget_tree(
                     text_color: tokens.panel_header_text.to_array(),
                 });
                 y_off += section_h + 2.0;
-                for item in items {
+                for (item_idx, item) in items.iter().enumerate() {
                     if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
                         break;
                     }
-                    tree.push(ShellWidget::TextLabel {
+                    tree.push(ShellWidget::ListItem {
+                        id: WidgetId::list_item(10 + item_idx),
                         rect: Rect::new(
                             sidebar_rect.x + pad + 14.0,
                             y_off + 2.0,
@@ -223,7 +224,9 @@ pub fn build_shell_widget_tree(
                             12.0,
                         ),
                         label: item.clone(),
-                        text_color: tokens.text_secondary.to_array(),
+                        fill_color: tokens.sidebar_file_item.to_array(),
+                        accent_indicator: None,
+                        state: InteractionState::Normal,
                     });
                     y_off += row_h;
                 }
@@ -465,6 +468,13 @@ pub fn build_shell_widget_tree(
             text_color: tokens.panel_header_text.to_array(),
             actions,
         });
+        tree.push(ShellWidget::Button {
+            id: WidgetId::button(10),
+            rect: Rect::new(action_x, action_y, action_w, action_h),
+            label: "x".into(),
+            fill_color: tokens.panel_action_fill.to_array(),
+            state: InteractionState::Normal,
+        });
         tree.push(ShellWidget::Surface {
             rect: Rect::new(
                 layout.bottom_panel.x,
@@ -476,6 +486,32 @@ pub fn build_shell_widget_tree(
             border_color: None,
             border_width: 0.0,
         });
+
+        // Bottom panel tabs (Terminal / Problems / Output)
+        let tab_labels =
+            content.and_then(|c| c.terminal_tabs.as_ref()).cloned().unwrap_or_else(|| {
+                vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
+            });
+        let tab_w = 70.0;
+        let tab_h = 22.0;
+        let tab_y = layout.bottom_panel.y + 2.0;
+        let mut tab_x = layout.bottom_panel.x + 8.0;
+        for (i, label) in tab_labels.iter().enumerate() {
+            tree.push(ShellWidget::TabItem {
+                id: WidgetId::tab(10 + i),
+                rect: Rect::new(tab_x, tab_y, tab_w, tab_h),
+                label: label.clone(),
+                fill_color: if i == 0 {
+                    tokens.tab_active_background.to_array()
+                } else {
+                    tokens.tab_strip_background.to_array()
+                },
+                text_color: tokens.text_secondary.to_array(),
+                accent_strip: if i == 0 { Some(tokens.accent.to_array()) } else { None },
+                state: InteractionState::Normal,
+            });
+            tab_x += tab_w + 4.0;
+        }
 
         // Scrollbar on right edge of terminal panel
         let sb_w = 6.0;
@@ -537,6 +573,13 @@ pub fn build_shell_widget_tree(
             text_color: tokens.panel_header_text.to_array(),
             actions,
         });
+        tree.push(ShellWidget::Button {
+            id: WidgetId::button(11),
+            rect: Rect::new(action_x, action_y, action_w, action_h),
+            label: "x".into(),
+            fill_color: tokens.panel_action_fill.to_array(),
+            state: InteractionState::Normal,
+        });
         tree.push(ShellWidget::Surface {
             rect: Rect::new(
                 layout.right_panel.x,
@@ -564,6 +607,35 @@ pub fn build_shell_widget_tree(
                 text_color: tokens.text_muted.to_array(),
             });
         }
+
+        // AI action buttons — placed below header
+        let btn_w = 64.0;
+        let btn_h = 22.0;
+        let btn_y = layout.right_panel.y + header_h + 8.0;
+        let mut btn_x = layout.right_panel.x + 12.0;
+        for (label, idx) in &[("Explain", 20), ("Review", 21), ("Apply", 22), ("Reject", 23)] {
+            tree.push(ShellWidget::Button {
+                id: WidgetId::button(*idx),
+                rect: Rect::new(btn_x, btn_y, btn_w, btn_h),
+                label: label.to_string(),
+                fill_color: tokens.rail_background.to_array(),
+                state: InteractionState::Normal,
+            });
+            btn_x += btn_w + 8.0;
+        }
+
+        // AI prompt text input
+        let input_y = btn_y + btn_h + 8.0;
+        let input_w = layout.right_panel.width - 24.0;
+        tree.push(ShellWidget::TextInput {
+            id: WidgetId::text_input(0),
+            rect: Rect::new(layout.right_panel.x + 12.0, input_y, input_w, 28.0),
+            text: String::new(),
+            placeholder: "Describe what you want to do...".into(),
+            fill_color: tokens.rail_background.to_array(),
+            text_color: tokens.text_secondary.to_array(),
+            focused: false,
+        });
     }
 
     // ── 10. Status bar ──

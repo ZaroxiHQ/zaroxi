@@ -106,6 +106,27 @@ impl GuiApp {
         let session = self.session_id.clone()?;
 
         match id {
+            WidgetId::Button { index: 10 } => {
+                // Terminal panel close — just refresh
+                Some(comp.build_work_content())
+            }
+            WidgetId::Button { index: 11 } => {
+                // AI panel close
+                pollster::block_on(crate::actions::close_command_bar(comp)).ok();
+                Some(comp.build_work_content())
+            }
+            WidgetId::Button { index: 20 }
+            | WidgetId::Button { index: 21 }
+            | WidgetId::Button { index: 22 }
+            | WidgetId::Button { index: 23 } => {
+                // AI action buttons — refresh composition
+                let _ = service;
+                Some(comp.build_work_content())
+            }
+            WidgetId::TextInput { .. } => {
+                // TextInput focus handled by interaction model
+                None
+            }
             WidgetId::Tab { index } => {
                 let items = comp.latest_opened_buffers_summary().items;
                 let entry = items.get(*index)?;
@@ -135,12 +156,37 @@ impl GuiApp {
                 Some(comp.build_work_content())
             }
             WidgetId::ListItem { index } => {
+                if *index >= 10 {
+                    // Sidebar file item: open by display name
+                    let comp = self.composition.as_mut()?;
+                    let service = self.workspace_service.clone()?;
+                    let session = self.session_id.clone()?;
+                    let items = comp.latest_opened_buffers_summary().items;
+                    let item_idx = *index - 10;
+                    if let Some(entry) = items.get(item_idx) {
+                        let buf_id = entry.buffer_id.clone();
+                        pollster::block_on(
+                            crate::actions::set_active_buffer_and_get_shell_context(
+                                comp,
+                                service,
+                                self.workspace_view.clone()?,
+                                session,
+                                self.workspace_id,
+                                buf_id,
+                            ),
+                        )
+                        .ok()?;
+                    }
+                    return Some(comp.build_work_content());
+                }
                 // Rail activation: switch active panel / open command
                 match index {
                     0 => { /* Explorer — toggle sidebar */ }
                     1 => { /* Search */ }
-                    2 => { /* Source Ctrl */ }
+                    2 => { /* Source Control */ }
                     3 => { /* Debug */ }
+                    4 => { /* Settings */ }
+                    5 => { /* Account */ }
                     _ => {}
                 }
                 None

@@ -424,6 +424,7 @@ impl ShellWidget {
                 | Self::ListItem { .. }
                 | Self::Button { .. }
                 | Self::ScrollBar { .. }
+                | Self::TextInput { .. }
         )
     }
 
@@ -436,6 +437,7 @@ impl ShellWidget {
             Self::StatusSegment { id, .. } => Some(id.clone()),
             Self::ScrollBar { id, .. } => Some(id.clone()),
             Self::Button { id, .. } => Some(id.clone()),
+            Self::TextInput { id, .. } => Some(id.clone()),
             _ => None,
         }
     }
