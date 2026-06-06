@@ -59,8 +59,8 @@ impl EditorPanel {
             header_color: Some(tokens.tab_strip_background.to_array()),
             content_color: None,
             corner_radius: 0.0,
-            border_color: Some(tokens.divider_default.to_array()),
-            border_width: 1.0,
+            border_color: None,
+            border_width: 0.0,
             header_only: true,
             content_spans: None,
             cursor_line: None,
@@ -138,35 +138,14 @@ impl EditorPanel {
     }
 
     pub fn build_gutter_block(r: &ShellRegion, tokens: &StyleTokens, line_count: usize) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
-        let gutter_text =
-            (1..=line_count.max(1)).map(|n| format!("{:>4}", n)).collect::<Vec<_>>().join("\n");
-
-        UiBlock {
-            id: r.id.to_string(),
-            title: String::new(),
-            content: gutter_text,
-            visible: true,
-            rect,
-            header_color: Some(tokens.editor_gutter_bg.to_array()),
-            content_color: Some(tokens.editor_gutter_bg.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            text_color: Some(tokens.text_faint.to_array()),
-        }
+        zaroxi_core_engine_ui::blocks::make_gutter_block(
+            r.rect.x as f32,
+            r.rect.y as f32,
+            r.rect.width as f32,
+            r.rect.height as f32,
+            line_count,
+            tokens,
+        )
     }
 
     pub fn build_minimap_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {

@@ -1,4 +1,5 @@
 pub mod bar;
+pub mod blocks;
 pub mod composer;
 pub mod composite;
 pub mod content;
