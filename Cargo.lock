@@ -3840,6 +3840,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "zaroxi-application-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "zaroxi-application-workspace",
+ "zaroxi-infrastructure-ai-mock",
+ "zaroxi-infrastructure-memory",
+]
+
+[[package]]
 name = "zaroxi-application-collaboration"
 version = "0.1.0"
 
@@ -4557,6 +4566,7 @@ dependencies = [
  "wgpu",
  "winit",
  "zaroxi-application-ai",
+ "zaroxi-application-bootstrap",
  "zaroxi-application-editor",
  "zaroxi-application-navigation",
  "zaroxi-application-workspace",
@@ -4564,7 +4574,6 @@ dependencies = [
  "zaroxi-core-editor-view",
  "zaroxi-core-engine-clipboard",
  "zaroxi-core-engine-font",
- "zaroxi-core-engine-layout",
  "zaroxi-core-engine-render",
  "zaroxi-core-engine-render-backend",
  "zaroxi-core-engine-scene",
@@ -4576,7 +4585,6 @@ dependencies = [
  "zaroxi-core-platform-syntax",
  "zaroxi-core-platform-terminal",
  "zaroxi-domain-buffer",
- "zaroxi-domain-workspace",
  "zaroxi-interface-app",
  "zaroxi-interface-theme",
  "zaroxi-kernel-math",

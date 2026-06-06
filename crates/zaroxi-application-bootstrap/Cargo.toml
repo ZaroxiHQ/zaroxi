@@ -1,0 +1,14 @@
+[package]
+name = "zaroxi-application-bootstrap"
+version = "0.1.0"
+edition = "2024"
+description = "Application-layer workspace boot factory for demos, tests, and GUI shell"
+license = "MIT"
+
+[dependencies]
+zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
+zaroxi-infrastructure-memory = { path = "../zaroxi-infrastructure-memory" }
+zaroxi-infrastructure-ai-mock = { path = "../zaroxi-infrastructure-ai-mock" }
+
+[lints]
+workspace = true

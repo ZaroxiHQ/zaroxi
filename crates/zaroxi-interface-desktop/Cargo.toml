@@ -38,6 +38,7 @@ log = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
+zaroxi-application-bootstrap = { path = "../zaroxi-application-bootstrap" }
 zaroxi-application-editor = { path = "../zaroxi-application-editor" }
 zaroxi-application-navigation = { path = "../zaroxi-application-navigation" }
 zaroxi-application-ai = { path = "../zaroxi-application-ai" }
@@ -58,9 +59,6 @@ zaroxi-core-platform-syntax = { path = "../zaroxi-core-platform-syntax" }
 [dev-dependencies]
 uuid = { workspace = true }
 chrono = { workspace = true }
-zaroxi-application-ai = { path = "../zaroxi-application-ai" }
-zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
-zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).

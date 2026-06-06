@@ -434,6 +434,14 @@ if [ -d "$ROOT_DIR/crates/zaroxi-application-workspace" ]; then
   fi
 fi
 
+if [ -d "$ROOT_DIR/crates/zaroxi-application-bootstrap" ]; then
+  if grep -R --line-number --exclude-dir=target -E "zaroxi_interface_|zaroxi-interface-" "$ROOT_DIR/crates/zaroxi-application-bootstrap" >/dev/null 2>&1; then
+    log_fail "application-bootstrap imports interface (forbidden)."
+  else
+    log_pass "legacy-check: application-bootstrap has no interface imports"
+  fi
+fi
+
 if [ -d "$ROOT_DIR/crates/zaroxi-interface-desktop" ]; then
   if grep -R --line-number --exclude-dir=target -E "zaroxi_infrastructure_|zaroxi-infrastructure-" "$ROOT_DIR/crates/zaroxi-interface-desktop" >/dev/null 2>&1; then
     log_fail "interface-desktop imports infrastructure (forbidden)."

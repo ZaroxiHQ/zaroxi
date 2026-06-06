@@ -2,16 +2,16 @@
 Editor panel: tab strip, breadcrumb, content area, minimap, bottom panel.
 
 Phase 50: panel-owned UiBlock construction.
-Content flows from EngineContentData (live editor state) or defaults.
+Phase 73: tab strip uses chrome formatters with content_spans.
 */
 
 use crate::gui::ShellRegion;
 use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::StyleTokens;
+use zaroxi_core_engine_ui::chrome::TabEntry;
 
 pub struct EditorContentData {
-    pub tab_title: String,
-    pub tab_content: String,
+    pub tab_entries: Vec<TabEntry>,
     pub breadcrumb_label: String,
     pub editor_body_text: String,
     pub editor_spans: Option<Vec<(String, [f32; 4])>>,
@@ -23,8 +23,7 @@ pub struct EditorContentData {
 impl Default for EditorContentData {
     fn default() -> Self {
         Self {
-            tab_title: String::new(),
-            tab_content: String::new(),
+            tab_entries: Vec::new(),
             breadcrumb_label: String::new(),
             editor_body_text: String::new(),
             editor_spans: None,
@@ -50,24 +49,27 @@ impl EditorPanel {
             h: r.rect.height as f32,
         };
 
+        let tab_spans =
+            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(&data.tab_entries, tokens);
+
         UiBlock {
             id: r.id.to_string(),
-            title: data.tab_title.clone(),
-            content: data.tab_content.clone(),
+            title: String::new(),
+            content: String::new(),
             visible: true,
             rect,
             header_color: Some(tokens.tab_strip_background.to_array()),
-            content_color: None,
+            content_color: Some(tokens.tab_strip_background.to_array()),
             corner_radius: 0.0,
             border_color: None,
             border_width: 0.0,
-            header_only: true,
-            content_spans: None,
+            header_only: false,
+            content_spans: Some(tab_spans),
             cursor_line: None,
             cursor_col: None,
             highlight_active_line: false,
             selection_range: None,
-            text_color: Some(tokens.text_primary.to_array()),
+            text_color: None,
         }
     }
 

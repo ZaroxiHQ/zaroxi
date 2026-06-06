@@ -1,4 +1,5 @@
 use zaroxi_core_engine_ui::ShellWorkContent;
+use zaroxi_core_engine_ui::chrome::TabEntry;
 use zaroxi_interface_theme::theme::SemanticColors;
 
 use super::super::editor::EditorContentData;
@@ -103,14 +104,20 @@ pub fn shape_editor_content(
     });
 
     let tab_labels = wc.editor_tabs.clone().unwrap_or_else(Vec::new);
-    let tab_title = tab_labels.first().cloned().unwrap_or_else(|| "No file open".into());
-    let tab_content: String = tab_labels.iter().skip(1).cloned().collect::<Vec<_>>().join("  ");
+    let tab_entries: Vec<TabEntry> = if tab_labels.is_empty() {
+        vec![TabEntry { label: "No file open".to_string(), active: false }]
+    } else {
+        tab_labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| TabEntry { label, active: i == 0 })
+            .collect()
+    };
 
     let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
 
     EditorContentData {
-        tab_title,
-        tab_content,
+        tab_entries,
         breadcrumb_label,
         editor_body_text,
         editor_spans,

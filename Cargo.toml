@@ -25,6 +25,7 @@ members = [
   "crates/zaroxi-application-remote",
   "crates/zaroxi-application-search",
   "crates/zaroxi-application-workspace",
+  "crates/zaroxi-application-bootstrap",
   "crates/zaroxi-core-commands",
   "crates/zaroxi-core-editor-buffer",
   "crates/zaroxi-core-editor-collab",
@@ -252,6 +253,7 @@ zaroxi-application-refactor = { path = "crates/zaroxi-application-refactor" }
 zaroxi-application-remote = { path = "crates/zaroxi-application-remote" }
 zaroxi-application-search = { path = "crates/zaroxi-application-search" }
 zaroxi-application-workspace = { path = "crates/zaroxi-application-workspace" }
+zaroxi-application-bootstrap = { path = "crates/zaroxi-application-bootstrap" }
 
 zaroxi-core-commands = { path = "crates/zaroxi-core-commands" }
 zaroxi-core-editor-collab = { path = "crates/zaroxi-core-editor-collab" }
