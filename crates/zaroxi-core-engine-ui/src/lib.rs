@@ -1,5 +1,6 @@
 pub mod bar;
 pub mod blocks;
+pub mod chrome;
 pub mod composer;
 pub mod composite;
 pub mod content;

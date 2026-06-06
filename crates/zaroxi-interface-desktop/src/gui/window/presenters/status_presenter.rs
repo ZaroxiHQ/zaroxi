@@ -1,8 +1,10 @@
 use zaroxi_core_engine_ui::ShellWorkContent;
+use zaroxi_core_engine_ui::chrome::StatusBarZones;
 
 use super::super::status_bar::StatusBarData;
 
-/// Shape status bar text from work_content and live cursor state.
+/// Shape status bar content from work_content and live cursor state.
+/// Returns structured left/right zones for chrome-aware formatting.
 pub fn shape_status_content(
     work_content: &Option<ShellWorkContent>,
     cursor_line: usize,
@@ -28,10 +30,20 @@ pub fn shape_status_content(
             _ => ext,
         })
         .unwrap_or("No file");
+    let status_language = status_language.to_string();
+
+    let left_segments = vec![
+        "Ready".to_string(),
+        format!("Ln {}, Col {}", cursor_line + 1, cursor_col + 1),
+        "UTF-8".to_string(),
+        "LF".to_string(),
+    ];
+    let right_segments = vec![status_language];
 
     StatusBarData {
         status_line: cursor_line,
         status_col: cursor_col,
-        status_language: status_language.to_string(),
+        status_language: String::new(), // unused — kept for compat
+        status_zones: Some(StatusBarZones { left_segments, right_segments }),
     }
 }

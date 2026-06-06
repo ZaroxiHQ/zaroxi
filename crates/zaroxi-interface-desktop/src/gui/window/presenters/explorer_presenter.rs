@@ -1,9 +1,11 @@
 use zaroxi_core_engine_ui::ShellWorkContent;
+use zaroxi_core_engine_ui::chrome::PanelSection;
 
 use super::super::rail::ExplorerData;
 
-/// Shape explorer sidebar text from work_content into `ExplorerData`.
-/// Renders each item on its own line with an indented tree prefix.
+/// Shape explorer sidebar content from work_content into `ExplorerData`.
+/// Uses engine-owned chrome formatters to produce per-span colored content
+/// with section headers (muted) and indented items (secondary text).
 pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> ExplorerData {
     let wc = match work_content {
         Some(w) => w,
@@ -15,13 +17,12 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         .clone()
         .filter(|items| !items.is_empty())
         .map(|items| {
-            let mut text = String::from("EXPLORER\n");
-            for item in &items {
-                text.push_str(&format!("  {}\n", item));
-            }
-            text
+            let section = PanelSection { header: "PROJECT".to_string(), items: items.clone() };
+            let sections = vec![section];
+            (sections, false) // has items
         })
-        .unwrap_or_else(|| "No workspace loaded".to_string());
+        .unwrap_or_else(|| (Vec::new(), true)); // empty
 
-    ExplorerData { sidebar_items }
+    let (sections, _empty) = (sidebar_items.0.clone(), sidebar_items.1);
+    ExplorerData { sidebar_sections: sections, sidebar_empty: sidebar_items.1 }
 }

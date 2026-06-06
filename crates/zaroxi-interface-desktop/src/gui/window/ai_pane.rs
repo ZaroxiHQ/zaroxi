@@ -2,7 +2,7 @@
 AI assistant panel.
 
 Phase 61: fixed header_only to render body text from ai_panel_content.
-Content flows from ai_panel_content in ShellWorkContent.
+Phase 73: uses chrome formatters for structured header/body/empty-state.
 */
 
 use crate::gui::ShellRegion;
@@ -65,15 +65,23 @@ impl AiPanel {
             h: r.rect.height as f32,
         };
 
+        let ai_title_opt = data.ai_title.as_deref();
+        let ai_subtitle_opt = data.ai_subtitle.as_deref();
+        let ai_body_opt = data.ai_content.as_deref();
+
+        let spans = zaroxi_core_engine_ui::chrome::format_ai_panel_spans(
+            ai_title_opt,
+            ai_subtitle_opt,
+            ai_body_opt,
+            tokens,
+        );
+        let content = spans.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>().join("");
+
         let title = data
             .ai_title
             .clone()
             .or_else(|| data.ai_subtitle.clone())
             .unwrap_or_else(|| "Assistant".to_string());
-
-        let content = data.ai_content.clone().unwrap_or_else(|| {
-            "No active AI session\nOpen a file and request an AI edit to get started.".to_string()
-        });
 
         UiBlock {
             id: r.id.to_string(),
@@ -87,7 +95,7 @@ impl AiPanel {
             border_color: None,
             border_width: 0.0,
             header_only: false,
-            content_spans: None,
+            content_spans: Some(spans),
             cursor_line: None,
             cursor_col: None,
             highlight_active_line: false,
