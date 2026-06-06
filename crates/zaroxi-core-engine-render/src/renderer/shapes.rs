@@ -35,15 +35,69 @@ pub(crate) fn queue_panel_quads(
     } else {
         28.0f32
     };
-    let content_padding = 8.0f32;
-
     // Use the block rect supplied by the caller (app/runtime owns layout decisions).
     let target = block.rect;
 
-    // ── Border rendering ──
+    let hh = header_h.min(target.h.max(0.0));
+
+    // ── Content area (full-width fill below header, drawn first so borders sit on top) ──
+    let content_base_idx: Option<usize> = if !block.header_only {
+        let cy = target.y + hh;
+        let cw = target.w;
+        let ch = (target.h - hh).max(0.0);
+        let content_color: [f32; 4] = block.content_color.unwrap_or(sem.panel_background);
+
+        if render_debug_enabled() {
+            debug!("block '{}' content_color = {:?}", block.id, content_color);
+        }
+
+        if cw > 0.0 && ch > 0.0 {
+            let base_idx = verts.len();
+            push_colored_quad(
+                verts,
+                indices,
+                target.x,
+                cy,
+                cw,
+                ch,
+                content_color,
+                screen_w,
+                screen_h,
+                block.corner_radius,
+            );
+            Some(base_idx)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // ── Header strip ──
+    let header_color: [f32; 4] = block.header_color.unwrap_or(sem.panel_header_background);
+
+    if render_debug_enabled() {
+        debug!("block '{}' header_color = {:?}", block.id, header_color);
+    }
+
+    if hh > 0.0 {
+        push_colored_quad(
+            verts,
+            indices,
+            target.x,
+            target.y,
+            target.w,
+            hh,
+            header_color,
+            screen_w,
+            screen_h,
+            block.corner_radius,
+        );
+    }
+
+    // ── Border rendering (drawn last so borders sit on top of fills) ──
     if let (Some(border_color), w) = (block.border_color, block.border_width) {
         if w > 0.0 && target.w > 0.0 && target.h > 0.0 {
-            // Border lines are thin; no corner radius needed
             push_colored_quad(
                 verts,
                 indices,
@@ -95,69 +149,7 @@ pub(crate) fn queue_panel_quads(
         }
     }
 
-    // ── Header strip ──
-    let hx = target.x;
-    let hy = target.y;
-    let hw = target.w;
-    let hh = header_h.min(target.h.max(0.0));
-
-    let header_color: [f32; 4] = block.header_color.unwrap_or(sem.panel_header_background);
-
-    if render_debug_enabled() {
-        debug!("block '{}' header_color = {:?}", block.id, header_color);
-    }
-
-    if hh > 0.0 {
-        push_colored_quad(
-            verts,
-            indices,
-            hx,
-            hy,
-            hw,
-            hh,
-            header_color,
-            screen_w,
-            screen_h,
-            block.corner_radius,
-        );
-    }
-
-    // ── Content area ──
-    if block.header_only {
-        return None;
-    }
-
-    let cx = target.x + content_padding;
-    let cy = target.y + hh + content_padding;
-    let cw = (target.w - content_padding * 2.0).max(0.0);
-    let ch = (target.h - hh - content_padding * 2.0).max(0.0);
-
-    let content_color: [f32; 4] = block.content_color.unwrap_or(sem.panel_background);
-
-    if render_debug_enabled() {
-        debug!("block '{}' content_color = {:?}", block.id, content_color);
-    }
-
-    let effective_color: [f32; 4] = content_color;
-
-    if cw > 0.0 && ch > 0.0 {
-        let base_idx = verts.len();
-        push_colored_quad(
-            verts,
-            indices,
-            cx,
-            cy,
-            cw,
-            ch,
-            effective_color,
-            screen_w,
-            screen_h,
-            block.corner_radius,
-        );
-        Some(base_idx)
-    } else {
-        None
-    }
+    content_base_idx
 }
 
 /// Queue a left/right vertical split UI with a divider between them.

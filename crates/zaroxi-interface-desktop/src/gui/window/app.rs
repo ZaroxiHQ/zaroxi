@@ -519,12 +519,36 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let mut render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
 
-                    // Append scrollbar blocks from the widget tree so scrollbars
-                    // are visible in the GUI path (previously interaction-only).
-                    if let Some(ref tree) = self.widget_tree {
-                        let scroll_blocks = super::frame::extract_scrollbar_blocks(tree);
-                        render_blocks.extend(scroll_blocks);
-                    }
+                    // Compute scrollbar blocks from ShellFrame regions for
+                    // correct spatial placement (the widget tree uses a
+                    // different layout system that disagrees on panel widths).
+                    let editor_total_lines = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|wc| wc.editor_body.as_ref())
+                        .map(|cv| cv.lines.len())
+                        .unwrap_or(0);
+                    let line_h = 16.0f32;
+                    let content_pad = 8.0f32;
+                    let header_h = 28.0f32;
+                    let editor_region = crate::gui::region_dispatch::find_region_by_role(
+                        &self.shell.regions,
+                        zaroxi_core_engine_style::PanelRole::ContentArea,
+                    );
+                    let editor_visible_lines = editor_region
+                        .map(|r| {
+                            let usable_h = r.rect.height as f32 - header_h - content_pad * 2.0;
+                            (usable_h / line_h).max(1.0) as usize
+                        })
+                        .unwrap_or(1);
+                    let scroll_blocks = super::frame::compute_scrollbar_blocks(
+                        &self.shell.regions,
+                        &tokens,
+                        editor_total_lines,
+                        editor_visible_lines,
+                    );
+                    render_blocks.extend(scroll_blocks);
 
                     // Apply live editor cursor and selection to the ContentArea block
                     for block in &mut render_blocks {
