@@ -59,6 +59,9 @@ zaroxi-core-platform-syntax = { path = "../zaroxi-core-platform-syntax" }
 [dev-dependencies]
 uuid = { workspace = true }
 chrono = { workspace = true }
+zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
+zaroxi-core-engine-layout = { path = "../zaroxi-core-engine-layout" }
 
 # Feature to opt-in building the native GPU shell binary. By default the GUI
 # binary is not compiled during CI/test builds (avoids pulling in winit/pixels).
