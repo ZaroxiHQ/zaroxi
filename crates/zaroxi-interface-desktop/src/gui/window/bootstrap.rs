@@ -13,6 +13,7 @@ use crate::DesktopComposition;
 use crate::folder_picker::DynFolderPicker;
 use crate::gui::ShellFrame;
 use crate::gui::ShellWorkContent;
+use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use std::error::Error;
 use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::WindowAttributes};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
@@ -48,6 +49,9 @@ pub fn run_shell_window(
 
     let title = format!("Zaroxi - GUI Shell ({}x{})", shell.size.width, shell.size.height);
 
+    let explorer_actions =
+        folder_picker.as_ref().map(|fp| ExplorerPanelActions::new(Some(fp.clone())));
+
     let mut app = super::app::GuiApp {
         window_attributes: window_attributes.clone(),
         title,
@@ -74,6 +78,7 @@ pub fn run_shell_window(
         session_id,
         workspace_id,
         folder_picker,
+        explorer_actions,
     };
 
     let run_result = event_loop.run_app(&mut app);

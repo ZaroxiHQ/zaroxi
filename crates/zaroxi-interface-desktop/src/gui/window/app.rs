@@ -26,10 +26,9 @@ use winit::{
 
 use crate::DesktopComposition;
 use crate::folder_picker::DynFolderPicker;
+use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
-use zaroxi_application_workspace::ports::{
-    SessionId, WorkspaceBootRequest, WorkspaceService, WorkspaceView,
-};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_kernel_types::Id;
 
@@ -78,6 +77,7 @@ pub struct GuiApp {
     pub session_id: Option<SessionId>,
     pub workspace_id: Option<Id>,
     pub folder_picker: Option<DynFolderPicker>,
+    pub explorer_actions: Option<ExplorerPanelActions>,
 }
 
 impl GuiApp {
@@ -102,10 +102,17 @@ impl GuiApp {
                 return None;
             }
             WidgetId::Button { index: 30 } => {
-                if let Some(ref picker) = self.folder_picker {
-                    if let Some(path) = picker.pick_folder() {
-                        return self.open_workspace_from_folder(path);
-                    }
+                if let Some(ref mut actions) = self.explorer_actions {
+                    let comp = self.composition.as_mut()?;
+                    let service = self.workspace_service.clone()?;
+                    let view = self.workspace_view.clone()?;
+                    return actions.open_workspace_from_picker(
+                        comp,
+                        service,
+                        view,
+                        &mut self.session_id,
+                        &mut self.workspace_id,
+                    );
                 }
                 return None;
             }
@@ -169,47 +176,26 @@ impl GuiApp {
             }
             WidgetId::ListItem { index } => {
                 if *index >= 10 {
-                    // Sidebar explorer item: toggle directory or activate file
+                    // Sidebar explorer item: delegate to ExplorerPanelActions
                     let comp = self.composition.as_mut()?;
-                    let service = self.workspace_service.clone()?;
-                    let session = self.session_id.clone()?;
-                    let view = self.workspace_view.clone()?;
                     let explorer_idx = *index - 10;
 
-                    if comp.is_explorer_item_dir(explorer_idx) {
-                        // Directory: toggle expand/collapse
-                        let item_id = comp.get_explorer_item_id_at(explorer_idx)?;
-                        if let Some(ref mut explorer) = comp.maybe_explorer {
-                            explorer.toggle_expand(&item_id);
+                    if let Some(ref mut actions) = self.explorer_actions {
+                        if comp.is_explorer_item_dir(explorer_idx) {
+                            return actions.toggle_directory(comp, explorer_idx);
+                        } else {
+                            let service = self.workspace_service.clone()?;
+                            let view = self.workspace_view.clone()?;
+                            let session = self.session_id.clone()?;
+                            return actions.open_file(
+                                comp,
+                                service,
+                                view,
+                                session,
+                                self.workspace_id,
+                                explorer_idx,
+                            );
                         }
-                        comp.refresh_cached_explorer_items();
-                        return Some(comp.build_work_content());
-                    } else {
-                        // File: open or activate buffer
-                        let item_id = comp.get_explorer_item_id_at(explorer_idx)?;
-                        if let Some(ref explorer) = comp.maybe_explorer {
-                            if let Some(path) = explorer.get_entry_path(&item_id) {
-                                let buf_id =
-                                    pollster::block_on(crate::actions::open_buffer_by_path(
-                                        comp, service, session, path,
-                                    ))
-                                    .ok()?;
-                                if let Some(bid) = buf_id {
-                                    pollster::block_on(
-                                        crate::actions::set_active_buffer_and_get_shell_context(
-                                            comp,
-                                            self.workspace_service.clone()?,
-                                            view,
-                                            self.session_id.clone()?,
-                                            self.workspace_id,
-                                            bid,
-                                        ),
-                                    )
-                                    .ok()?;
-                                }
-                            }
-                        }
-                        return Some(comp.build_work_content());
                     }
                 }
                 // Rail activation: switch active panel / open command
@@ -226,32 +212,6 @@ impl GuiApp {
             }
             _ => None,
         }
-    }
-
-    fn open_workspace_from_folder(&mut self, path: std::path::PathBuf) -> Option<ShellWorkContent> {
-        let service = self.workspace_service.clone()?;
-        let view = self.workspace_view.clone()?;
-
-        let boot_req = WorkspaceBootRequest { path: path.clone() };
-        let boot_res = pollster::block_on(service.boot_workspace(boot_req)).ok()?;
-
-        self.session_id = Some(boot_res.session.session_id.clone());
-        self.workspace_id = Some(boot_res.session.workspace_id);
-
-        if let Some(ref mut comp) = self.composition {
-            comp.workspace_root_path = Some(path);
-            comp.load_or_refresh_explorer();
-
-            let _ = pollster::block_on(crate::actions::refresh_desktop(
-                comp,
-                view,
-                boot_res.session.session_id.clone(),
-                Some(boot_res.session.workspace_id),
-                Some(service),
-            ));
-        }
-
-        Some(self.composition.as_ref().map(|c| c.build_work_content()).unwrap_or_default())
     }
 
     /// Extract selected text from editor_body lines using the live selection range.

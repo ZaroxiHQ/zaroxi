@@ -24,7 +24,9 @@ pub use primitives::{
 };
 pub use shell_builder::{build_shell_surface_set, build_shell_widget_tree};
 pub use widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
-pub use work_content::{HighlightKind, LineHighlight, ShellWorkContent, SyntaxHighlights};
+pub use work_content::{
+    ExplorerPanelItem, HighlightKind, LineHighlight, ShellWorkContent, SyntaxHighlights,
+};
 pub use zaroxi_core_engine_layout::{ShellLayout, build_shell_ui};
 pub use zaroxi_core_engine_scene::{LabelPrimitive, RectPrimitive, WidgetScene};
 pub use zaroxi_core_engine_style::{

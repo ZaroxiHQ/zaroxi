@@ -2,7 +2,9 @@
 /// and delegates to the shared `build_work_content()` in `zaroxi-application-workspace`.
 /// AI panel content is computed inline from the current `ai_projection`.
 /// Diagnostics for the active buffer are merged into the AI panel content view.
+/// Explorer panel content is built via the explorer_panel module.
 use super::DesktopComposition;
+use crate::gui::window::explorer_panel::ExplorerPanelViewModel;
 use zaroxi_application_ai::panel;
 use zaroxi_application_workspace::workspace_view::build_work_content;
 use zaroxi_core_engine_ui::{ContentView, ShellWorkContent};
@@ -16,11 +18,17 @@ impl DesktopComposition {
 
         let explorer_items = self.format_cached_explorer_items();
 
-        let explorer_empty_button = if self.workspace_root_path.is_none() {
-            Some("Open Workspace".to_string())
+        // Build explorer panel data from the shared view model.
+        let explorer_vm = ExplorerPanelViewModel::build(self);
+        let explorer_panel_items =
+            if explorer_vm.items.is_empty() { None } else { Some(explorer_vm.items.clone()) };
+        let explorer_panel_title = if !explorer_vm.items.is_empty() {
+            explorer_vm.title.clone().or(Some("PROJECT".to_string()))
         } else {
             None
         };
+        let explorer_empty_button = explorer_vm.primary_action_label.clone();
+        let explorer_empty_message = explorer_vm.empty_message.clone();
 
         let mut ai_panel =
             self.latest_metadata().and_then(|md| md.ai_projection.clone()).map(|proj| {
@@ -86,7 +94,7 @@ impl DesktopComposition {
             }
         }
 
-        build_work_content(
+        let mut shell_wc = build_work_content(
             &opened,
             doc.as_ref(),
             ctx.as_ref(),
@@ -94,6 +102,12 @@ impl DesktopComposition {
             ai_panel,
             explorer_items,
             explorer_empty_button,
-        )
+        );
+
+        shell_wc.explorer_panel_items = explorer_panel_items;
+        shell_wc.explorer_panel_title = explorer_panel_title;
+        shell_wc.explorer_empty_message = explorer_empty_message;
+
+        shell_wc
     }
 }

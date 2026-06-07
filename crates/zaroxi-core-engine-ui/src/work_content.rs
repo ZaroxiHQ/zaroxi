@@ -54,6 +54,26 @@ pub struct SyntaxHighlights {
     pub highlights: Vec<Vec<LineHighlight>>,
 }
 
+/// A single explorer tree item for the sidebar panel.
+///
+/// Carries enough structure for the widget builder to render indentation,
+/// directory/file glyphs, active/open markers, and click targets.
+#[derive(Debug, Clone)]
+pub struct ExplorerPanelItem {
+    /// Stable identifier (path string) used for action dispatch.
+    pub id: String,
+    /// Display label for the row.
+    pub label: String,
+    /// Indentation level (0 = top-level sibling of root).
+    pub depth: usize,
+    /// Directory nodes are expandable; file nodes are activatable.
+    pub is_dir: bool,
+    /// Only meaningful for directories.
+    pub expanded: bool,
+    /// Highlight this row as the active buffer.
+    pub is_active: bool,
+}
+
 /// Lightweight workspace content snapshot carried by `ShellFrame` so the GPU
 /// draw path can render live session data without depending on DesktopComposition.
 ///
@@ -71,9 +91,15 @@ pub struct ShellWorkContent {
     pub editor_tabs: Option<Vec<String>>,
     pub editor_breadcrumb: Option<String>,
     pub explorer_items: Option<Vec<String>>,
-    /// When set and `explorer_items` is empty/None, the sidebar renders a
-    /// button with this label instead of an empty-state message.
+    /// Structured explorer tree items for the widget builder (drive ListItem widgets).
+    pub explorer_panel_items: Option<Vec<ExplorerPanelItem>>,
+    /// Panel header title shown above the tree (None hides the header).
+    pub explorer_panel_title: Option<String>,
+    /// Primary action button label (e.g. "Open Workspace"). Shown when panel
+    /// items are empty and no workspace is loaded.
     pub explorer_empty_button: Option<String>,
+    /// Empty-state message shown when panel is empty without a primary action.
+    pub explorer_empty_message: Option<String>,
     pub active_file: Option<String>,
     pub terminal_tabs: Option<Vec<String>>,
     /// AI assistant panel content view — built from the current AI projection
@@ -97,7 +123,10 @@ impl ShellWorkContent {
             editor_tabs,
             editor_breadcrumb,
             explorer_items,
+            explorer_panel_items: None,
+            explorer_panel_title: None,
             explorer_empty_button: None,
+            explorer_empty_message: None,
             active_file,
             terminal_tabs,
             ai_panel_content: None,

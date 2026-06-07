@@ -44,6 +44,7 @@ mod tests {
             session_id: None,
             workspace_id: None,
             folder_picker: None,
+            explorer_actions: None,
         }
     }
 

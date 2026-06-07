@@ -198,104 +198,17 @@ pub fn build_shell_widget_tree(
         });
         y_off += 12.0;
 
-        // Explorer sections — driven by ShellWorkContent.explorer_items, with fallback
-        let section_h = 20.0;
-        let row_h = 16.0;
-        let explorer_items: Option<&[String]> = content.and_then(|c| c.explorer_items.as_deref());
-        let explorer_empty_button: Option<&str> =
-            content.and_then(|c| c.explorer_empty_button.as_deref());
-        if let Some(items) = explorer_items {
-            if !items.is_empty() {
-                tree.push(ShellWidget::ListSectionHeader {
-                    rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
-                    label: "PROJECT".into(),
-                    fill_color: tokens.panel_header_background.to_array(),
-                    text_color: tokens.panel_header_text.to_array(),
-                });
-                y_off += section_h + 2.0;
-                for (item_idx, item) in items.iter().enumerate() {
-                    if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
-                        break;
-                    }
-                    tree.push(ShellWidget::ListItem {
-                        id: WidgetId::list_item(10 + item_idx),
-                        rect: Rect::new(
-                            sidebar_rect.x + pad + 14.0,
-                            y_off + 2.0,
-                            inner_w - 20.0,
-                            12.0,
-                        ),
-                        label: item.clone(),
-                        fill_color: tokens.sidebar_file_item.to_array(),
-                        accent_indicator: None,
-                        state: InteractionState::Normal,
-                    });
-                    y_off += row_h;
-                }
-            } else {
-                if let Some(btn_label) = explorer_empty_button {
-                    let btn_w = 130.0;
-                    let btn_h = 28.0;
-                    tree.push(ShellWidget::Button {
-                        id: WidgetId::button(30),
-                        rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 8.0, btn_w, btn_h),
-                        label: btn_label.to_string(),
-                        fill_color: tokens.rail_item_active.to_array(),
-                        state: InteractionState::Normal,
-                    });
-                } else {
-                    tree.push(ShellWidget::EmptyState {
-                        rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 24.0),
-                        message: "No files".into(),
-                        fill_color: [0.0, 0.0, 0.0, 0.0],
-                        text_color: tokens.text_muted.to_array(),
-                    });
-                }
-            }
-        } else if let Some(btn_label) = explorer_empty_button {
-            let btn_w = 130.0;
-            let btn_h = 28.0;
-            tree.push(ShellWidget::Button {
-                id: WidgetId::button(30),
-                rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 8.0, btn_w, btn_h),
-                label: btn_label.to_string(),
-                fill_color: tokens.rail_item_active.to_array(),
-                state: InteractionState::Normal,
-            });
-        } else {
-            for section_label in &["PROJECT", "GIT", "OUTLINE"] {
-                if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {
-                    break;
-                }
-                tree.push(ShellWidget::ListSectionHeader {
-                    rect: Rect::new(sidebar_rect.x, y_off, sidebar_w, section_h),
-                    label: section_label.to_string(),
-                    fill_color: tokens.panel_header_background.to_array(),
-                    text_color: tokens.panel_header_text.to_array(),
-                });
-                y_off += section_h + 2.0;
-
-                let items = if *section_label == "PROJECT" { 4 } else { 3 };
-                for _ in 0..items {
-                    if y_off + row_h > layout.left_panel.y + layout.left_panel.height - 36.0 {
-                        break;
-                    }
-                    tree.push(ShellWidget::Surface {
-                        rect: Rect::new(
-                            sidebar_rect.x + pad + 14.0,
-                            y_off + 2.0,
-                            inner_w - 20.0,
-                            12.0,
-                        ),
-                        fill_color: tokens.sidebar_file_item.to_array(),
-                        border_color: None,
-                        border_width: 0.0,
-                    });
-                    y_off += row_h;
-                }
-                y_off += 6.0;
-            }
-        }
+        // Explorer panel — built from structured panel items when available.
+        build_explorer_panel_section(
+            &mut tree,
+            content,
+            sidebar_rect,
+            layout,
+            tokens,
+            pad,
+            inner_w,
+            &mut y_off,
+        );
 
         // Sidebar scrollbar (if content overflows)
         if sidebar_rect.height > 200.0 && sidebar_rect.width > 20.0 {
@@ -724,4 +637,161 @@ pub fn build_shell_surface_set(
     tokens: &StyleTokens,
 ) -> crate::primitives::ShellSurfaceSet {
     build_shell_widget_tree(layout, tokens, None).to_surface_set()
+}
+
+// ── Explorer panel section builder ──────────────────────────────────
+
+fn build_explorer_panel_section(
+    tree: &mut ShellWidgetTree,
+    content: Option<&ShellWorkContent>,
+    sidebar_rect: Rect,
+    layout: &ShellLayout,
+    tokens: &StyleTokens,
+    pad: f32,
+    inner_w: f32,
+    y_off: &mut f32,
+) {
+    let row_h = 18.0;
+    let sidebar_w = sidebar_rect.width;
+    let max_y = layout.left_panel.y + layout.left_panel.height - 12.0;
+
+    // ------------------------------------------------------------------
+    // Panel header
+    // ------------------------------------------------------------------
+    let panel_title = content.and_then(|c| c.explorer_panel_title.as_deref());
+    if let Some(title) = panel_title {
+        let hdr_h = 22.0;
+        if *y_off + hdr_h <= max_y {
+            tree.push(ShellWidget::ListSectionHeader {
+                rect: Rect::new(sidebar_rect.x, *y_off, sidebar_w, hdr_h),
+                label: title.to_string(),
+                fill_color: tokens.panel_header_background.to_array(),
+                text_color: tokens.panel_header_text.to_array(),
+            });
+            *y_off += hdr_h + 4.0;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Structured panel items (new path)
+    // ------------------------------------------------------------------
+    let panel_items = content.and_then(|c| c.explorer_panel_items.as_deref());
+    if let Some(items) = panel_items {
+        if !items.is_empty() {
+            for (item_idx, item) in items.iter().enumerate() {
+                if *y_off + row_h > max_y {
+                    break;
+                }
+                let indent_px = item.depth as f32 * 14.0;
+                tree.push(ShellWidget::ListItem {
+                    id: WidgetId::list_item(10 + item_idx),
+                    rect: Rect::new(
+                        sidebar_rect.x + pad + 14.0 + indent_px,
+                        *y_off + 2.0,
+                        inner_w - 20.0 - indent_px,
+                        14.0,
+                    ),
+                    label: item.label.clone(),
+                    fill_color: if item.is_active {
+                        tokens.rail_item_active.to_array()
+                    } else {
+                        tokens.sidebar_file_item.to_array()
+                    },
+                    accent_indicator: if item.is_active {
+                        Some(tokens.accent.to_array())
+                    } else {
+                        None
+                    },
+                    state: if item.is_active {
+                        InteractionState::Selected
+                    } else {
+                        InteractionState::Normal
+                    },
+                });
+                *y_off += row_h;
+            }
+            return;
+        }
+
+        // Empty panel — show empty state or button
+        let btn_label = content.and_then(|c| c.explorer_empty_button.as_deref());
+        let empty_msg = content.and_then(|c| c.explorer_empty_message.as_deref());
+        if let Some(label) = btn_label {
+            let btn_w = 140.0;
+            let btn_h = 30.0;
+            tree.push(ShellWidget::Button {
+                id: WidgetId::button(30),
+                rect: Rect::new(sidebar_rect.x + pad + 10.0, *y_off + 8.0, btn_w, btn_h),
+                label: label.to_string(),
+                fill_color: tokens.accent.to_array(),
+                state: InteractionState::Normal,
+            });
+        } else if let Some(msg) = empty_msg {
+            tree.push(ShellWidget::EmptyState {
+                rect: Rect::new(sidebar_rect.x + pad, *y_off, inner_w, 24.0),
+                message: msg.to_string(),
+                fill_color: [0.0, 0.0, 0.0, 0.0],
+                text_color: tokens.text_muted.to_array(),
+            });
+        }
+        return;
+    }
+
+    // ------------------------------------------------------------------
+    // Legacy path: string-based explorer_items
+    // ------------------------------------------------------------------
+    let legacy_items: Option<&[String]> = content.and_then(|c| c.explorer_items.as_deref());
+    let legacy_button = content.and_then(|c| c.explorer_empty_button.as_deref());
+
+    if let Some(items) = legacy_items {
+        if !items.is_empty() {
+            for (item_idx, item) in items.iter().enumerate() {
+                if *y_off + row_h > max_y {
+                    break;
+                }
+                tree.push(ShellWidget::ListItem {
+                    id: WidgetId::list_item(10 + item_idx),
+                    rect: Rect::new(
+                        sidebar_rect.x + pad + 14.0,
+                        *y_off + 2.0,
+                        inner_w - 20.0,
+                        14.0,
+                    ),
+                    label: item.clone(),
+                    fill_color: tokens.sidebar_file_item.to_array(),
+                    accent_indicator: None,
+                    state: InteractionState::Normal,
+                });
+                *y_off += row_h;
+            }
+        } else if let Some(label) = legacy_button {
+            let btn_w = 140.0;
+            let btn_h = 30.0;
+            tree.push(ShellWidget::Button {
+                id: WidgetId::button(30),
+                rect: Rect::new(sidebar_rect.x + pad + 10.0, *y_off + 8.0, btn_w, btn_h),
+                label: label.to_string(),
+                fill_color: tokens.accent.to_array(),
+                state: InteractionState::Normal,
+            });
+        }
+    } else if let Some(label) = legacy_button {
+        let btn_w = 140.0;
+        let btn_h = 30.0;
+        tree.push(ShellWidget::Button {
+            id: WidgetId::button(30),
+            rect: Rect::new(sidebar_rect.x + pad + 10.0, *y_off + 8.0, btn_w, btn_h),
+            label: label.to_string(),
+            fill_color: tokens.accent.to_array(),
+            state: InteractionState::Normal,
+        });
+    }
+
+    // No legacy items and content is None → hardcoded placeholders (original fallback)
+    if legacy_items.is_none()
+        && panel_items.is_none()
+        && content.map(|c| c.explorer_panel_title.is_some()).unwrap_or(false)
+    {
+        // Had a title with no items — keep placeholder
+    }
 }
