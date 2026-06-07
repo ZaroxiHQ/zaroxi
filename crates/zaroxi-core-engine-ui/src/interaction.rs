@@ -403,6 +403,13 @@ impl WidgetInteractionModel {
     pub fn cursor_pos_f32(&self) -> Option<(f32, f32)> {
         self.cursor_pos
     }
+
+    /// Set cursor position directly (e.g. from a CursorMoved event), even
+    /// when no widget tree is available. This ensures click handling works
+    /// before the first redraw.
+    pub fn set_cursor_pos(&mut self, x: f32, y: f32) {
+        self.cursor_pos = Some((x, y));
+    }
 }
 
 impl Default for WidgetInteractionModel {

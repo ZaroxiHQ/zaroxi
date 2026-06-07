@@ -38,6 +38,51 @@ fn gui_debug(msg: &str) {
     }
 }
 
+fn event_label(event: &winit::event::WindowEvent) -> String {
+    use winit::event::WindowEvent;
+    match event {
+        WindowEvent::CursorMoved { position, .. } => {
+            format!("CursorMoved({:.0},{:.0})", position.x, position.y)
+        }
+        WindowEvent::MouseInput { state, button, .. } => {
+            format!("MouseInput({:?},{:?})", state, button)
+        }
+        WindowEvent::MouseWheel { .. } => "MouseWheel".into(),
+        WindowEvent::RedrawRequested => "RedrawRequested".into(),
+        WindowEvent::Resized(s) => format!("Resized({}x{})", s.width, s.height),
+        WindowEvent::ScaleFactorChanged { .. } => "ScaleFactorChanged".into(),
+        WindowEvent::CursorEntered { .. } => "CursorEntered".into(),
+        WindowEvent::CursorLeft { .. } => "CursorLeft".into(),
+        WindowEvent::Focused(f) => format!("Focused({})", f),
+        WindowEvent::CloseRequested => "CloseRequested".into(),
+        WindowEvent::ModifiersChanged(_) => "ModifiersChanged".into(),
+        WindowEvent::Occluded(b) => format!("Occluded({})", b),
+        WindowEvent::ThemeChanged(_) => "ThemeChanged".into(),
+        WindowEvent::Touch(_) => "Touch".into(),
+        WindowEvent::PinchGesture { .. } => "PinchGesture".into(),
+        other => format!("other({})", variant_name(other)),
+    }
+}
+
+fn variant_name(_ev: &winit::event::WindowEvent) -> &'static str {
+    // Quick discriminator for unknown variants
+    "unknown"
+}
+
+fn click_trace(msg: &str) {
+    if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
+        eprintln!("{}", msg);
+    }
+}
+
+macro_rules! click_trace_fmt {
+    ($($arg:tt)*) => {
+        if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 macro_rules! gui_debug_fmt {
     ($($arg:tt)*) => {
         if std::env::var("ZAROXI_DEBUG_GUI").as_deref() == Ok("1") {
@@ -105,9 +150,9 @@ impl GuiApp {
                 return None;
             }
             WidgetId::Button { index: 30 } => {
-                gui_debug("ZAROXI_CLICK: dispatch_activation matched button(30)");
+                click_trace("ZAROXI_CLICK: dispatch_activation matched button(30)");
                 if let Some(ref mut actions) = self.explorer_actions {
-                    gui_debug(
+                    click_trace(
                         "ZAROXI_CLICK: explorer_actions is Some, calling open_workspace_from_picker",
                     );
                     let comp = self.composition.as_mut()?;
@@ -121,7 +166,7 @@ impl GuiApp {
                         &mut self.workspace_id,
                     );
                 }
-                gui_debug("ZAROXI_CLICK: explorer_actions is None — cannot open workspace");
+                click_trace("ZAROXI_CLICK: explorer_actions is None, cannot open workspace");
                 return None;
             }
             _ => {}
@@ -281,6 +326,7 @@ impl GuiApp {
         }
         if needs_redraw {
             if let Some(z) = self.maybe_window.as_ref() {
+                click_trace("ZAROXI_REDRAW: request_redraw[handle_actions]");
                 let _ = z.window().request_redraw();
             }
         }
@@ -366,6 +412,26 @@ impl winit::application::ApplicationHandler for GuiApp {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        // ── Permanently-ungated focus & pointer-enter diagnostics ──
+        // These must print WITHOUT env vars so we can tell whether the
+        // pointer ever enters the client area. Printed once per state change.
+        match &event {
+            WindowEvent::Focused(f) => {
+                eprintln!("ZAROXI_LIVE: window Focused({})", f);
+            }
+            WindowEvent::CursorEntered { .. } => {
+                eprintln!("ZAROXI_LIVE: CursorEntered");
+            }
+            WindowEvent::CursorLeft { .. } => {
+                eprintln!("ZAROXI_LIVE: CursorLeft");
+            }
+            _ => {}
+        }
+
+        // ── Gated full event trace (ZAROXI_DEBUG_CLICK=1) ──
+        // Logs every incoming winit event with key details.
+        click_trace_fmt!("ZAROXI_EVT: {}", event_label(&event));
+
         match event {
             WindowEvent::CloseRequested => {
                 active_loop.exit();
@@ -386,6 +452,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                // Always store cursor position so click handling works even
+                // before the first redraw populates the widget tree.
+                self.interaction.set_cursor_pos(position.x as f32, position.y as f32);
+                click_trace_fmt!(
+                    "ZAROXI_CLICK: CursorMoved x={:.1} y={:.1} widget_tree={}",
+                    position.x,
+                    position.y,
+                    self.widget_tree.is_some()
+                );
+
                 if let Some(ref mut tree) = self.widget_tree {
                     let actions = self.interaction.on_pointer_moved(
                         tree,
@@ -433,11 +509,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let (x, y) = match self.interaction.cursor_pos_f32() {
                         Some(pos) => pos,
                         None => {
-                            gui_debug("ZAROXI_CLICK: MouseInput but cursor_pos is None — skipping");
+                            click_trace("ZAROXI_CLICK: MouseInput — cursor_pos is None, skipping");
                             return;
                         }
                     };
-                    gui_debug_fmt!(
+                    click_trace_fmt!(
                         "ZAROXI_CLICK: MouseInput state={:?} x={:.1} y={:.1} btn_rect={:?}",
                         state,
                         x,
@@ -464,8 +540,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                             if let Some((bx, by, bw, bh)) = self.explorer_button_rect {
                                 if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
                                     explorer_activated = true;
-                                    gui_debug_fmt!(
-                                        "ZAROXI_CLICK: RELEASE hit explorer CTA! rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                    click_trace_fmt!(
+                                        "ZAROXI_CLICK: RELEASE hit CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
                                         bx,
                                         by,
                                         bw,
@@ -474,8 +550,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         y
                                     );
                                 } else {
-                                    gui_debug_fmt!(
-                                        "ZAROXI_CLICK: RELEASE outside CTA. rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                    click_trace_fmt!(
+                                        "ZAROXI_CLICK: RELEASE outside CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
                                         bx,
                                         by,
                                         bw,
@@ -485,15 +561,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
                             } else {
-                                gui_debug_fmt!(
-                                    "ZAROXI_CLICK: RELEASE but explorer_button_rect is None. click=({:.1},{:.1})",
+                                click_trace_fmt!(
+                                    "ZAROXI_CLICK: RELEASE btn_rect is None click=({:.1},{:.1})",
                                     x,
                                     y
                                 );
                             }
                             if explorer_activated {
                                 let id = zaroxi_core_engine_ui::WidgetId::button(30);
-                                gui_debug("ZAROXI_CLICK: dispatching Activated(button(30))");
+                                click_trace("ZAROXI_CLICK: dispatching Activated(button(30))");
                                 self.handle_actions(vec![
                                     zaroxi_core_engine_ui::WidgetAction::Activated(id),
                                 ]);
@@ -612,6 +688,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.interaction.apply_to_tree(&mut widget_tree);
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
+                    click_trace_fmt!(
+                        "ZAROXI_REDRAW: widget_tree built widgets={} cta_rect_present={}",
+                        widget_tree.widgets.len(),
+                        self.explorer_button_rect.is_some()
+                    );
 
                     let render_layout =
                         super::renderbridge::build_render_layout(&self.shell.regions, &tokens);
@@ -642,6 +723,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let (mut render_blocks, explorer_cta_rect) =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
                     self.explorer_button_rect = explorer_cta_rect;
+                    click_trace_fmt!(
+                        "ZAROXI_REDRAW: cta_rect={:?}",
+                        explorer_cta_rect
+                            .map(|(x, y, w, h)| format!("({:.0},{:.0},{:.0}x{:.0})", x, y, w, h))
+                    );
 
                     // Compute scrollbar blocks from ShellFrame regions for
                     // correct spatial placement (the widget tree uses a

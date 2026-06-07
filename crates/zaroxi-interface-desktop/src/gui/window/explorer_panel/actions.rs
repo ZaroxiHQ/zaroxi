@@ -11,6 +11,12 @@ use zaroxi_kernel_types::Id;
 use crate::DesktopComposition;
 use crate::folder_picker::DynFolderPicker;
 
+fn click_trace(msg: &str) {
+    if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
+        eprintln!("{}", msg);
+    }
+}
+
 /// Panel-level action handler for the Explorer sidebar.
 ///
 /// All explorer interactions — toggle expand, open/activate file,
@@ -120,7 +126,9 @@ impl ExplorerPanelActions {
         session_id: &mut Option<SessionId>,
         workspace_id: &mut Option<Id>,
     ) -> Option<ShellWorkContent> {
+        click_trace("ZAROXI_PICKER: open_workspace_from_picker entered");
         let path = self.folder_picker.as_ref()?.pick_folder()?;
+        click_trace(&format!("ZAROXI_PICKER: pick_folder result=Some({})", path.display()));
         self.open_workspace(comp, service, view, session_id, workspace_id, path)
     }
 }
