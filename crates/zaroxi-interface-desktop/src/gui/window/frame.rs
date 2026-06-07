@@ -344,45 +344,44 @@ pub fn compose_blocks(
     tokens: &StyleTokens,
     ctx: &ShellBlockContext,
 ) -> Vec<UiBlock> {
-    let blocks: Vec<UiBlock> = regions
-        .iter()
-        .map(|r| {
-            let role = region_role(r.id);
-            let block = match role {
-                PanelRole::TopBar => TopBarPanel::build_block(r, tokens),
-                PanelRole::NavigationRail => RailPanel::build_rail_block(r, tokens),
-                PanelRole::SidePanel => {
-                    RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data)
-                }
-                PanelRole::GutterLane => {
-                    let line_count = ctx.editor_data.cursor_line.max(1);
-                    EditorPanel::build_gutter_block(r, tokens, line_count)
-                }
-                PanelRole::ContentTabStrip => {
-                    EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data)
-                }
-                PanelRole::ContentBreadcrumb => {
-                    EditorPanel::build_breadcrumb_block(r, tokens, &ctx.editor_data)
-                }
-                PanelRole::ContentArea => {
-                    EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data)
-                }
-                PanelRole::MinimapLane => EditorPanel::build_minimap_block(r, tokens),
-                PanelRole::BottomPanel => {
-                    EditorPanel::build_bottom_panel_block(r, tokens, ctx.terminal_tabs.as_deref())
-                }
-                PanelRole::BottomDock => BottomDockPanel::build_block(r, tokens),
-                PanelRole::AuxiliaryPanelHeader => AiPanel::build_header_block(r, tokens),
-                PanelRole::AuxiliaryPanelContent => {
-                    AiPanel::build_content_block(r, tokens, &ctx.ai_data)
-                }
-                PanelRole::StatusBar => {
-                    StatusBarPanel::build_block(r, tokens, &ctx.status_bar_data)
-                }
-            };
-            block
-        })
-        .collect();
+    let mut blocks: Vec<UiBlock> = Vec::new();
+    for r in regions {
+        let role = region_role(r.id);
+        match role {
+            PanelRole::TopBar => blocks.push(TopBarPanel::build_block(r, tokens)),
+            PanelRole::NavigationRail => blocks.push(RailPanel::build_rail_block(r, tokens)),
+            PanelRole::SidePanel => {
+                blocks.extend(RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data));
+            }
+            PanelRole::GutterLane => {
+                let line_count = ctx.editor_data.cursor_line.max(1);
+                blocks.push(EditorPanel::build_gutter_block(r, tokens, line_count));
+            }
+            PanelRole::ContentTabStrip => {
+                blocks.push(EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data));
+            }
+            PanelRole::ContentBreadcrumb => {
+                blocks.push(EditorPanel::build_breadcrumb_block(r, tokens, &ctx.editor_data));
+            }
+            PanelRole::ContentArea => {
+                blocks.push(EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data));
+            }
+            PanelRole::MinimapLane => blocks.push(EditorPanel::build_minimap_block(r, tokens)),
+            PanelRole::BottomPanel => blocks.push(EditorPanel::build_bottom_panel_block(
+                r,
+                tokens,
+                ctx.terminal_tabs.as_deref(),
+            )),
+            PanelRole::BottomDock => blocks.push(BottomDockPanel::build_block(r, tokens)),
+            PanelRole::AuxiliaryPanelHeader => blocks.push(AiPanel::build_header_block(r, tokens)),
+            PanelRole::AuxiliaryPanelContent => {
+                blocks.push(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
+            }
+            PanelRole::StatusBar => {
+                blocks.push(StatusBarPanel::build_block(r, tokens, &ctx.status_bar_data));
+            }
+        };
+    }
 
     log::debug!("ZAROXI_PANEL_COMPOSE: built {} blocks from panel modules", blocks.len());
 

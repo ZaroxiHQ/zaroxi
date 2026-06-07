@@ -19,10 +19,15 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         .map(|items| {
             let section = PanelSection { header: "PROJECT".to_string(), items: items.clone() };
             let sections = vec![section];
-            (sections, false) // has items
+            (sections, false)
         })
-        .unwrap_or_else(|| (Vec::new(), true)); // empty
+        .unwrap_or_else(|| (Vec::new(), true));
 
-    let (sections, _empty) = (sidebar_items.0.clone(), sidebar_items.1);
-    ExplorerData { sidebar_sections: sections, sidebar_empty: sidebar_items.1 }
+    let empty_button_label = wc.explorer_empty_button.clone();
+
+    ExplorerData {
+        sidebar_sections: sidebar_items.0.clone(),
+        sidebar_empty: sidebar_items.1,
+        empty_button_label,
+    }
 }
