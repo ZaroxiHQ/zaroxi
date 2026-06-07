@@ -8,9 +8,11 @@ pub mod view;
 pub mod workspace_manager;
 pub mod workspace_view;
 
+use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 use zaroxi_core_workspace_files::FileStorage;
+use zaroxi_domain_workspace::file_tree::ExplorerItemView;
 
 /// Thin application-level helpers for Phase 9 disk-backed operations.
 ///
@@ -132,6 +134,51 @@ impl WorkspaceTree {
         }
         None
     }
+
+    /// Flatten the tree into a depth-first list of `ExplorerItemView` rows
+    /// suitable for the sidebar. Only expanded directories expose their children.
+    pub fn flatten_explorer_items(
+        &self,
+        _opened_ids: &HashSet<String>,
+        _active_id: Option<&str>,
+    ) -> Vec<ExplorerItemView> {
+        fn walk(
+            node: &WorkspaceEntry,
+            depth: usize,
+            opened_ids: &HashSet<String>,
+            active_id: Option<&str>,
+            out: &mut Vec<ExplorerItemView>,
+        ) {
+            let is_open = opened_ids.contains(&node.id);
+            let is_active = active_id.map_or(false, |a| a == node.id);
+
+            out.push(ExplorerItemView {
+                id: node.id.clone(),
+                name: node.name.clone(),
+                depth,
+                is_dir: node.is_dir,
+                expanded: node.expanded,
+                is_open,
+                is_active,
+            });
+
+            if node.is_dir && node.expanded {
+                for child in &node.children {
+                    walk(child, depth + 1, opened_ids, active_id, out);
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        let opened_ids = _opened_ids;
+        let active_id = _active_id;
+
+        // Skip the root entry itself; start at depth 0 with root's children.
+        for child in &self.root.children {
+            walk(child, 0, opened_ids, active_id, &mut out);
+        }
+        out
+    }
 }
 
 /// Small application-side explorer surface for Phase 10.
@@ -141,6 +188,7 @@ impl WorkspaceTree {
 /// - Toggle expand/collapse for directories
 /// - Select an entry
 /// - Open selected file (returns text via the existing read_file_from_disk helper)
+#[derive(Clone, Debug)]
 pub struct WorkspaceExplorer {
     pub tree: Option<WorkspaceTree>,
     pub selected: Option<String>,
@@ -215,5 +263,37 @@ impl WorkspaceExplorer {
             render_node(&t.root, 0, &mut out);
         }
         out
+    }
+
+    /// Produce a flat, depth-first list of `ExplorerItemView` rows for the sidebar.
+    ///
+    /// `opened_paths` is the set of file paths currently opened as buffers.
+    /// `active_path` is the currently active buffer path, if any.
+    pub fn visible_items(
+        &self,
+        opened_paths: &HashSet<String>,
+        active_path: Option<&str>,
+    ) -> Vec<ExplorerItemView> {
+        match self.tree.as_ref() {
+            Some(t) => t.flatten_explorer_items(opened_paths, active_path),
+            None => Vec::new(),
+        }
+    }
+
+    /// Return the filesystem path for an explorer entry by its id.
+    pub fn get_entry_path(&self, id: &str) -> Option<PathBuf> {
+        self.tree
+            .as_ref()
+            .and_then(|t| WorkspaceTree::find_entry(&t.root, id))
+            .map(|e| e.path.clone())
+    }
+
+    /// Return true if the entry with the given id is a directory.
+    pub fn is_dir(&self, id: &str) -> bool {
+        self.tree
+            .as_ref()
+            .and_then(|t| WorkspaceTree::find_entry(&t.root, id))
+            .map(|e| e.is_dir)
+            .unwrap_or(false)
     }
 }

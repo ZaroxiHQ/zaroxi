@@ -483,6 +483,8 @@ pub async fn refresh_with_service(
     // Increment the small, shell-facing revision counter on each successful refresh.
     comp.revision = comp.revision.saturating_add(1);
 
+    comp.refresh_cached_explorer_items();
+
     Ok(())
 }
 

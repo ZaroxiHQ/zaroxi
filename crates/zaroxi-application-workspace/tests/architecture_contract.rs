@@ -12,7 +12,7 @@ use zaroxi_core_engine_ui::ContentView;
 #[test]
 fn build_work_content_handles_empty_inputs() {
     let opened = OpenedBuffersSummary { count: 0, items: vec![], active: None };
-    let result = build_work_content(&opened, None, None, None, None);
+    let result = build_work_content(&opened, None, None, None, None, None);
 
     assert!(result.explorer_items.is_none());
     assert!(result.editor_tabs.is_none());
@@ -36,7 +36,7 @@ fn build_work_content_handles_active_document_with_empty_lines() {
         current_line_snippet: None,
     };
 
-    let result = build_work_content(&opened, Some(&doc), None, None, None);
+    let result = build_work_content(&opened, Some(&doc), None, None, None, None);
 
     let body = result.editor_body.expect("editor_body should be Some with a doc present");
     // Should fall back to ContentView::default() when lines are empty
@@ -48,7 +48,7 @@ fn build_work_content_propagates_ai_panel_content() {
     let opened = OpenedBuffersSummary { count: 0, items: vec![], active: None };
     let ai = ContentView::new("AI", "status", vec!["body".into()]);
 
-    let result = build_work_content(&opened, None, None, None, Some(ai.clone()));
+    let result = build_work_content(&opened, None, None, None, Some(ai.clone()), None);
     assert_eq!(result.ai_panel_content.unwrap().title, "AI");
 }
 
@@ -75,7 +75,7 @@ fn build_work_content_marks_active_file() {
         active: Some(buf_b),
     };
 
-    let result = build_work_content(&opened, None, None, None, None);
+    let result = build_work_content(&opened, None, None, None, None, None);
     let items = result.explorer_items.expect("should have explorer items");
     assert!(items.iter().any(|s| s == "a.rs"));
     assert!(items.iter().any(|s| s == "b.rs *"));
@@ -151,7 +151,7 @@ fn build_work_content_handles_explain_result() {
         explain_body.lines().map(|l| l.to_string()).collect(),
     );
 
-    let result = build_work_content(&opened, None, None, None, Some(ai_content.clone()));
+    let result = build_work_content(&opened, None, None, None, Some(ai_content.clone()), None);
     let ai = result.ai_panel_content.expect("ai_panel_content should be present");
     assert_eq!(ai.title, "Assistant");
     assert!(ai.subtitle.contains("Analysis:"));

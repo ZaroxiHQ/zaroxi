@@ -14,6 +14,8 @@ impl DesktopComposition {
         let ctx = self.latest_shell_context();
         let visible_window = self.latest_metadata().and_then(|md| md.visible_window);
 
+        let explorer_items = self.format_cached_explorer_items();
+
         let mut ai_panel =
             self.latest_metadata().and_then(|md| md.ai_projection.clone()).map(|proj| {
                 let target = proj
@@ -78,6 +80,13 @@ impl DesktopComposition {
             }
         }
 
-        build_work_content(&opened, doc.as_ref(), ctx.as_ref(), visible_window.as_ref(), ai_panel)
+        build_work_content(
+            &opened,
+            doc.as_ref(),
+            ctx.as_ref(),
+            visible_window.as_ref(),
+            ai_panel,
+            explorer_items,
+        )
     }
 }

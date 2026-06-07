@@ -12,11 +12,15 @@ VisibleWindowBasic) live in `zaroxi-application-workspace::workspace_view`
 and are re-exported here for backward compatibility.
 */
 
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::presenter::Presenter;
 use crate::view_adapter::InterfaceRenderableWindow;
+use zaroxi_application_workspace::WorkspaceExplorer;
 use zaroxi_application_workspace::ports::SessionId;
+use zaroxi_domain_workspace::file_tree::ExplorerItemView;
 use zaroxi_kernel_types::Id;
 
 // Imports and re-exports: these types live in zaroxi-application-workspace
@@ -169,6 +173,12 @@ pub struct DesktopComposition {
     /// When set, this explicit close-result status should be preferred by
     /// visible status helpers over transient refresh/update messages.
     pub(crate) close_result_status: Option<String>,
+    /// Workspace root path used to load the explorer tree.
+    pub workspace_root_path: Option<PathBuf>,
+    /// In-memory explorer tree loaded from the workspace root.
+    pub maybe_explorer: Option<WorkspaceExplorer>,
+    /// Cache of visible explorer items for activation dispatch mapping.
+    pub(crate) cached_explorer_items: Vec<ExplorerItemView>,
 }
 
 impl DesktopComposition {
@@ -184,6 +194,9 @@ impl DesktopComposition {
             pending_close: None,
             command_bar: None,
             close_result_status: None,
+            workspace_root_path: None,
+            maybe_explorer: None,
+            cached_explorer_items: Vec::new(),
         }
     }
 
@@ -516,6 +529,92 @@ impl DesktopComposition {
         &self,
     ) -> crate::desktop::consistency::DesktopConsistencyReport {
         crate::desktop::consistency::latest_consistency_report(self)
+    }
+
+    pub fn load_or_refresh_explorer(&mut self) {
+        if let Some(root) = self.workspace_root_path.clone() {
+            if self.maybe_explorer.is_none() {
+                let mut explorer = WorkspaceExplorer::new();
+                if explorer.load_workspace(&root).is_ok() {
+                    self.maybe_explorer = Some(explorer);
+                }
+            }
+        }
+        self.refresh_cached_explorer_items();
+    }
+
+    pub fn explorer_item_count(&self) -> usize {
+        self.cached_explorer_items.len()
+    }
+
+    pub fn get_explorer_item_at(&self, idx: usize) -> Option<&ExplorerItemView> {
+        self.cached_explorer_items.get(idx)
+    }
+
+    pub fn refresh_cached_explorer_items(&mut self) {
+        let explorer = match self.maybe_explorer.as_ref() {
+            Some(e) => e,
+            None => {
+                self.cached_explorer_items.clear();
+                return;
+            }
+        };
+
+        let opened_paths: HashSet<String> = self
+            .metadata
+            .as_ref()
+            .map(|m| {
+                m.opened_buffers
+                    .iter()
+                    .filter_map(|b| b.buffer_id.path())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let active_path: Option<String> = self
+            .metadata
+            .as_ref()
+            .and_then(|m| m.active_buffer.as_ref())
+            .and_then(|b| b.path())
+            .map(|p| p.to_string_lossy().to_string());
+
+        self.cached_explorer_items = explorer.visible_items(&opened_paths, active_path.as_deref());
+    }
+
+    pub fn format_cached_explorer_items(&self) -> Option<Vec<String>> {
+        if self.cached_explorer_items.is_empty() {
+            return None;
+        }
+
+        let strings: Vec<String> = self
+            .cached_explorer_items
+            .iter()
+            .map(|it| {
+                let indent = "  ".repeat(it.depth);
+                let glyph =
+                    if it.is_dir { if it.expanded { "\u{25BC}" } else { "\u{25B6}" } } else { " " };
+                let marker = if it.is_active { " *" } else { "" };
+                format!(
+                    "{}{}{} {}{}",
+                    indent,
+                    glyph,
+                    if it.is_dir { "" } else { " " },
+                    it.name,
+                    marker
+                )
+            })
+            .collect();
+
+        Some(strings)
+    }
+
+    pub fn get_explorer_item_id_at(&self, idx: usize) -> Option<String> {
+        self.cached_explorer_items.get(idx).map(|it| it.id.clone())
+    }
+
+    pub fn is_explorer_item_dir(&self, idx: usize) -> bool {
+        self.cached_explorer_items.get(idx).map(|it| it.is_dir).unwrap_or(false)
     }
 }
 

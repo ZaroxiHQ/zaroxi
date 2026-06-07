@@ -10,9 +10,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut composition = DesktopComposition::new();
 
-    let boot_req = WorkspaceBootRequest { path: PathBuf::from("./sample-workspace") };
+    let workspace_path = PathBuf::from("./sample-workspace");
+    let boot_req = WorkspaceBootRequest { path: workspace_path.clone() };
     let boot_res = pollster::block_on(service_handle.boot_workspace(boot_req))?;
     log::info!("gui_shell: booted session {}", boot_res.session.session_id);
+
+    // Set the workspace root path so the explorer can load the tree.
+    composition.workspace_root_path = Some(workspace_path);
+    composition.load_or_refresh_explorer();
 
     let _ = pollster::block_on(service_handle.open_buffer(OpenBufferRequest {
         session_id: boot_res.session.session_id.clone(),

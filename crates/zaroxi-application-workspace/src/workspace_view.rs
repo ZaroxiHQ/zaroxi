@@ -260,33 +260,39 @@ pub fn select_prev_command_index(current: usize, len: usize) -> usize {
 /// harness, CLI) can call it after gathering the required DTOs from their
 /// own composition/session state. Desktop calls this via
 /// `DesktopComposition::build_work_content()`.
+///
+/// `explorer_items` is an explicit pre-built list of sidebar row strings.
+/// Pass `None` to fall back to opened-buffer-derived items (legacy path).
 pub fn build_work_content(
     opened: &OpenedBuffersSummary,
     doc: Option<&ActiveDocumentSummary>,
     ctx: Option<&ShellContext>,
     visible_window: Option<&VisibleWindowBasic>,
     ai_panel_content: Option<ContentView>,
+    explorer_items: Option<Vec<String>>,
 ) -> ShellWorkContent {
     let active_id = opened.active.clone();
 
-    let explorer_items = if !opened.items.is_empty() {
-        Some(
-            opened
-                .items
-                .iter()
-                .map(|it| {
-                    let disp = it.display.clone().unwrap_or_else(|| "untitled".to_string());
-                    if Some(&it.buffer_id) == active_id.as_ref() {
-                        format!("{} *", disp)
-                    } else {
-                        disp
-                    }
-                })
-                .collect(),
-        )
-    } else {
-        None
-    };
+    let explorer_items = explorer_items.or_else(|| {
+        if !opened.items.is_empty() {
+            Some(
+                opened
+                    .items
+                    .iter()
+                    .map(|it| {
+                        let disp = it.display.clone().unwrap_or_else(|| "untitled".to_string());
+                        if Some(&it.buffer_id) == active_id.as_ref() {
+                            format!("{} *", disp)
+                        } else {
+                            disp
+                        }
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        }
+    });
 
     let editor_tabs = if !opened.items.is_empty() {
         Some(

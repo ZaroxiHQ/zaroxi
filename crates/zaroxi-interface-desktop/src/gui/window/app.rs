@@ -157,27 +157,48 @@ impl GuiApp {
             }
             WidgetId::ListItem { index } => {
                 if *index >= 10 {
-                    // Sidebar file item: open by display name
+                    // Sidebar explorer item: toggle directory or activate file
                     let comp = self.composition.as_mut()?;
                     let service = self.workspace_service.clone()?;
                     let session = self.session_id.clone()?;
-                    let items = comp.latest_opened_buffers_summary().items;
-                    let item_idx = *index - 10;
-                    if let Some(entry) = items.get(item_idx) {
-                        let buf_id = entry.buffer_id.clone();
-                        pollster::block_on(
-                            crate::actions::set_active_buffer_and_get_shell_context(
-                                comp,
-                                service,
-                                self.workspace_view.clone()?,
-                                session,
-                                self.workspace_id,
-                                buf_id,
-                            ),
-                        )
-                        .ok()?;
+                    let view = self.workspace_view.clone()?;
+                    let explorer_idx = *index - 10;
+
+                    if comp.is_explorer_item_dir(explorer_idx) {
+                        // Directory: toggle expand/collapse
+                        let item_id = comp.get_explorer_item_id_at(explorer_idx)?;
+                        if let Some(ref mut explorer) = comp.maybe_explorer {
+                            explorer.toggle_expand(&item_id);
+                        }
+                        comp.refresh_cached_explorer_items();
+                        return Some(comp.build_work_content());
+                    } else {
+                        // File: open or activate buffer
+                        let item_id = comp.get_explorer_item_id_at(explorer_idx)?;
+                        if let Some(ref explorer) = comp.maybe_explorer {
+                            if let Some(path) = explorer.get_entry_path(&item_id) {
+                                let buf_id =
+                                    pollster::block_on(crate::actions::open_buffer_by_path(
+                                        comp, service, session, path,
+                                    ))
+                                    .ok()?;
+                                if let Some(bid) = buf_id {
+                                    pollster::block_on(
+                                        crate::actions::set_active_buffer_and_get_shell_context(
+                                            comp,
+                                            self.workspace_service.clone()?,
+                                            view,
+                                            self.session_id.clone()?,
+                                            self.workspace_id,
+                                            bid,
+                                        ),
+                                    )
+                                    .ok()?;
+                                }
+                            }
+                        }
+                        return Some(comp.build_work_content());
                     }
-                    return Some(comp.build_work_content());
                 }
                 // Rail activation: switch active panel / open command
                 match index {

@@ -67,6 +67,29 @@ impl FileTreeNode {
     }
 }
 
+/// A flat, display-oriented view of a single tree item for the Explorer panel.
+///
+/// This type carries enough structure for the interface layer to render a
+/// visible tree row (name, depth, folder/file glyph) without needing direct
+/// access to the underlying file tree. It is app-neutral and serializable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplorerItemView {
+    /// Stable identifier (the node's path as a string).
+    pub id: String,
+    /// Display name (file or directory name).
+    pub name: String,
+    /// Indentation depth (0 = first-level children of workspace root).
+    pub depth: usize,
+    /// Whether this item is a directory.
+    pub is_dir: bool,
+    /// Whether this directory is currently expanded (only meaningful for directories).
+    pub expanded: bool,
+    /// Whether this file/directory corresponds to an opened buffer.
+    pub is_open: bool,
+    /// Whether this item is the currently active buffer.
+    pub is_active: bool,
+}
+
 /// A file tree representing the structure of a workspace.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FileTree {

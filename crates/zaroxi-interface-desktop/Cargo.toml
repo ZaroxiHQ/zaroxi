@@ -36,6 +36,7 @@ serde = { workspace = true }
 # Add log dependency so runtime tracing via `log::info!` works in this crate.
 log = { workspace = true }
 zaroxi-domain-buffer = { path = "../zaroxi-domain-buffer" }
+zaroxi-domain-workspace = { path = "../zaroxi-domain-workspace" }
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
 zaroxi-application-bootstrap = { path = "../zaroxi-application-bootstrap" }
