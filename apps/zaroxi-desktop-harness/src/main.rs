@@ -1273,6 +1273,7 @@ async fn main() -> Result<(), String> {
             Some(service_dyn),
             Some(boot_res.session.session_id.clone()),
             Some(boot_res.session.workspace_id),
+            None,
         );
     }
 

@@ -263,6 +263,9 @@ pub fn select_prev_command_index(current: usize, len: usize) -> usize {
 ///
 /// `explorer_items` is an explicit pre-built list of sidebar row strings.
 /// Pass `None` to fall back to opened-buffer-derived items (legacy path).
+///
+/// `explorer_empty_button` is an optional label for a button rendered in the
+/// explorer sidebar when no tree items are present.
 pub fn build_work_content(
     opened: &OpenedBuffersSummary,
     doc: Option<&ActiveDocumentSummary>,
@@ -270,6 +273,7 @@ pub fn build_work_content(
     visible_window: Option<&VisibleWindowBasic>,
     ai_panel_content: Option<ContentView>,
     explorer_items: Option<Vec<String>>,
+    explorer_empty_button: Option<String>,
 ) -> ShellWorkContent {
     let active_id = opened.active.clone();
 
@@ -341,6 +345,7 @@ pub fn build_work_content(
         editor_tabs,
         editor_breadcrumb,
         explorer_items,
+        explorer_empty_button,
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
         ai_panel_content,

@@ -71,6 +71,9 @@ pub struct ShellWorkContent {
     pub editor_tabs: Option<Vec<String>>,
     pub editor_breadcrumb: Option<String>,
     pub explorer_items: Option<Vec<String>>,
+    /// When set and `explorer_items` is empty/None, the sidebar renders a
+    /// button with this label instead of an empty-state message.
+    pub explorer_empty_button: Option<String>,
     pub active_file: Option<String>,
     pub terminal_tabs: Option<Vec<String>>,
     /// AI assistant panel content view — built from the current AI projection
@@ -94,6 +97,7 @@ impl ShellWorkContent {
             editor_tabs,
             editor_breadcrumb,
             explorer_items,
+            explorer_empty_button: None,
             active_file,
             terminal_tabs,
             ai_panel_content: None,

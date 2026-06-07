@@ -25,8 +25,11 @@ use winit::{
 };
 
 use crate::DesktopComposition;
+use crate::folder_picker::DynFolderPicker;
 use crate::gui::{ShellFrame, ShellWorkContent};
-use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_application_workspace::ports::{
+    SessionId, WorkspaceBootRequest, WorkspaceService, WorkspaceView,
+};
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_kernel_types::Id;
 
@@ -74,6 +77,7 @@ pub struct GuiApp {
     pub workspace_service: Option<Arc<dyn WorkspaceService>>,
     pub session_id: Option<SessionId>,
     pub workspace_id: Option<Id>,
+    pub folder_picker: Option<DynFolderPicker>,
 }
 
 impl GuiApp {
@@ -94,6 +98,14 @@ impl GuiApp {
                 if let Some(z) = self.maybe_window.as_ref() {
                     let maximized = z.window().is_maximized();
                     z.window().set_maximized(!maximized);
+                }
+                return None;
+            }
+            WidgetId::Button { index: 30 } => {
+                if let Some(ref picker) = self.folder_picker {
+                    if let Some(path) = picker.pick_folder() {
+                        return self.open_workspace_from_folder(path);
+                    }
                 }
                 return None;
             }
@@ -214,6 +226,32 @@ impl GuiApp {
             }
             _ => None,
         }
+    }
+
+    fn open_workspace_from_folder(&mut self, path: std::path::PathBuf) -> Option<ShellWorkContent> {
+        let service = self.workspace_service.clone()?;
+        let view = self.workspace_view.clone()?;
+
+        let boot_req = WorkspaceBootRequest { path: path.clone() };
+        let boot_res = pollster::block_on(service.boot_workspace(boot_req)).ok()?;
+
+        self.session_id = Some(boot_res.session.session_id.clone());
+        self.workspace_id = Some(boot_res.session.workspace_id);
+
+        if let Some(ref mut comp) = self.composition {
+            comp.workspace_root_path = Some(path);
+            comp.load_or_refresh_explorer();
+
+            let _ = pollster::block_on(crate::actions::refresh_desktop(
+                comp,
+                view,
+                boot_res.session.session_id.clone(),
+                Some(boot_res.session.workspace_id),
+                Some(service),
+            ));
+        }
+
+        Some(self.composition.as_ref().map(|c| c.build_work_content()).unwrap_or_default())
     }
 
     /// Extract selected text from editor_body lines using the live selection range.

@@ -16,6 +16,12 @@ impl DesktopComposition {
 
         let explorer_items = self.format_cached_explorer_items();
 
+        let explorer_empty_button = if self.workspace_root_path.is_none() {
+            Some("Open Workspace".to_string())
+        } else {
+            None
+        };
+
         let mut ai_panel =
             self.latest_metadata().and_then(|md| md.ai_projection.clone()).map(|proj| {
                 let target = proj
@@ -87,6 +93,7 @@ impl DesktopComposition {
             visible_window.as_ref(),
             ai_panel,
             explorer_items,
+            explorer_empty_button,
         )
     }
 }

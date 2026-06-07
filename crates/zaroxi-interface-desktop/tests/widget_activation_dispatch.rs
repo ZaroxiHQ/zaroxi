@@ -43,6 +43,7 @@ mod tests {
             workspace_service: None,
             session_id: None,
             workspace_id: None,
+            folder_picker: None,
         }
     }
 

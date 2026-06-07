@@ -3,16 +3,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zaroxi_interface_desktop::DesktopComposition;
+use zaroxi_interface_desktop::folder_picker::{FakeFolderPicker, FolderPicker};
 
 fn temp_workspace() -> PathBuf {
     let base = env::temp_dir();
     let uniq = format!(
         "zaroxi_test_{}_{}",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     );
     let tmp = base.join(uniq);
     let root = tmp.join("workspace");
@@ -80,10 +78,7 @@ fn explorer_build_work_content_includes_tree_items() -> std::io::Result<()> {
 
     let wc = comp.build_work_content();
     let items = wc.explorer_items.expect("should have explorer items for non-empty workspace");
-    assert!(
-        items.iter().any(|s| s.contains("readme.md")),
-        "explorer should show readme.md"
-    );
+    assert!(items.iter().any(|s| s.contains("readme.md")), "explorer should show readme.md");
 
     let _ = fs::remove_dir_all(root.parent().unwrap());
     Ok(())
@@ -99,10 +94,7 @@ fn explorer_empty_directory_shows_no_items() -> std::io::Result<()> {
     comp.load_or_refresh_explorer();
 
     let items = comp.format_cached_explorer_items();
-    assert!(
-        items.is_none(),
-        "empty workspace directory should produce no explorer items"
-    );
+    assert!(items.is_none(), "empty workspace directory should produce no explorer items");
 
     let _ = fs::remove_dir_all(root.parent().unwrap());
     Ok(())
@@ -122,4 +114,78 @@ fn explorer_load_handles_nonexistent_path() {
         0,
         "nonexistent path should produce no visible children"
     );
+}
+
+#[test]
+fn startup_without_workspace_shows_open_button() {
+    let comp = DesktopComposition::new();
+    let wc = comp.build_work_content();
+
+    assert!(wc.explorer_items.is_none());
+    assert_eq!(
+        wc.explorer_empty_button,
+        Some("Open Workspace".to_string()),
+        "empty explorer should show Open Workspace button"
+    );
+}
+
+#[test]
+fn open_workspace_button_disappears_after_workspace_set() -> std::io::Result<()> {
+    let root = temp_workspace();
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("file.txt"), "content")?;
+
+    let mut comp = DesktopComposition::new();
+    let wc_before = comp.build_work_content();
+    assert_eq!(wc_before.explorer_empty_button, Some("Open Workspace".to_string()));
+
+    comp.workspace_root_path = Some(root.clone());
+    comp.load_or_refresh_explorer();
+
+    let wc_after = comp.build_work_content();
+    assert!(
+        wc_after.explorer_empty_button.is_none(),
+        "button should disappear after workspace is loaded"
+    );
+    assert!(wc_after.explorer_items.is_some());
+
+    let _ = fs::remove_dir_all(root.parent().unwrap());
+    Ok(())
+}
+
+#[test]
+fn cancel_folder_picker_is_noop() {
+    let picker = FakeFolderPicker::new(None);
+    let result = picker.pick_folder();
+    assert!(result.is_none(), "cancel should return None");
+}
+
+#[test]
+fn successful_folder_picker_returns_path() {
+    let path = PathBuf::from("/test/path");
+    let picker = FakeFolderPicker::new(Some(path.clone()));
+    let result = picker.pick_folder();
+    assert_eq!(result, Some(path));
+}
+
+#[test]
+fn workspace_open_sets_root_and_loads_explorer() -> std::io::Result<()> {
+    let root = temp_workspace();
+    fs::create_dir_all(&root)?;
+    fs::write(root.join("README.md"), "# Project")?;
+
+    let mut comp = DesktopComposition::new();
+    comp.workspace_root_path = Some(root.clone());
+    comp.load_or_refresh_explorer();
+
+    assert!(comp.maybe_explorer.is_some());
+    let wc = comp.build_work_content();
+
+    assert!(wc.explorer_empty_button.is_none(), "no button when workspace is loaded");
+
+    let items = wc.explorer_items.expect("should have items");
+    assert!(items.iter().any(|s| s.contains("README.md")));
+
+    let _ = fs::remove_dir_all(root.parent().unwrap());
+    Ok(())
 }

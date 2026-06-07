@@ -202,6 +202,8 @@ pub fn build_shell_widget_tree(
         let section_h = 20.0;
         let row_h = 16.0;
         let explorer_items: Option<&[String]> = content.and_then(|c| c.explorer_items.as_deref());
+        let explorer_empty_button: Option<&str> =
+            content.and_then(|c| c.explorer_empty_button.as_deref());
         if let Some(items) = explorer_items {
             if !items.is_empty() {
                 tree.push(ShellWidget::ListSectionHeader {
@@ -231,13 +233,35 @@ pub fn build_shell_widget_tree(
                     y_off += row_h;
                 }
             } else {
-                tree.push(ShellWidget::EmptyState {
-                    rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 24.0),
-                    message: "No files".into(),
-                    fill_color: [0.0, 0.0, 0.0, 0.0],
-                    text_color: tokens.text_muted.to_array(),
-                });
+                if let Some(btn_label) = explorer_empty_button {
+                    let btn_w = 130.0;
+                    let btn_h = 28.0;
+                    tree.push(ShellWidget::Button {
+                        id: WidgetId::button(30),
+                        rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 8.0, btn_w, btn_h),
+                        label: btn_label.to_string(),
+                        fill_color: tokens.rail_item_active.to_array(),
+                        state: InteractionState::Normal,
+                    });
+                } else {
+                    tree.push(ShellWidget::EmptyState {
+                        rect: Rect::new(sidebar_rect.x + pad, y_off, inner_w, 24.0),
+                        message: "No files".into(),
+                        fill_color: [0.0, 0.0, 0.0, 0.0],
+                        text_color: tokens.text_muted.to_array(),
+                    });
+                }
             }
+        } else if let Some(btn_label) = explorer_empty_button {
+            let btn_w = 130.0;
+            let btn_h = 28.0;
+            tree.push(ShellWidget::Button {
+                id: WidgetId::button(30),
+                rect: Rect::new(sidebar_rect.x + pad + 14.0, y_off + 8.0, btn_w, btn_h),
+                label: btn_label.to_string(),
+                fill_color: tokens.rail_item_active.to_array(),
+                state: InteractionState::Normal,
+            });
         } else {
             for section_label in &["PROJECT", "GIT", "OUTLINE"] {
                 if y_off + section_h > layout.left_panel.y + layout.left_panel.height - 60.0 {

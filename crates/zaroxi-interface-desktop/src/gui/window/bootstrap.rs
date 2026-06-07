@@ -10,6 +10,7 @@ activations dispatch to real domain behavior inside the event loop.
 use std::sync::Arc;
 
 use crate::DesktopComposition;
+use crate::folder_picker::DynFolderPicker;
 use crate::gui::ShellFrame;
 use crate::gui::ShellWorkContent;
 use std::error::Error;
@@ -30,6 +31,7 @@ pub fn run_shell_window(
     workspace_service: Option<Arc<dyn WorkspaceService>>,
     session_id: Option<SessionId>,
     workspace_id: Option<Id>,
+    folder_picker: Option<DynFolderPicker>,
 ) -> Result<(), Box<dyn Error>> {
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
@@ -71,6 +73,7 @@ pub fn run_shell_window(
         workspace_service,
         session_id,
         workspace_id,
+        folder_picker,
     };
 
     let run_result = event_loop.run_app(&mut app);
