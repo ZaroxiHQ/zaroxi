@@ -335,23 +335,26 @@ pub fn extract_scrollbar_blocks(
             });
         }
     }
+
     blocks
 }
-
 /// Compose all shell regions into UiBlocks by delegating to panel modules.
 pub fn compose_blocks(
     regions: &[ShellRegion],
     tokens: &StyleTokens,
     ctx: &ShellBlockContext,
-) -> Vec<UiBlock> {
+) -> (Vec<UiBlock>, Option<(f32, f32, f32, f32)>) {
     let mut blocks: Vec<UiBlock> = Vec::new();
+    let mut explorer_cta_rect: Option<(f32, f32, f32, f32)> = None;
     for r in regions {
         let role = region_role(r.id);
         match role {
             PanelRole::TopBar => blocks.push(TopBarPanel::build_block(r, tokens)),
             PanelRole::NavigationRail => blocks.push(RailPanel::build_rail_block(r, tokens)),
             PanelRole::SidePanel => {
-                blocks.extend(RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data));
+                let sidebar = RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data);
+                blocks.extend(sidebar.blocks);
+                explorer_cta_rect = sidebar.cta_hit_rect;
             }
             PanelRole::GutterLane => {
                 let line_count = ctx.editor_data.cursor_line.max(1);
@@ -408,5 +411,5 @@ pub fn compose_blocks(
         }
     }
 
-    blocks
+    (blocks, explorer_cta_rect)
 }

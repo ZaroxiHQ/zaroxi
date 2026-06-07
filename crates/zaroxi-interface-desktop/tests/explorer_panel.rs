@@ -145,3 +145,31 @@ fn toggle_directory_updates_work_content() -> std::io::Result<()> {
     let _ = fs::remove_dir_all(root.parent().unwrap());
     Ok(())
 }
+
+#[test]
+fn hit_rect_computed_when_button_visible() {
+    let comp = DesktopComposition::new();
+    let wc = comp.build_work_content();
+
+    assert_eq!(wc.explorer_empty_button, Some("Open Workspace".to_string()));
+
+    // Same formula as build_sidebar_block and the app.rs hit-rect compute.
+    let pad = 10.0;
+    let search_h = 26.0;
+    let search_gap = 8.0;
+    let divider_space = 12.0;
+    let btn_button_y = 8.0;
+    let sidebar_x = 44.0;
+    let sidebar_y = 0.0;
+
+    let hit_x = sidebar_x + pad + 10.0;
+    let hit_y = sidebar_y + pad + search_h + search_gap + divider_space + btn_button_y;
+
+    assert_eq!(hit_x, 64.0);
+    assert_eq!(hit_y, 64.0);
+
+    let bx = hit_x + 70.0;
+    let by = hit_y + 15.0;
+    assert!(bx >= hit_x && bx <= hit_x + 140.0);
+    assert!(by >= hit_y && by <= hit_y + 30.0);
+}

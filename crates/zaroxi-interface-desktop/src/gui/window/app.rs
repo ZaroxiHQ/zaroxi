@@ -78,6 +78,9 @@ pub struct GuiApp {
     pub workspace_id: Option<Id>,
     pub folder_picker: Option<DynFolderPicker>,
     pub explorer_actions: Option<ExplorerPanelActions>,
+    /// Explorer CTA button hit rect in window coordinates (x, y, w, h).
+    /// Computed on each redraw from the same formula used in build_sidebar_block.
+    pub explorer_button_rect: Option<(f32, f32, f32, f32)>,
 }
 
 impl GuiApp {
@@ -441,7 +444,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                             }
                         }
                         ElementState::Released => {
-                            if let Some(ref mut tree) = self.widget_tree {
+                            // Check explorer CTA button hit rect directly.
+                            let mut explorer_activated = false;
+                            if let Some((bx, by, bw, bh)) = self.explorer_button_rect {
+                                if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
+                                    explorer_activated = true;
+                                }
+                            }
+                            if explorer_activated {
+                                let id = zaroxi_core_engine_ui::WidgetId::button(30);
+                                self.handle_actions(vec![
+                                    zaroxi_core_engine_ui::WidgetAction::Activated(id),
+                                ]);
+                                Vec::new()
+                            } else if let Some(ref mut tree) = self.widget_tree {
                                 let actions = self.interaction.on_pointer_up(
                                     tree,
                                     x,
@@ -563,6 +579,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         super::presenters::shape_editor_content(&self.shell.work_content, &sem);
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
+
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
                     let status_data = super::presenters::shape_status_content(
                         &self.shell.work_content,
@@ -581,8 +598,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .and_then(|wc| wc.terminal_tabs.clone()),
                     };
 
-                    let mut render_blocks: Vec<zaroxi_core_engine_render::UiBlock> =
+                    let (mut render_blocks, explorer_cta_rect) =
                         super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
+                    self.explorer_button_rect = explorer_cta_rect;
 
                     // Compute scrollbar blocks from ShellFrame regions for
                     // correct spatial placement (the widget tree uses a

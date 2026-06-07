@@ -45,6 +45,7 @@ mod tests {
             workspace_id: None,
             folder_picker: None,
             explorer_actions: None,
+            explorer_button_rect: None,
         }
     }
 

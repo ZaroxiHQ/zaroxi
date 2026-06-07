@@ -79,6 +79,7 @@ pub fn run_shell_window(
         workspace_id,
         folder_picker,
         explorer_actions,
+        explorer_button_rect: None,
     };
 
     let run_result = event_loop.run_app(&mut app);

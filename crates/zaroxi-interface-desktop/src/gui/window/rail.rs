@@ -23,6 +23,13 @@ impl Default for ExplorerData {
     }
 }
 
+/// Result of building the sidebar explorer section.
+pub struct SidebarBlocks {
+    pub blocks: Vec<UiBlock>,
+    /// Hit rect for the CTA button, if present (x, y, w, h).
+    pub cta_hit_rect: Option<(f32, f32, f32, f32)>,
+}
+
 pub struct RailPanel;
 
 impl RailPanel {
@@ -59,8 +66,9 @@ impl RailPanel {
         r: &ShellRegion,
         tokens: &StyleTokens,
         data: &ExplorerData,
-    ) -> Vec<UiBlock> {
+    ) -> SidebarBlocks {
         let mut blocks = Vec::new();
+        let mut cta_hit_rect: Option<(f32, f32, f32, f32)> = None;
 
         let rect = zaroxi_core_engine_render::Rect {
             x: r.rect.x as f32,
@@ -145,9 +153,11 @@ impl RailPanel {
                     selection_range: None,
                     text_color: Some(tokens.text_primary.to_array()),
                 });
+
+                cta_hit_rect = Some((btn_x, btn_y, btn_w, btn_h));
             }
         }
 
-        blocks
+        SidebarBlocks { blocks, cta_hit_rect }
     }
 }
