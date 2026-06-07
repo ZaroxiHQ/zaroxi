@@ -9,11 +9,19 @@ use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_kernel_types::Id;
 
 use crate::DesktopComposition;
-use crate::folder_picker::DynFolderPicker;
+use crate::folder_picker::{DynFolderPicker, PickerOutcome};
 
 fn click_trace(msg: &str) {
     if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
         eprintln!("{}", msg);
+    }
+}
+
+fn build_unavailable_user_message(reason: &str) -> String {
+    if reason.len() > 90 {
+        format!("Workspace picker unavailable — see log for details")
+    } else {
+        format!("Workspace picker unavailable: {}", reason)
     }
 }
 
@@ -117,7 +125,8 @@ impl ExplorerPanelActions {
     }
 
     /// Trigger folder picker, then if a path is selected, delegate to `open_workspace`.
-    /// Returns updated work content if a workspace was successfully opened.
+    /// Returns updated work content on every outcome so the shell refreshes and
+    /// status messages become visible to the user.
     pub fn open_workspace_from_picker(
         &mut self,
         comp: &mut DesktopComposition,
@@ -127,8 +136,28 @@ impl ExplorerPanelActions {
         workspace_id: &mut Option<Id>,
     ) -> Option<ShellWorkContent> {
         click_trace("ZAROXI_PICKER: open_workspace_from_picker entered");
-        let path = self.folder_picker.as_ref()?.pick_folder()?;
-        click_trace(&format!("ZAROXI_PICKER: pick_folder result=Some({})", path.display()));
-        self.open_workspace(comp, service, view, session_id, workspace_id, path)
+        let picker = self.folder_picker.as_ref()?;
+        let result = picker.pick_folder();
+        match result {
+            PickerOutcome::Selected(path) => {
+                click_trace(&format!(
+                    "ZAROXI_PICKER: pick_folder result=Selected({})",
+                    path.display()
+                ));
+                self.open_workspace(comp, service, view, session_id, workspace_id, path)
+            }
+            PickerOutcome::Cancelled => {
+                click_trace("ZAROXI_PICKER: pick_folder result=Cancelled");
+                comp.set_status_message("No folder selected".to_string());
+                Some(comp.build_work_content())
+            }
+            PickerOutcome::Unavailable { reason, .. } => {
+                click_trace(&format!("ZAROXI_PICKER: pick_folder result=Unavailable({})", reason));
+                let msg = build_unavailable_user_message(&reason);
+                log::warn!("{}", msg);
+                comp.set_status_message(msg);
+                Some(comp.build_work_content())
+            }
+        }
     }
 }

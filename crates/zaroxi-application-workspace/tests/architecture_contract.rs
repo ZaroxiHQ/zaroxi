@@ -80,12 +80,13 @@ fn build_work_content_marks_active_file() {
 }
 
 #[test]
-fn command_bar_labels_count_is_11() {
+fn command_bar_labels_count_is_12() {
     let labels = command_bar_labels();
-    assert_eq!(labels.len(), 11);
+    assert_eq!(labels.len(), 12);
     assert!(labels.contains(&"AI review active buffer".to_string()));
     assert!(labels.contains(&"Apply AI proposal".to_string()));
     assert!(labels.contains(&"Reject AI proposal".to_string()));
+    assert!(labels.contains(&"Open workspace by path".to_string()));
 }
 
 #[test]

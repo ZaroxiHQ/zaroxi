@@ -235,6 +235,7 @@ pub fn command_bar_labels() -> Vec<String> {
         "Confirm close: save".into(),
         "Confirm close: discard".into(),
         "Confirm close: cancel".into(),
+        "Open workspace by path".into(),
     ]
 }
 
@@ -711,13 +712,14 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
                 })
             }
         }
-        "AI review active buffer" | "Apply AI proposal" | "Reject AI proposal" => {
-            Ok(ActionResult {
-                success: false,
-                message: Some("delegate".to_string()),
-                refreshed: false,
-            })
-        }
+        "AI review active buffer"
+        | "Apply AI proposal"
+        | "Reject AI proposal"
+        | "Open workspace by path" => Ok(ActionResult {
+            success: false,
+            message: Some("delegate".to_string()),
+            refreshed: false,
+        }),
         "Request close active" => request_close_active(ctx).await,
         "Confirm close: save" => confirm_save_and_close(ctx).await,
         "Confirm close: discard" => confirm_discard_and_close(ctx).await,

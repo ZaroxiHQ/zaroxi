@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_interface_desktop::folder_picker::{DynFolderPicker, NativeFolderPicker};
+use zaroxi_interface_desktop::folder_picker::{DynFolderPicker, SystemPicker};
 use zaroxi_interface_desktop::gui::{ShellFrame, Size, run_shell_window};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let size = Size { width: 1354, height: 720 };
     let shell = ShellFrame::new(size, zaroxi_interface_theme::theme::ZaroxiTheme::Dark);
 
-    let folder_picker: DynFolderPicker = Arc::new(NativeFolderPicker);
+    let folder_picker: DynFolderPicker = Arc::new(SystemPicker);
 
     run_shell_window(
         shell,

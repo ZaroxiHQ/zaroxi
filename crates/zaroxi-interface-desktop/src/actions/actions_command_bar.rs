@@ -3,9 +3,12 @@
 /// AI commands (review/apply/reject) are desktop-specific because they
 /// mutate `DesktopComposition.ai_projection`; the shared function returns
 /// a "delegate" sentinel which is caught here.
+/// "Open workspace by path" is also a delegate because it needs a
+/// folder picker and mutable session/workspace state.
 use crate::desktop::DesktopComposition;
+use std::path::PathBuf;
 use std::sync::Arc;
-use zaroxi_application_workspace::ports::{SessionId, WorkspaceView};
+use zaroxi_application_workspace::ports::{SessionId, WorkspaceBootRequest, WorkspaceView};
 use zaroxi_application_workspace::workspace_view as ws;
 use zaroxi_application_workspace::workspace_view::ActionResult;
 
@@ -62,6 +65,9 @@ pub async fn execute_command_by_index(
 
     if res.message.as_deref() == Some("delegate") {
         let label = ws::command_bar_labels().get(index).cloned().unwrap_or_default();
+        if label == "Open workspace by path" {
+            return execute_open_workspace_by_path(comp, service, session_id).await;
+        }
         return execute_ai_command(comp, view, service, session_id, &label).await;
     }
 
@@ -113,5 +119,63 @@ async fn execute_ai_command(
             message: Some(format!("unsupported AI command: {}", label)),
             refreshed: false,
         }),
+    }
+}
+
+async fn execute_open_workspace_by_path(
+    comp: &mut DesktopComposition,
+    service: Option<Arc<dyn crate::ports::WorkspaceService>>,
+    _session_id: SessionId,
+) -> Result<ActionResult, String> {
+    let path = match std::env::var("ZAROXI_WORKSPACE_PATH") {
+        Ok(raw) if !raw.is_empty() => PathBuf::from(raw),
+        _ => {
+            let msg = concat!(
+                "ZAROXI_WORKSPACE_PATH env var not set. ",
+                "Set it to a workspace directory path, or use the Open Workspace button."
+            );
+            comp.set_status_message(msg.to_string());
+            return Ok(ActionResult {
+                success: false,
+                message: Some(msg.to_string()),
+                refreshed: true,
+            });
+        }
+    };
+
+    if !path.is_dir() {
+        let msg =
+            format!("Workspace path does not exist or is not a directory: {}", path.display());
+        comp.set_status_message(msg.clone());
+        return Ok(ActionResult { success: false, message: Some(msg), refreshed: true });
+    }
+
+    let service = match service {
+        Some(s) => s,
+        None => {
+            let msg = "Open workspace requires WorkspaceService".to_string();
+            comp.set_status_message(msg.clone());
+            return Ok(ActionResult { success: false, message: Some(msg), refreshed: false });
+        }
+    };
+
+    let boot_req = WorkspaceBootRequest { path: path.clone() };
+    match service.boot_workspace(boot_req).await {
+        Ok(boot_res) => {
+            comp.session_id = Some(boot_res.session.session_id);
+            comp.workspace_id = Some(boot_res.session.workspace_id);
+            comp.workspace_root_path = Some(path.clone());
+            comp.load_or_refresh_explorer();
+
+            let msg = format!("Workspace opened: {}", path.display());
+            comp.set_status_message(msg.clone());
+
+            Ok(ActionResult { success: true, message: Some(msg), refreshed: true })
+        }
+        Err(e) => {
+            let msg = format!("Failed to boot workspace: {}", e);
+            comp.set_status_message(msg.clone());
+            Ok(ActionResult { success: false, message: Some(msg), refreshed: true })
+        }
     }
 }

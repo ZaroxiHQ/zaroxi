@@ -3,7 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zaroxi_interface_desktop::DesktopComposition;
-use zaroxi_interface_desktop::folder_picker::{FakeFolderPicker, FolderPicker};
+use zaroxi_interface_desktop::folder_picker::{
+    FakeFolderPicker, FolderPicker, PickerDiagnostics, PickerOutcome,
+};
 
 fn temp_workspace() -> PathBuf {
     let base = env::temp_dir();
@@ -155,17 +157,56 @@ fn open_workspace_button_disappears_after_workspace_set() -> std::io::Result<()>
 
 #[test]
 fn cancel_folder_picker_is_noop() {
-    let picker = FakeFolderPicker::new(None);
-    let result = picker.pick_folder();
-    assert!(result.is_none(), "cancel should return None");
+    let picker = FakeFolderPicker::cancelled();
+    let outcome = picker.pick_folder();
+    assert!(matches!(outcome, PickerOutcome::Cancelled), "cancel should return Cancelled");
 }
 
 #[test]
 fn successful_folder_picker_returns_path() {
     let path = PathBuf::from("/test/path");
-    let picker = FakeFolderPicker::new(Some(path.clone()));
-    let result = picker.pick_folder();
-    assert_eq!(result, Some(path));
+    let picker = FakeFolderPicker::selected(path.clone());
+    let outcome = picker.pick_folder();
+    assert_eq!(outcome, PickerOutcome::Selected(path));
+}
+
+#[test]
+fn picker_unavailable_returns_structured_error() {
+    let picker = FakeFolderPicker::unavailable("no xdg-desktop-portal found");
+    let outcome = picker.pick_folder();
+    assert!(matches!(&outcome, PickerOutcome::Unavailable { .. }));
+    assert_eq!(outcome.reason().unwrap(), "no xdg-desktop-portal found");
+    assert!(outcome.diagnostics().is_some());
+}
+
+#[test]
+fn picker_unavailable_sets_status_message() {
+    let picker = FakeFolderPicker::unavailable("backend missing");
+    let outcome = picker.pick_folder();
+    assert!(outcome.reason().is_some_and(|r| r.contains("backend missing")));
+    assert!(!outcome.is_selected());
+}
+
+#[test]
+fn picker_diagnostics_included_in_unavailable() {
+    let picker = FakeFolderPicker::unavailable("picker backend not found");
+    let outcome = picker.pick_folder();
+    let diag = outcome.diagnostics().expect("Unavailable should include diagnostics");
+    assert!(!diag.rfd_attempted);
+}
+
+#[test]
+fn picker_outcome_cancelled_has_no_diagnostics() {
+    let picker = FakeFolderPicker::cancelled();
+    let outcome = picker.pick_folder();
+    assert!(outcome.diagnostics().is_none());
+}
+
+#[test]
+fn picker_outcome_selected_has_no_diagnostics() {
+    let picker = FakeFolderPicker::selected(PathBuf::from("/tmp"));
+    let outcome = picker.pick_folder();
+    assert!(outcome.diagnostics().is_none());
 }
 
 #[test]
