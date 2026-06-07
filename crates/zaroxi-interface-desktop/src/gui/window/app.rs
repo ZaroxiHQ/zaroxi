@@ -105,7 +105,11 @@ impl GuiApp {
                 return None;
             }
             WidgetId::Button { index: 30 } => {
+                gui_debug("ZAROXI_CLICK: dispatch_activation matched button(30)");
                 if let Some(ref mut actions) = self.explorer_actions {
+                    gui_debug(
+                        "ZAROXI_CLICK: explorer_actions is Some, calling open_workspace_from_picker",
+                    );
                     let comp = self.composition.as_mut()?;
                     let service = self.workspace_service.clone()?;
                     let view = self.workspace_view.clone()?;
@@ -117,6 +121,7 @@ impl GuiApp {
                         &mut self.workspace_id,
                     );
                 }
+                gui_debug("ZAROXI_CLICK: explorer_actions is None — cannot open workspace");
                 return None;
             }
             _ => {}
@@ -427,8 +432,18 @@ impl winit::application::ApplicationHandler for GuiApp {
                 if button == MouseButton::Left {
                     let (x, y) = match self.interaction.cursor_pos_f32() {
                         Some(pos) => pos,
-                        None => return,
+                        None => {
+                            gui_debug("ZAROXI_CLICK: MouseInput but cursor_pos is None — skipping");
+                            return;
+                        }
                     };
+                    gui_debug_fmt!(
+                        "ZAROXI_CLICK: MouseInput state={:?} x={:.1} y={:.1} btn_rect={:?}",
+                        state,
+                        x,
+                        y,
+                        self.explorer_button_rect
+                    );
                     let actions = match state {
                         ElementState::Pressed => {
                             if let Some(ref mut tree) = self.widget_tree {
@@ -449,10 +464,36 @@ impl winit::application::ApplicationHandler for GuiApp {
                             if let Some((bx, by, bw, bh)) = self.explorer_button_rect {
                                 if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
                                     explorer_activated = true;
+                                    gui_debug_fmt!(
+                                        "ZAROXI_CLICK: RELEASE hit explorer CTA! rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                        bx,
+                                        by,
+                                        bw,
+                                        bh,
+                                        x,
+                                        y
+                                    );
+                                } else {
+                                    gui_debug_fmt!(
+                                        "ZAROXI_CLICK: RELEASE outside CTA. rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                        bx,
+                                        by,
+                                        bw,
+                                        bh,
+                                        x,
+                                        y
+                                    );
                                 }
+                            } else {
+                                gui_debug_fmt!(
+                                    "ZAROXI_CLICK: RELEASE but explorer_button_rect is None. click=({:.1},{:.1})",
+                                    x,
+                                    y
+                                );
                             }
                             if explorer_activated {
                                 let id = zaroxi_core_engine_ui::WidgetId::button(30);
+                                gui_debug("ZAROXI_CLICK: dispatching Activated(button(30))");
                                 self.handle_actions(vec![
                                     zaroxi_core_engine_ui::WidgetAction::Activated(id),
                                 ]);

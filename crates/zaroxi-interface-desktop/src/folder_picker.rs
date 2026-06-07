@@ -8,7 +8,13 @@ pub struct NativeFolderPicker;
 
 impl FolderPicker for NativeFolderPicker {
     fn pick_folder(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new().pick_folder()
+        log::info!("Explorer CTA: opening native folder picker dialog...");
+        let result = rfd::FileDialog::new().pick_folder();
+        match &result {
+            Some(p) => log::info!("Explorer CTA: user selected folder {:?}", p),
+            None => log::info!("Explorer CTA: user cancelled or picker unavailable"),
+        }
+        result
     }
 }
 

@@ -175,7 +175,8 @@ pub fn format_ai_panel_spans(
 
     match body {
         Some(b) if !b.trim().is_empty() => {
-            spans.push((b.to_string(), body_color));
+            let wrapped = wrap_text(b, 40);
+            spans.push((wrapped, body_color));
         }
         _ => {
             spans.push(("No active AI session\n".to_string(), faint_color));
@@ -283,4 +284,25 @@ mod tests {
         assert!(spans.iter().any(|s| s.0.contains("No active AI session")));
         assert!(spans.iter().any(|s| s.0.contains("request an AI edit")));
     }
+}
+
+fn wrap_text(text: &str, max_chars: usize) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / max_chars);
+    for line in text.lines() {
+        if out.is_empty() {
+            // first line: no leading newline
+        } else {
+            out.push('\n');
+        }
+        let mut remaining = line;
+        while remaining.len() > max_chars {
+            let split =
+                remaining.char_indices().take(max_chars).last().map(|(i, _)| i + 1).unwrap_or(0);
+            out.push_str(&remaining[..split]);
+            out.push('\n');
+            remaining = &remaining[split..];
+        }
+        out.push_str(remaining);
+    }
+    out
 }
