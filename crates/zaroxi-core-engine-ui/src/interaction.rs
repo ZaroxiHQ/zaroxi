@@ -60,6 +60,9 @@ struct ScrollDragState {
 pub struct WidgetInteractionModel {
     pub hovered_widget_idx: Option<usize>,
     pub pressed_widget_idx: Option<usize>,
+    /// Stable ID of the pressed widget, used to match release to press
+    /// even when the widget tree is rebuilt between events.
+    pressed_widget_id: Option<WidgetId>,
     pub focused_widget_idx: Option<usize>,
     pub cursor_pos: Option<(f32, f32)>,
     scrollbar_drag_state: Option<ScrollDragState>,
@@ -71,6 +74,7 @@ impl WidgetInteractionModel {
         Self {
             hovered_widget_idx: None,
             pressed_widget_idx: None,
+            pressed_widget_id: None,
             focused_widget_idx: None,
             cursor_pos: None,
             scrollbar_drag_state: None,
@@ -167,6 +171,8 @@ impl WidgetInteractionModel {
         let mut actions = Vec::new();
         let hit = tree.hit_test(x, y);
         self.pressed_widget_idx = hit;
+        self.pressed_widget_id =
+            hit.and_then(|idx| tree.widgets.get(idx).and_then(|w| w.widget_id()));
 
         if let Some(idx) = hit {
             let is_scrollbar =
@@ -211,7 +217,9 @@ impl WidgetInteractionModel {
         let mut actions = Vec::new();
 
         let pressed = self.pressed_widget_idx.take();
+        let pressed_id = self.pressed_widget_id.take();
         let hit = tree.hit_test(x, y);
+        let hit_id = hit.and_then(|idx| tree.widgets.get(idx).and_then(|w| w.widget_id()));
 
         if let Some(idx) = pressed {
             tree.set_state_at(idx, InteractionState::Normal);
@@ -222,13 +230,11 @@ impl WidgetInteractionModel {
             actions.push(WidgetAction::StateNeedsRedraw);
         }
 
-        if pressed.is_some() && pressed == hit {
-            if let Some(idx) = pressed {
-                if let Some(w) = tree.widgets.get(idx) {
-                    if let Some(id) = w.widget_id() {
-                        actions.push(WidgetAction::Activated(id));
-                    }
-                }
+        // Activate if the same logical widget was pressed and released
+        // (matched by stable WidgetId, not tree index which can shift across redraws).
+        if let (Some(pid), Some(hid)) = (pressed_id.as_ref(), hit_id.as_ref()) {
+            if pid == hid {
+                actions.push(WidgetAction::Activated(hid.clone()));
             }
         }
 
