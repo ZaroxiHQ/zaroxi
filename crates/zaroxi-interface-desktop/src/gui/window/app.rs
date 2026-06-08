@@ -556,6 +556,38 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.handle_actions(actions);
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll_lines = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y as f32,
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 16.0,
+                };
+                let editor_id =
+                    zaroxi_core_engine_ui::WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                let current = self.interaction.get_scroll_offset(&editor_id);
+                let line_h = lc::LINE_HEIGHT;
+                let usable_h = self
+                    .editor_viewport
+                    .as_ref()
+                    .map(|vp| vp.content_rect.3 - lc::CONTENT_HEADER_H - lc::CONTENT_PAD_X * 2.0)
+                    .unwrap_or(100.0);
+                let total_lines = self
+                    .work_content
+                    .as_ref()
+                    .and_then(|w| w.editor_body.as_ref())
+                    .map(|cv| cv.lines.len().max(1))
+                    .unwrap_or(1) as f32;
+                let visible_lines = (usable_h / line_h).max(1.0);
+                let step = visible_lines / (total_lines - visible_lines).max(1.0);
+                let new_offset = (current - scroll_lines * step).clamp(0.0, 1.0);
+                self.interaction.set_scroll_offset(&editor_id, new_offset);
+                if let Some(ref mut tree) = self.widget_tree {
+                    self.interaction.apply_scroll_offsets(tree);
+                }
+                if let Some(z) = self.maybe_window.as_ref() {
+                    self.needs_render = true;
+                    let _ = z.window().request_redraw();
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     let (x, y) = match self.interaction.cursor_pos_f32() {
@@ -840,6 +872,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
 
+                    let editor_scroll_offset = self.interaction.get_scroll_offset(
+                        &zaroxi_core_engine_ui::WidgetId::Scrollbar {
+                            index: lc::SCROLLBAR_ID_EDITOR,
+                        },
+                    );
+
                     let scroll_blocks = super::frame::compute_scrollbar_blocks(
                         shell_regions,
                         &tokens,
@@ -849,6 +887,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         sidebar_visible,
                         0,
                         bottom_visible,
+                        editor_scroll_offset,
                     );
                     render_blocks.extend(scroll_blocks);
 
@@ -1047,6 +1086,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
                     ref key if self.ctrl_held => match key {
+                        Key::Character(c) if c == "w" || c == "W" => {
+                            if let Some(comp) = self.composition.as_mut() {
+                                let buf_id =
+                                    comp.latest_metadata().and_then(|m| m.active_buffer.clone());
+                                if let Some(ref id) = buf_id {
+                                    if comp.close_opened_buffer(id) {
+                                        self.work_content = Some(comp.build_work_content());
+                                        self.needs_render = true;
+                                        if let Some(z) = self.maybe_window.as_ref() {
+                                            let _ = z.window().request_redraw();
+                                        }
+                                    }
+                                }
+                            }
+                            Vec::new()
+                        }
                         Key::Character(c) if c == "c" => {
                             if let Some(text) = self.copy_selected_text() {
                                 let _ = zaroxi_core_engine_clipboard::copy_text(&text);

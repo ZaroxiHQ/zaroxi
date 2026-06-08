@@ -47,6 +47,7 @@ pub fn compute_scrollbar_blocks(
     sidebar_visible: usize,
     bottom_lines: usize,
     bottom_visible: usize,
+    editor_scroll_offset: f32,
 ) -> Vec<UiBlock> {
     let mut blocks = Vec::new();
 
@@ -272,7 +273,7 @@ pub fn extract_scrollbar_blocks(
     for widget in &widget_tree.widgets {
         if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
             id: _,
-            track_rect,
+            track_rect: _,
             thumb_rect,
             track_fill,
             thumb_fill,
@@ -285,10 +286,10 @@ pub fn extract_scrollbar_blocks(
                 content: String::new(),
                 visible: true,
                 rect: zaroxi_core_engine_render::Rect {
-                    x: track_rect.x,
-                    y: track_rect.y,
-                    w: track_rect.width,
-                    h: track_rect.height,
+                    x: thumb_rect.x,
+                    y: thumb_rect.y,
+                    w: thumb_rect.width,
+                    h: thumb_rect.height,
                 },
                 header_color: Some(*track_fill),
                 content_color: None,
