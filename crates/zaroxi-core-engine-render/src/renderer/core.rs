@@ -678,26 +678,28 @@ impl<'a> Renderer<'a> {
                 }
             } else if !content.is_empty() {
                 // Emit content into the block's content area using the provided rect.
-                // When clip_rect is set (editor content area), use it as the authoritative
-                // content bounds so text is clipped to the viewport and cannot spill
-                // into neighboring panels.
-                let (content_x, content_y, content_w, content_h) =
-                    if let Some(ref clip) = block.clip_rect {
-                        (clip.x, clip.y, clip.w, clip.h)
-                    } else {
-                        let cx = target.x + content_padding;
-                        let cy = target.y + hh + content_padding;
-                        let cw = (target.w - content_padding * 2.0).max(0.0);
-                        let ch = (target.h - hh - content_padding * 2.0).max(0.0);
-                        (cx, cy, cw, ch)
-                    };
+                // When clip_rect is set, use its x/w for horizontal containment
+                // (prevents text bleed into adjacent panels). Vertical bounds (y/h)
+                // remain header-aware to prevent overlap with the block's title area.
+                let content_y = target.y + hh + content_padding;
+                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+                let (content_x, content_w) = if let Some(ref clip) = block.clip_rect {
+                    (clip.x, clip.w)
+                } else {
+                    let cx = target.x + content_padding;
+                    let cw = (target.w - content_padding * 2.0).max(0.0);
+                    (cx, cw)
+                };
                 if content_w > 0.0 && content_h > 0.0 {
+                    let char_w = 8.0f32;
+                    let max_chars = (content_w / char_w).max(1.0) as usize;
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
                         let mut cursor_y = content_y;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let mut line_buf = String::new();
+                        let mut line_buf_chars: usize = 0;
                         for (span_text, span_color) in spans {
                             if span_text == "\n" {
                                 if !line_buf.is_empty() {
@@ -715,11 +717,25 @@ impl<'a> Renderer<'a> {
                                         ),
                                     );
                                     line_buf.clear();
+                                    line_buf_chars = 0;
                                 }
                                 cursor_y += line_h;
                                 continue;
                             }
-                            line_buf.push_str(span_text);
+                            let span_chars = span_text.chars().count();
+                            let remaining = max_chars.saturating_sub(line_buf_chars);
+                            if remaining == 0 {
+                                line_buf_chars += span_chars;
+                                continue;
+                            }
+                            if span_chars <= remaining {
+                                line_buf.push_str(span_text);
+                                line_buf_chars += span_chars;
+                            } else {
+                                let truncated: String = span_text.chars().take(remaining).collect();
+                                line_buf.push_str(&truncated);
+                                line_buf_chars += remaining;
+                            }
                         }
                         if !line_buf.is_empty() {
                             self.text_renderer.queue_text(
@@ -738,9 +754,14 @@ impl<'a> Renderer<'a> {
                         }
                     } else {
                         // Queue content for Glyphon native rendering
+                        let truncated = if block.content.chars().count() > max_chars {
+                            block.content.chars().take(max_chars).collect::<String>()
+                        } else {
+                            block.content.clone()
+                        };
                         self.text_renderer.queue_text(
                             crate::renderer::text::TextCommand::new_body(
-                                &block.content,
+                                &truncated,
                                 content_x,
                                 content_y,
                                 title_color,
@@ -762,17 +783,18 @@ impl<'a> Renderer<'a> {
 
             // ── Cursor & line-highlight rendering ──
             if let (Some(line), Some(col)) = (block.cursor_line, block.cursor_col) {
-                let (content_x, content_y, content_w, content_h) =
-                    if let Some(ref clip) = block.clip_rect {
-                        (clip.x, clip.y, clip.w, clip.h)
-                    } else {
-                        (
-                            target.x + content_padding,
-                            target.y + hh + content_padding,
-                            (target.w - content_padding * 2.0).max(0.0),
-                            (target.h - hh - content_padding * 2.0).max(0.0),
-                        )
-                    };
+                let content_x = if let Some(ref clip) = block.clip_rect {
+                    clip.x
+                } else {
+                    target.x + content_padding
+                };
+                let content_w = if let Some(ref clip) = block.clip_rect {
+                    clip.w
+                } else {
+                    (target.w - content_padding * 2.0).max(0.0)
+                };
+                let content_y = target.y + hh + content_padding;
+                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
 
                 if content_w > 0.0 && content_h > 0.0 {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;

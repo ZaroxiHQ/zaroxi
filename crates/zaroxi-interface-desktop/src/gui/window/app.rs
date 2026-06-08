@@ -568,7 +568,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 let usable_h = self
                     .editor_viewport
                     .as_ref()
-                    .map(|vp| vp.content_rect.3 - lc::CONTENT_PAD_Y * 2.0)
+                    .map(|vp| vp.content_rect.3 - lc::CONTENT_HEADER_H - lc::CONTENT_PAD_X * 2.0)
                     .unwrap_or(100.0);
                 let total_lines = self
                     .work_content
@@ -853,7 +853,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         zaroxi_core_engine_style::PanelRole::ContentArea,
                     );
                     let editor_visible_lines = editor_region
-                        .map(|r| lc::editor_visible_lines(r.rect.height as f32))
+                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
 
                     let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
