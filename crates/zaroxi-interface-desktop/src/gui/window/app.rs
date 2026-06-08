@@ -144,6 +144,9 @@ pub struct GuiApp {
     /// Redraw gate: when false, RedrawRequested is a no-op.
     /// Set to true on content change or resize; cleared after a successful render.
     pub needs_render: bool,
+    pub last_explorer_ids: Vec<String>,
+    /// Last rendered window size (used to detect resize-then-rerender).
+    pub last_render_size: (u32, u32),
 }
 
 impl GuiApp {
@@ -249,13 +252,25 @@ impl GuiApp {
             }
             WidgetId::ListItem { index } => {
                 if *index >= 10 {
-                    // Sidebar explorer item: delegate to ExplorerPanelActions
                     let comp = self.composition.as_mut()?;
                     let explorer_idx = *index - 10;
 
+                    // Resolve by cached ID for stability (not by positional index
+                    // which can shift if cached_explorer_items refreshes between
+                    // widget-tree build and click dispatch).
+                    let resolve_idx = || -> Option<usize> {
+                        let ids = &self.last_explorer_ids;
+                        if ids.is_empty() || explorer_idx >= ids.len() {
+                            return Some(explorer_idx); // fallback
+                        }
+                        let target_id = ids.get(explorer_idx)?;
+                        comp.cached_explorer_items.iter().position(|ev| &ev.id == target_id)
+                    };
+                    let resolved = resolve_idx().unwrap_or(explorer_idx);
+
                     if let Some(ref mut actions) = self.explorer_actions {
-                        if comp.is_explorer_item_dir(explorer_idx) {
-                            return actions.toggle_directory(comp, explorer_idx);
+                        if comp.is_explorer_item_dir(resolved) {
+                            return actions.toggle_directory(comp, resolved);
                         } else {
                             let service = self.workspace_service.clone()?;
                             let view = self.workspace_view.clone()?;
@@ -266,7 +281,7 @@ impl GuiApp {
                                 view,
                                 session,
                                 self.workspace_id,
-                                explorer_idx,
+                                resolved,
                             );
                         }
                     }
@@ -737,6 +752,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.interaction.apply_to_tree(&mut widget_tree);
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
+                    self.last_explorer_ids = self
+                        .work_content
+                        .as_ref()
+                        .and_then(|wc| wc.explorer_panel_items.as_deref())
+                        .map(|items| items.iter().map(|it| it.id.clone()).collect())
+                        .unwrap_or_default();
                     click_trace_fmt!(
                         "ZAROXI_REDRAW: widget_tree built widgets={} cta_rect_present={}",
                         widget_tree.widgets.len(),
@@ -873,6 +894,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
 
+                    // ── Renderer lifecycle ──
+                    let size_changed = (sw as u32, sh as u32) != self.last_render_size;
+                    self.last_render_size = (sw as u32, sh as u32);
+
                     match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
                         z.window(),
                         [
@@ -908,6 +933,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                             eprintln!("GuiApp: failed to create renderer: {:?}", e);
                         }
                     }
+
+                    // Drop renderer (freed when leaving this scope).
+                    // Size changed tracking above allows downstream
+                    // text/atlas caches to validate stale layout.
+                    let _ = size_changed;
 
                     if std::env::var("ZAROXI_DEBUG_RENDER").as_deref() == Ok("1") {
                         eprintln!(

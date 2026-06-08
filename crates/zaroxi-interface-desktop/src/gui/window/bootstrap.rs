@@ -84,6 +84,8 @@ pub fn run_shell_window(
         layout_controller: super::editor_shell::ShellLayoutController::new(),
         editor_viewport: None,
         needs_render: true,
+        last_explorer_ids: Vec::new(),
+        last_render_size: (0, 0),
     };
 
     let run_result = event_loop.run_app(&mut app);

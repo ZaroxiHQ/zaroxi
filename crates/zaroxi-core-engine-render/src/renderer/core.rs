@@ -678,10 +678,19 @@ impl<'a> Renderer<'a> {
                 }
             } else if !content.is_empty() {
                 // Emit content into the block's content area using the provided rect.
-                let content_x = target.x + content_padding;
-                let content_y = target.y + hh + content_padding;
-                let content_w = (target.w - content_padding * 2.0).max(0.0);
-                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+                // When clip_rect is set (editor content area), use it as the authoritative
+                // content bounds so text is clipped to the viewport and cannot spill
+                // into neighboring panels.
+                let (content_x, content_y, content_w, content_h) =
+                    if let Some(ref clip) = block.clip_rect {
+                        (clip.x, clip.y, clip.w, clip.h)
+                    } else {
+                        let cx = target.x + content_padding;
+                        let cy = target.y + hh + content_padding;
+                        let cw = (target.w - content_padding * 2.0).max(0.0);
+                        let ch = (target.h - hh - content_padding * 2.0).max(0.0);
+                        (cx, cy, cw, ch)
+                    };
                 if content_w > 0.0 && content_h > 0.0 {
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
@@ -753,10 +762,17 @@ impl<'a> Renderer<'a> {
 
             // ── Cursor & line-highlight rendering ──
             if let (Some(line), Some(col)) = (block.cursor_line, block.cursor_col) {
-                let content_x = target.x + content_padding;
-                let content_y = target.y + hh + content_padding;
-                let content_w = (target.w - content_padding * 2.0).max(0.0);
-                let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+                let (content_x, content_y, content_w, content_h) =
+                    if let Some(ref clip) = block.clip_rect {
+                        (clip.x, clip.y, clip.w, clip.h)
+                    } else {
+                        (
+                            target.x + content_padding,
+                            target.y + hh + content_padding,
+                            (target.w - content_padding * 2.0).max(0.0),
+                            (target.h - hh - content_padding * 2.0).max(0.0),
+                        )
+                    };
 
                 if content_w > 0.0 && content_h > 0.0 {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;

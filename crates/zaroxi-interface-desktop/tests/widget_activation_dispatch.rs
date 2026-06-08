@@ -51,6 +51,7 @@ mod tests {
                 zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
             editor_viewport: None,
             needs_render: true,
+            cached_renderer_ptr: std::ptr::null_mut(),
         }
     }
 
