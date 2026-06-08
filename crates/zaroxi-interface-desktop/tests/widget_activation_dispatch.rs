@@ -50,6 +50,7 @@ mod tests {
             layout_controller:
                 zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
             editor_viewport: None,
+            needs_render: true,
         }
     }
 

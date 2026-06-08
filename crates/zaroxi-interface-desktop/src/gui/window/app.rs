@@ -140,6 +140,9 @@ pub struct GuiApp {
     pub layout_controller: ShellLayoutController,
     /// Current editor viewport for clipping (Editor Phase 1).
     pub editor_viewport: Option<EditorViewport>,
+    /// Redraw gate: when false, RedrawRequested is a no-op.
+    /// Set to true on content change or resize; cleared after a successful render.
+    pub needs_render: bool,
 }
 
 impl GuiApp {
@@ -348,6 +351,7 @@ impl GuiApp {
             }
         }
         if needs_redraw || content_changed {
+            self.needs_render = true;
             if let Some(z) = self.maybe_window.as_ref() {
                 let _ = z.window().request_redraw();
             }
@@ -459,6 +463,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 active_loop.exit();
             }
             WindowEvent::Resized(size) => {
+                self.needs_render = true;
                 if let Some(z) = self.maybe_window.as_mut() {
                     z.update_size(size.width, size.height);
                     gui_debug_fmt!(
@@ -468,6 +473,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::ScaleFactorChanged { .. } => {
+                self.needs_render = true;
                 if let Some(z) = self.maybe_window.as_ref() {
                     gui_debug("GuiApp: ScaleFactorChanged -> requesting redraw (engine window)");
                     let _ = z.window().request_redraw();
@@ -514,6 +520,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     let (el, ec) =
                                         if (line, col) > anchor { (line, col) } else { anchor };
                                     self.selection_range = Some((sl, sc, el, ec));
+                                    self.needs_render = true;
                                     if let Some(z) = self.maybe_window.as_ref() {
                                         let _ = z.window().request_redraw();
                                     }
@@ -631,6 +638,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     self.selection_anchor = Some((line, col));
                                     self.selection_active = true;
                                     self.selection_range = None;
+                                    self.needs_render = true;
                                     if let Some(z) = self.maybe_window.as_ref() {
                                         let _ = z.window().request_redraw();
                                     }
@@ -644,6 +652,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                if !self.needs_render {
+                    return;
+                }
+                self.needs_render = false;
+
                 if let Some(z) = self.maybe_window.as_mut() {
                     let _ = z.window().pre_present_notify();
 

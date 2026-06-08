@@ -83,6 +83,7 @@ pub fn run_shell_window(
         parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
         layout_controller: super::editor_shell::ShellLayoutController::new(),
         editor_viewport: None,
+        needs_render: true,
     };
 
     let run_result = event_loop.run_app(&mut app);

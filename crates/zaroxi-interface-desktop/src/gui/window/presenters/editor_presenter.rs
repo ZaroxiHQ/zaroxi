@@ -17,19 +17,8 @@ pub fn shape_editor_content(
 
     let editor_body = wc.editor_body.as_ref();
 
-    let gutter_color: [f32; 4] =
-        [sem.text_faint.r, sem.text_faint.g, sem.text_faint.b, sem.text_faint.a];
-
-    let editor_body_text = editor_body
-        .map(|cv| {
-            cv.lines
-                .iter()
-                .enumerate()
-                .map(|(i, line)| format!("{:>4} │ {}", i + 1, line))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_else(|| "No file open".to_string());
+    let editor_body_text =
+        editor_body.map(|cv| cv.lines.join("\n")).unwrap_or_else(|| "No file open".to_string());
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
     let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
@@ -47,17 +36,11 @@ pub fn shape_editor_content(
 
         let syntax_spans = super::super::syntax_color::colorize_source(&cv.lines, sem, parser_pool);
 
-        // Interleave gutter (faint) and code (syntax-colored) per line.
-        // The syntax_color module returns spans keyed by line index.
         let mut syntax_by_line: std::collections::BTreeMap<usize, Vec<(String, [f32; 4])>> =
             std::collections::BTreeMap::new();
         for (text, color) in syntax_spans {
-            // Determine line index from span content — first span of each line
-            // is placed in the right bucket via sequential allocation.
-            // We rebuild by tracking explicit line boundaries.
             let lines: Vec<&str> = text.split('\n').collect();
             if lines.len() > 1 {
-                // Multi-line span: distribute across lines
                 let mut line_idx = syntax_by_line.len();
                 for part in &lines {
                     if !part.is_empty() {
@@ -68,11 +51,8 @@ pub fn shape_editor_content(
             }
         }
 
-        // If syntax_by_line is empty (no valid syntax spans), build flat spans
         if syntax_by_line.is_empty() {
             for (i, _line) in cv.lines.iter().enumerate() {
-                let gutter_part = format!("{:>4} │ ", i + 1);
-                spans.push((gutter_part, gutter_color));
                 spans.push((_line.clone(), [1.0, 1.0, 1.0, 1.0]));
                 if i + 1 < cv.lines.len() {
                     spans.push(("\n".to_string(), [1.0, 1.0, 1.0, 1.0]));
@@ -81,17 +61,12 @@ pub fn shape_editor_content(
             return spans;
         }
 
-        // Merge gutter prefixes + syntax-colored code per line
         for (i, line) in cv.lines.iter().enumerate() {
-            let gutter_part = format!("{:>4} │ ", i + 1);
-            spans.push((gutter_part, gutter_color));
-
             if let Some(line_spans) = syntax_by_line.get(&i) {
                 for (text, color) in line_spans {
                     spans.push((text.clone(), *color));
                 }
             } else {
-                // No syntax spans for this line — render in primary text color
                 spans.push((line.clone(), [1.0, 1.0, 1.0, 1.0]));
             }
 
