@@ -12,6 +12,10 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         None => return ExplorerData::default(),
     };
 
+    let panel_items = wc.explorer_panel_items.clone();
+    let panel_title = wc.explorer_panel_title.clone();
+    let has_structured_items = panel_items.as_ref().map_or(false, |v| !v.is_empty());
+
     let sidebar_items = wc
         .explorer_items
         .clone()
@@ -25,9 +29,13 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
 
     let empty_button_label = wc.explorer_empty_button.clone();
 
+    let sidebar_empty = if has_structured_items { false } else { sidebar_items.1 };
+
     ExplorerData {
         sidebar_sections: sidebar_items.0.clone(),
-        sidebar_empty: sidebar_items.1,
+        sidebar_empty,
         empty_button_label,
+        panel_items,
+        panel_title,
     }
 }
