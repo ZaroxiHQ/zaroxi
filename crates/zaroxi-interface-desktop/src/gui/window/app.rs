@@ -36,6 +36,7 @@ use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_core_engine_ui::WidgetId;
+use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::parser::ParserPool;
 use zaroxi_kernel_types::Id;
 
@@ -150,24 +151,24 @@ impl GuiApp {
     /// Returns updated ShellWorkContent if the shell should refresh.
     pub fn dispatch_activation(&mut self, id: &WidgetId) -> Option<ShellWorkContent> {
         match id {
-            WidgetId::Button { index: 2 } => {
+            WidgetId::Button { index: lc::BTN_ID_CLOSE_WINDOW } => {
                 std::process::exit(0);
             }
-            WidgetId::Button { index: 0 } => {
+            WidgetId::Button { index: lc::BTN_ID_MINIMIZE } => {
                 if let Some(z) = self.maybe_window.as_ref() {
                     z.window().set_minimized(true);
                 }
                 return None;
             }
-            WidgetId::Button { index: 1 } => {
+            WidgetId::Button { index: lc::BTN_ID_MAXIMIZE } => {
                 if let Some(z) = self.maybe_window.as_ref() {
                     let maximized = z.window().is_maximized();
                     z.window().set_maximized(!maximized);
                 }
                 return None;
             }
-            WidgetId::Button { index: 30 } => {
-                click_trace("ZAROXI_CLICK: dispatch_activation matched button(30)");
+            WidgetId::Button { index: lc::BTN_ID_EXPLORER_CTA } => {
+                click_trace("ZAROXI_CLICK: dispatch_activation matched Explorer CTA");
                 if let Some(ref mut actions) = self.explorer_actions {
                     click_trace(
                         "ZAROXI_CLICK: explorer_actions is Some, calling open_workspace_from_picker",
@@ -195,19 +196,21 @@ impl GuiApp {
         let session = self.session_id.clone()?;
 
         match id {
-            WidgetId::Button { index: 10 } => {
+            WidgetId::Button { index: lc::BTN_ID_TERMINAL_CLOSE } => {
                 // Terminal panel close — just refresh
                 Some(comp.build_work_content())
             }
-            WidgetId::Button { index: 11 } => {
+            WidgetId::Button { index: lc::BTN_ID_AI_CLOSE } => {
                 // AI panel close
                 pollster::block_on(crate::actions::close_command_bar(comp)).ok();
                 Some(comp.build_work_content())
             }
-            WidgetId::Button { index: 20 }
-            | WidgetId::Button { index: 21 }
-            | WidgetId::Button { index: 22 }
-            | WidgetId::Button { index: 23 } => {
+            WidgetId::Button { index }
+                if *index == lc::BTN_ID_AI_EXPLAIN
+                    || *index == lc::BTN_ID_AI_REVIEW
+                    || *index == lc::BTN_ID_AI_APPLY
+                    || *index == lc::BTN_ID_AI_REJECT =>
+            {
                 // AI action buttons — refresh composition
                 let _ = service;
                 Some(comp.build_work_content())
@@ -507,7 +510,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     vp,
                                     &self.shell.work_content,
                                     self.interaction.get_scroll_offset(
-                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar {
+                                            index: lc::SCROLLBAR_ID_EDITOR,
+                                        },
                                     ),
                                 ) {
                                     let (sl, sc) = if line < anchor.0
@@ -600,8 +605,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 );
                             }
                             if explorer_activated {
-                                let id = zaroxi_core_engine_ui::WidgetId::button(30);
-                                click_trace("ZAROXI_CLICK: dispatching Activated(button(30))");
+                                let id = zaroxi_core_engine_ui::WidgetId::button(
+                                    lc::BTN_ID_EXPLORER_CTA,
+                                );
+                                click_trace("ZAROXI_CLICK: dispatching Activated(Explorer CTA)");
                                 self.handle_actions(vec![
                                     zaroxi_core_engine_ui::WidgetAction::Activated(id),
                                 ]);
@@ -630,7 +637,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     vp,
                                     &self.shell.work_content,
                                     self.interaction.get_scroll_offset(
-                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar {
+                                            index: lc::SCROLLBAR_ID_EDITOR,
+                                        },
                                     ),
                                 ) {
                                     self.editor_cursor_line = line;
@@ -791,11 +800,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         zaroxi_core_engine_style::PanelRole::ContentArea,
                     );
                     let editor_visible_lines = editor_region
-                        .map(|r| {
-                            crate::gui::window::editor_shell::constants::visible_lines_from_region(
-                                r.rect.height as f32,
-                            )
-                        })
+                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
 
                     let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
@@ -811,11 +816,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         zaroxi_core_engine_style::PanelRole::BottomPanel,
                     );
                     let bottom_visible = bottom_region
-                        .map(|r| {
-                            crate::gui::window::editor_shell::constants::visible_lines_from_region(
-                                r.rect.height as f32,
-                            )
-                        })
+                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
 
                     let scroll_blocks = super::frame::compute_scrollbar_blocks(
@@ -1024,10 +1025,6 @@ fn project_editor_cursor(
     work_content: &Option<crate::gui::ShellWorkContent>,
     editor_scroll_offset: f32,
 ) -> Option<(usize, usize)> {
-    use crate::gui::window::editor_shell::constants::{
-        CHAR_WIDTH_STUB, CONTENT_HEADER_H, CONTENT_PAD_X, LINE_HEIGHT,
-    };
-
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
 
@@ -1035,10 +1032,10 @@ fn project_editor_cursor(
         return None;
     }
 
-    let content_pad = CONTENT_PAD_X;
-    let header_h = CONTENT_HEADER_H;
-    let line_h = LINE_HEIGHT;
-    let char_w = CHAR_WIDTH_STUB;
+    let content_pad = lc::CONTENT_PAD_X;
+    let header_h = lc::CONTENT_HEADER_H;
+    let line_h = lc::LINE_HEIGHT;
+    let char_w = lc::CHAR_WIDTH_STUB;
     let content_x = viewport.content_rect.0 + content_pad;
     let content_y = viewport.content_rect.1 + header_h + content_pad;
     let rel_y = py - content_y;

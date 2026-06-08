@@ -20,3 +20,5 @@ pub use constants::*;
 pub use controller::ShellLayoutController;
 pub use layout::{EditorShellLayout, compute_layout};
 pub use view::EditorViewport;
+
+pub use zaroxi_core_engine_ui::layout_constants as engine_constants;

@@ -1,4 +1,22 @@
 use crate::ShellWorkContent;
+use crate::layout_constants::{
+    AI_ACTION_BTN_GAP, AI_ACTION_BTN_H, AI_ACTION_BTN_W, AI_ACTION_X_INSET, AI_HEADER_H,
+    AI_INPUT_H, BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP, BRAND_ACCENT_W,
+    BTN_ID_AI_APPLY, BTN_ID_AI_CLOSE, BTN_ID_AI_EXPLAIN, BTN_ID_AI_REJECT, BTN_ID_AI_REVIEW,
+    BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
+    BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
+    EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
+    EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET,
+    EXPLORER_ROW_H, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
+    PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H,
+    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC,
+    SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
+    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
+    STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H,
+    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
+    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
+    compute_scrollbar_geometry,
+};
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
 use zaroxi_core_engine_layout::ShellLayout;
@@ -39,15 +57,22 @@ pub fn build_shell_widget_tree(
 
     // Toolbar window-control buttons (right side)
     if layout.top_bar.width > 160.0 && layout.top_bar.height > 8.0 {
-        let btn_w = 32.0;
-        let btn_h = layout.top_bar.height - 8.0;
-        let btn_y = layout.top_bar.y + 4.0;
-        let btn_x = layout.top_bar.x + layout.top_bar.width - (btn_w * 3.0 + 18.0);
+        let btn_w = TOOLBAR_BTN_W;
+        let btn_h = layout.top_bar.height - TOOLBAR_BTN_V_INSET * 2.0;
+        let btn_y = layout.top_bar.y + TOOLBAR_BTN_V_INSET;
+        let btn_x =
+            layout.top_bar.x + layout.top_bar.width - (btn_w * 3.0 + TOOLBAR_BTN_RIGHT_MARGIN);
         for (idx, (label, accent)) in [("_", false), ("[ ]", false), ("x", true)].iter().enumerate()
         {
-            let bx = btn_x + idx as f32 * (btn_w + 2.0);
+            let bx = btn_x + idx as f32 * (btn_w + TOOLBAR_BTN_GAP);
+            let id = match idx {
+                0 => WidgetId::button(BTN_ID_MINIMIZE),
+                1 => WidgetId::button(BTN_ID_MAXIMIZE),
+                2 => WidgetId::button(BTN_ID_CLOSE_WINDOW),
+                _ => WidgetId::button(idx),
+            };
             tree.push(ShellWidget::Button {
-                id: WidgetId::button(idx),
+                id,
                 rect: Rect::new(bx, btn_y, btn_w, btn_h),
                 label: label.to_string(),
                 fill_color: if *accent {
@@ -76,10 +101,10 @@ pub fn build_shell_widget_tree(
     if layout.top_bar.width > 60.0 && layout.top_bar.height > 8.0 {
         tree.push(ShellWidget::Surface {
             rect: Rect::new(
-                layout.top_bar.x + 10.0,
-                layout.top_bar.y + 5.0,
-                32.0,
-                layout.top_bar.height - 10.0,
+                layout.top_bar.x + BRAND_ACCENT_LEFT,
+                layout.top_bar.y + BRAND_ACCENT_TOP,
+                BRAND_ACCENT_W,
+                layout.top_bar.height - BRAND_ACCENT_BOTTOM_INSET,
             ),
             fill_color: tokens.toolbar_brand_accent.to_array(),
             border_color: None,
@@ -88,7 +113,7 @@ pub fn build_shell_widget_tree(
     }
 
     // ── 3. Activity rail + sidebar (left column) ──
-    let rail_w = 44.0;
+    let rail_w = RAIL_W;
     let rail_rect = Rect::new(0.0, layout.left_panel.y, rail_w, layout.left_panel.height);
     tree.push(ShellWidget::Surface {
         rect: rail_rect,
@@ -99,10 +124,11 @@ pub fn build_shell_widget_tree(
 
     // Rail items (top group) — composed as ListItem widgets
     if layout.left_panel.height > 48.0 {
-        let icon_w = rail_w - 14.0;
-        let icon_h: f32 = 28.0;
-        let gap: f32 = 4.0;
-        let mut y = layout.left_panel.y + 10.0;
+        let icon_w = rail_w - RAIL_ICON_W_OFFSET;
+        let icon_h: f32 = RAIL_ICON_H;
+        let gap: f32 = RAIL_ICON_GAP;
+        let icon_center_x = rail_rect.x + (rail_w - icon_w) / 2.0;
+        let mut y = layout.left_panel.y + RAIL_ICON_START_Y;
         let rail_items: [(usize, &str, bool); 4] = [
             (0, "Explorer", true),
             (1, "Search", false),
@@ -111,7 +137,7 @@ pub fn build_shell_widget_tree(
         ];
 
         for (idx, label, active) in rail_items {
-            let icon_rect = Rect::new(rail_rect.x + 7.0, y, icon_w, icon_h);
+            let icon_rect = Rect::new(icon_center_x, y, icon_w, icon_h);
             let fill = if active {
                 tokens.rail_item_active.to_array()
             } else {
@@ -134,7 +160,12 @@ pub fn build_shell_widget_tree(
             // Separator after active group (subtle)
             if idx == 0 && layout.left_panel.height > 200.0 {
                 tree.push(ShellWidget::Divider {
-                    rect: Rect::new(rail_rect.x + 12.0, y, rail_w - 24.0, 1.0),
+                    rect: Rect::new(
+                        rail_rect.x + RAIL_DIVIDER_INSET,
+                        y,
+                        rail_w - RAIL_DIVIDER_INSET * 2.0,
+                        1.0,
+                    ),
                     color: tokens.divider_subtle.to_array(),
                     orientation: DividerOrientation::Horizontal,
                     subtle: true,
@@ -145,13 +176,13 @@ pub fn build_shell_widget_tree(
 
         // Bottom rail items (settings, account) — composed as ListItem widgets
         if layout.left_panel.height > 120.0 {
-            let bottom_start =
-                layout.left_panel.y + layout.left_panel.height - (2.0 * (icon_h + gap) + 12.0);
+            let bottom_start = layout.left_panel.y + layout.left_panel.height
+                - (2.0 * (icon_h + gap) + RAIL_BOTTOM_START_OFFSET);
             let mut by = bottom_start;
             for (idx, label) in [(4, "Settings"), (5, "Account")].iter() {
                 tree.push(ShellWidget::ListItem {
                     id: WidgetId::list_item(*idx),
-                    rect: Rect::new(rail_rect.x + 7.0, by, icon_w, icon_h),
+                    rect: Rect::new(icon_center_x, by, icon_w, icon_h),
                     label: label.to_string(),
                     fill_color: tokens.rail_item_bottom.to_array(),
                     accent_indicator: None,
@@ -166,7 +197,7 @@ pub fn build_shell_widget_tree(
     let sidebar_w =
         if layout.left_panel.width > 0.0 { layout.left_panel.width - rail_w } else { 0.0 };
     if sidebar_w > 0.0 {
-        let sx = 44.0;
+        let sx = rail_w;
         let sidebar_rect = Rect::new(sx, layout.left_panel.y, sidebar_w, layout.left_panel.height);
         tree.push(ShellWidget::Surface {
             rect: sidebar_rect,
@@ -175,8 +206,8 @@ pub fn build_shell_widget_tree(
             border_width: 0.0,
         });
 
-        let pad = 10.0;
-        let search_h = 26.0;
+        let pad = SIDEBAR_PAD;
+        let search_h = SEARCH_BAR_H;
         let inner_w = sidebar_w - pad * 2.0;
         let mut y_off = layout.left_panel.y + pad;
 
@@ -187,7 +218,7 @@ pub fn build_shell_widget_tree(
             border_color: None,
             border_width: 0.0,
         });
-        y_off += search_h + 8.0;
+        y_off += search_h + SEARCH_TO_DIVIDER_GAP;
 
         // Subtle divider below search
         tree.push(ShellWidget::Divider {
@@ -196,7 +227,7 @@ pub fn build_shell_widget_tree(
             orientation: DividerOrientation::Horizontal,
             subtle: true,
         });
-        y_off += 12.0;
+        y_off += DIVIDER_SPACE;
 
         // Explorer panel — built from structured panel items when available.
         build_explorer_panel_section(
@@ -212,13 +243,14 @@ pub fn build_shell_widget_tree(
 
         // Sidebar scrollbar (if content overflows)
         if sidebar_rect.height > 200.0 && sidebar_rect.width > 20.0 {
-            let sb_w = 4.0;
-            let sb_x = sx + sidebar_w - sb_w - 3.0;
-            let track_rect =
-                Rect::new(sb_x, sidebar_rect.y + 8.0, sb_w, sidebar_rect.height - 16.0);
-            let thumb_h = (track_rect.height * 0.5).max(16.0);
+            let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+                (sidebar_rect.x, sidebar_rect.y, sidebar_rect.width, sidebar_rect.height),
+                &SB_SIDEBAR_SPEC,
+                0.0,
+            );
+            let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
             tree.push(ShellWidget::ScrollBar {
-                id: WidgetId::scrollbar(2),
+                id: WidgetId::scrollbar(SCROLLBAR_ID_SIDEBAR),
                 track_rect,
                 thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
                 track_fill: tokens.sidebar_scrollbar_track.to_array(),
@@ -262,8 +294,8 @@ pub fn build_shell_widget_tree(
 
     // TabItem widgets: driven by ShellWorkContent.editor_tabs, with fallback
     if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
-        let tab_h = layout.content_tab_strip.height + 1.0;
-        let tab_y = layout.content_tab_strip.y - 1.0;
+        let tab_h = layout.content_tab_strip.height + TAB_Y_HANG;
+        let tab_y = layout.content_tab_strip.y - TAB_Y_HANG;
         let tabs: Vec<(&str, bool, usize)> = content
             .and_then(|c| c.editor_tabs.as_ref())
             .map(|tabs| {
@@ -272,11 +304,11 @@ pub fn build_shell_widget_tree(
             .unwrap_or_else(|| {
                 vec![("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)]
             });
-        let tab_w = 110.0;
+        let tab_w = TAB_W_INACTIVE;
         let mut tx = layout.content_tab_strip.x;
 
         for (label, active, idx) in tabs {
-            let tw = if active { tab_w + 10.0 } else { tab_w };
+            let tw = if active { tab_w + TAB_W_ACTIVE_EXTRA } else { tab_w };
             if tx + tw > layout.content_tab_strip.x + layout.content_tab_strip.width {
                 break;
             }
@@ -336,10 +368,10 @@ pub fn build_shell_widget_tree(
     if !has_editor {
         tree.push(ShellWidget::EmptyState {
             rect: Rect::new(
-                layout.content_area.x + 40.0,
-                layout.content_area.y + 60.0,
-                200.0,
-                40.0,
+                layout.content_area.x + EMPTY_STATE_X_OFFSET,
+                layout.content_area.y + EMPTY_STATE_Y_OFFSET,
+                EMPTY_STATE_W,
+                EMPTY_STATE_H,
             ),
             message: "No file open".into(),
             fill_color: [0.0, 0.0, 0.0, 0.0],
@@ -349,13 +381,19 @@ pub fn build_shell_widget_tree(
 
     // Editor scrollbar (right edge)
     if layout.content_area.height > 40.0 && layout.content_area.width > 20.0 {
-        let sb_w = 6.0;
-        let sb_x = layout.content_area.x + layout.content_area.width - sb_w - 3.0;
-        let track_rect =
-            Rect::new(sb_x, layout.content_area.y + 4.0, sb_w, layout.content_area.height - 8.0);
-        let thumb_h = (track_rect.height * 0.25).max(20.0);
+        let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+            (
+                layout.content_area.x,
+                layout.content_area.y,
+                layout.content_area.width,
+                layout.content_area.height,
+            ),
+            &SB_EDITOR_SPEC,
+            0.0,
+        );
+        let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
         tree.push(ShellWidget::ScrollBar {
-            id: WidgetId::scrollbar(1),
+            id: WidgetId::scrollbar(SCROLLBAR_ID_EDITOR),
             track_rect,
             thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
             track_fill: tokens.editor_scrollbar_track.to_array(),
@@ -377,7 +415,7 @@ pub fn build_shell_widget_tree(
             orientation: DividerOrientation::Horizontal,
             subtle: false,
         });
-        let header_h = 26.0;
+        let header_h = TERMINAL_HEADER_H;
         let header_rect = Rect::new(
             layout.bottom_panel.x,
             layout.bottom_panel.y,
@@ -385,10 +423,10 @@ pub fn build_shell_widget_tree(
             header_h,
         );
         // Close action button
-        let action_w = 20.0;
-        let action_x = header_rect.x + header_rect.width - action_w - 8.0;
-        let action_y = header_rect.y + 3.0;
-        let action_h = header_rect.height - 6.0;
+        let action_w = PANEL_ACTION_W;
+        let action_x = header_rect.x + header_rect.width - action_w - PANEL_ACTION_X_INSET;
+        let action_y = header_rect.y + PANEL_ACTION_Y_INSET;
+        let action_h = header_rect.height - PANEL_ACTION_V_REDUCTION;
         let actions = vec![PanelHeaderAction {
             id: WidgetId::panel_action("terminal", "close"),
             rect: Rect::new(action_x, action_y, action_w, action_h),
@@ -406,7 +444,7 @@ pub fn build_shell_widget_tree(
             actions,
         });
         tree.push(ShellWidget::Button {
-            id: WidgetId::button(10),
+            id: WidgetId::button(BTN_ID_TERMINAL_CLOSE),
             rect: Rect::new(action_x, action_y, action_w, action_h),
             label: "x".into(),
             fill_color: tokens.panel_action_fill.to_array(),
@@ -429,10 +467,10 @@ pub fn build_shell_widget_tree(
             content.and_then(|c| c.terminal_tabs.as_ref()).cloned().unwrap_or_else(|| {
                 vec!["Terminal".to_string(), "Problems".to_string(), "Output".to_string()]
             });
-        let tab_w = 70.0;
-        let tab_h = 22.0;
-        let tab_y = layout.bottom_panel.y + 2.0;
-        let mut tab_x = layout.bottom_panel.x + 8.0;
+        let tab_w = TERMINAL_TAB_W;
+        let tab_h = TERMINAL_TAB_H;
+        let tab_y = layout.bottom_panel.y + TERMINAL_TAB_Y_OFFSET;
+        let mut tab_x = layout.bottom_panel.x + TERMINAL_TAB_X_OFFSET;
         for (i, label) in tab_labels.iter().enumerate() {
             tree.push(ShellWidget::TabItem {
                 id: WidgetId::tab(10 + i),
@@ -447,21 +485,23 @@ pub fn build_shell_widget_tree(
                 accent_strip: if i == 0 { Some(tokens.accent.to_array()) } else { None },
                 state: InteractionState::Normal,
             });
-            tab_x += tab_w + 4.0;
+            tab_x += tab_w + TERMINAL_TAB_GAP;
         }
 
-        // Scrollbar on right edge of terminal panel
-        let sb_w = 6.0;
-        let sb_x = layout.bottom_panel.x + layout.bottom_panel.width - sb_w - 2.0;
-        let track_rect = Rect::new(
-            sb_x,
-            layout.bottom_panel.y + header_h + 4.0,
-            sb_w,
-            layout.bottom_panel.height - header_h - 8.0,
+        // Scrollbar on right edge of terminal panel (skipping header)
+        let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+            (
+                layout.bottom_panel.x,
+                layout.bottom_panel.y,
+                layout.bottom_panel.width,
+                layout.bottom_panel.height,
+            ),
+            &SB_BOTTOM_SPEC,
+            header_h,
         );
-        let thumb_h = (track_rect.height * 0.3).max(16.0);
+        let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
         tree.push(ShellWidget::ScrollBar {
-            id: WidgetId::scrollbar(0),
+            id: WidgetId::scrollbar(SCROLLBAR_ID_BOTTOM),
             track_rect,
             thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
             track_fill: tokens.bottom_scrollbar_track.to_array(),
@@ -483,17 +523,17 @@ pub fn build_shell_widget_tree(
             orientation: DividerOrientation::Vertical,
             subtle: false,
         });
-        let header_h = 28.0;
+        let header_h = AI_HEADER_H;
         let header_rect = Rect::new(
             layout.right_panel.x,
             layout.right_panel.y,
             layout.right_panel.width,
             header_h,
         );
-        let action_w = 20.0;
-        let action_x = header_rect.x + header_rect.width - action_w - 10.0;
-        let action_y = header_rect.y + 4.0;
-        let action_h = header_rect.height - 8.0;
+        let action_w = PANEL_ACTION_W;
+        let action_x = header_rect.x + header_rect.width - action_w - AI_ACTION_X_INSET;
+        let action_y = header_rect.y + PANEL_ACTION_Y_INSET;
+        let action_h = header_rect.height - PANEL_ACTION_V_REDUCTION;
         let actions = vec![PanelHeaderAction {
             id: WidgetId::panel_action("ai_assistant", "close"),
             rect: Rect::new(action_x, action_y, action_w, action_h),
@@ -511,7 +551,7 @@ pub fn build_shell_widget_tree(
             actions,
         });
         tree.push(ShellWidget::Button {
-            id: WidgetId::button(11),
+            id: WidgetId::button(BTN_ID_AI_CLOSE),
             rect: Rect::new(action_x, action_y, action_w, action_h),
             label: "x".into(),
             fill_color: tokens.panel_action_fill.to_array(),
@@ -546,11 +586,16 @@ pub fn build_shell_widget_tree(
         }
 
         // AI action buttons — placed below header
-        let btn_w = 64.0;
-        let btn_h = 22.0;
-        let btn_y = layout.right_panel.y + header_h + 8.0;
-        let mut btn_x = layout.right_panel.x + 12.0;
-        for (label, idx) in &[("Explain", 20), ("Review", 21), ("Apply", 22), ("Reject", 23)] {
+        let btn_w = AI_ACTION_BTN_W;
+        let btn_h = AI_ACTION_BTN_H;
+        let btn_y = layout.right_panel.y + header_h + AI_ACTION_BTN_GAP;
+        let mut btn_x = layout.right_panel.x + AI_ACTION_X_INSET;
+        for (label, idx) in &[
+            ("Explain", BTN_ID_AI_EXPLAIN as usize),
+            ("Review", BTN_ID_AI_REVIEW as usize),
+            ("Apply", BTN_ID_AI_APPLY as usize),
+            ("Reject", BTN_ID_AI_REJECT as usize),
+        ] {
             tree.push(ShellWidget::Button {
                 id: WidgetId::button(*idx),
                 rect: Rect::new(btn_x, btn_y, btn_w, btn_h),
@@ -558,15 +603,15 @@ pub fn build_shell_widget_tree(
                 fill_color: tokens.rail_background.to_array(),
                 state: InteractionState::Normal,
             });
-            btn_x += btn_w + 8.0;
+            btn_x += btn_w + AI_ACTION_BTN_GAP;
         }
 
         // AI prompt text input
-        let input_y = btn_y + btn_h + 8.0;
-        let input_w = layout.right_panel.width - 24.0;
+        let input_y = btn_y + btn_h + AI_ACTION_BTN_GAP;
+        let input_w = layout.right_panel.width - AI_ACTION_X_INSET * 2.0;
         tree.push(ShellWidget::TextInput {
             id: WidgetId::text_input(0),
-            rect: Rect::new(layout.right_panel.x + 12.0, input_y, input_w, 28.0),
+            rect: Rect::new(layout.right_panel.x + AI_ACTION_X_INSET, input_y, input_w, AI_INPUT_H),
             text: String::new(),
             placeholder: "Describe what you want to do...".into(),
             fill_color: tokens.rail_background.to_array(),
@@ -591,8 +636,8 @@ pub fn build_shell_widget_tree(
 
     // Status bar segments (pills)
     if layout.bottom_bar.width > 120.0 && layout.bottom_bar.height > 8.0 {
-        let pill_h = layout.bottom_bar.height - 6.0;
-        let pill_y = layout.bottom_bar.y + 3.0;
+        let pill_h = layout.bottom_bar.height - STATUSBAR_PILL_H_INSET;
+        let pill_y = layout.bottom_bar.y + STATUSBAR_PILL_Y;
 
         let left_cells: [(&str, f32); 4] =
             [("Ready", 36.0), ("Ln 22, Col 14", 54.0), ("UTF-8", 36.0), ("LF", 28.0)];
@@ -613,7 +658,7 @@ pub fn build_shell_widget_tree(
 
         // Language badge (right)
         if layout.bottom_bar.width > 200.0 {
-            let badge_w = 48.0;
+            let badge_w = STATUSBAR_BADGE_W;
             let badge_x = layout.bottom_bar.x + layout.bottom_bar.width - badge_w - 16.0;
             tree.push(ShellWidget::StatusSegment {
                 id: WidgetId::status_segment(4),
@@ -651,16 +696,16 @@ fn build_explorer_panel_section(
     inner_w: f32,
     y_off: &mut f32,
 ) {
-    let row_h = 18.0;
+    let row_h = EXPLORER_ROW_H;
     let sidebar_w = sidebar_rect.width;
-    let max_y = layout.left_panel.y + layout.left_panel.height - 12.0;
+    let max_y = layout.left_panel.y + layout.left_panel.height - EXPLORER_MAX_Y_INSET;
 
     // ------------------------------------------------------------------
     // Panel header
     // ------------------------------------------------------------------
     let panel_title = content.and_then(|c| c.explorer_panel_title.as_deref());
     if let Some(title) = panel_title {
-        let hdr_h = 22.0;
+        let hdr_h = EXPLORER_HEADER_H;
         if *y_off + hdr_h <= max_y {
             tree.push(ShellWidget::ListSectionHeader {
                 rect: Rect::new(sidebar_rect.x, *y_off, sidebar_w, hdr_h),
@@ -682,7 +727,7 @@ fn build_explorer_panel_section(
                 if *y_off + row_h > max_y {
                     break;
                 }
-                let indent_px = item.depth as f32 * 14.0;
+                let indent_px = item.depth as f32 * EXPLORER_INDENT_PX;
                 tree.push(ShellWidget::ListItem {
                     id: WidgetId::list_item(10 + item_idx),
                     rect: Rect::new(
@@ -717,11 +762,16 @@ fn build_explorer_panel_section(
         let btn_label = content.and_then(|c| c.explorer_empty_button.as_deref());
         let empty_msg = content.and_then(|c| c.explorer_empty_message.as_deref());
         if let Some(label) = btn_label {
-            let btn_w = 140.0;
-            let btn_h = 30.0;
+            let btn_w = EXPLORER_CTA_BTN_W;
+            let btn_h = EXPLORER_CTA_BTN_H;
             tree.push(ShellWidget::Button {
-                id: WidgetId::button(30),
-                rect: Rect::new(sidebar_rect.x + pad + 10.0, *y_off + 8.0, btn_w, btn_h),
+                id: WidgetId::button(BTN_ID_EXPLORER_CTA),
+                rect: Rect::new(
+                    sidebar_rect.x + pad + EXPLORER_CTA_BTN_X_EXTRA,
+                    *y_off + EXPLORER_CTA_BTN_Y_OFFSET,
+                    btn_w,
+                    btn_h,
+                ),
                 label: label.to_string(),
                 fill_color: tokens.accent.to_array(),
                 state: InteractionState::Normal,
