@@ -100,7 +100,7 @@ pub fn compute_scrollbar_blocks(
                 visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: track_rect.x,
-                    y: track_rect.y,
+                    y: track_rect.y + editor_scroll_offset * (track_rect.h - thumb_h).max(0.0),
                     w: sb_w,
                     h: thumb_h,
                 },
