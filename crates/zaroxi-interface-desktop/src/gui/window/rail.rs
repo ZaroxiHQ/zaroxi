@@ -126,7 +126,7 @@ impl RailPanel {
                 }
                 let max_y = rect.y + rect.h - 12.0;
 
-                for item in items {
+                for (item_idx, item) in items.iter().enumerate() {
                     let row_h = EXPLORER_ROW_H;
                     if y_off + row_h > max_y {
                         break;
@@ -149,7 +149,7 @@ impl RailPanel {
                     };
 
                     blocks.push(UiBlock {
-                        id: format!("explorer_row_{}", item.label),
+                        id: format!("explorer_row_{}", item_idx),
                         title: item.label.clone(),
                         content: String::new(),
                         visible: true,

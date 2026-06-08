@@ -279,19 +279,77 @@ impl WidgetInteractionModel {
         }
 
         let current = self.focused_widget_idx;
-        let prev_idx = match current {
+        let next_idx = match current {
             Some(c) => {
                 let pos = focusables.iter().position(|&i| i == c);
                 match pos {
                     Some(p) if p > 0 => focusables[p - 1],
-                    _ => focusables[focusables.len() - 1],
+                    _ => *focusables.last().unwrap(),
                 }
             }
-            None => focusables[0],
+            None => *focusables.last().unwrap(),
         };
 
-        self.set_focus(tree, Some(prev_idx));
-        let new_id = tree.widgets.get(prev_idx).and_then(|w| w.widget_id());
+        self.set_focus(tree, Some(next_idx));
+        let new_id = tree.widgets.get(next_idx).and_then(|w| w.widget_id());
+        vec![WidgetAction::FocusChanged(new_id), WidgetAction::StateNeedsRedraw]
+    }
+
+    /// Move focus to the next focusable ListItem (Explorer rows: index >= 10).
+    pub fn focus_next_explorer_item(&mut self, tree: &mut ShellWidgetTree) -> Vec<WidgetAction> {
+        let items: Vec<usize> = self.focusable_indices(tree).into_iter().filter(|&i| {
+            tree.widgets.get(i).map_or(false, |w| {
+                matches!(w, ShellWidget::ListItem { id: WidgetId::ListItem { index }, .. } if *index >= 10)
+            })
+        }).collect();
+
+        if items.is_empty() {
+            return Vec::new();
+        }
+
+        let current = self.focused_widget_idx;
+        let next_idx = match current {
+            Some(c) => {
+                let pos = items.iter().position(|&i| i == c);
+                match pos {
+                    Some(p) if p + 1 < items.len() => items[p + 1],
+                    _ => items[0],
+                }
+            }
+            None => items[0],
+        };
+
+        self.set_focus(tree, Some(next_idx));
+        let new_id = tree.widgets.get(next_idx).and_then(|w| w.widget_id());
+        vec![WidgetAction::FocusChanged(new_id), WidgetAction::StateNeedsRedraw]
+    }
+
+    /// Move focus to the previous focusable ListItem (Explorer rows: index >= 10).
+    pub fn focus_prev_explorer_item(&mut self, tree: &mut ShellWidgetTree) -> Vec<WidgetAction> {
+        let items: Vec<usize> = self.focusable_indices(tree).into_iter().filter(|&i| {
+            tree.widgets.get(i).map_or(false, |w| {
+                matches!(w, ShellWidget::ListItem { id: WidgetId::ListItem { index }, .. } if *index >= 10)
+            })
+        }).collect();
+
+        if items.is_empty() {
+            return Vec::new();
+        }
+
+        let current = self.focused_widget_idx;
+        let next_idx = match current {
+            Some(c) => {
+                let pos = items.iter().position(|&i| i == c);
+                match pos {
+                    Some(p) if p > 0 => items[p - 1],
+                    _ => *items.last().unwrap(),
+                }
+            }
+            None => *items.last().unwrap(),
+        };
+
+        self.set_focus(tree, Some(next_idx));
+        let new_id = tree.widgets.get(next_idx).and_then(|w| w.widget_id());
         vec![WidgetAction::FocusChanged(new_id), WidgetAction::StateNeedsRedraw]
     }
 

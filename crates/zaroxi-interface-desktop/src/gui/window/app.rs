@@ -852,6 +852,45 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
                     render_blocks.extend(scroll_blocks);
 
+                    // ── Explorer row hover/focus bridging ──
+                    // Sync widget-tree interaction states into painted row blocks
+                    // so hovered/focused rows get visual feedback.
+                    if let Some(ref tree) = self.widget_tree {
+                        for (idx, w) in tree.widgets.iter().enumerate() {
+                            if let zaroxi_core_engine_ui::ShellWidget::ListItem {
+                                id: zaroxi_core_engine_ui::WidgetId::ListItem { index },
+                                state,
+                                ..
+                            } = w
+                            {
+                                if *index >= 10 {
+                                    let row_idx = *index - 10;
+                                    let state = *state;
+                                    let hover_focus_color = match state {
+                                        zaroxi_core_engine_ui::InteractionState::Hover => {
+                                            Some(tokens.hover_bg.to_array())
+                                        }
+                                        zaroxi_core_engine_ui::InteractionState::Focused
+                                        | zaroxi_core_engine_ui::InteractionState::Selected => {
+                                            Some(tokens.rail_item_active.to_array())
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(color) = hover_focus_color {
+                                        let block_id = format!("explorer_row_{}", row_idx);
+                                        for block in &mut render_blocks {
+                                            if block.id == block_id {
+                                                block.header_color = Some(color);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            let _ = idx;
+                        }
+                    }
+
                     // Phase 72: gated debug
                     if std::env::var("ZAROXI_DEBUG_SEAMS").as_deref() == Ok("1") {
                         for blk in &render_blocks {
@@ -965,6 +1004,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                             } else {
                                 self.interaction.focus_next(tree)
                             }
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Key::Named(NamedKey::ArrowDown) => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            self.interaction.focus_next_explorer_item(tree)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    Key::Named(NamedKey::ArrowUp) => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            self.interaction.focus_prev_explorer_item(tree)
                         } else {
                             Vec::new()
                         }
