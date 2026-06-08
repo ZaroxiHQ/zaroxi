@@ -119,20 +119,13 @@ impl RailPanel {
         });
 
         // Button block for empty state CTA.
-        // Position matches the widget tree button (shell_builder.rs):
-        //   sidebar_rect.x + pad + 10.0, y_off + 8.0
-        // where y_off = rect.y + pad + search_h(26) + search_gap(8) + divider_space(12).
+        // Position from shared constants (matches shell_builder.rs).
         if empty_message {
             if let Some(ref btn_label) = data.empty_button_label {
-                let pad = 10.0;
-                let search_h = 26.0;
-                let search_gap = 8.0;
-                let divider_space = 12.0;
-                let btn_button_y = 8.0;
-                let btn_w = 140.0;
-                let btn_h = 30.0;
-                let btn_x = rect.x + pad + 10.0;
-                let btn_y = rect.y + pad + search_h + search_gap + divider_space + btn_button_y;
+                let (btn_x, btn_y, btn_w, btn_h) =
+                    crate::gui::window::editor_shell::constants::explorer_cta_button_rect((
+                        rect.x, rect.y, rect.w, rect.h,
+                    ));
                 let btn_rect =
                     zaroxi_core_engine_render::Rect { x: btn_x, y: btn_y, w: btn_w, h: btn_h };
 

@@ -12,6 +12,9 @@ spatial placement regardless of the widget-tree layout system.
 
 use crate::gui::ShellRegion;
 use crate::gui::region_dispatch::region_role;
+use crate::gui::window::editor_shell::constants::{
+    SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC, compute_scrollbar_geometry,
+};
 use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::{PanelRole, StyleTokens};
 
@@ -58,20 +61,15 @@ pub fn compute_scrollbar_blocks(
     if let Some(editor) = editor_region {
         let needs_scroll = editor_total_lines > editor_visible_lines.max(1);
         if needs_scroll && editor.rect.width > 20 && editor.rect.height > 40 {
-            let sb_w = 6.0;
             let ex = editor.rect.x as f32;
             let ey = editor.rect.y as f32;
             let ew = editor.rect.width as f32;
             let eh = editor.rect.height as f32;
 
-            let sb_x = ex + ew - sb_w - 3.0;
-            let track_rect = zaroxi_core_engine_render::Rect {
-                x: sb_x,
-                y: ey + 4.0,
-                w: sb_w,
-                h: (eh - 8.0).max(0.0),
-            };
-            let thumb_h = (track_rect.h * 0.25).max(20.0).min(track_rect.h);
+            let (sb_x, track_y, sb_w, track_h, thumb_h) =
+                compute_scrollbar_geometry((ex, ey, ew, eh), &SB_EDITOR_SPEC, 0.0);
+            let track_rect =
+                zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_editor".to_string(),
@@ -126,20 +124,15 @@ pub fn compute_scrollbar_blocks(
     if let Some(sidebar) = sidebar_region {
         let needs_scroll = sidebar_items > sidebar_visible.max(1);
         if needs_scroll && sidebar.rect.width > 20 && sidebar.rect.height > 200 {
-            let sb_w = 4.0;
             let sx = sidebar.rect.x as f32;
             let sy = sidebar.rect.y as f32;
             let sw = sidebar.rect.width as f32;
             let sh = sidebar.rect.height as f32;
 
-            let sb_x = sx + sw - sb_w - 3.0;
-            let track_rect = zaroxi_core_engine_render::Rect {
-                x: sb_x,
-                y: sy + 8.0,
-                w: sb_w,
-                h: (sh - 16.0).max(0.0),
-            };
-            let thumb_h = (track_rect.h * 0.5).max(16.0).min(track_rect.h);
+            let (sb_x, track_y, sb_w, track_h, thumb_h) =
+                compute_scrollbar_geometry((sx, sy, sw, sh), &SB_SIDEBAR_SPEC, 0.0);
+            let track_rect =
+                zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_sidebar".to_string(),
@@ -194,20 +187,15 @@ pub fn compute_scrollbar_blocks(
     if let Some(bottom) = bottom_panel_region {
         let needs_scroll = bottom_lines > bottom_visible.max(1);
         if needs_scroll && bottom.rect.width > 20 && bottom.rect.height > 40 {
-            let sb_w = 6.0;
             let bx = bottom.rect.x as f32;
             let by = bottom.rect.y as f32;
             let bw = bottom.rect.width as f32;
             let bh = bottom.rect.height as f32;
 
-            let sb_x = bx + bw - sb_w - 2.0;
-            let track_rect = zaroxi_core_engine_render::Rect {
-                x: sb_x,
-                y: by + 4.0,
-                w: sb_w,
-                h: (bh - 8.0).max(0.0),
-            };
-            let thumb_h = (track_rect.h * 0.3).max(16.0).min(track_rect.h);
+            let (sb_x, track_y, sb_w, track_h, thumb_h) =
+                compute_scrollbar_geometry((bx, by, bw, bh), &SB_BOTTOM_SPEC, 0.0);
+            let track_rect =
+                zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_bottom".to_string(),

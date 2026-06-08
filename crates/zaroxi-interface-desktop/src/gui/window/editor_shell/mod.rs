@@ -11,10 +11,12 @@ Provides:
 */
 
 pub mod clip;
+pub mod constants;
 pub mod controller;
 pub mod layout;
 pub mod view;
 
+pub use constants::*;
 pub use controller::ShellLayoutController;
 pub use layout::{EditorShellLayout, compute_layout};
 pub use view::EditorViewport;

@@ -786,16 +786,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .map(|cv| cv.lines.len())
                         .unwrap_or(0);
                     let line_h = 16.0f32;
-                    let content_pad = 8.0f32;
-                    let header_h = 28.0f32;
                     let editor_region = crate::gui::region_dispatch::find_region_by_role(
                         shell_regions,
                         zaroxi_core_engine_style::PanelRole::ContentArea,
                     );
                     let editor_visible_lines = editor_region
                         .map(|r| {
-                            let usable_h = r.rect.height as f32 - header_h - content_pad * 2.0;
-                            (usable_h / line_h).max(1.0) as usize
+                            crate::gui::window::editor_shell::constants::visible_lines_from_region(
+                                r.rect.height as f32,
+                            )
                         })
                         .unwrap_or(1);
 
@@ -813,8 +812,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
                     let bottom_visible = bottom_region
                         .map(|r| {
-                            let usable_h = r.rect.height as f32 - header_h - content_pad * 2.0;
-                            (usable_h / line_h).max(1.0) as usize
+                            crate::gui::window::editor_shell::constants::visible_lines_from_region(
+                                r.rect.height as f32,
+                            )
                         })
                         .unwrap_or(1);
 
@@ -1024,6 +1024,10 @@ fn project_editor_cursor(
     work_content: &Option<crate::gui::ShellWorkContent>,
     editor_scroll_offset: f32,
 ) -> Option<(usize, usize)> {
+    use crate::gui::window::editor_shell::constants::{
+        CHAR_WIDTH_STUB, CONTENT_HEADER_H, CONTENT_PAD_X, LINE_HEIGHT,
+    };
+
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
 
@@ -1031,11 +1035,10 @@ fn project_editor_cursor(
         return None;
     }
 
-    let dt = zaroxi_interface_theme::theme::DesignTokens::default();
-    let content_pad = dt.spacing_sm; // 8.0
-    let header_h = dt.spacing_md + dt.spacing_lg; // 28.0
-    let line_h = dt.font_size_md + 2.0; // 16.0
-    let char_w = dt.font_size_sm / 1.5; // 8.0
+    let content_pad = CONTENT_PAD_X;
+    let header_h = CONTENT_HEADER_H;
+    let line_h = LINE_HEIGHT;
+    let char_w = CHAR_WIDTH_STUB;
     let content_x = viewport.content_rect.0 + content_pad;
     let content_y = viewport.content_rect.1 + header_h + content_pad;
     let rel_y = py - content_y;

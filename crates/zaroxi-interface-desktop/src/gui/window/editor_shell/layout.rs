@@ -56,22 +56,13 @@ struct Nodes {
     status_bar: NodeId,
 }
 
-// ── Layout constants (derived from DesignTokens spacing scale) ──
+// ── Layout constants (from centralised constants module) ──
 
-const TITLEBAR_H: f32 = 32.0;
-const STATUS_H: f32 = 26.0;
-const RAIL_W: f32 = 44.0;
-const TAB_STRIP_H: f32 = 28.0;
-const BREADCRUMB_H: f32 = 20.0;
-const AI_HEADER_H: f32 = 28.0;
-const GUTTER_W: f32 = 52.0;
-const TERMINAL_MIN_H: f32 = 24.0;
-const TERMINAL_BASIS_H: f32 = 150.0;
-const EDITOR_MIN_W: f32 = 120.0;
-const EDITOR_MIN_H: f32 = 40.0;
-const SIDEBAR_BASIS_W: f32 = 280.0;
-const ASSISTANT_BASIS_W: f32 = 300.0;
-const MINIMAP_BASIS_W: f32 = 60.0;
+use super::constants::{
+    AI_HEADER_H, ASSISTANT_BASIS_W, BREADCRUMB_H, EDITOR_MIN_H, EDITOR_MIN_W, GUTTER_W,
+    MINIMAP_BASIS_W, RAIL_W, SIDEBAR_BASIS_W, STATUS_H, TAB_STRIP_H, TERMINAL_BASIS_H,
+    TERMINAL_MIN_H, TITLEBAR_H,
+};
 
 /// Build a Taffy tree for the IDE shell layout and compute the final rects.
 pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {

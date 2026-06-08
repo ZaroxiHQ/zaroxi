@@ -9,7 +9,7 @@ their own dimensions.
 The `clip_rect` is the strict scissor boundary: no text, gutter, caret,
 selection, or decoration may paint outside this rect.
 */
-use zaroxi_interface_theme::theme::DesignTokens;
+use super::constants::{CONTENT_PAD_X, CONTENT_PAD_Y};
 
 /// Defines the visible editor content region and its strict clip boundary.
 ///
@@ -30,9 +30,8 @@ impl EditorViewport {
     /// The clip rect is the content rect inset by the standard content padding
     /// from DesignTokens (8px horizontal, 4px vertical).
     pub fn from_content_rect(content_rect: (f32, f32, f32, f32)) -> Self {
-        let dt = DesignTokens::default();
-        let inset_x = dt.spacing_sm; // 8.0
-        let inset_y = dt.spacing_xs as f32; // 4.0
+        let inset_x = CONTENT_PAD_X;
+        let inset_y = CONTENT_PAD_Y;
 
         let clip = (
             content_rect.0 + inset_x,

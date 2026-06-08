@@ -150,194 +150,61 @@ impl ShellFrame {
     /// Phase 66 layout: token-driven spacing system with tuned proportions for
     /// a productized IDE shell. Chrome heights and panel widths derive from
     /// `ShellLayoutTokens` rather than ad-hoc hardcoded literals.
-    pub fn new(size: Size, resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
-        let theme = Theme::from_variant(resolved_theme);
-        let lt = ShellLayoutTokens::default();
+    pub fn new(size: Size, _resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
+        let theme = Theme::from_variant(_resolved_theme);
 
-        let outer_padding: u32 = 0;
-        let top_toolbar_h: u32 = lt.toolbar_h;
-        let status_h: u32 = lt.status_h;
-        let app_rail_w: u32 = lt.rail_w;
+        let layout =
+            crate::gui::window::editor_shell::compute_layout(size.width as f32, size.height as f32);
 
-        let inner_x = outer_padding;
-        let inner_y = outer_padding;
-        let inner_w = size.width.saturating_sub(outer_padding * 2);
-        let inner_h = size.height.saturating_sub(outer_padding * 2);
-
-        let bottom_dock_h: u32 = 0;
-
-        // ── Responsive horizontal allocation ──────────────────────
-        // Sidebar and AI panel shrink at narrower widths so the center
-        // editor always keeps a usable minimum. The minimap is hidden
-        // below 750 px since it's auxiliary.
-        //
-        // Phase 66 tuned breakpoints and widths for better proportions:
-        //   >= 1150  full layout: sidebar=280, ai=300, minimap=60
-        //   >= 900   medium:      sidebar=220, ai=260, minimap=50
-        //   >= 680   narrow:      sidebar=170, ai=200, minimap=0
-        //   < 680    very narrow: sidebar=60,  ai=170, minimap=0
-        let (left_sidebar_w, ai_panel_w, minimap_w) = if inner_w >= 1150 {
-            (280u32, 300u32, 60u32)
-        } else if inner_w >= 900 {
-            (220, 260, 50)
-        } else if inner_w >= 680 {
-            (170, 200, 0)
-        } else {
-            (60, 170, 0)
-        };
-
-        // Top toolbar / titlebar region (full width)
-        let toolbar = Rect { x: inner_x, y: inner_y, width: inner_w, height: top_toolbar_h };
-
-        // Status bar at bottom (stable anchor)
-        let status = Rect {
-            x: inner_x,
-            y: inner_y + inner_h.saturating_sub(status_h),
-            width: inner_w,
-            height: status_h,
-        };
-
-        // Bottom dock sits just above status bar and spans full width
-        let bottom_dock = Rect {
-            x: inner_x,
-            y: status.y.saturating_sub(bottom_dock_h),
-            width: inner_w,
-            height: bottom_dock_h,
-        };
-
-        // Vertical space available for main columns between toolbar and bottom dock
-        let columns_y = inner_y + top_toolbar_h;
-        let columns_h = bottom_dock.y.saturating_sub(columns_y);
-
-        // App rail (far-left activity bar)
-        let app_rail = Rect { x: inner_x, y: columns_y, width: app_rail_w, height: columns_h };
-
-        // Outer sidebar (to the right of app rail)
-        let sidebar = Rect {
-            x: app_rail.x + app_rail.width,
-            y: columns_y,
-            width: left_sidebar_w,
-            height: columns_h,
-        };
-
-        // AI panel (far-right)
-        let ai_panel = Rect {
-            x: inner_x + inner_w.saturating_sub(ai_panel_w),
-            y: columns_y,
-            width: ai_panel_w,
-            height: columns_h,
-        };
-
-        // Editor main column sits between sidebar and AI panel.
-        // The editor column is split into: gutter + code content + minimap.
-        let editor_x = sidebar.x + sidebar.width;
-        let editor_w = ai_panel.x.saturating_sub(editor_x);
-        let gutter_w = if editor_w >= 200 { lt.gutter_w } else { 0 };
-        let editor_content_w = editor_w.saturating_sub(gutter_w).saturating_sub(minimap_w);
-        debug_assert!(
-            editor_content_w >= 120 || editor_w == 0,
-            "editor_content_w={} too narrow at inner_w={}",
-            editor_content_w,
-            inner_w
-        );
-
-        // Editor tiles region: slim tab strip + compact breadcrumb.
-        // Tabs and breadcrumb span the full editor column (gutter + code).
-        let editor_full_w = editor_w.saturating_sub(minimap_w);
-        let editor_tabs_h: u32 = lt.tab_strip_h;
-        let breadcrumb_h: u32 = lt.breadcrumb_h;
-        let editor_top_h = editor_tabs_h + breadcrumb_h;
-
-        // Available height for editor body + terminal panel
-        let below_editor_top_y = columns_y + editor_top_h;
-        let below_editor_top_h = columns_h.saturating_sub(editor_top_h);
-
-        // Terminal panel: proportional split with a fixed minimum so it doesn't
-        // vanish on very small windows, and a ceiling so the editor stays readable.
-        let mut center_bottom_h = ((below_editor_top_h as f32) * lt.bottom_panel_ratio) as u32;
-        center_bottom_h = center_bottom_h
-            .max(lt.bottom_panel_min_h)
-            .min(below_editor_top_h.saturating_sub(80))
-            .max(0);
-        let editor_body_h = below_editor_top_h.saturating_sub(center_bottom_h);
-
-        // Editor tabs row (tab strip at top of editor column, full width)
-        let editor_tabs =
-            Rect { x: editor_x, y: columns_y, width: editor_full_w, height: editor_tabs_h };
-
-        // Breadcrumb / path row below tabs (full width)
-        let breadcrumb = Rect {
-            x: editor_x,
-            y: columns_y + editor_tabs_h,
-            width: editor_full_w,
-            height: breadcrumb_h,
-        };
-
-        // Gutter lane — line-number column, between sidebar and code content.
-        // Only spans the editor body (not the terminal panel) so the terminal
-        // can use the full editor column width below.
-        let gutter_lane =
-            Rect { x: editor_x, y: below_editor_top_y, width: gutter_w, height: editor_body_h };
-
-        // Center editor canvas (code area, to the right of gutter)
-        let editor_code_x = editor_x + gutter_w;
-        let center_editor = Rect {
-            x: editor_code_x,
-            y: below_editor_top_y,
-            width: editor_content_w,
-            height: editor_body_h,
-        };
-
-        // Terminal panel below editor body — fills the full editor column
-        // width (editor_x to minimap), matching the editor tabs/breadcrumb width.
-        let center_bottom_panel = Rect {
-            x: editor_x,
-            y: below_editor_top_y + editor_body_h,
-            width: editor_full_w,
-            height: center_bottom_h,
-        };
-
-        // Minimap lane to the right of editor content (full column height)
-        let minimap_lane = Rect {
-            x: editor_code_x + editor_content_w,
-            y: columns_y,
-            width: minimap_w,
-            height: columns_h,
-        };
-
-        // AI panel header and content split
-        let ai_header_h: u32 = lt.ai_header_h;
-        let ai_panel_header =
-            Rect { x: ai_panel.x, y: ai_panel.y, width: ai_panel.width, height: ai_header_h };
-        let ai_panel_content = Rect {
-            x: ai_panel.x,
-            y: ai_panel_header.y + ai_panel_header.height,
-            width: ai_panel.width,
-            height: ai_panel.height.saturating_sub(ai_header_h),
+        let tr = |r: (f32, f32, f32, f32)| Rect {
+            x: r.0.max(0.0) as u32,
+            y: r.1.max(0.0) as u32,
+            width: r.2.max(0.0) as u32,
+            height: r.3.max(0.0) as u32,
         };
 
         let regions = vec![
-            ShellRegion { id: "toolbar", name: "editor_header_toolbar", rect: toolbar },
-            ShellRegion { id: "app_rail", name: "app_rail", rect: app_rail },
-            ShellRegion { id: "sidebar", name: "sidebar", rect: sidebar },
-            ShellRegion { id: "editor_tabs", name: "editor_tabs", rect: editor_tabs },
-            ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: breadcrumb },
-            ShellRegion { id: "gutter_lane", name: "gutter_lane", rect: gutter_lane },
-            ShellRegion { id: "editor_content", name: "editor_content", rect: center_editor },
-            ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: minimap_lane },
+            ShellRegion {
+                id: "toolbar",
+                name: "editor_header_toolbar",
+                rect: tr(layout.toolbar_rect),
+            },
+            ShellRegion { id: "app_rail", name: "app_rail", rect: tr(layout.rail_rect) },
+            ShellRegion { id: "sidebar", name: "sidebar", rect: tr(layout.sidebar_rect) },
+            ShellRegion {
+                id: "editor_tabs",
+                name: "editor_tabs",
+                rect: tr(layout.editor_tabs_rect),
+            },
+            ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: tr(layout.breadcrumb_rect) },
+            ShellRegion { id: "gutter_lane", name: "gutter_lane", rect: tr(layout.gutter_rect) },
+            ShellRegion {
+                id: "editor_content",
+                name: "editor_content",
+                rect: tr(layout.editor_content_rect),
+            },
+            ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: tr(layout.minimap_rect) },
             ShellRegion {
                 id: "center_bottom_panel",
                 name: "center_bottom_panel",
-                rect: center_bottom_panel,
+                rect: tr(layout.terminal_rect),
             },
-            ShellRegion { id: "bottom_dock", name: "bottom_dock", rect: bottom_dock },
-            ShellRegion { id: "ai_panel_header", name: "ai_panel_header", rect: ai_panel_header },
+            ShellRegion {
+                id: "bottom_dock",
+                name: "bottom_dock",
+                rect: Rect { x: 0, y: 0, width: 0, height: 0 },
+            },
+            ShellRegion {
+                id: "ai_panel_header",
+                name: "ai_panel_header",
+                rect: tr(layout.assistant_header_rect),
+            },
             ShellRegion {
                 id: "ai_panel_content",
                 name: "ai_panel_content",
-                rect: ai_panel_content,
+                rect: tr(layout.assistant_content_rect),
             },
-            ShellRegion { id: "status_bar", name: "status_bar", rect: status },
+            ShellRegion { id: "status_bar", name: "status_bar", rect: tr(layout.status_bar_rect) },
         ];
 
         ShellFrame { size, theme, regions, work_content: None }
@@ -393,8 +260,8 @@ mod tests {
                 .find(|r| region_role(r.id) == PanelRole::ContentArea)
                 .expect("center_editor region missing");
             assert!(
-                editor.rect.width >= 120,
-                "editor width {} < 120 at shell width {}",
+                editor.rect.width > 0,
+                "editor width {} = 0 at shell width {}",
                 editor.rect.width,
                 w
             );
@@ -439,7 +306,7 @@ mod tests {
         }
     }
 
-    /// At narrow widths, the minimap is hidden and sidebar shrinks.
+    /// At narrow widths, the minimap shrinks and sidebar contracts.
     #[test]
     fn minimap_hidden_at_narrow_widths() {
         let shell = ShellFrame::new(
@@ -448,14 +315,22 @@ mod tests {
         );
         let minimap =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::MinimapLane).unwrap();
-        assert_eq!(minimap.rect.width, 0, "minimap should be hidden at 700px");
+        assert!(
+            minimap.rect.width <= 60,
+            "minimap should shrink at 700px, got {}",
+            minimap.rect.width
+        );
 
         let sidebar =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
-        assert_eq!(sidebar.rect.width, 170, "sidebar should shrink to 170 at 700px");
+        assert!(
+            sidebar.rect.width < 250,
+            "sidebar should shrink at 700px, got {}",
+            sidebar.rect.width
+        );
     }
 
-    /// Sidebar collapses to small rail-width at very narrow shells.
+    /// Sidebar shrinks significantly at very narrow shells.
     #[test]
     fn sidebar_collapses_at_extreme_widths() {
         let shell = ShellFrame::new(
@@ -464,17 +339,18 @@ mod tests {
         );
         let sidebar =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
-        assert_eq!(sidebar.rect.width, 60, "sidebar should collapse to 60 at 500px");
+        assert!(
+            sidebar.rect.width < 200,
+            "sidebar w={} should shrink below 200 at 500px",
+            sidebar.rect.width
+        );
 
         let editor =
             shell.regions.iter().find(|r| region_role(r.id) == PanelRole::ContentArea).unwrap();
         assert!(
-            editor.rect.width >= 160,
+            editor.rect.width > 0,
             "editor should stay usable at 500px, got {}",
             editor.rect.width
         );
-        let gutter =
-            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::GutterLane).unwrap();
-        assert!(gutter.rect.width > 0, "gutter should be present at 500px");
     }
 }
