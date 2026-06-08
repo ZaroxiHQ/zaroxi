@@ -1,15 +1,14 @@
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::chrome::TabEntry;
+use zaroxi_core_platform_syntax::parser::ParserPool;
 use zaroxi_interface_theme::theme::SemanticColors;
 
 use super::super::editor::EditorContentData;
 
-/// Shape live editor content from work_content into `EditorContentData`.
-/// Emits content_spans with gutter line numbers in text_faint and code in
-/// syntax-highlighted colors, so the renderer draws them distinctly.
 pub fn shape_editor_content(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
+    parser_pool: &ParserPool,
 ) -> EditorContentData {
     let wc = match work_content {
         Some(w) => w,
@@ -46,7 +45,7 @@ pub fn shape_editor_content(
             return spans;
         }
 
-        let syntax_spans = super::super::syntax_color::colorize_source(&cv.lines, sem);
+        let syntax_spans = super::super::syntax_color::colorize_source(&cv.lines, sem, parser_pool);
 
         // Interleave gutter (faint) and code (syntax-colored) per line.
         // The syntax_color module returns spans keyed by line index.

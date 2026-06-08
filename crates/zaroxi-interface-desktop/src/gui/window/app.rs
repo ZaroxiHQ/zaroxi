@@ -30,6 +30,7 @@ use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_core_engine_ui::WidgetId;
+use zaroxi_core_platform_syntax::parser::ParserPool;
 use zaroxi_kernel_types::Id;
 
 fn gui_debug(msg: &str) {
@@ -126,6 +127,8 @@ pub struct GuiApp {
     /// Explorer CTA button hit rect in window coordinates (x, y, w, h).
     /// Computed on each redraw from the same formula used in build_sidebar_block.
     pub explorer_button_rect: Option<(f32, f32, f32, f32)>,
+    /// Shared parser pool for syntax highlighting.
+    pub parser_pool: ParserPool,
 }
 
 impl GuiApp {
@@ -296,6 +299,7 @@ impl GuiApp {
     /// Dispatch engine-emitted widget actions into app-specific effects.
     pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
         let mut needs_redraw = false;
+        let mut content_changed = false;
         for action in actions {
             match action {
                 zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw => {
@@ -315,8 +319,16 @@ impl GuiApp {
                         .and_then(|handler| handler(id))
                         .or_else(|| self.dispatch_activation(id));
 
-                    if let Some(wc) = content {
-                        self.work_content = Some(wc);
+                    if let Some(ref wc) = content {
+                        let changed = self.work_content.as_ref().map_or(true, |old| {
+                            old.explorer_items != wc.explorer_items
+                                || old.editor_body.as_ref().map(|b| &b.lines)
+                                    != wc.editor_body.as_ref().map(|b| &b.lines)
+                        });
+                        if changed {
+                            self.work_content = Some(wc.clone());
+                            content_changed = true;
+                        }
                     }
                     needs_redraw = true;
                 }
@@ -324,9 +336,8 @@ impl GuiApp {
                 | zaroxi_core_engine_ui::WidgetAction::Nothing => {}
             }
         }
-        if needs_redraw {
+        if needs_redraw || content_changed {
             if let Some(z) = self.maybe_window.as_ref() {
-                click_trace("ZAROXI_REDRAW: request_redraw[handle_actions]");
                 let _ = z.window().request_redraw();
             }
         }
@@ -697,8 +708,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let render_layout =
                         super::renderbridge::build_render_layout(&self.shell.regions, &tokens);
 
-                    let editor_data =
-                        super::presenters::shape_editor_content(&self.shell.work_content, &sem);
+                    let editor_data = super::presenters::shape_editor_content(
+                        &self.shell.work_content,
+                        &sem,
+                        &self.parser_pool,
+                    );
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
 

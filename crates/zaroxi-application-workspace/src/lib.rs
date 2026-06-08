@@ -67,6 +67,7 @@ pub struct WorkspaceEntry {
     pub is_dir: bool,
     pub children: Vec<WorkspaceEntry>,
     pub expanded: bool,
+    pub children_loaded: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -75,20 +76,35 @@ pub struct WorkspaceTree {
 }
 
 impl WorkspaceTree {
-    /// Load a full recursive tree from the filesystem starting at `root_path`.
+    /// Load a tree from the filesystem, loading only immediate children.
     pub fn load_from_fs(root_path: &PathBuf) -> io::Result<Self> {
-        fn build(path: &PathBuf) -> io::Result<WorkspaceEntry> {
+        fn build_shallow(path: &PathBuf) -> io::Result<WorkspaceEntry> {
             let name = path
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| path.to_string_lossy().to_string());
             let is_dir = path.is_dir();
             let mut children = Vec::new();
+            let mut children_loaded = false;
 
             if is_dir {
-                for (p, _is_dir) in zaroxi_core_workspace_files::list_dir_entries(path)? {
-                    let child = build(&p)?;
-                    children.push(child);
+                if let Ok(entries) = zaroxi_core_workspace_files::list_dir_entries(path) {
+                    for (p, _is_dir) in entries {
+                        let child_name = p
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_else(|| p.to_string_lossy().to_string());
+                        children.push(WorkspaceEntry {
+                            id: p.to_string_lossy().to_string(),
+                            name: child_name,
+                            path: p,
+                            is_dir: _is_dir,
+                            children: Vec::new(),
+                            expanded: false,
+                            children_loaded: false,
+                        });
+                    }
+                    children_loaded = true;
                 }
             }
 
@@ -99,11 +115,41 @@ impl WorkspaceTree {
                 is_dir,
                 children,
                 expanded: false,
+                children_loaded,
             })
         }
 
-        let root = build(root_path)?;
+        let root = build_shallow(root_path)?;
         Ok(WorkspaceTree { root })
+    }
+
+    /// Load children for a directory entry on demand.
+    pub fn load_children(node: &mut WorkspaceEntry) -> io::Result<()> {
+        if !node.is_dir || node.children_loaded {
+            return Ok(());
+        }
+
+        let entries = zaroxi_core_workspace_files::list_dir_entries(&node.path)?;
+        node.children = entries
+            .into_iter()
+            .map(|(p, is_dir)| {
+                let child_name = p
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| p.to_string_lossy().to_string());
+                WorkspaceEntry {
+                    id: p.to_string_lossy().to_string(),
+                    name: child_name,
+                    path: p,
+                    is_dir,
+                    children: Vec::new(),
+                    expanded: false,
+                    children_loaded: false,
+                }
+            })
+            .collect();
+        node.children_loaded = true;
+        Ok(())
     }
 
     /// Find a mutable reference to an entry by id.
@@ -207,10 +253,16 @@ impl WorkspaceExplorer {
     }
 
     /// Toggle expand/collapse for a directory entry by id.
+    /// Lazily loads children on first expand.
     pub fn toggle_expand(&mut self, id: &str) -> bool {
         if let Some(ref mut t) = self.tree {
             if let Some(node) = WorkspaceTree::find_mut_entry(&mut t.root, id) {
                 if node.is_dir {
+                    if !node.expanded && !node.children_loaded {
+                        if let Err(_e) = WorkspaceTree::load_children(node) {
+                            return false;
+                        }
+                    }
                     node.expanded = !node.expanded;
                     return true;
                 }

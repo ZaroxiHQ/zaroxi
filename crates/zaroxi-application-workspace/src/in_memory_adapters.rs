@@ -68,10 +68,9 @@ impl BufferStore for InMemoryBufferStore {
         let key = id.0.clone();
         let inner = self.inner.clone();
         Box::pin(async move {
+            let content = std::fs::read_to_string(&path).unwrap_or_else(|_| String::new());
             let mut m = inner.lock().unwrap();
-            m.entry(key.clone()).or_insert_with(|| {
-                "// sample file\nfn main() { println!(\"Hello Phase0\"); }\n".to_string()
-            });
+            m.entry(key.clone()).or_insert(content);
             Ok(id)
         })
     }

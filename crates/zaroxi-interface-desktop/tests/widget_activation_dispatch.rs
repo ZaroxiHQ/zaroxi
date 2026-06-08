@@ -46,6 +46,7 @@ mod tests {
             folder_picker: None,
             explorer_actions: None,
             explorer_button_rect: None,
+            parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
         }
     }
 

@@ -19,21 +19,28 @@ use crate::language::LanguageId;
 /// Each parser is associated with a specific language and can be reused for
 /// incremental parsing.
 pub struct ParserPool {
-    /// Map of language ID to a pool of parsers for that language.
     parsers: Mutex<std::collections::HashMap<LanguageId, Vec<Parser>>>,
+    unavailable: Mutex<std::collections::HashSet<LanguageId>>,
 }
 
 impl std::fmt::Debug for ParserPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let num_parsers = self.parsers.lock().len();
-        f.debug_struct("ParserPool").field("num_parsers", &num_parsers).finish()
+        let num_unavailable = self.unavailable.lock().len();
+        f.debug_struct("ParserPool")
+            .field("num_parsers", &num_parsers)
+            .field("num_unavailable", &num_unavailable)
+            .finish()
     }
 }
 
 impl ParserPool {
     /// Create a new empty parser pool.
     pub fn new() -> Self {
-        Self { parsers: Mutex::new(std::collections::HashMap::new()) }
+        Self {
+            parsers: Mutex::new(std::collections::HashMap::new()),
+            unavailable: Mutex::new(std::collections::HashSet::new()),
+        }
     }
 
     /// Get a parser for the given language.
@@ -41,55 +48,36 @@ impl ParserPool {
     /// If a parser is available in the pool, it is returned. Otherwise, a new
     /// parser is created and configured with the language's grammar.
     pub fn acquire(&self, language: &LanguageId) -> Option<Parser> {
-        // PlainText has no grammar – return None immediately
         if *language == LanguageId::PlainText {
-            eprintln!("DEBUG: ParserPool::acquire: PlainText, returning None");
+            return None;
+        }
+
+        if self.unavailable.lock().contains(language) {
             return None;
         }
 
         let mut pool = self.parsers.lock();
 
-        // Try to reuse an existing parser
         if let Some(parsers) = pool.get_mut(language) {
             if let Some(parser) = parsers.pop() {
-                eprintln!("DEBUG: ParserPool::acquire: reusing parser for {:?}", language);
                 return Some(parser);
             }
         }
 
-        eprintln!("DEBUG: ParserPool::acquire: creating new parser for {:?}", language);
-
-        // Create a new parser
         let mut parser = Parser::new();
 
-        // Set the language for the parser
         let ts_lang = match language.tree_sitter_language() {
-            Some(lang) => {
-                eprintln!(
-                    "DEBUG: ParserPool::acquire: got tree_sitter_language for {:?}",
-                    language
-                );
-                lang
-            }
+            Some(lang) => lang,
             None => {
-                eprintln!(
-                    "DEBUG: ParserPool::acquire: tree_sitter_language returned None for {:?}",
-                    language
-                );
+                self.unavailable.lock().insert(*language);
                 return None;
             }
         };
 
         match parser.set_language(&ts_lang) {
-            Ok(()) => {
-                eprintln!("DEBUG: ParserPool::acquire: set_language succeeded for {:?}", language);
-                Some(parser)
-            }
-            Err(e) => {
-                eprintln!(
-                    "DEBUG: ParserPool::acquire: set_language failed for {:?}: {}",
-                    language, e
-                );
+            Ok(()) => Some(parser),
+            Err(_e) => {
+                self.unavailable.lock().insert(*language);
                 None
             }
         }
@@ -144,35 +132,19 @@ impl SyntaxTree {
         text: &str,
         language: LanguageId,
     ) -> Result<Self, SyntaxError> {
-        eprintln!("DEBUG: SyntaxTree::new: language={:?}, text length={}", language, text.len());
-
-        // PlainText has no grammar – return error immediately
         if language == LanguageId::PlainText {
-            eprintln!("DEBUG: SyntaxTree::new: PlainText, returning error");
             return Err(SyntaxError::GrammarLoadError("PlainText has no grammar".to_string()));
         }
 
         let mut parser = pool.acquire(&language).ok_or_else(|| {
-            eprintln!("DEBUG: SyntaxTree::new: failed to acquire parser for {:?}", language);
             SyntaxError::GrammarLoadError(format!(
                 "Failed to acquire parser for language '{}'",
                 language.as_str()
             ))
         })?;
 
-        eprintln!("DEBUG: SyntaxTree::new: parser acquired, parsing...");
+        let tree = parser.parse(text, None).ok_or_else(|| SyntaxError::ParseError)?;
 
-        let tree = parser.parse(text, None).ok_or_else(|| {
-            eprintln!("DEBUG: SyntaxTree::new: parse returned None");
-            SyntaxError::ParseError
-        })?;
-
-        eprintln!(
-            "DEBUG: SyntaxTree::new: parse succeeded, root node count: {}",
-            tree.root_node().child_count()
-        );
-
-        // Return the parser to the pool
         pool.release(&language, parser);
 
         Ok(Self { tree, text: Rope::from_str(text), language, pool })

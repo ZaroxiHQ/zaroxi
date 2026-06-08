@@ -5,14 +5,16 @@ use zaroxi_interface_theme::theme::SemanticColors;
 
 /// Colorize editor source lines using tree-sitter syntax highlighting.
 /// Returns per-line colored spans as `(text, [r, g, b, a])`.
-pub fn colorize_source(lines: &[String], sem: &SemanticColors) -> Vec<(String, [f32; 4])> {
+pub fn colorize_source(
+    lines: &[String],
+    sem: &SemanticColors,
+    pool: &ParserPool,
+) -> Vec<(String, [f32; 4])> {
     let source = lines.join("\n");
 
     let to_f32 = |c: &zaroxi_interface_theme::Color| -> [f32; 4] { [c.r, c.g, c.b, c.a] };
     let default_color: [f32; 4] = to_f32(&sem.text_primary);
 
-    // Parse with tree-sitter
-    let pool = ParserPool::new();
     let mut parser = match pool.acquire(&LanguageId::Rust) {
         Some(p) => p,
         None => return lines.iter().map(|l| (l.clone(), default_color)).collect(),

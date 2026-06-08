@@ -80,6 +80,7 @@ pub fn run_shell_window(
         folder_picker,
         explorer_actions,
         explorer_button_rect: None,
+        parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
     };
 
     let run_result = event_loop.run_app(&mut app);
