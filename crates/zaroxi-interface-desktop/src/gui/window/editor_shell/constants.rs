@@ -202,3 +202,12 @@ pub fn visible_lines_from_region(region_h: f32) -> usize {
     let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_X * 2.0;
     (usable_h / LINE_HEIGHT).max(1.0) as usize
 }
+
+/// Compute editor-visible lines from the content area region height.
+///
+/// The editor content area has its header and breadcrumb in separate regions,
+/// so only the vertical content padding is subtracted.
+pub fn editor_visible_lines(region_h: f32) -> usize {
+    let usable_h = region_h - CONTENT_PAD_Y * 2.0;
+    (usable_h / LINE_HEIGHT).max(1.0) as usize
+}

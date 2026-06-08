@@ -112,7 +112,7 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
     let rail_item_active_accent = accent;
     let rail_item_inactive = text_faint.adjust_brightness(mods.rail_inactive_fill);
     let rail_item_bottom = text_faint.adjust_brightness(mods.rail_bottom_fill);
-    let sidebar_file_item = text_faint.adjust_brightness(mods.sidebar_file_fill);
+    let sidebar_file_item = sidebar_bg.adjust_brightness(0.85);
     let editor_breadcrumb_bg = editor_bg.adjust_brightness(mods.breadcrumb_dim);
 
     let sidebar_border = divider.adjust_brightness(mods.sidebar_border_dim);

@@ -568,7 +568,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 let usable_h = self
                     .editor_viewport
                     .as_ref()
-                    .map(|vp| vp.content_rect.3 - lc::CONTENT_HEADER_H - lc::CONTENT_PAD_X * 2.0)
+                    .map(|vp| vp.content_rect.3 - lc::CONTENT_PAD_Y * 2.0)
                     .unwrap_or(100.0);
                 let total_lines = self
                     .work_content
@@ -853,7 +853,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         zaroxi_core_engine_style::PanelRole::ContentArea,
                     );
                     let editor_visible_lines = editor_region
-                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
+                        .map(|r| lc::editor_visible_lines(r.rect.height as f32))
                         .unwrap_or(1);
 
                     let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
@@ -946,10 +946,14 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     // Apply live editor cursor and selection to the ContentArea block
                     // Editor Phase 1: also attach viewport clip rect
+                    let is_content_block = |id: &str| {
+                        id.contains("ContentArea")
+                            || id.contains("content_area")
+                            || id == "editor_content"
+                    };
                     if let Some(vp) = &self.editor_viewport {
                         for block in &mut render_blocks {
-                            if block.id.contains("ContentArea") || block.id.contains("content_area")
-                            {
+                            if is_content_block(&block.id) {
                                 block.cursor_line = Some(self.editor_cursor_line);
                                 block.cursor_col = Some(self.editor_cursor_col);
                                 block.selection_range = self.selection_range;
@@ -963,8 +967,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     } else {
                         for block in &mut render_blocks {
-                            if block.id.contains("ContentArea") || block.id.contains("content_area")
-                            {
+                            if is_content_block(&block.id) {
                                 block.cursor_line = Some(self.editor_cursor_line);
                                 block.cursor_col = Some(self.editor_cursor_col);
                                 block.selection_range = self.selection_range;
