@@ -24,6 +24,8 @@ pub struct PickerDiagnostics {
     pub qarma_available: bool,
     pub rfd_attempted: bool,
     pub rfd_succeeded: bool,
+    pub any_subprocess_attempted: bool,
+    pub any_subprocess_succeeded: bool,
     pub fallback_used: Option<String>,
 }
 
@@ -42,6 +44,8 @@ impl PickerDiagnostics {
             qarma_available: binary_exists("qarma"),
             rfd_attempted: false,
             rfd_succeeded: false,
+            any_subprocess_attempted: false,
+            any_subprocess_succeeded: false,
             fallback_used: None,
         }
     }
@@ -152,14 +156,27 @@ impl SystemPicker {
         args: &[&str],
         diag: &mut PickerDiagnostics,
     ) -> Option<PathBuf> {
-        log::info!("ZAROXI_PICKER: trying {} fallback", tool);
+        diag.any_subprocess_attempted = true;
+        log::info!("ZAROXI_PICKER: attempting {} (args={:?})", tool, args);
         match Command::new(tool).args(args).output() {
             Ok(output) => {
+                let exit_code = output
+                    .status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string());
+                log::info!(
+                    "ZAROXI_PICKER: {} exit_code={}, stdout_len={}, stderr_len={}",
+                    tool,
+                    exit_code,
+                    output.stdout.len(),
+                    output.stderr.len()
+                );
                 if output.status.success() {
                     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if raw.is_empty() {
                         log::info!(
-                            "ZAROXI_PICKER: {} returned empty output (user cancelled)",
+                            "ZAROXI_PICKER: {} returned empty stdout (user likely cancelled)",
                             tool
                         );
                         None
@@ -167,20 +184,22 @@ impl SystemPicker {
                         let path = PathBuf::from(&raw);
                         log::info!("ZAROXI_PICKER: {} returned path {:?}", tool, path);
                         diag.fallback_used = Some(tool.to_string());
+                        diag.any_subprocess_succeeded = true;
                         Some(path)
                     }
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     log::warn!(
-                        "ZAROXI_PICKER: {} exited with non-zero status: {}",
+                        "ZAROXI_PICKER: {} exited with code {}: {}",
                         tool,
+                        exit_code,
                         stderr.trim()
                     );
                     None
                 }
             }
             Err(e) => {
-                log::warn!("ZAROXI_PICKER: failed to spawn {}: {}", tool, e);
+                log::warn!("ZAROXI_PICKER: spawn {} failed: {}", tool, e);
                 None
             }
         }
@@ -188,6 +207,7 @@ impl SystemPicker {
 
     fn try_zenity(diag: &mut PickerDiagnostics) -> Option<PathBuf> {
         if !diag.zenity_available {
+            log::info!("ZAROXI_PICKER: zenity not found in PATH, skipping");
             return None;
         }
         Self::try_subprocess_pick(
@@ -199,6 +219,7 @@ impl SystemPicker {
 
     fn try_kdialog(diag: &mut PickerDiagnostics) -> Option<PathBuf> {
         if !diag.kdialog_available {
+            log::info!("ZAROXI_PICKER: kdialog not found in PATH, skipping");
             return None;
         }
         Self::try_subprocess_pick(
@@ -210,11 +231,12 @@ impl SystemPicker {
 
     fn try_qarma(diag: &mut PickerDiagnostics) -> Option<PathBuf> {
         if !diag.qarma_available {
+            log::info!("ZAROXI_PICKER: qarma not found in PATH, skipping");
             return None;
         }
         Self::try_subprocess_pick(
             "qarma",
-            &["--directory", "--title=Select Workspace Folder"],
+            &["--file-selection", "--directory", "--title=Select Workspace Folder"],
             diag,
         )
     }
@@ -297,7 +319,14 @@ impl FolderPicker for SystemPicker {
 
 fn build_unavailable_reason(diag: &PickerDiagnostics) -> String {
     let mut parts: Vec<String> = Vec::new();
-    parts.push("no folder picker backend available".to_string());
+
+    let was_attempted = diag.rfd_attempted || diag.any_subprocess_attempted;
+
+    if was_attempted {
+        parts.push("folder picker did not produce a path".to_string());
+    } else {
+        parts.push("no folder picker backend available".to_string());
+    }
 
     // Hyprland/Wayland special guidance.
     if diag.is_hyprland() {
@@ -323,7 +352,7 @@ fn build_unavailable_reason(diag: &PickerDiagnostics) -> String {
     if cfg!(unix) {
         let mut suggestions: Vec<&str> = Vec::new();
         if !diag.zenity_available && !diag.kdialog_available && !diag.qarma_available {
-            suggestions.push("install zenity, kdialog, or qarma");
+            suggestions.push("install zenity, kdialog, or qarma for CLI fallback");
         }
         if !diag.portal_available {
             suggestions.push("install xdg-desktop-portal");
@@ -331,6 +360,10 @@ fn build_unavailable_reason(diag: &PickerDiagnostics) -> String {
         if !suggestions.is_empty() {
             parts.push(format!("suggestions: {}", suggestions.join("; ")));
         }
+    }
+
+    if was_attempted {
+        parts.push("check logs (ZAROXI_PICKER:) for per-backend details".to_string());
     }
 
     parts.push("set ZAROXI_WORKSPACE_PATH env var as a workaround".to_string());

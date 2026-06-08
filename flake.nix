@@ -49,24 +49,23 @@
             # D-Bus for xdg-desktop-portal (RFD xdg-portal feature)
             dbus
 
-            # xdg-desktop-portal for RFD file dialogs (xdg-portal feature)
-            # Note: xdg-desktop-portal needs to be running at runtime
-            # These are development libraries for building
+            # xdg-desktop-portal for RFD file dialogs on Wayland
+            # portal-hyprland: compositor-specific portals (screenshot, etc.)
+            # portal-gtk: REQUIRED for file chooser — portal-hyprland alone
+            #   does not implement org.freedesktop.impl.portal.FileChooser
             glib
-            gtk3  # Still needed for some dependencies
+            gtk3
             pango
             atk
             gdk-pixbuf
             xdg-desktop-portal
-            # Hyprland-specific portal implementation
             xdg-desktop-portal-hyprland
+            xdg-desktop-portal-gtk
             gsettings-desktop-schemas  # For GTK3 settings
 
-            # Tree-sitter for syntax highlighting
-            tree-sitter
-
-            # WebKitGTK (optional webview dependencies)
-            webkitgtk_4_1
+            # CLI picker fallback tools (zenity is the primary fallback)
+            zenity
+            kdePackages.kdialog
           ];
 
           # Environment variables
@@ -79,8 +78,14 @@
             GTK_DATA_PREFIX = "${pkgs.gtk3}";
             # Ensure GTK can find its modules
             GTK_PATH = "${pkgs.gtk3}/lib/gtk-3.0:${pkgs.gtk3}/lib/gtk-3.0/3.0.0";
-            # Additional GTK environment variables
-            XDG_DATA_DIRS = "${pkgs.gtk3}/share:${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}";
+            # XDG_DATA_DIRS must include portal backends so xdg-desktop-portal
+            # can discover them (via org.freedesktop.impl.portal.FileChooser etc.)
+            XDG_DATA_DIRS = with pkgs; builtins.concatStringsSep ":" [
+              "${gtk3}/share"
+              "${gsettings-desktop-schemas}/share/gsettings-schemas/${gsettings-desktop-schemas.name}"
+              "${xdg-desktop-portal-gtk}/share"
+              "${xdg-desktop-portal-hyprland}/share"
+            ];
             GI_TYPELIB_PATH = "${pkgs.gtk3}/lib/girepository-1.0";
             # Ensure pkg-config can find .pc files
             PKG_CONFIG_PATH = with pkgs; lib.makeSearchPathOutput "dev" "lib/pkgconfig" [
@@ -104,6 +109,7 @@
               wayland
               openssl
               xdg-desktop-portal-hyprland
+              xdg-desktop-portal-gtk
             ];
             # Ensure linker can find libraries
             LD_LIBRARY_PATH = with pkgs; lib.makeLibraryPath [
@@ -127,8 +133,9 @@
               gdk-pixbuf
               # D-Bus may still be needed
               dbus
-              # Hyprland portal
+              # Portal backends
               xdg-desktop-portal-hyprland
+              xdg-desktop-portal-gtk
               # Tree-sitter
               tree-sitter
               # WebKitGTK (optional webview dependencies)
@@ -139,6 +146,13 @@
           shellHook = ''
             echo "Zaroxi development environment"
             echo "Run: cargo run --bin desktop"
+            echo ""
+            echo "Picker fallback tools:"
+            echo "  zenity:	$(command -v zenity 2>/dev/null || echo '(missing)')"
+            echo "  kdialog:	$(command -v kdialog 2>/dev/null || echo '(missing)')"
+            echo "Portal backends:"
+            echo "  portal-gtk:	$(command -v xdg-desktop-portal-gtk 2>/dev/null || echo '(missing)')"
+            echo "  portal-hyprland:	$(command -v xdg-desktop-portal-hyprland 2>/dev/null || echo '(missing)')"
           '';
         };
 
@@ -180,8 +194,12 @@
             gsettings-desktop-schemas  # For GTK3 settings
             # D-Bus may still be needed
             dbus
-            # Hyprland portal
+            # Portal backends
             xdg-desktop-portal-hyprland
+            xdg-desktop-portal-gtk
+            # CLI fallback tools
+            zenity
+            kdePackages.kdialog
             # Tree-sitter
             tree-sitter
             # WebKitGTK (optional webview dependencies)

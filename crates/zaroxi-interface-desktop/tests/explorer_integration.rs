@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_interface_desktop::folder_picker::{
-    FakeFolderPicker, FolderPicker, PickerDiagnostics, PickerOutcome,
+    FakeFolderPicker, FolderPicker, PickerDiagnostics, PickerKind, PickerOutcome,
 };
 
 fn temp_workspace() -> PathBuf {
@@ -207,6 +207,38 @@ fn picker_outcome_selected_has_no_diagnostics() {
     let picker = FakeFolderPicker::selected(PathBuf::from("/tmp"));
     let outcome = picker.pick_folder();
     assert!(outcome.diagnostics().is_none());
+}
+
+#[test]
+fn picker_diagnostics_probe_initializes_attempt_flags() {
+    let diag = PickerDiagnostics::probe();
+    assert!(!diag.rfd_attempted);
+    assert!(!diag.rfd_succeeded);
+    assert!(!diag.any_subprocess_attempted);
+    assert!(!diag.any_subprocess_succeeded);
+}
+
+#[test]
+fn picker_outcome_selected_extracts_path() {
+    let picker = FakeFolderPicker::selected(PathBuf::from("/home/user/project"));
+    let outcome = picker.pick_folder();
+    assert!(outcome.is_selected());
+    assert!(!outcome.reason().is_some());
+}
+
+#[test]
+fn folder_picker_trait_is_object_safe() {
+    let picker: std::sync::Arc<dyn FolderPicker> =
+        std::sync::Arc::new(FakeFolderPicker::cancelled());
+    let outcome = picker.pick_folder();
+    assert!(matches!(outcome, PickerOutcome::Cancelled));
+}
+
+#[test]
+fn picker_kind_is_open_folder() {
+    // Smoke test: PickerKind enum compiles and has expected variant.
+    let kind = PickerKind::OpenFolder;
+    assert_eq!(kind, PickerKind::OpenFolder);
 }
 
 #[test]
