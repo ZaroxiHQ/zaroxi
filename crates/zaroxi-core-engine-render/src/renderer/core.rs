@@ -1162,24 +1162,26 @@ impl<'a> Renderer<'a> {
                 let fallback_used =
                     fallback_marker.exists() || (adapter_text_ops > 0 && !cosmic_prepare_called);
 
-                info!(
-                    "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} shaped_glyphs_total={} emitted_glyphs_total={} glyphs={} atlas_entries={} font_resolved={} buffer_size={} text_len={} pipeline_render_called={} overlay_rects={} fallback_used={}",
-                    frame_idx,
-                    adapter_text_ops,
-                    backend_text_ops,
-                    core_text_ops,
-                    if cosmic_prepare_called { "true" } else { "false" },
-                    shaped_glyphs_total,
-                    emitted_glyphs_total,
-                    glyph_count,
-                    atlas_entries,
-                    if font_resolved { "true" } else { "false" },
-                    buffer_size,
-                    text_len,
-                    if pipeline_render_called { "true" } else { "false" },
-                    backend_text_ops,
-                    if fallback_used { "true" } else { "false" }
-                );
+                if std::env::var("ZAROXI_DEBUG_TEXT_FRAME").as_deref() == Ok("1") {
+                    info!(
+                        "GUI_TEXT_FRAME_SUMMARY: frame={} adapter_text_ops={} backend_text_ops={} core_text_ops={} cosmic_prepare_called={} shaped_glyphs_total={} emitted_glyphs_total={} glyphs={} atlas_entries={} font_resolved={} buffer_size={} text_len={} pipeline_render_called={} overlay_rects={} fallback_used={}",
+                        frame_idx,
+                        adapter_text_ops,
+                        backend_text_ops,
+                        core_text_ops,
+                        if cosmic_prepare_called { "true" } else { "false" },
+                        shaped_glyphs_total,
+                        emitted_glyphs_total,
+                        glyph_count,
+                        atlas_entries,
+                        if font_resolved { "true" } else { "false" },
+                        buffer_size,
+                        text_len,
+                        if pipeline_render_called { "true" } else { "false" },
+                        backend_text_ops,
+                        if fallback_used { "true" } else { "false" }
+                    );
+                }
 
                 // Hard-checks: diagnose broken links between stages.
                 if adapter_text_ops > 0 && backend_text_ops == 0 {

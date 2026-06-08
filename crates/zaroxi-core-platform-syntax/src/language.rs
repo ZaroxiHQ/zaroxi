@@ -2,8 +2,6 @@
 
 use std::path::Path;
 
-use crate::runtime::Runtime;
-
 /// Static and dynamic language identifiers used by the syntax subsystem.
 ///
 /// - `Rust`, `Toml`, `Markdown`, `PlainText` are known static variants.
@@ -201,19 +199,13 @@ impl LanguageId {
     }
 
     /// Return the Tree‑sitter language, loading dynamically via the
-    /// runtime directory.
+    /// cached dynamic loader (memoized per language_id so repeated
+    /// calls on unavailable grammars do not retry the full disk path).
     pub fn tree_sitter_language(&self) -> Option<tree_sitter::Language> {
         if *self == LanguageId::PlainText {
             return None;
         }
         let id = self.as_str();
-        let runtime = Runtime::new();
-        match runtime.load_language(id) {
-            Ok(lang) => Some(lang),
-            Err(e) => {
-                eprintln!("[language] failed to load grammar for \"{}\": {}", id, e);
-                None
-            }
-        }
+        crate::dynamic_loader::load_language(id)
     }
 }

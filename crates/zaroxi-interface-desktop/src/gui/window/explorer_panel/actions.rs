@@ -71,6 +71,13 @@ impl ExplorerPanelActions {
 
         let path = comp.maybe_explorer.as_ref()?.get_entry_path(&item_id)?;
 
+        let display_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+
+        click_trace(&format!("ZAROXI_CLICK: open_file path={}", path.display()));
+
         let buf_id = pollster::block_on(crate::actions::open_buffer_by_path(
             comp,
             service.clone(),
@@ -89,6 +96,7 @@ impl ExplorerPanelActions {
         ))
         .ok()?;
 
+        comp.set_status_message(format!("Opened: {}", display_name));
         Some(comp.build_work_content())
     }
 
@@ -104,13 +112,15 @@ impl ExplorerPanelActions {
         workspace_id: &mut Option<Id>,
         path: PathBuf,
     ) -> Option<ShellWorkContent> {
+        comp.set_status_message(format!("Loading workspace: {}...", path.display()));
+
         let boot_req = WorkspaceBootRequest { path: path.clone() };
         let boot_res = pollster::block_on(service.boot_workspace(boot_req)).ok()?;
 
         *session_id = Some(boot_res.session.session_id.clone());
         *workspace_id = Some(boot_res.session.workspace_id);
 
-        comp.workspace_root_path = Some(path);
+        comp.workspace_root_path = Some(path.clone());
         comp.load_or_refresh_explorer();
 
         let _ = pollster::block_on(crate::actions::refresh_desktop(
@@ -121,6 +131,11 @@ impl ExplorerPanelActions {
             Some(service),
         ));
 
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        comp.set_status_message(format!("Workspace opened: {}", name));
         Some(comp.build_work_content())
     }
 
