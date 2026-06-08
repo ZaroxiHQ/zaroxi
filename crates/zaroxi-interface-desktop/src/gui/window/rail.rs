@@ -150,8 +150,8 @@ impl RailPanel {
 
                     blocks.push(UiBlock {
                         id: format!("explorer_row_{}", item.label),
-                        title: String::new(),
-                        content: item.label.clone(),
+                        title: item.label.clone(),
+                        content: String::new(),
                         visible: true,
                         rect: zaroxi_core_engine_render::Rect {
                             x: row_x,
@@ -160,11 +160,11 @@ impl RailPanel {
                             h: row_h_vis,
                         },
                         header_color: Some(fill),
-                        content_color: Some(fill),
+                        content_color: None,
                         corner_radius: 2.0,
                         border_color: None,
                         border_width: 0.0,
-                        header_only: false,
+                        header_only: true,
                         content_spans: None,
                         cursor_line: None,
                         cursor_col: None,
