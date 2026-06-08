@@ -50,6 +50,7 @@ impl AiPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: Some(tokens.text_primary.to_array()),
+            clip_rect: None,
         }
     }
 
@@ -101,6 +102,7 @@ impl AiPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: None,
+            clip_rect: None,
         }
     }
 }

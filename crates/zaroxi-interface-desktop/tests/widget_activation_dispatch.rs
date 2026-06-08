@@ -47,6 +47,9 @@ mod tests {
             explorer_actions: None,
             explorer_button_rect: None,
             parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
+            layout_controller:
+                zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
+            editor_viewport: None,
         }
     }
 

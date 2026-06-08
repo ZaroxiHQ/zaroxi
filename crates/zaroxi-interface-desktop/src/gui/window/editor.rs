@@ -70,6 +70,7 @@ impl EditorPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: None,
+            clip_rect: None,
         }
     }
 
@@ -103,6 +104,7 @@ impl EditorPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: Some(tokens.text_muted.to_array()),
+            clip_rect: None,
         }
     }
 
@@ -135,6 +137,7 @@ impl EditorPanel {
             cursor_col: Some(data.cursor_col),
             highlight_active_line: true,
             selection_range: None,
+            clip_rect: None,
             text_color: None,
         }
     }
@@ -175,6 +178,7 @@ impl EditorPanel {
             cursor_col: None,
             highlight_active_line: false,
             selection_range: None,
+            clip_rect: None,
             text_color: None,
         }
     }
@@ -219,6 +223,7 @@ impl EditorPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: None,
+            clip_rect: None,
         }
     }
 }

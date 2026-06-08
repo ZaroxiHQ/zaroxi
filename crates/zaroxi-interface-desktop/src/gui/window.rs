@@ -9,6 +9,8 @@ mod bottom_panel;
 #[cfg(feature = "gui_window")]
 mod editor;
 #[cfg(feature = "gui_window")]
+pub mod editor_shell;
+#[cfg(feature = "gui_window")]
 pub mod explorer_panel;
 #[cfg(feature = "gui_window")]
 mod frame;

@@ -37,6 +37,7 @@ impl BottomDockPanel {
             highlight_active_line: false,
             selection_range: None,
             text_color: None,
+            clip_rect: None,
         }
     }
 }

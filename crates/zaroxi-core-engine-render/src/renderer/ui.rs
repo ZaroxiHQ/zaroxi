@@ -38,6 +38,9 @@ pub struct UiBlock {
     pub highlight_active_line: bool,
     /// Selection range as (start_line, start_col, end_line, end_col), 0-based.
     pub selection_range: Option<(usize, usize, usize, usize)>,
+    /// Editor Phase 1: optional clip/scissor rect for viewport-bounded rendering.
+    /// When set, the renderer should clip this block's content to the given rect.
+    pub clip_rect: Option<Rect>,
 }
 
 use super::core::Rect;

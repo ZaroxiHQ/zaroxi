@@ -11,6 +11,11 @@ Phase 58: added keyboard focus traversal (Tab/Shift+Tab/Enter/Escape) and
 Phase 59: built-in `dispatch_activation` method that routes WidgetId to
 DesktopComposition actions (set active buffer, window controls, etc.).
 The callback remains as an override capability.
+
+Editor Phase 1: extracted editor shell layout/rendering into
+`editor_shell` module. `GuiApp` now delegates region layout to
+`ShellLayoutController` (Taffy-based) and uses `EditorViewport`
+for strict clipping boundaries.
 */
 
 use std::sync::Arc;
@@ -26,6 +31,7 @@ use winit::{
 
 use crate::DesktopComposition;
 use crate::folder_picker::DynFolderPicker;
+use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
@@ -129,6 +135,11 @@ pub struct GuiApp {
     pub explorer_button_rect: Option<(f32, f32, f32, f32)>,
     /// Shared parser pool for syntax highlighting.
     pub parser_pool: ParserPool,
+    /// Taffy-based layout controller (Editor Phase 1).
+    /// Owns layout computation, caching, and resize detection.
+    pub layout_controller: ShellLayoutController,
+    /// Current editor viewport for clipping (Editor Phase 1).
+    pub editor_viewport: Option<EditorViewport>,
 }
 
 impl GuiApp {
@@ -484,25 +495,28 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // Drag-selection: extend selection range while mouse is held
                     if self.selection_active {
                         if let Some(anchor) = self.selection_anchor {
-                            if let Some((line, col)) = project_editor_cursor(
-                                position,
-                                &self.shell.regions,
-                                &self.shell.work_content,
-                                self.interaction.get_scroll_offset(
-                                    &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
-                                ),
-                            ) {
-                                let (sl, sc) =
-                                    if line < anchor.0 || (line == anchor.0 && col < anchor.1) {
+                            if let Some(vp) = &self.editor_viewport {
+                                if let Some((line, col)) = project_editor_cursor(
+                                    position,
+                                    vp,
+                                    &self.shell.work_content,
+                                    self.interaction.get_scroll_offset(
+                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                    ),
+                                ) {
+                                    let (sl, sc) = if line < anchor.0
+                                        || (line == anchor.0 && col < anchor.1)
+                                    {
                                         (line, col)
                                     } else {
                                         anchor
                                     };
-                                let (el, ec) =
-                                    if (line, col) > anchor { (line, col) } else { anchor };
-                                self.selection_range = Some((sl, sc, el, ec));
-                                if let Some(z) = self.maybe_window.as_ref() {
-                                    let _ = z.window().request_redraw();
+                                    let (el, ec) =
+                                        if (line, col) > anchor { (line, col) } else { anchor };
+                                    self.selection_range = Some((sl, sc, el, ec));
+                                    if let Some(z) = self.maybe_window.as_ref() {
+                                        let _ = z.window().request_redraw();
+                                    }
                                 }
                             }
                         }
@@ -603,21 +617,23 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if let ElementState::Pressed = state {
                         if let Some(pos) = self.interaction.cursor_pos_f32() {
                             let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
-                            if let Some((line, col)) = project_editor_cursor(
-                                phys,
-                                &self.shell.regions,
-                                &self.shell.work_content,
-                                self.interaction.get_scroll_offset(
-                                    &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
-                                ),
-                            ) {
-                                self.editor_cursor_line = line;
-                                self.editor_cursor_col = col;
-                                self.selection_anchor = Some((line, col));
-                                self.selection_active = true;
-                                self.selection_range = None;
-                                if let Some(z) = self.maybe_window.as_ref() {
-                                    let _ = z.window().request_redraw();
+                            if let Some(vp) = &self.editor_viewport {
+                                if let Some((line, col)) = project_editor_cursor(
+                                    phys,
+                                    vp,
+                                    &self.shell.work_content,
+                                    self.interaction.get_scroll_offset(
+                                        &zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 },
+                                    ),
+                                ) {
+                                    self.editor_cursor_line = line;
+                                    self.editor_cursor_col = col;
+                                    self.selection_anchor = Some((line, col));
+                                    self.selection_active = true;
+                                    self.selection_range = None;
+                                    if let Some(z) = self.maybe_window.as_ref() {
+                                        let _ = z.window().request_redraw();
+                                    }
                                 }
                             }
                         }
@@ -632,25 +648,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let _ = z.window().pre_present_notify();
 
                     let (sw, sh) = z.size();
-                    if sw > 0 && sh > 0 {
-                        let system_is_dark = z
-                            .window()
-                            .theme()
-                            .map(|t| matches!(t, winit::window::Theme::Dark))
-                            .unwrap_or(true);
-                        let resolved = self.theme_mode.resolve(system_is_dark);
-                        let actual = crate::gui::Size { width: sw, height: sh };
-                        self.shell = crate::gui::ShellFrame::new(actual, resolved);
+                    if sw == 0 || sh == 0 {
+                        return;
                     }
-
-                    self.shell.work_content = self.work_content.clone();
 
                     let system_is_dark = z
                         .window()
                         .theme()
                         .map(|t| matches!(t, winit::window::Theme::Dark))
                         .unwrap_or(true);
-                    let variant = self.theme_mode.resolve(system_is_dark);
+                    let resolved = self.theme_mode.resolve(system_is_dark);
+                    let variant = resolved;
+
+                    // ── Editor Phase 1: Taffy-based layout via controller ──
+                    let _ = self.layout_controller.get_or_compute(sw, sh, resolved);
+                    self.editor_viewport = Some(self.layout_controller.viewport().clone());
+                    // Keep shell.work_content up to date for presenter access
+                    self.shell.work_content = self.work_content.clone();
+
                     let mut sem = variant.colors(false);
 
                     let debug_theme_active =
@@ -690,9 +705,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
-                    let layout = zaroxi_core_engine_ui::ShellLayout::from_window_size(sw, sh);
+                    // Widget tree from engine shell layout (cached by controller)
+                    let engine_layout = self.layout_controller.engine_shell_layout();
                     let mut widget_tree = zaroxi_core_engine_ui::build_shell_widget_tree(
-                        &layout,
+                        engine_layout,
                         &tokens,
                         self.work_content.as_ref(),
                     );
@@ -705,8 +721,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                         self.explorer_button_rect.is_some()
                     );
 
+                    // RenderLayout from shell regions (cached by controller)
+                    let shell_regions = self.layout_controller.shell_regions();
                     let render_layout =
-                        super::renderbridge::build_render_layout(&self.shell.regions, &tokens);
+                        super::renderbridge::build_render_layout(shell_regions, &tokens);
+
+                    // Update shell.regions for backward compat (cursor projection, etc.)
+                    self.shell.regions = shell_regions.to_vec();
+                    self.shell.size = *self.layout_controller.size();
 
                     let editor_data = super::presenters::shape_editor_content(
                         &self.shell.work_content,
@@ -715,7 +737,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
-
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
                     let status_data = super::presenters::shape_status_content(
                         &self.shell.work_content,
@@ -735,7 +756,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     let (mut render_blocks, explorer_cta_rect) =
-                        super::frame::compose_blocks(&self.shell.regions, &tokens, &ctx);
+                        super::frame::compose_blocks(shell_regions, &tokens, &ctx);
                     self.explorer_button_rect = explorer_cta_rect;
                     click_trace_fmt!(
                         "ZAROXI_REDRAW: cta_rect={:?}",
@@ -743,9 +764,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|(x, y, w, h)| format!("({:.0},{:.0},{:.0}x{:.0})", x, y, w, h))
                     );
 
-                    // Compute scrollbar blocks from ShellFrame regions for
-                    // correct spatial placement (the widget tree uses a
-                    // different layout system that disagrees on panel widths).
+                    // Compute scrollbar blocks from shell regions
                     let editor_total_lines = self
                         .shell
                         .work_content
@@ -757,7 +776,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let content_pad = 8.0f32;
                     let header_h = 28.0f32;
                     let editor_region = crate::gui::region_dispatch::find_region_by_role(
-                        &self.shell.regions,
+                        shell_regions,
                         zaroxi_core_engine_style::PanelRole::ContentArea,
                     );
                     let editor_visible_lines = editor_region
@@ -768,7 +787,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .unwrap_or(1);
 
                     let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
-                        &self.shell.regions,
+                        shell_regions,
                         zaroxi_core_engine_style::PanelRole::SidePanel,
                     );
                     let sidebar_visible = sidebar_region
@@ -776,7 +795,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .unwrap_or(1);
 
                     let bottom_region = crate::gui::region_dispatch::find_region_by_role(
-                        &self.shell.regions,
+                        shell_regions,
                         zaroxi_core_engine_style::PanelRole::BottomPanel,
                     );
                     let bottom_visible = bottom_region
@@ -787,20 +806,18 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .unwrap_or(1);
 
                     let scroll_blocks = super::frame::compute_scrollbar_blocks(
-                        &self.shell.regions,
+                        shell_regions,
                         &tokens,
                         editor_total_lines,
                         editor_visible_lines,
-                        0, // sidebar_items (static placeholder, no overflow)
+                        0,
                         sidebar_visible,
-                        0, // bottom_lines (static placeholder, no overflow)
+                        0,
                         bottom_visible,
                     );
                     render_blocks.extend(scroll_blocks);
 
-                    // Phase 72: gated debug — log vertical block positions at
-                    // every frame when ZAROXI_DEBUG_SEAMS=1 so seam positions
-                    // can be compared across window sizes.
+                    // Phase 72: gated debug
                     if std::env::var("ZAROXI_DEBUG_SEAMS").as_deref() == Ok("1") {
                         for blk in &render_blocks {
                             let narrow_or_tall =
@@ -808,24 +825,37 @@ impl winit::application::ApplicationHandler for GuiApp {
                             if narrow_or_tall {
                                 eprintln!(
                                     "ZAROXI_SEAM: win={}x{} id='{}' x={:.1} y={:.1} w={:.1} h={:.1}",
-                                    self.shell.size.width,
-                                    self.shell.size.height,
-                                    blk.id,
-                                    blk.rect.x,
-                                    blk.rect.y,
-                                    blk.rect.w,
-                                    blk.rect.h,
+                                    sw, sh, blk.id, blk.rect.x, blk.rect.y, blk.rect.w, blk.rect.h,
                                 );
                             }
                         }
                     }
 
                     // Apply live editor cursor and selection to the ContentArea block
-                    for block in &mut render_blocks {
-                        if block.id.contains("ContentArea") || block.id.contains("content_area") {
-                            block.cursor_line = Some(self.editor_cursor_line);
-                            block.cursor_col = Some(self.editor_cursor_col);
-                            block.selection_range = self.selection_range;
+                    // Editor Phase 1: also attach viewport clip rect
+                    if let Some(vp) = &self.editor_viewport {
+                        for block in &mut render_blocks {
+                            if block.id.contains("ContentArea") || block.id.contains("content_area")
+                            {
+                                block.cursor_line = Some(self.editor_cursor_line);
+                                block.cursor_col = Some(self.editor_cursor_col);
+                                block.selection_range = self.selection_range;
+                                block.clip_rect = Some(zaroxi_core_engine_render::Rect {
+                                    x: vp.clip_rect.0,
+                                    y: vp.clip_rect.1,
+                                    w: vp.clip_rect.2,
+                                    h: vp.clip_rect.3,
+                                });
+                            }
+                        }
+                    } else {
+                        for block in &mut render_blocks {
+                            if block.id.contains("ContentArea") || block.id.contains("content_area")
+                            {
+                                block.cursor_line = Some(self.editor_cursor_line);
+                                block.cursor_col = Some(self.editor_cursor_col);
+                                block.selection_range = self.selection_range;
+                            }
                         }
                     }
 
@@ -977,25 +1007,14 @@ impl winit::application::ApplicationHandler for GuiApp {
 
 fn project_editor_cursor(
     cursor_pos: winit::dpi::PhysicalPosition<f64>,
-    regions: &[crate::gui::ShellRegion],
+    viewport: &EditorViewport,
     work_content: &Option<crate::gui::ShellWorkContent>,
     editor_scroll_offset: f32,
 ) -> Option<(usize, usize)> {
-    let editor_region = crate::gui::region_dispatch::find_region_by_role(
-        regions,
-        zaroxi_core_engine_style::PanelRole::ContentArea,
-    )?;
-
-    let ex = editor_region.rect.x as f32;
-    let ey = editor_region.rect.y as f32;
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
 
-    if px < ex
-        || py < ey
-        || px >= ex + editor_region.rect.width as f32
-        || py >= ey + editor_region.rect.height as f32
-    {
+    if !viewport.contains_point(px, py) {
         return None;
     }
 
@@ -1004,14 +1023,14 @@ fn project_editor_cursor(
     let header_h = dt.spacing_md + dt.spacing_lg; // 28.0
     let line_h = dt.font_size_md + 2.0; // 16.0
     let char_w = dt.font_size_sm / 1.5; // 8.0
-    let content_x = ex + content_pad;
-    let content_y = ey + header_h + content_pad;
+    let content_x = viewport.content_rect.0 + content_pad;
+    let content_y = viewport.content_rect.1 + header_h + content_pad;
     let rel_y = py - content_y;
     let rel_x = px - content_x;
     let visible_line = (rel_y / line_h).max(0.0) as usize;
     let col = (rel_x / char_w).max(0.0) as usize;
 
-    let usable_h = editor_region.rect.height as f32 - header_h - content_pad * 2.0;
+    let usable_h = viewport.content_rect.3 - header_h - content_pad * 2.0;
 
     let total_lines = work_content
         .as_ref()

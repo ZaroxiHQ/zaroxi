@@ -91,6 +91,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
 
             blocks.push(UiBlock {
@@ -116,6 +117,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
         }
     }
@@ -157,6 +159,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
 
             blocks.push(UiBlock {
@@ -182,6 +185,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
         }
     }
@@ -223,6 +227,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
 
             blocks.push(UiBlock {
@@ -248,6 +253,7 @@ pub fn compute_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
         }
     }
@@ -308,6 +314,7 @@ pub fn extract_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
             blocks.push(UiBlock {
                 id: "scrollbar_thumb".to_string(),
@@ -332,6 +339,7 @@ pub fn extract_scrollbar_blocks(
                 highlight_active_line: false,
                 selection_range: None,
                 text_color: None,
+                clip_rect: None,
             });
         }
     }

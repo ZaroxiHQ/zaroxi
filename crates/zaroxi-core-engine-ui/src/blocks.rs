@@ -44,6 +44,7 @@ pub fn make_panel_block(
         highlight_active_line: false,
         selection_range: None,
         text_color,
+        clip_rect: None,
     }
 }
 
@@ -85,5 +86,6 @@ pub fn make_gutter_block(
         highlight_active_line: false,
         selection_range: None,
         text_color: Some(tokens.text_faint.to_array()),
+        clip_rect: None,
     }
 }
