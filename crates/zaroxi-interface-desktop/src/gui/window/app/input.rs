@@ -129,6 +129,9 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 
 /// Apply mouse-wheel delta to composition pending scroll state and trigger
 /// a redraw.  Called from `window_event(MouseWheel)`.
+///
+/// Fractional pixel deltas are accumulated in `pending_scroll_frac` so that
+/// small trackpad events are not lost before they sum to a full line.
 pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
     let scroll_lines = match *delta {
         MouseScrollDelta::LineDelta(x, y) => {
@@ -156,15 +159,23 @@ pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
     };
 
     if scroll_lines.abs() > 0.01 {
-        let delta_lines = -scroll_lines.round() as isize;
-        if let Some(ref mut comp) = app.composition {
-            comp.pending_scroll_lines += delta_lines;
-            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_SCROLL: wheel vdelta={} pending={} hdelta_px={}",
-                    delta_lines, comp.pending_scroll_lines, comp.pending_hscroll_px
-                );
+        app.pending_scroll_frac -= scroll_lines;
+        let whole = app.pending_scroll_frac.trunc() as isize;
+        if whole != 0 {
+            if let Some(ref mut comp) = app.composition {
+                comp.pending_scroll_lines += whole;
+                if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_SCROLL: wheel delta_f={:.3} whole={} pending={} frac_remain={:.3} hdelta_px={:.3}",
+                        scroll_lines,
+                        whole,
+                        comp.pending_scroll_lines,
+                        app.pending_scroll_frac - whole as f32,
+                        comp.pending_hscroll_px
+                    );
+                }
             }
+            app.pending_scroll_frac -= whole as f32;
         }
     }
 
