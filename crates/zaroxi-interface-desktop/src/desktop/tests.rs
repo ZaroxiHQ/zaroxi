@@ -1067,6 +1067,7 @@ fn latest_status_bar_line_prefers_ai_result() {
         }),
         visible_window: None,
         last_command_line: None,
+            editor_viewport_line_count: None,
         refresh_reason: None,
     });
 

@@ -522,7 +522,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                     info.viewport_states.entry(buffer_id.clone()).or_insert(
                         crate::ports::ViewportState {
                             top_line: 1,
-                            window_height: 10,
+                            window_height: 500,
                             center_cursor: true,
                         },
                     );
@@ -764,7 +764,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
             let vp = info.viewport_states.entry(req.buffer_id.clone()).or_insert(
                 crate::ports::ViewportState {
                     top_line: 1,
-                    window_height: 10,
+                    window_height: 500,
                     center_cursor: false,
                 },
             );
@@ -2387,7 +2387,7 @@ impl crate::ports::WorkspaceView for WorkspaceOrchestrator {
             let viewport = info.viewport_states.get(&req.buffer_id).cloned().unwrap_or(
                 crate::ports::ViewportState {
                     top_line: 1,
-                    window_height: 10,
+                    window_height: 500,
                     center_cursor: false,
                 },
             );

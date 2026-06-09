@@ -137,6 +137,28 @@ pub async fn refresh_with_service(
             None
         };
 
+    // Sync editor viewport line count to the workspace's ViewportState
+    // so centering and scroll calculations use the correct visible height.
+    if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref()) {
+        if let Some(window_height) =
+            comp.metadata.as_ref().and_then(|m| m.editor_viewport_line_count)
+        {
+            if window_height > 0 {
+                let _ = svc
+                    .set_viewport_state(crate::ports::SetViewportRequest {
+                        session_id: session_id.clone(),
+                        buffer_id: bid.clone(),
+                        viewport: crate::ports::ViewportState {
+                            top_line: 1,
+                            window_height,
+                            center_cursor: true,
+                        },
+                    })
+                    .await;
+            }
+        }
+    }
+
     // Prepare default conservative projection values.
     let mut opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
     let mut opened_list: Vec<super::OpenedBufferItem> = Vec::new();
@@ -392,6 +414,7 @@ pub async fn refresh_with_service(
         // Surface visible-window projection when we could obtain one from the WorkspaceView.
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
+        editor_viewport_line_count: None,
         refresh_reason: Some(reason.clone()),
     };
 
@@ -541,6 +564,7 @@ pub async fn request_ai_edit_active(
                         diagnostics_snapshot: None,
                         visible_window: None,
                         last_command_line: None,
+                        editor_viewport_line_count: None,
                         refresh_reason: None,
                     });
                 }
@@ -588,6 +612,7 @@ pub async fn request_ai_edit_active(
                                                     diagnostics_snapshot: None,
                                                     visible_window: None,
                                                     last_command_line: None,
+                                                    editor_viewport_line_count: None,
                                                     refresh_reason: None,
                                                 });
                                             }
@@ -647,6 +672,7 @@ pub async fn request_ai_edit_active(
                 diagnostics_snapshot: None,
                 visible_window: None,
                 last_command_line: None,
+                editor_viewport_line_count: None,
                 refresh_reason: None,
             });
         }

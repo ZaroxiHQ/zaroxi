@@ -13,7 +13,7 @@ spatial placement regardless of the widget-tree layout system.
 use crate::gui::ShellRegion;
 use crate::gui::region_dispatch::region_role;
 use crate::gui::window::editor_shell::constants::{
-    SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC, compute_scrollbar_geometry,
+    SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC, ScrollbarSpec, compute_scrollbar_geometry,
 };
 use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::{PanelRole, StyleTokens};
@@ -67,8 +67,18 @@ pub fn compute_scrollbar_blocks(
             let ew = editor.rect.width as f32;
             let eh = editor.rect.height as f32;
 
+            // Compute proportional thumb ratio from visible/total lines
+            let ratio = editor_visible_lines as f32 / editor_total_lines.max(1) as f32;
+            let spec = ScrollbarSpec {
+                sb_width: SB_EDITOR_SPEC.sb_width,
+                inset_right: SB_EDITOR_SPEC.inset_right,
+                track_inset_y: SB_EDITOR_SPEC.track_inset_y,
+                track_h_reduction: SB_EDITOR_SPEC.track_h_reduction,
+                thumb_ratio: ratio.clamp(0.05, 1.0),
+                thumb_min_h: SB_EDITOR_SPEC.thumb_min_h,
+            };
             let (sb_x, track_y, sb_w, track_h, thumb_h) =
-                compute_scrollbar_geometry((ex, ey, ew, eh), &SB_EDITOR_SPEC, 0.0);
+                compute_scrollbar_geometry((ex, ey, ew, eh), &spec, 0.0);
             let track_rect =
                 zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 

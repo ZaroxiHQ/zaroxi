@@ -856,6 +856,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
 
+                    // Sync viewport line count to composition for workspace ViewportState centering
+                    if let Some(ref mut comp) = self.composition {
+                        comp.set_editor_viewport_lines(editor_visible_lines);
+                    }
+
                     let sidebar_region = crate::gui::region_dispatch::find_region_by_role(
                         shell_regions,
                         zaroxi_core_engine_style::PanelRole::SidePanel,

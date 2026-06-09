@@ -107,6 +107,9 @@ pub struct DesktopMetadata {
     pub ai_projection: Option<AiProjection>,
     pub diagnostics_snapshot: Option<crate::diagnostics::DiagnosticsSnapshot>,
     pub visible_window: Option<VisibleWindowBasic>,
+    /// Editor viewport height expressed as the number of text lines that fit.
+    /// Updated by the GUI whenever the editor layout/viewport changes.
+    pub editor_viewport_line_count: Option<usize>,
     pub last_command_line: Option<String>,
     pub refresh_reason: Option<RefreshReason>,
 }
@@ -197,6 +200,14 @@ impl DesktopComposition {
             workspace_root_path: None,
             maybe_explorer: None,
             cached_explorer_items: Vec::new(),
+        }
+    }
+
+    /// Store the editor viewport visible line count so the refresh loop
+    /// can sync it to the workspace's ViewportState on next refresh.
+    pub fn set_editor_viewport_lines(&mut self, lines: usize) {
+        if let Some(ref mut meta) = self.metadata {
+            meta.editor_viewport_line_count = Some(lines);
         }
     }
 
@@ -407,6 +418,7 @@ impl DesktopComposition {
                 diagnostics_snapshot: None,
                 visible_window: None,
                 last_command_line: Some(text),
+                editor_viewport_line_count: None,
                 refresh_reason: None,
             });
         }
