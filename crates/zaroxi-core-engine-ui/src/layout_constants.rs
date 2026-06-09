@@ -240,6 +240,6 @@ pub fn explorer_cta_button_rect(sidebar_rect: (f32, f32, f32, f32)) -> (f32, f32
 // ── Helper: compute visible lines from region height ──
 
 pub fn visible_lines_from_region(region_h: f32) -> usize {
-    let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_X * 2.0;
+    let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_Y * 2.0;
     (usable_h / LINE_HEIGHT).max(1.0) as usize
 }

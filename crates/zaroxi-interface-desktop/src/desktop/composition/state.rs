@@ -270,8 +270,11 @@ impl DesktopComposition {
 
         if vscroll != 0 {
             let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+            let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
             let current = meta.editor_scroll_top_line as isize;
-            let new = (current + vscroll as isize).max(0) as usize;
+            let max_scroll = total.saturating_sub(visible) as isize;
+            let new_unclamped = (current + vscroll as isize).max(0);
+            let new = new_unclamped.min(max_scroll).max(0) as usize;
             meta.editor_scroll_top_line = new;
             if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                 eprintln!(
