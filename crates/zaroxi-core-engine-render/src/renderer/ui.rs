@@ -45,6 +45,10 @@ pub struct UiBlock {
     /// when clip_rect is active. Subtracted from content_x so scrolled-right
     /// content shifts into the visible viewport. Full text is preserved.
     pub content_offset_x: f32,
+    /// Editor Phase 3: y-axis scroll offset applied to the text draw origin.
+    /// Subtracted from the text y-position when clip_rect is active so that
+    /// scrolled-down content becomes visible at the top of the viewport.
+    pub content_offset_y: f32,
 }
 
 use super::core::Rect;

@@ -693,12 +693,15 @@ impl<'a> Renderer<'a> {
                     let cw = (target.w - content_padding * 2.0).max(0.0);
                     (cx, cx, cw)
                 };
+                // Vertical scroll: shift text origin up by content_offset_y
+                let text_y = content_y - block.content_offset_y;
                 if clip_w > 0.0 && content_h > 0.0 {
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
-                        let mut cursor_y = content_y;
+                        let mut cursor_y = text_y;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
+                        let clip_bottom = content_y + content_h;
                         let mut line_buf = String::new();
                         for (span_text, span_color) in spans {
                             if span_text == "\n" {
@@ -719,11 +722,19 @@ impl<'a> Renderer<'a> {
                                     line_buf.clear();
                                 }
                                 cursor_y += line_h;
+                                // Stop emitting text commands once the next line would
+                                // start entirely below the clip area. This avoids
+                                // queueing off-screen lines while preserving full
+                                // visibility for the last partially-visible line.
+                                if cursor_y >= clip_bottom {
+                                    break;
+                                }
                                 continue;
                             }
                             line_buf.push_str(span_text);
                         }
-                        if !line_buf.is_empty() {
+                        // Flush any remaining line_buf that hasn't been terminated by \n
+                        if !line_buf.is_empty() && cursor_y < clip_bottom {
                             self.text_renderer.queue_text(
                                 crate::renderer::text::TextCommand::new_body(
                                     &line_buf,
@@ -746,11 +757,11 @@ impl<'a> Renderer<'a> {
                             crate::renderer::text::TextCommand::new_body(
                                 &block.content,
                                 text_x,
-                                content_y,
+                                text_y,
                                 title_color,
                                 DEFAULT_FONT_SIZE,
                                 clip_x,
-                                content_y,
+                                text_y,
                                 clip_w,
                                 content_h,
                             ),
@@ -781,7 +792,8 @@ impl<'a> Renderer<'a> {
 
                 if content_w > 0.0 && content_h > 0.0 {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
-                    let line_y = content_y + line as f32 * line_h;
+                    let text_y = content_y as f32 - block.content_offset_y;
+                    let line_y = text_y + line as f32 * line_h;
 
                     // Active line highlight background
                     if block.highlight_active_line && line_y + line_h <= content_y + content_h {
@@ -827,9 +839,10 @@ impl<'a> Renderer<'a> {
                 if let Some((sl, sc, el, ec)) = block.selection_range {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let char_w = 8.0;
+                    let text_y = content_y - block.content_offset_y;
                     let sel_color: [f32; 4] = layout.colors.editor_selection;
                     for line in sl..=el {
-                        let line_y = content_y + line as f32 * line_h;
+                        let line_y = text_y + line as f32 * line_h;
                         if line_y + line_h > content_y + content_h {
                             break;
                         }

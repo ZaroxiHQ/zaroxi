@@ -341,7 +341,32 @@ impl GuiApp {
                     needs_redraw = true;
                 }
                 zaroxi_core_engine_ui::WidgetAction::ScrollOffsetChanged(id, offset) => {
+                    let old_offset = self.interaction.get_scroll_offset(&id);
+                    let offset_delta = offset - old_offset;
                     self.interaction.set_scroll_offset(&id, offset);
+                    // Convert normalized offset delta to line delta for workspace sync
+                    if (id == WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR })
+                        && offset_delta.abs() > 0.0001
+                    {
+                        let total_lines = self
+                            .work_content
+                            .as_ref()
+                            .and_then(|w| w.editor_body.as_ref())
+                            .map(|cv| cv.lines.len().max(1))
+                            .unwrap_or(1) as f32;
+                        let visible = self
+                            .editor_viewport
+                            .as_ref()
+                            .map(|vp| lc::visible_lines_from_region(vp.content_rect.3) as f32)
+                            .unwrap_or(1.0) as f32;
+                        let max_scroll_lines = (total_lines - visible).max(1.0);
+                        let line_delta = (offset_delta * max_scroll_lines).round() as isize;
+                        if let Some(ref mut comp) = self.composition {
+                            comp.pending_scroll_lines += line_delta;
+                            comp.pending_refresh_reason =
+                                Some(zaroxi_application_workspace::workspace_view::RefreshReason::CursorMoved);
+                        }
+                    }
                     needs_redraw = true;
                 }
                 zaroxi_core_engine_ui::WidgetAction::Activated(ref id) => {
@@ -558,30 +583,44 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let scroll_lines = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(_, y) => y as f32,
-                    winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 16.0,
+                    winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                        // Shift + wheel = horizontal scroll; plain wheel = vertical
+                        if self.shift_held {
+                            // Horizontal: scale by approximate char width (8px)
+                            let h_px = x as f32 * 24.0;
+                            if let Some(ref mut comp) = self.composition {
+                                comp.pending_hscroll_px -= h_px;
+                            }
+                            0.0
+                        } else {
+                            y as f32
+                        }
+                    }
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => {
+                        if self.shift_held {
+                            let h_px = pos.x as f32;
+                            if let Some(ref mut comp) = self.composition {
+                                comp.pending_hscroll_px -= h_px;
+                            }
+                            0.0
+                        } else {
+                            pos.y as f32 / 16.0
+                        }
+                    }
                 };
-                let editor_id =
-                    zaroxi_core_engine_ui::WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                let current = self.interaction.get_scroll_offset(&editor_id);
-                let line_h = lc::LINE_HEIGHT;
-                let usable_h = self
-                    .editor_viewport
-                    .as_ref()
-                    .map(|vp| vp.content_rect.3 - lc::CONTENT_HEADER_H - lc::CONTENT_PAD_X * 2.0)
-                    .unwrap_or(100.0);
-                let total_lines = self
-                    .work_content
-                    .as_ref()
-                    .and_then(|w| w.editor_body.as_ref())
-                    .map(|cv| cv.lines.len().max(1))
-                    .unwrap_or(1) as f32;
-                let visible_lines = (usable_h / line_h).max(1.0);
-                let step = visible_lines / (total_lines - visible_lines).max(1.0);
-                let new_offset = (current - scroll_lines * step).clamp(0.0, 1.0);
-                self.interaction.set_scroll_offset(&editor_id, new_offset);
-                if let Some(ref mut tree) = self.widget_tree {
-                    self.interaction.apply_scroll_offsets(tree);
+
+                if scroll_lines.abs() > 0.01 {
+                    let delta_lines = -scroll_lines.round() as isize;
+                    if let Some(ref mut comp) = self.composition {
+                        comp.pending_scroll_lines += delta_lines;
+                    }
+                }
+
+                // Trigger a refresh so the scroll delta is processed
+                if let Some(ref mut comp) = self.composition {
+                    comp.pending_refresh_reason = Some(
+                        zaroxi_application_workspace::workspace_view::RefreshReason::CursorMoved,
+                    );
                 }
                 if let Some(z) = self.maybe_window.as_ref() {
                     self.needs_render = true;
@@ -968,6 +1007,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     w: vp.clip_rect.2,
                                     h: vp.clip_rect.3,
                                 });
+                                // Thread horizontal scroll offset from composition metadata
+                                if let Some(ref comp) = self.composition {
+                                    if let Some(meta) = &comp.metadata {
+                                        block.content_offset_x =
+                                            meta.editor_horizontal_offset_px.unwrap_or(0.0);
+                                        // Vertical scroll offset from workspace top_line
+                                        if let Some(ref vw) = meta.visible_window {
+                                            block.content_offset_y = vw.top_line.saturating_sub(1)
+                                                as f32
+                                                * lc::LINE_HEIGHT;
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {

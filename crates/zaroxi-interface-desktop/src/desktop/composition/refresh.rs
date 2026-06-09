@@ -139,22 +139,62 @@ pub async fn refresh_with_service(
 
     // Sync editor viewport line count to the workspace's ViewportState
     // so centering and scroll calculations use the correct visible height.
+    // Only updates window_height when it changes (does not reset top_line).
     if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref()) {
         if let Some(window_height) =
             comp.metadata.as_ref().and_then(|m| m.editor_viewport_line_count)
         {
             if window_height > 0 {
+                let prev = comp.metadata.as_ref().and_then(|m| m.last_synced_window_height);
+                if prev != Some(window_height) {
+                    let _ = svc
+                        .set_viewport_state(crate::ports::SetViewportRequest {
+                            session_id: session_id.clone(),
+                            buffer_id: bid.clone(),
+                            viewport: crate::ports::ViewportState {
+                                top_line: 1,
+                                window_height,
+                                center_cursor: prev.is_none(),
+                            },
+                        })
+                        .await;
+                    if let Some(ref mut meta) = comp.metadata {
+                        meta.last_synced_window_height = Some(window_height);
+                    }
+                }
+            }
+        }
+    }
+
+    // Process pending vertical scroll delta: call scroll_viewport on the workspace
+    // so the ViewportState.top_line stays in sync with the GUI interaction model.
+    {
+        let delta = comp.pending_scroll_lines;
+        comp.pending_scroll_lines = 0;
+        if delta != 0 {
+            if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref()) {
                 let _ = svc
-                    .set_viewport_state(crate::ports::SetViewportRequest {
+                    .scroll_viewport(crate::ports::ScrollViewportRequest {
                         session_id: session_id.clone(),
                         buffer_id: bid.clone(),
-                        viewport: crate::ports::ViewportState {
-                            top_line: 1,
-                            window_height,
-                            center_cursor: true,
-                        },
+                        delta_lines: delta,
                     })
                     .await;
+            }
+        }
+    }
+
+    // Process pending horizontal scroll delta: update the editor viewport's
+    // horizontal_offset_px. This is a renderer-local offset (no workspace state).
+    {
+        let hdelta = comp.pending_hscroll_px;
+        comp.pending_hscroll_px = 0.0;
+        if hdelta != 0.0 {
+            // Store horizontal offset in metadata so app.rs can read it
+            // and apply to UiBlock.content_offset_x
+            if let Some(ref mut meta) = comp.metadata {
+                let current = meta.editor_horizontal_offset_px.unwrap_or(0.0);
+                meta.editor_horizontal_offset_px = Some((current + hdelta).max(0.0));
             }
         }
     }
@@ -415,6 +455,8 @@ pub async fn refresh_with_service(
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
         editor_viewport_line_count: None,
+        last_synced_window_height: None,
+        editor_horizontal_offset_px: None,
         refresh_reason: Some(reason.clone()),
     };
 
@@ -565,6 +607,8 @@ pub async fn request_ai_edit_active(
                         visible_window: None,
                         last_command_line: None,
                         editor_viewport_line_count: None,
+                        last_synced_window_height: None,
+                        editor_horizontal_offset_px: None,
                         refresh_reason: None,
                     });
                 }
@@ -613,6 +657,8 @@ pub async fn request_ai_edit_active(
                                                     visible_window: None,
                                                     last_command_line: None,
                                                     editor_viewport_line_count: None,
+                                                    last_synced_window_height: None,
+                                                    editor_horizontal_offset_px: None,
                                                     refresh_reason: None,
                                                 });
                                             }
@@ -673,6 +719,8 @@ pub async fn request_ai_edit_active(
                 visible_window: None,
                 last_command_line: None,
                 editor_viewport_line_count: None,
+                last_synced_window_height: None,
+                editor_horizontal_offset_px: None,
                 refresh_reason: None,
             });
         }

@@ -110,6 +110,11 @@ pub struct DesktopMetadata {
     /// Editor viewport height expressed as the number of text lines that fit.
     /// Updated by the GUI whenever the editor layout/viewport changes.
     pub editor_viewport_line_count: Option<usize>,
+    /// Tracks the last window_height synced to the workspace to avoid
+    /// redundant set_viewport_state calls that would reset top_line.
+    pub last_synced_window_height: Option<usize>,
+    /// Horizontal scroll offset in logical pixels for the editor viewport.
+    pub editor_horizontal_offset_px: Option<f32>,
     pub last_command_line: Option<String>,
     pub refresh_reason: Option<RefreshReason>,
 }
@@ -182,6 +187,12 @@ pub struct DesktopComposition {
     pub maybe_explorer: Option<WorkspaceExplorer>,
     /// Cache of visible explorer items for activation dispatch mapping.
     pub(crate) cached_explorer_items: Vec<ExplorerItemView>,
+    /// Pending vertical scroll delta in lines. Consumed by refresh_with_service
+    /// to call scroll_viewport on the workspace. Negative = scroll up, positive = down.
+    pub(crate) pending_scroll_lines: isize,
+    /// Pending horizontal scroll delta in pixels. Consumed by refresh_with_service
+    /// to update the editor horizontal offset for long-line scrolling.
+    pub(crate) pending_hscroll_px: f32,
 }
 
 impl DesktopComposition {
@@ -200,6 +211,8 @@ impl DesktopComposition {
             workspace_root_path: None,
             maybe_explorer: None,
             cached_explorer_items: Vec::new(),
+            pending_scroll_lines: 0,
+            pending_hscroll_px: 0.0,
         }
     }
 
@@ -419,6 +432,8 @@ impl DesktopComposition {
                 visible_window: None,
                 last_command_line: Some(text),
                 editor_viewport_line_count: None,
+                last_synced_window_height: None,
+                editor_horizontal_offset_px: None,
                 refresh_reason: None,
             });
         }

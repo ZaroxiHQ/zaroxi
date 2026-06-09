@@ -52,6 +52,7 @@ impl AiPanel {
             text_color: Some(tokens.text_primary.to_array()),
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
         }
     }
 
@@ -105,6 +106,7 @@ impl AiPanel {
             text_color: None,
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
         }
     }
 }

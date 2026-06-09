@@ -102,6 +102,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
 
             blocks.push(UiBlock {
@@ -129,6 +130,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
         }
     }
@@ -167,6 +169,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
 
             blocks.push(UiBlock {
@@ -194,6 +197,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
         }
     }
@@ -232,6 +236,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
 
             blocks.push(UiBlock {
@@ -259,6 +264,7 @@ pub fn compute_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
         }
     }
@@ -321,6 +327,7 @@ pub fn extract_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
             blocks.push(UiBlock {
                 id: "scrollbar_thumb".to_string(),
@@ -347,6 +354,7 @@ pub fn extract_scrollbar_blocks(
                 text_color: None,
                 clip_rect: None,
                 content_offset_x: 0.0,
+                content_offset_y: 0.0,
             });
         }
     }

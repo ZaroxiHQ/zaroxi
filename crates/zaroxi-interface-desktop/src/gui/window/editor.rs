@@ -72,6 +72,7 @@ impl EditorPanel {
             text_color: None,
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
         }
     }
 
@@ -107,6 +108,7 @@ impl EditorPanel {
             text_color: Some(tokens.text_muted.to_array()),
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
         }
     }
 
@@ -141,6 +143,7 @@ impl EditorPanel {
             selection_range: None,
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
             text_color: None,
         }
     }
@@ -183,6 +186,7 @@ impl EditorPanel {
             selection_range: None,
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
             text_color: None,
         }
     }
@@ -229,6 +233,7 @@ impl EditorPanel {
             text_color: None,
             clip_rect: None,
             content_offset_x: 0.0,
+            content_offset_y: 0.0,
         }
     }
 }
