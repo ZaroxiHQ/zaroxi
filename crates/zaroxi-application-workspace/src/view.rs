@@ -380,9 +380,9 @@ pub fn project_visible_lines_for_viewport(
         }
     });
 
-    // Compute start using viewport state.
+    // Compute start using viewport state's window_height for centering only.
     let mut start = if viewport.center_cursor {
-        // Centering policy similar to earlier function.
+        // Centering policy: use window_height to compute the half-window.
         let half = viewport.window_height / 2;
         if cursor_line > half { cursor_line.saturating_sub(half).saturating_add(1) } else { 0 }
     } else {
@@ -390,16 +390,15 @@ pub fn project_visible_lines_for_viewport(
         if viewport.top_line == 0 { 0 } else { viewport.top_line.saturating_sub(1) }
     };
 
-    // Clamp start so that window fits within document.
-    if start + viewport.window_height > total {
-        if total >= viewport.window_height {
-            start = total - viewport.window_height;
-        } else {
-            start = 0;
-        }
+    // Clamp start so it does not exceed document.
+    if start >= total {
+        start = if total > 0 { total - 1 } else { 0 };
     }
 
-    let end = std::cmp::min(start + viewport.window_height, total);
+    // Project all remaining lines from start to end-of-document.
+    // The renderer performs per-glyph clip culling, so no hard window-size
+    // limit is needed here. Full buffer text is preserved.
+    let end = total;
 
     let mut out: Vec<VisibleLine> = Vec::with_capacity(end - start);
     for (idx, line) in lines_vec.iter().enumerate().take(end).skip(start) {
