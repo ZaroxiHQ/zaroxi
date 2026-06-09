@@ -136,6 +136,8 @@ pub struct GuiApp {
     pub explorer_button_rect: Option<(f32, f32, f32, f32)>,
     /// Shared parser pool for syntax highlighting.
     pub parser_pool: ParserPool,
+    pub cached_editor_data: Option<crate::gui::window::editor::EditorContentData>,
+    pub cached_editor_lines_hash: u64,
     /// Taffy-based layout controller (Editor Phase 1).
     /// Owns layout computation, caching, and resize detection.
     pub layout_controller: ShellLayoutController,
@@ -855,11 +857,42 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.shell.regions = shell_regions.to_vec();
                     self.shell.size = *self.layout_controller.size();
 
-                    let editor_data = super::presenters::shape_editor_content(
-                        &self.shell.work_content,
-                        &sem,
-                        &self.parser_pool,
-                    );
+                    // Compute a simple content hash from work_content editor body lines
+                    // to avoid re-running syntax highlighting every frame.
+                    let lines_hash = self
+                        .shell
+                        .work_content
+                        .as_ref()
+                        .and_then(|wc| wc.editor_body.as_ref())
+                        .map(|cv| {
+                            let mut h: u64 = 0;
+                            for line in cv.lines.iter() {
+                                h = h.wrapping_mul(31).wrapping_add(line.len() as u64);
+                            }
+                            h
+                        })
+                        .unwrap_or(0);
+
+                    let use_cache = lines_hash > 0 && lines_hash == self.cached_editor_lines_hash;
+
+                    let editor_data = if use_cache {
+                        self.cached_editor_data.clone().unwrap_or_else(|| {
+                            super::presenters::shape_editor_content(
+                                &self.shell.work_content,
+                                &sem,
+                                &self.parser_pool,
+                            )
+                        })
+                    } else {
+                        let data = super::presenters::shape_editor_content(
+                            &self.shell.work_content,
+                            &sem,
+                            &self.parser_pool,
+                        );
+                        self.cached_editor_data = Some(data.clone());
+                        self.cached_editor_lines_hash = lines_hash;
+                        data
+                    };
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);

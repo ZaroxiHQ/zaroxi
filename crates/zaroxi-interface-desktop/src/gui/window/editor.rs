@@ -10,6 +10,7 @@ use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_ui::chrome::TabEntry;
 
+#[derive(Clone)]
 pub struct EditorContentData {
     pub tab_entries: Vec<TabEntry>,
     pub breadcrumb_label: String,

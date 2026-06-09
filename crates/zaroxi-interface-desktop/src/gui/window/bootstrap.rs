@@ -81,6 +81,8 @@ pub fn run_shell_window(
         explorer_actions,
         explorer_button_rect: None,
         parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
+        cached_editor_data: None,
+        cached_editor_lines_hash: 0,
         layout_controller: super::editor_shell::ShellLayoutController::new(),
         editor_viewport: None,
         needs_render: true,
