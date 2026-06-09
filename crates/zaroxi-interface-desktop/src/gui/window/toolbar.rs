@@ -38,6 +38,7 @@ impl TopBarPanel {
             selection_range: None,
             text_color: Some(tokens.text_primary.to_array()),
             clip_rect: None,
+            content_offset_x: 0.0,
         }
     }
 }

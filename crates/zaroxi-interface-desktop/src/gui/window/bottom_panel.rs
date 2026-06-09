@@ -38,6 +38,7 @@ impl BottomDockPanel {
             selection_range: None,
             text_color: None,
             clip_rect: None,
+            content_offset_x: 0.0,
         }
     }
 }

@@ -141,7 +141,7 @@ pub struct Renderer<'a> {
     debug_pipeline: wgpu::RenderPipeline,
     // Solid-shape pipeline used for all non-text UI quads (panels / borders).
     shape_pipeline: wgpu::RenderPipeline,
-    // text subsystem renderer (default: Glyphon-backed)
+    // text subsystem renderer (CosmicText)
     text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync>,
 
     // vertex/index buffers reused each frame
@@ -210,7 +210,7 @@ impl<'a> Renderer<'a> {
         // Initialize the text subsystem. We now use the Cosmic Text–backed
         // TextRenderer implementation located in renderer::text::cosmic.rs.
         // The new CosmicTextRenderer is the single authoritative text renderer
-        // for GUI text; Glyphon is no longer exported by the render text seam.
+        // for GUI text; the CosmicText renderer is the exclusive text path.
         let font_size = 14.0f32;
         let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
             Box::new(crate::renderer::text::CosmicTextRenderer::new(
@@ -632,7 +632,7 @@ impl<'a> Renderer<'a> {
             // in the backend-managed atlas. The backend may use the provided queue to
             // upload missing glyph bitmaps into its internal atlas before returning
             // placed glyphs with valid UVs.
-            // Queue title for the native Glyphon text renderer (prepare/render will occur later).
+            // Queue title for the CosmicText text renderer (prepare/render will occur later).
             self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
                 &block.title,
                 title_x,
@@ -681,94 +681,77 @@ impl<'a> Renderer<'a> {
                 // When clip_rect is set, use its x/w for horizontal containment
                 // (prevents text bleed into adjacent panels). Vertical bounds (y/h)
                 // remain header-aware to prevent overlap with the block's title area.
+                // Full text is queued — CosmicText clips via per-glyph bounds check
+                // during prepare. No source truncation is performed.
                 let content_y = target.y + hh + content_padding;
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
-                let (content_x, content_w) = if let Some(ref clip) = block.clip_rect {
-                    (clip.x, clip.w)
+                let (text_x, clip_x, clip_w) = if let Some(ref clip) = block.clip_rect {
+                    let tx = clip.x - block.content_offset_x;
+                    (tx, clip.x, clip.w)
                 } else {
                     let cx = target.x + content_padding;
                     let cw = (target.w - content_padding * 2.0).max(0.0);
-                    (cx, cw)
+                    (cx, cx, cw)
                 };
-                if content_w > 0.0 && content_h > 0.0 {
-                    let char_w = 8.0f32;
-                    let max_chars = (content_w / char_w).max(1.0) as usize;
+                if clip_w > 0.0 && content_h > 0.0 {
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
                         let mut cursor_y = content_y;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let mut line_buf = String::new();
-                        let mut line_buf_chars: usize = 0;
                         for (span_text, span_color) in spans {
                             if span_text == "\n" {
                                 if !line_buf.is_empty() {
                                     self.text_renderer.queue_text(
                                         crate::renderer::text::TextCommand::new_body(
                                             &line_buf,
-                                            content_x,
+                                            text_x,
                                             cursor_y,
                                             *span_color,
                                             DEFAULT_FONT_SIZE,
-                                            content_x,
+                                            clip_x,
                                             content_y,
-                                            content_w,
+                                            clip_w,
                                             content_h,
                                         ),
                                     );
                                     line_buf.clear();
-                                    line_buf_chars = 0;
                                 }
                                 cursor_y += line_h;
                                 continue;
                             }
-                            let span_chars = span_text.chars().count();
-                            let remaining = max_chars.saturating_sub(line_buf_chars);
-                            if remaining == 0 {
-                                line_buf_chars += span_chars;
-                                continue;
-                            }
-                            if span_chars <= remaining {
-                                line_buf.push_str(span_text);
-                                line_buf_chars += span_chars;
-                            } else {
-                                let truncated: String = span_text.chars().take(remaining).collect();
-                                line_buf.push_str(&truncated);
-                                line_buf_chars += remaining;
-                            }
+                            line_buf.push_str(span_text);
                         }
                         if !line_buf.is_empty() {
                             self.text_renderer.queue_text(
                                 crate::renderer::text::TextCommand::new_body(
                                     &line_buf,
-                                    content_x,
+                                    text_x,
                                     cursor_y,
                                     *spans.last().map(|(_, c)| c).unwrap_or(&[1.0; 4]),
                                     DEFAULT_FONT_SIZE,
-                                    content_x,
+                                    clip_x,
                                     content_y,
-                                    content_w,
+                                    clip_w,
                                     content_h,
                                 ),
                             );
                         }
                     } else {
-                        // Queue content for Glyphon native rendering
-                        let truncated = if block.content.chars().count() > max_chars {
-                            block.content.chars().take(max_chars).collect::<String>()
-                        } else {
-                            block.content.clone()
-                        };
+                        // Queue full content for CosmicText native rendering.
+                        // CosmicText clips via per-glyph bounds check — no source truncation.
+                        // clip_x stays at viewport; text_x shifts with scroll offset.
                         self.text_renderer.queue_text(
                             crate::renderer::text::TextCommand::new_body(
-                                &truncated,
-                                content_x,
+                                &block.content,
+                                text_x,
                                 content_y,
                                 title_color,
                                 DEFAULT_FONT_SIZE,
-                                content_x,
+                                clip_x,
                                 content_y,
-                                content_w,
+                                clip_w,
                                 content_h,
                             ),
                         );
@@ -784,7 +767,7 @@ impl<'a> Renderer<'a> {
             // ── Cursor & line-highlight rendering ──
             if let (Some(line), Some(col)) = (block.cursor_line, block.cursor_col) {
                 let content_x = if let Some(ref clip) = block.clip_rect {
-                    clip.x
+                    clip.x - block.content_offset_x
                 } else {
                     target.x + content_padding
                 };
@@ -1107,9 +1090,9 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            // Ensure Glyphon receives queued commands (if any).
+                            // Ensure CosmicText receives queued commands (if any).
                             let queued_count = self.text_renderer.queued_len();
-                            info!("Glyphon: queued commands before prepare: {}", queued_count);
+                            info!("CosmicText: queued commands before prepare: {}", queued_count);
 
                             // Record intent to call the backend prepare and capture queued size immediately prior.
                             let queued_before_prepare = self.text_renderer.queued_len();
@@ -1365,7 +1348,7 @@ impl<'a> Renderer<'a> {
                                 total_indices_len
                             );
 
-                            // Prepare any queued text (shape/rasterize/upload) then render via Glyphon native path.
+                            // Prepare any queued text (shape/rasterize/upload) then render via CosmicText native path.
                             self.text_renderer.prepare(&self.device, &mut self.queue)?;
                             self.text_renderer.render_pass(
                                 &mut rpass,

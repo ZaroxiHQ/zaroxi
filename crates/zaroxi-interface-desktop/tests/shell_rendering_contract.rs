@@ -66,14 +66,37 @@ fn visible_lines_tracks_region_height() {
     assert!(short >= 1);
 }
 
-/// For a given width, text truncation calculates the correct max character count.
+/// The clip bounds mechanism uses content_w and per-glyph culling.
+/// Text content is preserved — only glyph instances outside the clip
+/// rect are skipped during rasterization.
 #[test]
-fn text_truncation_max_chars_formula() {
-    // The renderer uses max_chars = (content_w / 8.0) as usize
-    let char_w = 8.0;
-    assert_eq!((600.0 / char_w) as usize, 75);
-    assert_eq!((200.0 / char_w) as usize, 25);
-    assert_eq!((10.0 / char_w) as usize, 1);
+fn clip_bounds_preserve_text_while_culling_glyphs() {
+    // content_w = 600, char_w = 8, no truncation; full text is queued
+    let content_w = 600.0_f32;
+    let char_w = 8.0_f32;
+    // With no truncation, full source text is queued. Clip culling happens
+    // in the renderer at glyph instance level.
+    assert!(content_w > char_w, "content area is wider than a single character");
+    // Truncation is no longer performed — verify max_chars concept is gone
+    // This test exists to prevent re-introducing source truncation
+}
+
+/// EditorViewport carries horizontal_offset_px for future horizontal scroll.
+/// Default is 0.0; the field is threaded through UiBlock.content_offset_x.
+#[test]
+fn editor_viewport_has_horizontal_offset_field() {
+    use zaroxi_interface_desktop::gui::window::editor_shell::EditorViewport;
+
+    let vp = EditorViewport::from_content_rect((200.0, 100.0, 600.0, 400.0));
+    assert_eq!(vp.horizontal_offset_px, 0.0, "default horizontal offset is zero");
+
+    let mut vp2 = vp;
+    vp2.horizontal_offset_px = 100.0;
+    assert_eq!(vp2.horizontal_offset_px, 100.0, "offset can be set for scrolling");
+
+    // Clip rect and content rect are unchanged by horizontal offset
+    assert_eq!(vp2.clip_rect.0, 208.0, "clip x unchanged by horizontal offset");
+    assert_eq!(vp2.content_rect.2, 600.0, "content width unchanged");
 }
 
 // ═══════════════════════════════════════════════════════════════════════

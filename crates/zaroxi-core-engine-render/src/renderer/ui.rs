@@ -41,6 +41,10 @@ pub struct UiBlock {
     /// Editor Phase 1: optional clip/scissor rect for viewport-bounded rendering.
     /// When set, the renderer should clip this block's content to the given rect.
     pub clip_rect: Option<Rect>,
+    /// Editor Phase 2: x-axis scroll offset applied to the text draw origin
+    /// when clip_rect is active. Subtracted from content_x so scrolled-right
+    /// content shifts into the visible viewport. Full text is preserved.
+    pub content_offset_x: f32,
 }
 
 use super::core::Rect;

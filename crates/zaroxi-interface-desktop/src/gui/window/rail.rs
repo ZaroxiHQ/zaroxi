@@ -75,6 +75,7 @@ impl RailPanel {
             selection_range: None,
             text_color: None,
             clip_rect: None,
+            content_offset_x: 0.0,
         }
     }
 
@@ -112,6 +113,7 @@ impl RailPanel {
             highlight_active_line: false,
             selection_range: None,
             clip_rect: None,
+            content_offset_x: 0.0,
             text_color: None,
         });
 
@@ -172,6 +174,7 @@ impl RailPanel {
                         selection_range: None,
                         text_color: Some(text_c),
                         clip_rect: None,
+                        content_offset_x: 0.0,
                     });
                     y_off += row_h;
                 }
@@ -216,6 +219,7 @@ impl RailPanel {
             highlight_active_line: false,
             selection_range: None,
             clip_rect: None,
+            content_offset_x: 0.0,
             text_color: None,
         });
 
@@ -246,6 +250,7 @@ impl RailPanel {
                     selection_range: None,
                     text_color: Some(tokens.text_primary.to_array()),
                     clip_rect: None,
+                    content_offset_x: 0.0,
                 });
 
                 cta_hit_rect = Some((btn_x, btn_y, btn_w, btn_h));

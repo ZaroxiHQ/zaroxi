@@ -16,12 +16,18 @@ use super::constants::{CONTENT_PAD_X, CONTENT_PAD_Y};
 /// `content_rect` is the raw content area rectangle (full editor body panel).
 /// `clip_rect` is the content area inset by padding — text must not paint
 /// outside this boundary.
+///
+/// `horizontal_offset_px` shifts the rendered text origin leftward by this
+/// amount so that scrolled-right content becomes visible within the clip rect.
+/// Defaults to 0.0 (no horizontal scroll). Future horizontal-scroll
+/// interactions will increment/decrement this value.
 #[derive(Debug, Clone, Copy)]
 pub struct EditorViewport {
     pub content_rect: (f32, f32, f32, f32),
     pub clip_rect: (f32, f32, f32, f32),
     pub content_inset_x: f32,
     pub content_inset_y: f32,
+    pub horizontal_offset_px: f32,
 }
 
 impl EditorViewport {
@@ -40,7 +46,13 @@ impl EditorViewport {
             (content_rect.3 - inset_y * 2.0).max(0.0),
         );
 
-        Self { content_rect, clip_rect: clip, content_inset_x: inset_x, content_inset_y: inset_y }
+        Self {
+            content_rect,
+            clip_rect: clip,
+            content_inset_x: inset_x,
+            content_inset_y: inset_y,
+            horizontal_offset_px: 0.0,
+        }
     }
 
     /// Returns `true` if the given window-space point (px, py) falls inside

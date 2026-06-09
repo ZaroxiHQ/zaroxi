@@ -45,6 +45,7 @@ pub fn make_panel_block(
         selection_range: None,
         text_color,
         clip_rect: None,
+        content_offset_x: 0.0,
     }
 }
 
@@ -87,5 +88,6 @@ pub fn make_gutter_block(
         selection_range: None,
         text_color: Some(tokens.text_faint.to_array()),
         clip_rect: None,
+        content_offset_x: 0.0,
     }
 }
