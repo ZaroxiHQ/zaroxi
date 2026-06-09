@@ -613,6 +613,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let delta_lines = -scroll_lines.round() as isize;
                     if let Some(ref mut comp) = self.composition {
                         comp.pending_scroll_lines += delta_lines;
+                        if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                            eprintln!(
+                                "ZAROXI_SCROLL: wheel vdelta={} pending={} hdelta_px={}",
+                                delta_lines, comp.pending_scroll_lines, comp.pending_hscroll_px
+                            );
+                        }
                     }
                 }
 
@@ -811,6 +817,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                             tokens.editor_content_background.to_array(),
                             tokens.sidebar_background.to_array(),
                         );
+                    }
+
+                    // Process any pending scroll deltas from input events
+                    if let Some(ref mut comp) = self.composition {
+                        comp.apply_pending_scrolls();
                     }
 
                     // Widget tree from engine shell layout (cached by controller)
@@ -1012,11 +1023,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     if let Some(meta) = &comp.metadata {
                                         block.content_offset_x =
                                             meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                        // Vertical scroll offset from workspace top_line
-                                        if let Some(ref vw) = meta.visible_window {
-                                            block.content_offset_y = vw.top_line.saturating_sub(1)
-                                                as f32
-                                                * lc::LINE_HEIGHT;
+                                        // Vertical scroll offset from local scroll state
+                                        let off_y =
+                                            meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                                        block.content_offset_y = off_y;
+                                        if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref()
+                                            == Ok("1")
+                                        {
+                                            eprintln!(
+                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
+                                                block.content_offset_x,
+                                                off_y,
+                                                meta.editor_scroll_top_line
+                                            );
                                         }
                                     }
                                 }

@@ -110,6 +110,9 @@ pub struct DesktopMetadata {
     /// Editor viewport height expressed as the number of text lines that fit.
     /// Updated by the GUI whenever the editor layout/viewport changes.
     pub editor_viewport_line_count: Option<usize>,
+    /// Local vertical scroll top_line for gui_shell (no workspace refresh loop).
+    /// Updated by apply_pending_scrolls, consumed to set content_offset_y.
+    pub editor_scroll_top_line: usize,
     /// Tracks the last window_height synced to the workspace to avoid
     /// redundant set_viewport_state calls that would reset top_line.
     pub last_synced_window_height: Option<usize>,
@@ -117,6 +120,28 @@ pub struct DesktopMetadata {
     pub editor_horizontal_offset_px: Option<f32>,
     pub last_command_line: Option<String>,
     pub refresh_reason: Option<RefreshReason>,
+}
+
+impl Default for DesktopMetadata {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            workspace_id: None,
+            active_buffer: None,
+            opened_buffer_count: 0,
+            opened_buffers: Vec::new(),
+            active_buffer_details: None,
+            ai_projection: None,
+            diagnostics_snapshot: None,
+            visible_window: None,
+            editor_viewport_line_count: None,
+            editor_scroll_top_line: 0,
+            last_synced_window_height: None,
+            editor_horizontal_offset_px: None,
+            last_command_line: None,
+            refresh_reason: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,8 +244,50 @@ impl DesktopComposition {
     /// Store the editor viewport visible line count so the refresh loop
     /// can sync it to the workspace's ViewportState on next refresh.
     pub fn set_editor_viewport_lines(&mut self, lines: usize) {
+        if self.metadata.is_none() {
+            self.metadata = Some(DesktopMetadata::default());
+        }
         if let Some(ref mut meta) = self.metadata {
             meta.editor_viewport_line_count = Some(lines);
+        }
+    }
+
+    /// Process pending scroll deltas synchronously (for GUI event-loop use).
+    /// Consumes pending_scroll_lines and pending_hscroll_px, calling the
+    /// workspace service ports to update ViewportState and horizontal offset.
+    /// After this, get_visible_lines will reflect the updated scroll position.
+    pub fn apply_pending_scrolls(&mut self) {
+        let vscroll = self.pending_scroll_lines;
+        self.pending_scroll_lines = 0;
+        let hscroll = self.pending_hscroll_px;
+        self.pending_hscroll_px = 0.0;
+
+        // Ensure metadata exists even when refresh_with_service hasn't been called
+        if self.metadata.is_none() {
+            self.metadata = Some(DesktopMetadata::default());
+        }
+        let meta = self.metadata.as_mut().unwrap();
+
+        if vscroll != 0 {
+            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+            let current = meta.editor_scroll_top_line as isize;
+            let new = (current + vscroll as isize).max(0) as usize;
+            meta.editor_scroll_top_line = new;
+            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_SCROLL: applied vscroll={} top_line={} visible={}",
+                    vscroll, new, visible
+                );
+            }
+        }
+
+        if hscroll != 0.0 {
+            let current = meta.editor_horizontal_offset_px.unwrap_or(0.0);
+            let new = (current + hscroll).max(0.0);
+            meta.editor_horizontal_offset_px = Some(new);
+            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                eprintln!("ZAROXI_SCROLL: applied hscroll={:.1} offset={:.1}", hscroll, new);
+            }
         }
     }
 
@@ -432,6 +499,7 @@ impl DesktopComposition {
                 visible_window: None,
                 last_command_line: Some(text),
                 editor_viewport_line_count: None,
+                editor_scroll_top_line: 0,
                 last_synced_window_height: None,
                 editor_horizontal_offset_px: None,
                 refresh_reason: None,
