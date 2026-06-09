@@ -593,7 +593,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             }
                             0.0
                         } else {
-                            y as f32
+                            y as f32 * 3.0
                         }
                     }
                     winit::event::MouseScrollDelta::PixelDelta(pos) => {
@@ -1037,6 +1037,32 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 meta.editor_scroll_top_line
                                             );
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Apply vertical scroll offset to the gutter lane block
+                        // so line numbers stay aligned with editor text content.
+                        if let Some(ref comp) = self.composition {
+                            if let Some(meta) = &comp.metadata {
+                                let off_y = meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                                for block in &mut render_blocks {
+                                    if block.id == "gutter_lane" {
+                                        // Match the content area's clip rect for vertical containment
+                                        if let Some(vp) = &self.editor_viewport {
+                                            block.clip_rect =
+                                                Some(zaroxi_core_engine_render::Rect {
+                                                    x: block.rect.x,
+                                                    y: vp.clip_rect.1,
+                                                    w: block.rect.w,
+                                                    h: vp.clip_rect.3,
+                                                });
+                                        }
+                                        block.content_offset_y = off_y;
+                                        block.content_offset_x =
+                                            meta.editor_horizontal_offset_px.unwrap_or(0.0);
+                                        break;
                                     }
                                 }
                             }

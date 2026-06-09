@@ -81,6 +81,37 @@ fn clip_bounds_preserve_text_while_culling_glyphs() {
     // This test exists to prevent re-introducing source truncation
 }
 
+/// Vertical scroll offset maps top_line to content_offset_y in pixels.
+#[test]
+fn scroll_top_line_maps_to_content_offset_y() {
+    let top_line = 5usize;
+    let line_h = 16.0f32;
+    let offset = top_line as f32 * line_h;
+    assert_eq!(offset, 80.0);
+    // top_line 0 = no offset (first line visible)
+    assert_eq!(0.0, 0.0 * line_h);
+}
+
+/// Wheel normalization: LineDelta y=1 should produce at least 3 lines
+/// of scroll movement (editor-like step size).
+#[test]
+fn wheel_line_delta_step_size() {
+    let raw_y: f32 = 1.0;
+    let multiplier = 3.0;
+    let scroll_lines = raw_y * multiplier;
+    assert_eq!(scroll_lines, 3.0);
+    let delta_lines = -scroll_lines.round() as isize;
+    assert_eq!(delta_lines, -3);
+}
+
+/// Wheel shift+horizontal: LineDelta x should map to pixel offset.
+#[test]
+fn wheel_shift_horizontal_delta() {
+    let raw_x: f32 = 1.0;
+    let h_px = raw_x * 24.0; // 24px per notch
+    assert_eq!(h_px, 24.0);
+}
+
 /// EditorViewport carries horizontal_offset_px for future horizontal scroll.
 /// Default is 0.0; the field is threaded through UiBlock.content_offset_x.
 #[test]

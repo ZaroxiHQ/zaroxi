@@ -554,13 +554,16 @@ impl TextRenderer for CosmicTextRenderer {
             let snapped_cmd_y = cmd_origin_y_phys;
 
             // Compute clip bounds in physical pixels for per-glyph culling.
-            // Only horizontal culling is done per-glyph to prevent bleed into
-            // adjacent panels. Vertical visibility is handled at the line level
-            // in core.rs (lines beyond the clip bottom are not queued).
+            // Horizontal: prevent bleed into adjacent panels.
+            // Vertical top-edge: glyphs scrolled above the content area are culled.
+            // Bottom-edge: handled at line level in core.rs (lines beyond
+            //   clip bottom are not queued), so no per-glyph bottom check.
             let clip_l = cmd.clip_x * device_scale;
+            let clip_t = cmd.clip_y * device_scale;
             let clip_r = (cmd.clip_x + cmd.clip_w) * device_scale;
-            let glyph_in_clip =
-                |gx: f32, _gy: f32, gw: f32, _gh: f32| gx + gw > clip_l && gx < clip_r;
+            let glyph_in_clip = |gx: f32, gy: f32, gw: f32, gh: f32| {
+                gx + gw > clip_l && gx < clip_r && gy + gh > clip_t
+            };
 
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
             // borrow is active, compute precise float layout positions (avoid integer truncation),
