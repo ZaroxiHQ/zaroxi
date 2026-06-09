@@ -1,0 +1,140 @@
+/*!
+Editor cursor projection, selection helpers, and hit-testing.
+
+Extracted from app.rs so editor interaction logic lives in one place
+rather than being tangled with the winit event loop.
+*/
+
+use winit::dpi::PhysicalPosition;
+
+use zaroxi_core_engine_ui::ShellWorkContent;
+use zaroxi_core_engine_ui::WidgetId;
+use zaroxi_core_engine_ui::layout_constants as lc;
+
+use crate::gui::window::editor_shell::EditorViewport;
+
+use super::GuiApp;
+
+/// Project a winit cursor position to an editor (line, col) pair.
+///
+/// Returns None when the point does not fall inside the editor viewport.
+pub(crate) fn project_editor_cursor(
+    cursor_pos: PhysicalPosition<f64>,
+    viewport: &EditorViewport,
+    work_content: &Option<ShellWorkContent>,
+    editor_scroll_offset: f32,
+) -> Option<(usize, usize)> {
+    let px = cursor_pos.x as f32;
+    let py = cursor_pos.y as f32;
+
+    if !viewport.contains_point(px, py) {
+        return None;
+    }
+
+    let content_pad = lc::CONTENT_PAD_X;
+    let header_h = lc::CONTENT_HEADER_H;
+    let line_h = lc::LINE_HEIGHT;
+    let char_w = lc::CHAR_WIDTH_STUB;
+    let content_x = viewport.content_rect.0 + content_pad;
+    let content_y = viewport.content_rect.1 + header_h + content_pad;
+    let rel_y = py - content_y;
+    let rel_x = px - content_x;
+    let visible_line = (rel_y / line_h).max(0.0) as usize;
+    let col = (rel_x / char_w).max(0.0) as usize;
+
+    let usable_h = viewport.content_rect.3 - header_h - content_pad * 2.0;
+
+    let total_lines = work_content
+        .as_ref()
+        .and_then(|w| w.editor_body.as_ref())
+        .map(|cv| cv.lines.len().max(1))
+        .unwrap_or(1);
+    let visible_lines_c = (usable_h / line_h).max(1.0) as usize;
+    let max_scroll_c = (total_lines.saturating_sub(visible_lines_c)).max(1);
+    let first_visible = (editor_scroll_offset * max_scroll_c as f32) as usize;
+    let absolute_line = first_visible + visible_line;
+
+    Some((absolute_line, col))
+}
+
+/// Extract selected text from editor_body lines using the live selection range.
+pub(crate) fn copy_selected_text(
+    work_content: &Option<ShellWorkContent>,
+    selection_range: &Option<(usize, usize, usize, usize)>,
+) -> Option<String> {
+    let (sl, sc, el, ec) = (*selection_range)?;
+    let wc = work_content.as_ref()?;
+    let body = wc.editor_body.as_ref()?;
+    if body.lines.is_empty() {
+        return None;
+    }
+    let mut selected = String::new();
+    for line_idx in sl..=el {
+        if line_idx >= body.lines.len() {
+            break;
+        }
+        let line = &body.lines[line_idx];
+        let start = if line_idx == sl { sc } else { 0 };
+        let end = if line_idx == el { ec.min(line.len()) } else { line.len() };
+        if start < end && start <= line.len() {
+            selected.push_str(&line[start..end.min(line.len())]);
+        }
+        if line_idx < el {
+            selected.push('\n');
+        }
+    }
+    if selected.is_empty() { None } else { Some(selected) }
+}
+
+/// Called on MouseInput Pressed — begin a selection at the current cursor position.
+pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
+    if let Some(pos) = app.interaction.cursor_pos_f32() {
+        let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
+        if let Some(vp) = &app.editor_viewport {
+            if let Some((line, col)) = project_editor_cursor(
+                phys,
+                vp,
+                &app.shell.work_content,
+                app.interaction
+                    .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
+            ) {
+                app.editor_cursor_line = line;
+                app.editor_cursor_col = col;
+                app.selection_anchor = Some((line, col));
+                app.selection_active = true;
+                app.selection_range = None;
+                app.needs_render = true;
+                if let Some(z) = app.maybe_window.as_ref() {
+                    let _ = z.window().request_redraw();
+                }
+            }
+        }
+    }
+}
+
+/// Called on CursorMoved while selection is active — extend the selection range.
+pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition<f64>) {
+    if let Some(anchor) = app.selection_anchor {
+        if let Some(vp) = &app.editor_viewport {
+            if let Some((line, col)) = project_editor_cursor(
+                position,
+                vp,
+                &app.shell.work_content,
+                app.interaction
+                    .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
+            ) {
+                let (sl, sc) = if line < anchor.0 || (line == anchor.0 && col < anchor.1) {
+                    (line, col)
+                } else {
+                    anchor
+                };
+                let (el, ec) = if (line, col) > anchor { (line, col) } else { anchor };
+                app.selection_range = Some((sl, sc, el, ec));
+                app.needs_render = true;
+                if let Some(z) = app.maybe_window.as_ref() {
+                    let _ = z.window().request_redraw();
+                }
+            }
+        }
+    }
+}
