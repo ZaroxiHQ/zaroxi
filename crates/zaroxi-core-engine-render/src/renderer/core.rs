@@ -750,22 +750,33 @@ impl<'a> Renderer<'a> {
                             );
                         }
                     } else {
-                        // Queue full content for CosmicText native rendering.
-                        // CosmicText clips via per-glyph bounds check — no source truncation.
-                        // clip_x stays at viewport; text_x shifts with scroll offset.
-                        self.text_renderer.queue_text(
-                            crate::renderer::text::TextCommand::new_body(
-                                &block.content,
-                                text_x,
-                                text_y,
-                                title_color,
-                                DEFAULT_FONT_SIZE,
-                                clip_x,
-                                text_y,
-                                clip_w,
-                                content_h,
-                            ),
-                        );
+                        // Non-spans path: apply line-level vertical culling
+                        // (matches the spans-path behaviour).  clip_y uses
+                        // content_y so that per-glyph top-edge culling is
+                        // effective.  Only lines whose top edge is above
+                        // clip_bottom are queued.
+                        let clip_bottom = content_y + content_h;
+                        let line_h = DEFAULT_FONT_SIZE + 2.0;
+                        let mut cursor_y = text_y;
+                        for line_str in block.content.lines() {
+                            if cursor_y >= clip_bottom {
+                                break;
+                            }
+                            self.text_renderer.queue_text(
+                                crate::renderer::text::TextCommand::new_body(
+                                    line_str,
+                                    text_x,
+                                    cursor_y,
+                                    title_color,
+                                    DEFAULT_FONT_SIZE,
+                                    clip_x,
+                                    content_y,
+                                    clip_w,
+                                    content_h,
+                                ),
+                            );
+                            cursor_y += line_h;
+                        }
                     }
                     debug!("queued content for block='{}'", block.id);
                 } else if RENDER_DEBUG {

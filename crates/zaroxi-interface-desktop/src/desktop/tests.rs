@@ -1069,6 +1069,7 @@ fn latest_status_bar_line_prefers_ai_result() {
         last_command_line: None,
             editor_viewport_line_count: None,
             editor_scroll_top_line: 0,
+            editor_scroll_px: 0.0,
             last_synced_window_height: None,
             editor_horizontal_offset_px: None,
         refresh_reason: None,

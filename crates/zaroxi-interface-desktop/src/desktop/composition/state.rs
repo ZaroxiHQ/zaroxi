@@ -113,6 +113,9 @@ pub struct DesktopMetadata {
     /// Local vertical scroll top_line for gui_shell (no workspace refresh loop).
     /// Updated by apply_pending_scrolls, consumed to set content_offset_y.
     pub editor_scroll_top_line: usize,
+    /// Sub-pixel vertical scroll offset (logical pixels) for smooth scrolling.
+    /// Used directly as content_offset_y on render blocks.
+    pub editor_scroll_px: f32,
     /// Tracks the last window_height synced to the workspace to avoid
     /// redundant set_viewport_state calls that would reset top_line.
     pub last_synced_window_height: Option<usize>,
@@ -136,6 +139,7 @@ impl Default for DesktopMetadata {
             visible_window: None,
             editor_viewport_line_count: None,
             editor_scroll_top_line: 0,
+            editor_scroll_px: 0.0,
             last_synced_window_height: None,
             editor_horizontal_offset_px: None,
             last_command_line: None,
@@ -215,6 +219,10 @@ pub struct DesktopComposition {
     /// Pending vertical scroll delta in lines. Consumed by refresh_with_service
     /// to call scroll_viewport on the workspace. Negative = scroll up, positive = down.
     pub(crate) pending_scroll_lines: isize,
+    /// Pending vertical scroll delta in logical pixels.  Accumulated from
+    /// wheel/trackpad events and consumed by apply_pending_scrolls each frame
+    /// to produce editor_scroll_px (sub-pixel smooth scrolling).
+    pub(crate) pending_vscroll_px: f32,
     /// Pending horizontal scroll delta in pixels. Consumed by refresh_with_service
     /// to update the editor horizontal offset for long-line scrolling.
     pub(crate) pending_hscroll_px: f32,
@@ -237,6 +245,7 @@ impl DesktopComposition {
             maybe_explorer: None,
             cached_explorer_items: Vec::new(),
             pending_scroll_lines: 0,
+            pending_vscroll_px: 0.0,
             pending_hscroll_px: 0.0,
         }
     }
@@ -253,12 +262,14 @@ impl DesktopComposition {
     }
 
     /// Process pending scroll deltas synchronously (for GUI event-loop use).
-    /// Consumes pending_scroll_lines and pending_hscroll_px, calling the
-    /// workspace service ports to update ViewportState and horizontal offset.
-    /// After this, get_visible_lines will reflect the updated scroll position.
+    /// Consumes pending_scroll_lines, pending_vscroll_px and pending_hscroll_px,
+    /// updating the workspace ViewportState and the render-time scroll offsets.
+    /// After this, content_offset_y will reflect the updated scroll position.
     pub fn apply_pending_scrolls(&mut self) {
         let vscroll = self.pending_scroll_lines;
         self.pending_scroll_lines = 0;
+        let vscroll_px = self.pending_vscroll_px;
+        self.pending_vscroll_px = 0.0;
         let hscroll = self.pending_hscroll_px;
         self.pending_hscroll_px = 0.0;
 
@@ -276,10 +287,31 @@ impl DesktopComposition {
             let new_unclamped = (current + vscroll as isize).max(0);
             let new = new_unclamped.min(max_scroll).max(0) as usize;
             meta.editor_scroll_top_line = new;
+            // Also sync pixel offset from the integer top_line
+            meta.editor_scroll_px = new as f32 * 16.0;
             if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                 eprintln!(
                     "ZAROXI_SCROLL: applied vscroll={} top_line={} visible={}",
                     vscroll, new, visible
+                );
+            }
+        }
+
+        // Smooth pixel accumulator: advance editor_scroll_px by the pending delta,
+        // clamped to the valid scroll range in pixels.
+        if vscroll_px.abs() > 0.01 {
+            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+            let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
+            let max_scroll_px =
+                total.saturating_sub(visible) as f32 * 16.0;
+            let new_px = (meta.editor_scroll_px - vscroll_px).clamp(0.0, max_scroll_px.max(0.0));
+            meta.editor_scroll_px = new_px;
+            meta.editor_scroll_top_line =
+                (new_px / 16.0).round().min(max_scroll_px) as usize;
+            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_SCROLL: applied vscroll_px={:.1} scroll_px={:.1} top_line={}",
+                    vscroll_px, meta.editor_scroll_px, meta.editor_scroll_top_line
                 );
             }
         }
@@ -502,7 +534,8 @@ impl DesktopComposition {
                 visible_window: None,
                 last_command_line: Some(text),
                 editor_viewport_line_count: None,
-                editor_scroll_top_line: 0,
+            editor_scroll_top_line: 0,
+            editor_scroll_px: 0.0,
                 last_synced_window_height: None,
                 editor_horizontal_offset_px: None,
                 refresh_reason: None,

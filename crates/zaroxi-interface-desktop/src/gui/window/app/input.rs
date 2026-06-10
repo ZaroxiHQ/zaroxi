@@ -130,20 +130,18 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 /// Apply mouse-wheel delta to composition pending scroll state and trigger
 /// a redraw.  Called from `window_event(MouseWheel)`.
 ///
-/// Fractional pixel deltas are accumulated in `pending_scroll_frac` so that
-/// small trackpad events are not lost before they sum to a full line.
+/// Deltas are accumulated in logical pixels via `pending_vscroll_px` so that
+/// trackpad events and wheel notches both produce smooth sub-line scrolling.
 pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
-    let scroll_lines = match *delta {
+    let scroll_px: f32 = match *delta {
         MouseScrollDelta::LineDelta(x, y) => {
             if app.shift_held {
                 let h_px = x as f32 * 24.0;
                 if let Some(ref mut comp) = app.composition {
                     comp.pending_hscroll_px -= h_px;
                 }
-                0.0
-            } else {
-                y as f32 * 3.0
             }
+            y as f32 * 48.0 // 3 lines × 16 px/line
         }
         MouseScrollDelta::PixelDelta(pos) => {
             if app.shift_held {
@@ -151,31 +149,29 @@ pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
                 if let Some(ref mut comp) = app.composition {
                     comp.pending_hscroll_px -= h_px;
                 }
-                0.0
-            } else {
-                pos.y as f32 / 16.0
             }
+            pos.y as f32
         }
     };
 
-    if scroll_lines.abs() > 0.01 {
-        app.pending_scroll_frac -= scroll_lines;
-        let whole = app.pending_scroll_frac.trunc() as isize;
-        if whole != 0 {
-            if let Some(ref mut comp) = app.composition {
+    if scroll_px.abs() > 0.01 {
+        if let Some(ref mut comp) = app.composition {
+            // Also maintain integer line-level accumulator for workspace API
+            let lines = -scroll_px / 16.0;
+            app.pending_scroll_frac += lines;
+            let whole = app.pending_scroll_frac.trunc() as isize;
+            if whole != 0 {
                 comp.pending_scroll_lines += whole;
-                if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
-                    eprintln!(
-                        "ZAROXI_SCROLL: wheel delta_f={:.3} whole={} pending={} frac_remain={:.3} hdelta_px={:.3}",
-                        scroll_lines,
-                        whole,
-                        comp.pending_scroll_lines,
-                        app.pending_scroll_frac - whole as f32,
-                        comp.pending_hscroll_px
-                    );
-                }
+                app.pending_scroll_frac -= whole as f32;
             }
-            app.pending_scroll_frac -= whole as f32;
+            // Pixel-level smooth accumulator
+            comp.pending_vscroll_px += scroll_px;
+            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_SCROLL: wheel px_delta={:.1} pending_px={:.1} pending_lines={}",
+                    scroll_px, comp.pending_vscroll_px, comp.pending_scroll_lines
+                );
+            }
         }
     }
 

@@ -677,17 +677,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     if let Some(meta) = &comp.metadata {
                                         block.content_offset_x =
                                             meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                        let off_y =
-                                            meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                                        let off_y = meta.editor_scroll_px;
                                         block.content_offset_y = off_y;
                                         if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref()
                                             == Ok("1")
                                         {
                                             eprintln!(
-                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
+                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} px={:.1}",
                                                 block.content_offset_x,
                                                 off_y,
-                                                meta.editor_scroll_top_line
+                                                meta.editor_scroll_px
                                             );
                                         }
                                     }
