@@ -89,8 +89,11 @@ pub fn run_shell_window(
         last_explorer_ids: Vec::new(),
         last_render_size: (0, 0),
         pending_scroll_frac: 0.0,
+        render_core: None,
         picker_in_flight: false,
         pending_picker_rx: None,
+        last_widget_tree_size: (0, 0),
+        last_widget_tree_content: None,
     };
 
     let run_result = event_loop.run_app(&mut app);

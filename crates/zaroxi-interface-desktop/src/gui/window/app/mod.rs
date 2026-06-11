@@ -49,6 +49,7 @@ use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_core_engine_render::RenderCore;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::parser::ParserPool;
@@ -93,13 +94,26 @@ pub struct GuiApp {
     pub last_explorer_ids: Vec<String>,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
+    pub render_core: Option<RenderCore>,
     pub picker_in_flight: bool,
     pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
+    pub last_widget_tree_size: (u32, u32),
+    pub last_widget_tree_content: Option<ShellWorkContent>,
 }
 
 impl GuiApp {
     pub fn dispatch_activation(&mut self, id: &WidgetId) -> Option<ShellWorkContent> {
         activation::dispatch_activation(self, id)
+    }
+
+    fn request_render(&mut self) {
+        let already_pending = self.needs_render;
+        self.needs_render = true;
+        if !already_pending {
+            if let Some(z) = self.maybe_window.as_ref() {
+                let _ = z.window().request_redraw();
+            }
+        }
     }
 
     pub fn process_picker_result(&mut self) {
@@ -174,10 +188,7 @@ impl GuiApp {
                                 }
                                 if let Some(wc) = content {
                                     self.work_content = Some(wc);
-                                    self.needs_render = true;
-                                    if let Some(z) = self.maybe_window.as_ref() {
-                                        let _ = z.window().request_redraw();
-                                    }
+                                    self.request_render();
                                 } else {
                                     debug::click_trace("ZAROXI_DIAG: open_workspace returned None — explorer stays empty");
                                 }
@@ -188,10 +199,7 @@ impl GuiApp {
                         if let Some(ref mut comp) = self.composition {
                             comp.set_status_message("No folder selected".to_string());
                             self.work_content = Some(comp.build_work_content());
-                            self.needs_render = true;
-                            if let Some(z) = self.maybe_window.as_ref() {
-                                let _ = z.window().request_redraw();
-                            }
+                            self.request_render();
                         }
                     }
                     PickerOutcome::Unavailable { reason, .. } => {
@@ -207,10 +215,7 @@ impl GuiApp {
                             };
                             comp.set_status_message(msg);
                             self.work_content = Some(comp.build_work_content());
-                            self.needs_render = true;
-                            if let Some(z) = self.maybe_window.as_ref() {
-                                let _ = z.window().request_redraw();
-                            }
+                            self.request_render();
                         }
                     }
                 }
@@ -268,6 +273,8 @@ impl GuiApp {
                     if let Some(ref wc) = content {
                         let changed = self.work_content.as_ref().map_or(true, |old| {
                             old.explorer_items != wc.explorer_items
+                                || old.active_file != wc.active_file
+                                || old.editor_tabs != wc.editor_tabs
                                 || old.editor_body.as_ref().map(|b| &b.lines)
                                     != wc.editor_body.as_ref().map(|b| &b.lines)
                         });
@@ -283,10 +290,7 @@ impl GuiApp {
             }
         }
         if needs_redraw || content_changed {
-            self.needs_render = true;
-            if let Some(z) = self.maybe_window.as_ref() {
-                let _ = z.window().request_redraw();
-            }
+            self.request_render();
         }
     }
 }
@@ -614,11 +618,50 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let engine_layout = self.layout_controller.engine_shell_layout();
-                    let mut widget_tree = zaroxi_core_engine_ui::build_shell_widget_tree(
-                        engine_layout,
-                        &tokens,
-                        self.work_content.as_ref(),
-                    );
+
+                    let content_changed = self
+                        .last_widget_tree_content
+                        .as_ref()
+                        .and_then(|old| {
+                            self.work_content.as_ref().map(|new| {
+                                old.explorer_empty_button != new.explorer_empty_button
+                                    || old.explorer_panel_items.as_ref().map(|v| v.len())
+                                        != new.explorer_panel_items.as_ref().map(|v| v.len())
+                                    || old
+                                        .editor_body
+                                        .as_ref()
+                                        .map(|b| b.lines.len())
+                                        != new.editor_body.as_ref().map(|b| b.lines.len())
+                                    || old.active_file != new.active_file
+                                    || old.editor_tabs != new.editor_tabs
+                            })
+                        })
+                        .unwrap_or(true);
+                    let rebuild_tree =
+                        self.last_widget_tree_size != (sw, sh) || content_changed;
+
+                    self.last_widget_tree_size = (sw, sh);
+                    if let Some(ref wc) = self.work_content {
+                        self.last_widget_tree_content = Some(wc.clone());
+                    }
+
+                    let mut widget_tree = if rebuild_tree {
+                        let new_tree = zaroxi_core_engine_ui::build_shell_widget_tree(
+                            engine_layout,
+                            &tokens,
+                            self.work_content.as_ref(),
+                        );
+                        new_tree
+                    } else {
+                        self.widget_tree.clone().unwrap_or_else(|| {
+                            zaroxi_core_engine_ui::build_shell_widget_tree(
+                                engine_layout,
+                                &tokens,
+                                self.work_content.as_ref(),
+                            )
+                        })
+                    };
+
                     self.interaction.apply_to_tree(&mut widget_tree);
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
@@ -635,6 +678,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
 
                     let shell_regions = self.layout_controller.shell_regions();
+                    debug::click_trace_fmt!(
+                        "ZAROXI_DIAG: window={}x{} layout_last={}x{} nregions={}",
+                        sw, sh,
+                        self.layout_controller.size().width, self.layout_controller.size().height,
+                        shell_regions.len(),
+                    );
+                    for r in shell_regions {
+                        if r.rect.width > 0 || r.rect.height > 0 {
+                            debug::click_trace_fmt!(
+                                "ZAROXI_DIAG:   region id={} x={} y={} w={} h={}",
+                                r.id, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
+                            );
+                        }
+                    }
                     let render_layout =
                         super::renderbridge::build_render_layout(shell_regions, &tokens);
 
@@ -850,39 +907,38 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // ── Renderer lifecycle ──
                     self.last_render_size = (sw as u32, sh as u32);
 
-                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
-                        z.window(),
-                        [
-                            tokens.app_background.r as f64,
-                            tokens.app_background.g as f64,
-                            tokens.app_background.b as f64,
-                            1.0,
-                        ],
-                    )) {
-                        Ok(mut renderer) => {
-                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
-                            match renderer.render_with_layout(
-                                &app_state,
-                                &render_layout,
-                                &render_blocks,
-                            ) {
-                                Ok(()) => {
-                                    if !self.first_render_shown {
-                                        let _ = z.window().set_visible(true);
-                                        let _ = z.window().pre_present_notify();
-                                        self.first_render_shown = true;
-                                        eprintln!(
-                                            "GuiApp: first full-renderer frame; window visible"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
-                                }
+                    let clear_color = [
+                        tokens.app_background.r as f64,
+                        tokens.app_background.g as f64,
+                        tokens.app_background.b as f64,
+                        1.0,
+                    ];
+
+                    if self.render_core.is_none() {
+                        match pollster::block_on(RenderCore::new(clear_color)) {
+                            Ok(rc) => {
+                                self.render_core = Some(rc);
+                            }
+                            Err(e) => {
+                                eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
+                                return;
                             }
                         }
-                        Err(e) => {
-                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
+                    }
+
+                    if let Some(ref mut rc) = self.render_core {
+                        match rc.render_to_window(z.window(), winit::dpi::PhysicalSize::new(sw, sh), &render_layout, &render_blocks) {
+                            Ok(()) => {
+                                if !self.first_render_shown {
+                                    let _ = z.window().set_visible(true);
+                                    let _ = z.window().pre_present_notify();
+                                    self.first_render_shown = true;
+                                    eprintln!("GuiApp: first full-renderer frame; window visible");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
+                            }
                         }
                     }
 

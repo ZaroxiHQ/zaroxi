@@ -1466,12 +1466,12 @@ impl<'a> FrameSurface<'a> {
         adapter: &wgpu::Adapter,
         device: &Device,
         window: &'a Window,
+        size: PhysicalSize<u32>,
     ) -> Result<Self, RenderError> {
         let surface = instance
             .create_surface(window)
             .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
 
-        let size = window.inner_size();
         let config = crate::renderer::surface::configure_surface(&surface, adapter, device, size)?;
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1617,10 +1617,17 @@ impl RenderCore {
     pub fn render_to_window(
         &mut self,
         window: &Window,
+        surface_size: winit::dpi::PhysicalSize<u32>,
         layout: &RenderLayout,
         render_blocks: &[crate::UiBlock],
     ) -> Result<(), RenderError> {
-        let frame = FrameSurface::new(&self._instance, &self._adapter, &self.device, window)?;
+        let frame = FrameSurface::new(
+            &self._instance,
+            &self._adapter,
+            &self.device,
+            window,
+            surface_size,
+        )?;
 
         self.ensure_initialized(&frame.config)?;
 
@@ -1677,6 +1684,16 @@ fn render_frame_inner(
     let width = frame.config.width as f32;
     let height = frame.config.height as f32;
     let sem = &layout.colors;
+
+    if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_DIAG: render_frame — surface={:.0}x{:.0} layout_sidebar=({:.0},{:.0},{:.0},{:.0}) layout_editor=({:.0},{:.0},{:.0},{:.0}) nblocks={}",
+            width, height,
+            layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h,
+            layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h,
+            render_blocks.len(),
+        );
+    }
 
     let mut panel_verts: Vec<Vertex> = Vec::new();
     let mut panel_indices: Vec<u16> = Vec::new();
