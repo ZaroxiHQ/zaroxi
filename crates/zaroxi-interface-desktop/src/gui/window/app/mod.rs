@@ -49,7 +49,6 @@ use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
-use zaroxi_core_engine_render::RenderCore;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::parser::ParserPool;
@@ -94,7 +93,6 @@ pub struct GuiApp {
     pub last_explorer_ids: Vec<String>,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
-    pub render_core: Option<RenderCore>,
     pub picker_in_flight: bool,
     pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
 }
@@ -113,40 +111,77 @@ impl GuiApp {
                 self.pending_picker_rx = None;
                 self.picker_in_flight = false;
                 match outcome {
-                    PickerOutcome::Selected(path) => {
-                        debug::click_trace_fmt!(
-                            "ZAROXI_PICKER: thread result=Selected({})",
-                            path.display()
-                        );
-                        if let Some(ref mut actions) = self.explorer_actions {
-                            let comp = match self.composition.as_mut() {
-                                Some(c) => c,
-                                None => return,
-                            };
-                            let service = match self.workspace_service.clone() {
-                                Some(s) => s,
-                                None => return,
-                            };
-                            let view = match self.workspace_view.clone() {
-                                Some(v) => v,
-                                None => return,
-                            };
-                            let content = actions.open_workspace(
-                                comp,
-                                service,
-                                view,
-                                &mut self.session_id,
-                                &mut self.workspace_id,
-                                path,
+                        PickerOutcome::Selected(path) => {
+                            debug::click_trace_fmt!(
+                                "ZAROXI_PICKER: thread result=Selected({})",
+                                path.display()
                             );
-                            if let Some(wc) = content {
-                                self.work_content = Some(wc);
-                                self.needs_render = true;
-                                if let Some(z) = self.maybe_window.as_ref() {
-                                    let _ = z.window().request_redraw();
+                            debug::click_trace_fmt!(
+                                "ZAROXI_DIAG: picker Selected({}) — composition exists={} explorer_actions exists={}",
+                                path.display(),
+                                self.composition.is_some(),
+                                self.explorer_actions.is_some()
+                            );
+                            if let Some(ref mut actions) = self.explorer_actions {
+                                let comp = match self.composition.as_mut() {
+                                    Some(c) => c,
+                                    None => {
+                                        debug::click_trace("ZAROXI_DIAG: composition is None — cannot open workspace");
+                                        return;
+                                    }
+                                };
+                                let service = match self.workspace_service.clone() {
+                                    Some(s) => s,
+                                    None => {
+                                        debug::click_trace("ZAROXI_DIAG: workspace_service is None");
+                                        return;
+                                    }
+                                };
+                                let view = match self.workspace_view.clone() {
+                                    Some(v) => v,
+                                    None => {
+                                        debug::click_trace("ZAROXI_DIAG: workspace_view is None");
+                                        return;
+                                    }
+                                };
+                                debug::click_trace_fmt!("ZAROXI_DIAG: calling open_workspace with path={}", path.display());
+                                let pre_root = comp.workspace_root_path.clone();
+                                let pre_items = comp.cached_explorer_items.len();
+                                debug::click_trace_fmt!(
+                                    "ZAROXI_DIAG: BEFORE open_workspace — root={:?} cached_items={}",
+                                    pre_root, pre_items
+                                );
+                                let content = actions.open_workspace(
+                                    comp,
+                                    service,
+                                    view,
+                                    &mut self.session_id,
+                                    &mut self.workspace_id,
+                                    path,
+                                );
+                                let post_root = comp.workspace_root_path.clone();
+                                let post_items = comp.cached_explorer_items.len();
+                                debug::click_trace_fmt!(
+                                    "ZAROXI_DIAG: AFTER open_workspace — root={:?} cached_items={} content_is_some={}",
+                                    post_root, post_items, content.is_some()
+                                );
+                                if let Some(ref wc) = content {
+                                    debug::click_trace_fmt!(
+                                        "ZAROXI_DIAG: work_content — empty_button={:?} panel_items_count={}",
+                                        wc.explorer_empty_button,
+                                        wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
+                                    );
+                                }
+                                if let Some(wc) = content {
+                                    self.work_content = Some(wc);
+                                    self.needs_render = true;
+                                    if let Some(z) = self.maybe_window.as_ref() {
+                                        let _ = z.window().request_redraw();
+                                    }
+                                } else {
+                                    debug::click_trace("ZAROXI_DIAG: open_workspace returned None — explorer stays empty");
                                 }
                             }
-                        }
                     }
                     PickerOutcome::Cancelled => {
                         debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
@@ -339,6 +374,8 @@ impl winit::application::ApplicationHandler for GuiApp {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        self.process_picker_result();
+
         // ── Permanently-ungated focus & pointer-enter diagnostics ──
         match &event {
             WindowEvent::Focused(f) => {
@@ -813,38 +850,39 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // ── Renderer lifecycle ──
                     self.last_render_size = (sw as u32, sh as u32);
 
-                    let clear_color = [
-                        tokens.app_background.r as f64,
-                        tokens.app_background.g as f64,
-                        tokens.app_background.b as f64,
-                        1.0,
-                    ];
-
-                    if self.render_core.is_none() {
-                        match pollster::block_on(RenderCore::new(clear_color)) {
-                            Ok(rc) => {
-                                self.render_core = Some(rc);
-                            }
-                            Err(e) => {
-                                eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
-                                return;
-                            }
-                        }
-                    }
-
-                    if let Some(ref mut rc) = self.render_core {
-                        match rc.render_to_window(z.window(), &render_layout, &render_blocks) {
-                            Ok(()) => {
-                                if !self.first_render_shown {
-                                    let _ = z.window().set_visible(true);
-                                    let _ = z.window().pre_present_notify();
-                                    self.first_render_shown = true;
-                                    eprintln!("GuiApp: first full-renderer frame; window visible");
+                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
+                        z.window(),
+                        [
+                            tokens.app_background.r as f64,
+                            tokens.app_background.g as f64,
+                            tokens.app_background.b as f64,
+                            1.0,
+                        ],
+                    )) {
+                        Ok(mut renderer) => {
+                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
+                            match renderer.render_with_layout(
+                                &app_state,
+                                &render_layout,
+                                &render_blocks,
+                            ) {
+                                Ok(()) => {
+                                    if !self.first_render_shown {
+                                        let _ = z.window().set_visible(true);
+                                        let _ = z.window().pre_present_notify();
+                                        self.first_render_shown = true;
+                                        eprintln!(
+                                            "GuiApp: first full-renderer frame; window visible"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
-                            }
+                        }
+                        Err(e) => {
+                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
                         }
                     }
 

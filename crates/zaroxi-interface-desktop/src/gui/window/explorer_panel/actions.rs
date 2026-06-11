@@ -112,16 +112,27 @@ impl ExplorerPanelActions {
         workspace_id: &mut Option<Id>,
         path: PathBuf,
     ) -> Option<ShellWorkContent> {
+        click_trace(&format!("ZAROXI_DIAG: open_workspace ENTER path={}", path.display()));
         comp.set_status_message(format!("Loading workspace: {}...", path.display()));
 
         let boot_req = WorkspaceBootRequest { path: path.clone() };
-        let boot_res = pollster::block_on(service.boot_workspace(boot_req)).ok()?;
+        let boot_res = pollster::block_on(service.boot_workspace(boot_req));
+
+        click_trace(&format!("ZAROXI_DIAG: open_workspace boot_res={}", boot_res.is_ok()));
+        let boot_res = boot_res.ok()?;
 
         *session_id = Some(boot_res.session.session_id.clone());
         *workspace_id = Some(boot_res.session.workspace_id);
 
         comp.workspace_root_path = Some(path.clone());
+        click_trace("ZAROXI_DIAG: open_workspace workspace_root_path SET");
+
         comp.load_or_refresh_explorer();
+        click_trace(&format!(
+            "ZAROXI_DIAG: open_workspace after load_or_refresh — explorer={} cached_items={}",
+            comp.maybe_explorer.is_some(),
+            comp.cached_explorer_items.len()
+        ));
 
         let _ = pollster::block_on(crate::actions::refresh_desktop(
             comp,
@@ -130,13 +141,24 @@ impl ExplorerPanelActions {
             Some(boot_res.session.workspace_id),
             Some(service),
         ));
+        click_trace(&format!(
+            "ZAROXI_DIAG: open_workspace after refresh_desktop — cached_items={}",
+            comp.cached_explorer_items.len()
+        ));
 
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
         comp.set_status_message(format!("Workspace opened: {}", name));
-        Some(comp.build_work_content())
+
+        let wc = comp.build_work_content();
+        click_trace(&format!(
+            "ZAROXI_DIAG: open_workspace EXIT — empty_button={:?} panel_items_count={}",
+            wc.explorer_empty_button,
+            wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
+        ));
+        Some(wc)
     }
 
     /// Trigger folder picker, then if a path is selected, delegate to `open_workspace`.
