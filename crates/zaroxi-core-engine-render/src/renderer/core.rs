@@ -168,11 +168,12 @@ pub struct RenderCore {
     queue: Queue,
     clear_color: Color,
 
-    text_pipeline: wgpu::RenderPipeline,
-    text_bind_layout: BindGroupLayout,
-    debug_pipeline: wgpu::RenderPipeline,
-    shape_pipeline: wgpu::RenderPipeline,
-    text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync>,
+    text_pipeline: Option<wgpu::RenderPipeline>,
+    text_bind_layout: Option<BindGroupLayout>,
+    debug_pipeline: Option<wgpu::RenderPipeline>,
+    shape_pipeline: Option<wgpu::RenderPipeline>,
+    text_renderer: Option<Box<dyn crate::renderer::text::TextRenderer + Send + Sync>>,
+    initialized_format: Option<TextureFormat>,
 }
 
 impl<'a> Renderer<'a> {
@@ -1502,8 +1503,8 @@ impl RenderCore {
     /// Create a persistent renderer state.
     ///
     /// Does not need a Window reference — surfaces are created per-frame.
-    /// Uses a reasonable default surface format; the actual format is
-    /// determined when the first surface is created.
+    /// Pipelines and the text renderer are lazily initialised on the first
+    /// render_to_window call so they match the actual surface colour format.
     pub async fn new(clear_color: [f64; 4]) -> Result<Self, RenderError> {
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
@@ -1532,82 +1533,6 @@ impl RenderCore {
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
-        let format = TextureFormat::Bgra8UnormSrgb;
-        let temp_config = SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: 1400,
-            height: 900,
-            present_mode: PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: Vec::new(),
-            desired_maximum_frame_latency: 0u32,
-        };
-
-        let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
-            crate::renderer::pipelines::create_pipelines(&device, &temp_config)?;
-
-        let font_size = 14.0f32;
-        let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
-            Box::new(crate::renderer::text::CosmicTextRenderer::new(
-                &device,
-                &queue,
-                format,
-                font_size,
-                &text_bind_layout,
-            )?);
-
-        let _ = text_renderer.resize_viewport(1400, 900);
-
-        let mut shader_src = include_str!("../text_shader.wgsl").to_string();
-        debug!(
-            "TEXT PIPELINE BUILD: shader=crates/zaroxi-engine-render/src/text_shader.wgsl len={} bytes",
-            shader_src.len()
-        );
-        if std::env::var("ZAROXI_TEXT_SOLID_QUADS").map(|v| v == "1").unwrap_or(false) {
-            shader_src = shader_src.replace(
-                "const DIAGNOSTIC_MAGENTA: bool = false;",
-                "const DIAGNOSTIC_MAGENTA: bool = true;",
-            );
-            info!("TEXT SHADER: DIAGNOSTIC_MAGENTA forced ON via ZAROXI_TEXT_SOLID_QUADS");
-        }
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("text-shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("text-pipeline-layout"),
-            bind_group_layouts: &[Some(&text_bind_layout)],
-            ..Default::default()
-        });
-
-        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("text-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[crate::renderer::text_pipeline::instance_buffer_layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
         {
             use std::mem;
             let vertex_size = mem::size_of::<Vertex>();
@@ -1622,7 +1547,7 @@ impl RenderCore {
 
         init_debug_flags();
 
-        info!("RenderCore initialized");
+        info!("RenderCore base state ready (pipelines deferred)");
 
         Ok(Self {
             _instance: instance,
@@ -1635,12 +1560,53 @@ impl RenderCore {
                 b: clear_color[2],
                 a: clear_color[3],
             },
-            text_pipeline,
-            text_bind_layout,
-            debug_pipeline,
-            shape_pipeline,
-            text_renderer,
+            text_pipeline: None,
+            text_bind_layout: None,
+            debug_pipeline: None,
+            shape_pipeline: None,
+            text_renderer: None,
+            initialized_format: None,
         })
+    }
+
+    /// Ensure pipelines and text renderer are initialised for the given
+    /// surface configuration.  Called from `render_to_window` before the
+    /// first frame (and again if the format changes).
+    fn ensure_initialized(&mut self, config: &SurfaceConfiguration) -> Result<(), RenderError> {
+        let format = config.format;
+
+        if self.initialized_format == Some(format)
+            && self.text_pipeline.is_some()
+            && self.text_renderer.is_some()
+        {
+            return Ok(());
+        }
+
+        let (bind_layout, text_pipeline, debug_pipeline, shape_pipeline) =
+            crate::renderer::pipelines::create_pipelines(&self.device, config)?;
+
+        let font_size = 14.0f32;
+        let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
+            Box::new(crate::renderer::text::CosmicTextRenderer::new(
+                &self.device,
+                &self.queue,
+                format,
+                font_size,
+                &bind_layout,
+            )?);
+
+        self.text_bind_layout = Some(bind_layout);
+        self.text_pipeline = Some(text_pipeline);
+        self.debug_pipeline = Some(debug_pipeline);
+        self.shape_pipeline = Some(shape_pipeline);
+        self.text_renderer = Some(text_renderer);
+        self.initialized_format = Some(format);
+
+        info!(
+            "RenderCore pipelines initialised for format {:?}",
+            format
+        );
+        Ok(())
     }
 
     /// Render a frame to the given window.
@@ -1656,14 +1622,20 @@ impl RenderCore {
     ) -> Result<(), RenderError> {
         let frame = FrameSurface::new(&self._instance, &self._adapter, &self.device, window)?;
 
-        let _ = self.text_renderer.resize_viewport(frame.config.width, frame.config.height);
+        self.ensure_initialized(&frame.config)?;
+
+        let _ = self
+            .text_renderer
+            .as_ref()
+            .unwrap()
+            .resize_viewport(frame.config.width, frame.config.height);
 
         render_frame_inner(
             &self.device,
             &mut self.queue,
-            &self.text_pipeline,
-            &self.shape_pipeline,
-            self.text_renderer.as_mut(),
+            self.text_pipeline.as_ref().unwrap(),
+            self.shape_pipeline.as_ref().unwrap(),
+            self.text_renderer.as_deref_mut().unwrap(),
             &self.clear_color,
             frame,
             layout,
