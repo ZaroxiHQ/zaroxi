@@ -39,6 +39,8 @@ pub use renderer::PanelColors;
 #[cfg(feature = "full_renderer")]
 pub use renderer::Rect;
 #[cfg(feature = "full_renderer")]
+pub use renderer::RenderCore;
+#[cfg(feature = "full_renderer")]
 pub use renderer::RenderLayout;
 #[cfg(feature = "full_renderer")]
 pub use renderer::Renderer;

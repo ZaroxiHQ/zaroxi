@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static GUI_TEXT_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
 use wgpu::{
-    Backends, BindGroup, BindGroupLayout, Buffer, Color, CommandEncoderDescriptor, Device,
-    DeviceDescriptor, Extent3d, Features, Instance, InstanceDescriptor, Limits, Queue,
-    RequestAdapterOptions, SamplerDescriptor, Surface, SurfaceConfiguration, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+    Backends, BindGroup, BindGroupLayout, Buffer, Color, CommandEncoderDescriptor,
+    CompositeAlphaMode, Device, DeviceDescriptor, Extent3d, Features, Instance, InstanceDescriptor,
+    Limits, PresentMode, Queue, RequestAdapterOptions, SamplerDescriptor, Surface,
+    SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    TextureView, TextureViewDescriptor,
 };
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -151,6 +152,27 @@ pub struct Renderer<'a> {
 
     /// Frame render start time (set when ZAROXI_RENDER_TIMING=1).
     frame_start: Option<std::time::Instant>,
+}
+
+/// Persistent renderer state that can survive across frames.
+///
+/// Unlike `Renderer<'a>`, this struct does not hold a `Surface` (which has a
+/// lifetime tied to a `Window`). Surfaces are created per-frame from the
+/// window handle. This allows the expensive GPU resources (device, pipelines,
+/// text renderer with its atlas cache) to persist across multiple frames
+/// instead of being recreated each redraw.
+pub struct RenderCore {
+    _instance: Instance,
+    _adapter: wgpu::Adapter,
+    device: Device,
+    queue: Queue,
+    clear_color: Color,
+
+    text_pipeline: wgpu::RenderPipeline,
+    text_bind_layout: BindGroupLayout,
+    debug_pipeline: wgpu::RenderPipeline,
+    shape_pipeline: wgpu::RenderPipeline,
+    text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync>,
 }
 
 impl<'a> Renderer<'a> {
@@ -806,8 +828,11 @@ impl<'a> Renderer<'a> {
                     let text_y = content_y as f32 - block.content_offset_y;
                     let line_y = text_y + line as f32 * line_h;
 
-                    // Active line highlight background
-                    if block.highlight_active_line && line_y + line_h <= content_y + content_h {
+                    // Active line highlight background — clipped to content area
+                    if block.highlight_active_line
+                        && line_y >= content_y
+                        && line_y + line_h <= content_y + content_h
+                    {
                         let hl_color: [f32; 4] = layout.colors.editor_line_highlight;
                         push_colored_quad(
                             &mut panel_verts,
@@ -823,11 +848,13 @@ impl<'a> Renderer<'a> {
                         );
                     }
 
-                    // Cursor vertical bar
+                    // Cursor vertical bar — clipped to content area on all sides
                     let cursor_x = content_x + col as f32 * 8.0;
                     let cursor_w = 2.0;
                     let cursor_h = line_h;
-                    if cursor_x + cursor_w <= content_x + content_w
+                    if cursor_x >= content_x
+                        && cursor_x + cursor_w <= content_x + content_w
+                        && line_y >= content_y
                         && line_y + cursor_h <= content_y + content_h
                     {
                         let cursor_color: [f32; 4] = layout.colors.editor_cursor;
@@ -854,6 +881,9 @@ impl<'a> Renderer<'a> {
                     let sel_color: [f32; 4] = layout.colors.editor_selection;
                     for line in sl..=el {
                         let line_y = text_y + line as f32 * line_h;
+                        if line_y + line_h <= content_y {
+                            continue;
+                        }
                         if line_y + line_h > content_y + content_h {
                             break;
                         }
@@ -1412,6 +1442,660 @@ impl<'a> Renderer<'a> {
                 debug!("Surface validation variant encountered");
                 Err(RenderError::SurfaceValidation("validation error".to_string()))
             }
+        }
+    }
+}
+
+// ── RenderCore: persistent renderer state that can be reused across frames ──
+
+/// Per-frame surface + buffers that are created fresh each redraw.
+struct FrameSurface<'a> {
+    surface: Surface<'a>,
+    config: SurfaceConfiguration,
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
+    frame_start: Option<std::time::Instant>,
+    size: PhysicalSize<u32>,
+}
+
+impl<'a> FrameSurface<'a> {
+    fn new(
+        instance: &Instance,
+        adapter: &wgpu::Adapter,
+        device: &Device,
+        window: &'a Window,
+    ) -> Result<Self, RenderError> {
+        let surface = instance
+            .create_surface(window)
+            .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
+
+        let size = window.inner_size();
+        let config = crate::renderer::surface::configure_surface(&surface, adapter, device, size)?;
+
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vb"),
+            size: 131072,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ib"),
+            size: 131072,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        Ok(Self {
+            surface,
+            config,
+            vertex_buffer,
+            index_buffer,
+            index_count: 0,
+            frame_start: None,
+            size,
+        })
+    }
+}
+
+impl RenderCore {
+    /// Create a persistent renderer state.
+    ///
+    /// Does not need a Window reference — surfaces are created per-frame.
+    /// Uses a reasonable default surface format; the actual format is
+    /// determined when the first surface is created.
+    pub async fn new(clear_color: [f64; 4]) -> Result<Self, RenderError> {
+        let instance = Instance::new(InstanceDescriptor {
+            backends: Backends::all(),
+            flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_err(|e| RenderError::Other(format!("request_adapter failed: {:?}", e)))?;
+
+        let (device, queue) = adapter
+            .request_device(&DeviceDescriptor {
+                label: Some("zaroxi-engine-device"),
+                required_features: Features::empty(),
+                required_limits: Limits::default(),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
+
+        let format = TextureFormat::Bgra8UnormSrgb;
+        let temp_config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: 1400,
+            height: 900,
+            present_mode: PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: Vec::new(),
+            desired_maximum_frame_latency: 0u32,
+        };
+
+        let (text_bind_layout, _text_pipeline, debug_pipeline, shape_pipeline) =
+            crate::renderer::pipelines::create_pipelines(&device, &temp_config)?;
+
+        let font_size = 14.0f32;
+        let text_renderer: Box<dyn crate::renderer::text::TextRenderer + Send + Sync> =
+            Box::new(crate::renderer::text::CosmicTextRenderer::new(
+                &device,
+                &queue,
+                format,
+                font_size,
+                &text_bind_layout,
+            )?);
+
+        let _ = text_renderer.resize_viewport(1400, 900);
+
+        let mut shader_src = include_str!("../text_shader.wgsl").to_string();
+        debug!(
+            "TEXT PIPELINE BUILD: shader=crates/zaroxi-engine-render/src/text_shader.wgsl len={} bytes",
+            shader_src.len()
+        );
+        if std::env::var("ZAROXI_TEXT_SOLID_QUADS").map(|v| v == "1").unwrap_or(false) {
+            shader_src = shader_src.replace(
+                "const DIAGNOSTIC_MAGENTA: bool = false;",
+                "const DIAGNOSTIC_MAGENTA: bool = true;",
+            );
+            info!("TEXT SHADER: DIAGNOSTIC_MAGENTA forced ON via ZAROXI_TEXT_SOLID_QUADS");
+        }
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("text-shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("text-pipeline-layout"),
+            bind_group_layouts: &[Some(&text_bind_layout)],
+            ..Default::default()
+        });
+
+        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[crate::renderer::text_pipeline::instance_buffer_layout()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        {
+            use std::mem;
+            let vertex_size = mem::size_of::<Vertex>();
+            let expected_vertex_size = size_of::<Vertex>();
+            if vertex_size != expected_vertex_size {
+                return Err(RenderError::Other(format!(
+                    "Vertex size mismatch: expected {} bytes, got {}",
+                    expected_vertex_size, vertex_size
+                )));
+            }
+        }
+
+        init_debug_flags();
+
+        info!("RenderCore initialized");
+
+        Ok(Self {
+            _instance: instance,
+            _adapter: adapter,
+            device,
+            queue,
+            clear_color: Color {
+                r: clear_color[0],
+                g: clear_color[1],
+                b: clear_color[2],
+                a: clear_color[3],
+            },
+            text_pipeline,
+            text_bind_layout,
+            debug_pipeline,
+            shape_pipeline,
+            text_renderer,
+        })
+    }
+
+    /// Render a frame to the given window.
+    ///
+    /// Creates a surface from the window, renders the layout and blocks,
+    /// then drops the surface. The persistent state (device, pipelines,
+    /// text renderer atlas) is reused across calls.
+    pub fn render_to_window(
+        &mut self,
+        window: &Window,
+        layout: &RenderLayout,
+        render_blocks: &[crate::UiBlock],
+    ) -> Result<(), RenderError> {
+        let frame = FrameSurface::new(&self._instance, &self._adapter, &self.device, window)?;
+
+        let _ = self.text_renderer.resize_viewport(frame.config.width, frame.config.height);
+
+        render_frame_inner(
+            &self.device,
+            &mut self.queue,
+            &self.text_pipeline,
+            &self.shape_pipeline,
+            self.text_renderer.as_mut(),
+            &self.clear_color,
+            frame,
+            layout,
+            render_blocks,
+        )
+    }
+
+    /// Access the device (for compatibility).
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    /// Access the queue (for compatibility).
+    pub fn queue(&self) -> &Queue {
+        &self.queue
+    }
+}
+
+/// Shared frame rendering logic used by both Renderer and RenderCore.
+fn render_frame_inner(
+    device: &Device,
+    queue: &mut Queue,
+    text_pipeline: &wgpu::RenderPipeline,
+    shape_pipeline: &wgpu::RenderPipeline,
+    text_renderer: &mut (dyn crate::renderer::text::TextRenderer + Send + Sync),
+    clear_color: &Color,
+    mut frame: FrameSurface<'_>,
+    layout: &RenderLayout,
+    render_blocks: &[crate::UiBlock],
+) -> Result<(), RenderError> {
+    if frame.config.width == 0 || frame.config.height == 0 {
+        return Ok(());
+    }
+
+    if render_timing_enabled() {
+        frame.frame_start = Some(std::time::Instant::now());
+    }
+
+    let width = frame.config.width as f32;
+    let height = frame.config.height as f32;
+    let sem = &layout.colors;
+
+    let mut panel_verts: Vec<Vertex> = Vec::new();
+    let mut panel_indices: Vec<u16> = Vec::new();
+    let mut text_verts: Vec<Vertex> = Vec::new();
+    let mut text_indices: Vec<u16> = Vec::new();
+
+    if validation_scene_enabled() {
+        let band_h = (height as f32) / 3.0;
+        push_colored_quad(
+            &mut panel_verts,
+            &mut panel_indices,
+            0.0,
+            0.0,
+            width as f32,
+            band_h,
+            [1.0, 0.0, 0.0, 1.0],
+            width,
+            height,
+            0.0,
+        );
+        push_colored_quad(
+            &mut panel_verts,
+            &mut panel_indices,
+            0.0,
+            band_h,
+            width as f32,
+            band_h,
+            [0.0, 1.0, 0.0, 1.0],
+            width,
+            height,
+            0.0,
+        );
+        push_colored_quad(
+            &mut panel_verts,
+            &mut panel_indices,
+            0.0,
+            band_h * 2.0,
+            width as f32,
+            band_h,
+            [0.0, 0.0, 1.0, 1.0],
+            width,
+            height,
+            0.0,
+        );
+    }
+
+    let header_h = 28.0f32;
+    let content_padding = 8.0f32;
+    const DEFAULT_FONT_SIZE: f32 = 14.0;
+
+    for block in render_blocks.iter() {
+        if !block.visible {
+            continue;
+        }
+        let target = block.rect;
+
+        crate::renderer::shapes::queue_panel_quads(
+            &mut panel_verts,
+            &mut panel_indices,
+            block,
+            &sem,
+            width,
+            height,
+        );
+
+        let hx = target.x;
+        let hy = target.y;
+        let hw = target.w;
+        let hh = header_h.min(target.h.max(0.0));
+        let title_x = target.x + 8.0;
+        let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
+        let title_color: [f32; 4] = block.text_color.unwrap_or(layout.colors.text_default);
+
+        text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+            &block.title,
+            title_x,
+            title_y,
+            title_color,
+            DEFAULT_FONT_SIZE,
+            hx,
+            hy,
+            hw,
+            hh,
+        ));
+
+        let content = block.content.trim();
+        let is_titlebar =
+            block.id == "titlebar" || block.id == "title_bar" || block.id == "title-bar";
+
+        if is_titlebar {
+        } else if !content.is_empty() {
+            let content_y = target.y + hh + content_padding;
+            let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+            let (text_x, clip_x, clip_w) = if let Some(ref clip) = block.clip_rect {
+                let tx = clip.x - block.content_offset_x;
+                (tx, clip.x, clip.w)
+            } else {
+                let cx = target.x + content_padding;
+                let cw = (target.w - content_padding * 2.0).max(0.0);
+                (cx, cx, cw)
+            };
+            let text_y = content_y - block.content_offset_y;
+            if clip_w > 0.0 && content_h > 0.0 {
+                if let Some(ref spans) = block.content_spans {
+                    let mut cursor_y = text_y;
+                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let clip_bottom = content_y + content_h;
+                    let mut line_buf = String::new();
+                    for (span_text, span_color) in spans {
+                        if span_text == "\n" {
+                            if !line_buf.is_empty() {
+                                text_renderer.queue_text(
+                                    crate::renderer::text::TextCommand::new_body(
+                                        &line_buf,
+                                        text_x,
+                                        cursor_y,
+                                        *span_color,
+                                        DEFAULT_FONT_SIZE,
+                                        clip_x,
+                                        content_y,
+                                        clip_w,
+                                        content_h,
+                                    ),
+                                );
+                                line_buf.clear();
+                            }
+                            cursor_y += line_h;
+                            if cursor_y >= clip_bottom {
+                                break;
+                            }
+                            continue;
+                        }
+                        line_buf.push_str(span_text);
+                    }
+                    if !line_buf.is_empty() && cursor_y < clip_bottom {
+                        text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                            &line_buf,
+                            text_x,
+                            cursor_y,
+                            *spans.last().map(|(_, c)| c).unwrap_or(&[1.0; 4]),
+                            DEFAULT_FONT_SIZE,
+                            clip_x,
+                            content_y,
+                            clip_w,
+                            content_h,
+                        ));
+                    }
+                } else {
+                    let clip_bottom = content_y + content_h;
+                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let mut cursor_y = text_y;
+                    for line_str in block.content.lines() {
+                        if cursor_y >= clip_bottom {
+                            break;
+                        }
+                        text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                            line_str,
+                            text_x,
+                            cursor_y,
+                            title_color,
+                            DEFAULT_FONT_SIZE,
+                            clip_x,
+                            content_y,
+                            clip_w,
+                            content_h,
+                        ));
+                        cursor_y += line_h;
+                    }
+                }
+            }
+        }
+
+        if let (Some(line), Some(col)) = (block.cursor_line, block.cursor_col) {
+            let content_x = if let Some(ref clip) = block.clip_rect {
+                clip.x - block.content_offset_x
+            } else {
+                target.x + content_padding
+            };
+            let content_w = if let Some(ref clip) = block.clip_rect {
+                clip.w
+            } else {
+                (target.w - content_padding * 2.0).max(0.0)
+            };
+            let content_y = target.y + hh + content_padding;
+            let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+            if content_w > 0.0 && content_h > 0.0 {
+                let line_h = DEFAULT_FONT_SIZE + 2.0;
+                let text_y = content_y as f32 - block.content_offset_y;
+                let line_y = text_y + line as f32 * line_h;
+                if block.highlight_active_line
+                    && line_y >= content_y
+                    && line_y + line_h <= content_y + content_h
+                {
+                    let hl_color: [f32; 4] = layout.colors.editor_line_highlight;
+                    push_colored_quad(
+                        &mut panel_verts,
+                        &mut panel_indices,
+                        content_x,
+                        line_y,
+                        content_w,
+                        line_h,
+                        hl_color,
+                        width,
+                        height,
+                        0.0,
+                    );
+                }
+                let cursor_x = content_x + col as f32 * 8.0;
+                let cursor_w = 2.0;
+                let cursor_h = line_h;
+                if cursor_x >= content_x
+                    && cursor_x + cursor_w <= content_x + content_w
+                    && line_y >= content_y
+                    && line_y + cursor_h <= content_y + content_h
+                {
+                    let cursor_color: [f32; 4] = layout.colors.editor_cursor;
+                    push_colored_quad(
+                        &mut panel_verts,
+                        &mut panel_indices,
+                        cursor_x,
+                        line_y,
+                        cursor_w,
+                        cursor_h,
+                        cursor_color,
+                        width,
+                        height,
+                        0.0,
+                    );
+                }
+            }
+            if let Some((sl, sc, el, ec)) = block.selection_range {
+                let line_h = DEFAULT_FONT_SIZE + 2.0;
+                let char_w = 8.0;
+                let text_y = content_y - block.content_offset_y;
+                let sel_color: [f32; 4] = layout.colors.editor_selection;
+                for line in sl..=el {
+                    let line_y = text_y + line as f32 * line_h;
+                    if line_y + line_h <= content_y {
+                        continue;
+                    }
+                    if line_y + line_h > content_y + content_h {
+                        break;
+                    }
+                    let start_col = if line == sl { sc } else { 0 };
+                    let end_col = if line == el { ec } else { 200 };
+                    let sel_x = content_x + start_col as f32 * char_w;
+                    let sel_w = ((end_col.saturating_sub(start_col)) as f32 * char_w)
+                        .min(content_w - (sel_x - content_x));
+                    if sel_w > 0.0 {
+                        push_colored_quad(
+                            &mut panel_verts,
+                            &mut panel_indices,
+                            sel_x,
+                            line_y,
+                            sel_w,
+                            line_h,
+                            sel_color,
+                            width,
+                            height,
+                            0.0,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let panel_vertex_count = panel_verts.len() as u16;
+    let mut verts: Vec<Vertex> = panel_verts;
+    let mut indices: Vec<u16> = panel_indices.clone();
+    for idx in text_indices.iter() {
+        indices.push(idx.wrapping_add(panel_vertex_count));
+    }
+    verts.extend(text_verts.into_iter());
+
+    let vb_bytes = bytemuck::cast_slice(&verts);
+    queue.write_buffer(&frame.vertex_buffer, 0, vb_bytes);
+    let ib_bytes = bytemuck::cast_slice(&indices);
+    queue.write_buffer(&frame.index_buffer, 0, ib_bytes);
+
+    let current = frame.surface.get_current_texture();
+    match current {
+        wgpu::CurrentSurfaceTexture::Success(frame_tex) => {
+            let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("zaroxi-render-encoder"),
+            });
+
+            let panel_indices_len = panel_indices.len() as u32;
+            let total_indices_len = indices.len() as u32;
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("main-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(*clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    ..Default::default()
+                });
+
+                if panel_indices_len > 0 {
+                    crate::renderer::shapes::submit_shape_pass(
+                        &mut rpass,
+                        shape_pipeline,
+                        &frame.vertex_buffer,
+                        &frame.index_buffer,
+                        panel_indices_len,
+                    );
+                }
+
+                if total_indices_len > panel_indices_len || text_renderer.queued_len() > 0 {
+                    if !text_pass_disabled() {
+                        text_renderer.prepare(device, queue)?;
+                        text_renderer.render_pass(
+                            &mut rpass,
+                            text_pipeline,
+                            panel_indices_len,
+                            total_indices_len,
+                        )?;
+                    }
+                }
+            }
+
+            crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
+            if render_timing_enabled() {
+                if let Some(start) = frame.frame_start.take() {
+                    let elapsed = start.elapsed();
+                    eprintln!(
+                        "GUI_RENDER_TIMING: duration_ms={:.2}",
+                        elapsed.as_secs_f64() * 1000.0
+                    );
+                }
+            }
+            Ok(())
+        }
+        wgpu::CurrentSurfaceTexture::Suboptimal(frame_tex) => {
+            let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
+            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("zaroxi-render-encoder"),
+            });
+            let panel_indices_len = panel_indices.len() as u32;
+            let total_indices_len = indices.len() as u32;
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("main-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(*clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    ..Default::default()
+                });
+                if panel_indices_len > 0 {
+                    crate::renderer::shapes::submit_shape_pass(
+                        &mut rpass,
+                        shape_pipeline,
+                        &frame.vertex_buffer,
+                        &frame.index_buffer,
+                        panel_indices_len,
+                    );
+                }
+                if total_indices_len > panel_indices_len {
+                    if !text_pass_disabled() {
+                        text_renderer.prepare(device, queue)?;
+                        text_renderer.render_pass(
+                            &mut rpass,
+                            text_pipeline,
+                            panel_indices_len,
+                            total_indices_len,
+                        )?;
+                    }
+                }
+            }
+            crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
+            Err(RenderError::SurfaceOutdated)
+        }
+        wgpu::CurrentSurfaceTexture::Timeout => Err(RenderError::SurfaceTimeout),
+        wgpu::CurrentSurfaceTexture::Occluded => Err(RenderError::SurfaceOccluded),
+        wgpu::CurrentSurfaceTexture::Outdated => Err(RenderError::SurfaceOutdated),
+        wgpu::CurrentSurfaceTexture::Lost => Err(RenderError::SurfaceLost),
+        wgpu::CurrentSurfaceTexture::Validation => {
+            Err(RenderError::SurfaceValidation("validation error".to_string()))
         }
     }
 }

@@ -47,12 +47,18 @@ mod tests {
             explorer_actions: None,
             explorer_button_rect: None,
             parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
+            cached_editor_data: None,
+            cached_editor_lines_hash: 0,
             layout_controller:
                 zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
             editor_viewport: None,
             needs_render: true,
             last_explorer_ids: Vec::new(),
             last_render_size: (0, 0),
+            pending_scroll_frac: 0.0,
+            render_core: None,
+            picker_in_flight: false,
+            pending_picker_rx: None,
         }
     }
 

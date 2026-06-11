@@ -302,12 +302,10 @@ impl DesktopComposition {
         if vscroll_px.abs() > 0.01 {
             let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
             let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
-            let max_scroll_px =
-                total.saturating_sub(visible) as f32 * 16.0;
+            let max_scroll_px = total.saturating_sub(visible) as f32 * 16.0;
             let new_px = (meta.editor_scroll_px - vscroll_px).clamp(0.0, max_scroll_px.max(0.0));
             meta.editor_scroll_px = new_px;
-            meta.editor_scroll_top_line =
-                (new_px / 16.0).round().min(max_scroll_px) as usize;
+            meta.editor_scroll_top_line = (new_px / 16.0).round() as usize;
             if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                 eprintln!(
                     "ZAROXI_SCROLL: applied vscroll_px={:.1} scroll_px={:.1} top_line={}",
@@ -534,8 +532,8 @@ impl DesktopComposition {
                 visible_window: None,
                 last_command_line: Some(text),
                 editor_viewport_line_count: None,
-            editor_scroll_top_line: 0,
-            editor_scroll_px: 0.0,
+                editor_scroll_top_line: 0,
+                editor_scroll_px: 0.0,
                 last_synced_window_height: None,
                 editor_horizontal_offset_px: None,
                 refresh_reason: None,

@@ -562,10 +562,7 @@ impl TextRenderer for CosmicTextRenderer {
             let clip_r = (cmd.clip_x + cmd.clip_w) * device_scale;
             let clip_b = (cmd.clip_y + cmd.clip_h) * device_scale;
             let glyph_in_clip = |gx: f32, gy: f32, gw: f32, gh: f32| {
-                gx + gw > clip_l
-                    && gx < clip_r
-                    && gy + gh > clip_t
-                    && gy < clip_b
+                gx + gw > clip_l && gx < clip_r && gy + gh > clip_t && gy < clip_b
             };
 
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the

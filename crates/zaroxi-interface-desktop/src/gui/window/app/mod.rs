@@ -34,6 +34,7 @@ mod input;
 mod render_state;
 
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use winit::{
     dpi::PhysicalPosition,
@@ -43,11 +44,12 @@ use winit::{
 };
 
 use crate::DesktopComposition;
-use crate::folder_picker::DynFolderPicker;
+use crate::folder_picker::{DynFolderPicker, PickerOutcome};
 use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
+use zaroxi_core_engine_render::RenderCore;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::parser::ParserPool;
@@ -92,11 +94,93 @@ pub struct GuiApp {
     pub last_explorer_ids: Vec<String>,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
+    pub render_core: Option<RenderCore>,
+    pub picker_in_flight: bool,
+    pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
 }
 
 impl GuiApp {
     pub fn dispatch_activation(&mut self, id: &WidgetId) -> Option<ShellWorkContent> {
         activation::dispatch_activation(self, id)
+    }
+
+    pub fn process_picker_result(&mut self) {
+        if !self.picker_in_flight {
+            return;
+        }
+        if let Some(ref rx) = self.pending_picker_rx {
+            if let Ok(outcome) = rx.try_recv() {
+                self.pending_picker_rx = None;
+                self.picker_in_flight = false;
+                match outcome {
+                    PickerOutcome::Selected(path) => {
+                        debug::click_trace_fmt!(
+                            "ZAROXI_PICKER: thread result=Selected({})",
+                            path.display()
+                        );
+                        if let Some(ref mut actions) = self.explorer_actions {
+                            let comp = match self.composition.as_mut() {
+                                Some(c) => c,
+                                None => return,
+                            };
+                            let service = match self.workspace_service.clone() {
+                                Some(s) => s,
+                                None => return,
+                            };
+                            let view = match self.workspace_view.clone() {
+                                Some(v) => v,
+                                None => return,
+                            };
+                            let content = actions.open_workspace(
+                                comp,
+                                service,
+                                view,
+                                &mut self.session_id,
+                                &mut self.workspace_id,
+                                path,
+                            );
+                            if let Some(wc) = content {
+                                self.work_content = Some(wc);
+                                self.needs_render = true;
+                                if let Some(z) = self.maybe_window.as_ref() {
+                                    let _ = z.window().request_redraw();
+                                }
+                            }
+                        }
+                    }
+                    PickerOutcome::Cancelled => {
+                        debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
+                        if let Some(ref mut comp) = self.composition {
+                            comp.set_status_message("No folder selected".to_string());
+                            self.work_content = Some(comp.build_work_content());
+                            self.needs_render = true;
+                            if let Some(z) = self.maybe_window.as_ref() {
+                                let _ = z.window().request_redraw();
+                            }
+                        }
+                    }
+                    PickerOutcome::Unavailable { reason, .. } => {
+                        debug::click_trace_fmt!(
+                            "ZAROXI_PICKER: thread result=Unavailable({})",
+                            reason
+                        );
+                        if let Some(ref mut comp) = self.composition {
+                            let msg = if reason.len() > 90 {
+                                "Workspace picker unavailable — see log for details".to_string()
+                            } else {
+                                format!("Workspace picker unavailable: {}", reason)
+                            };
+                            comp.set_status_message(msg);
+                            self.work_content = Some(comp.build_work_content());
+                            self.needs_render = true;
+                            if let Some(z) = self.maybe_window.as_ref() {
+                                let _ = z.window().request_redraw();
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
@@ -107,7 +191,7 @@ impl GuiApp {
                 zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw => {
                     needs_redraw = true;
                 }
-                zaroxi_core_engine_ui::WidgetAction::FocusChanged(_) => {
+                zaroxi_core_engine_ui::WidgetAction::FocusChanged(_prev_focus) => {
                     needs_redraw = true;
                 }
                 zaroxi_core_engine_ui::WidgetAction::ScrollOffsetChanged(id, offset) => {
@@ -234,6 +318,8 @@ impl winit::application::ApplicationHandler for GuiApp {
     }
 
     fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
+        self.process_picker_result();
+
         if self.requested_initial_frame {
             if let Some(z) = self.maybe_window.as_ref() {
                 debug::gui_debug(
@@ -725,46 +811,42 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     // ── Renderer lifecycle ──
-                    let size_changed = (sw as u32, sh as u32) != self.last_render_size;
                     self.last_render_size = (sw as u32, sh as u32);
 
-                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
-                        z.window(),
-                        [
-                            tokens.app_background.r as f64,
-                            tokens.app_background.g as f64,
-                            tokens.app_background.b as f64,
-                            1.0,
-                        ],
-                    )) {
-                        Ok(mut renderer) => {
-                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
-                            match renderer.render_with_layout(
-                                &app_state,
-                                &render_layout,
-                                &render_blocks,
-                            ) {
-                                Ok(()) => {
-                                    if !self.first_render_shown {
-                                        let _ = z.window().set_visible(true);
-                                        let _ = z.window().pre_present_notify();
-                                        self.first_render_shown = true;
-                                        eprintln!(
-                                            "GuiApp: first full-renderer frame; window visible"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
-                                }
+                    let clear_color = [
+                        tokens.app_background.r as f64,
+                        tokens.app_background.g as f64,
+                        tokens.app_background.b as f64,
+                        1.0,
+                    ];
+
+                    if self.render_core.is_none() {
+                        match pollster::block_on(RenderCore::new(clear_color)) {
+                            Ok(rc) => {
+                                self.render_core = Some(rc);
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
+                            Err(e) => {
+                                eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
+                                return;
+                            }
                         }
                     }
 
-                    let _ = size_changed;
+                    if let Some(ref mut rc) = self.render_core {
+                        match rc.render_to_window(z.window(), &render_layout, &render_blocks) {
+                            Ok(()) => {
+                                if !self.first_render_shown {
+                                    let _ = z.window().set_visible(true);
+                                    let _ = z.window().pre_present_notify();
+                                    self.first_render_shown = true;
+                                    eprintln!("GuiApp: first full-renderer frame; window visible");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
+                            }
+                        }
+                    }
 
                     if std::env::var("ZAROXI_DEBUG_RENDER").as_deref() == Ok("1") {
                         eprintln!(

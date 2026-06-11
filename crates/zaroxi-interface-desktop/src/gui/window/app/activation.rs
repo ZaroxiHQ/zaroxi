@@ -9,6 +9,7 @@ and clipboard paste actions live here.
 */
 
 use pollster;
+use std::sync::mpsc;
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
@@ -37,24 +38,32 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         }
         WidgetId::Button { index: lc::BTN_ID_EXPLORER_CTA } => {
             super::debug::click_trace("ZAROXI_CLICK: dispatch_activation matched Explorer CTA");
-            if let Some(ref mut actions) = app.explorer_actions {
+            if app.picker_in_flight {
                 super::debug::click_trace(
-                    "ZAROXI_CLICK: explorer_actions is Some, calling open_workspace_from_picker",
+                    "ZAROXI_CLICK: picker already in flight — ignoring duplicate click",
                 );
-                let comp = app.composition.as_mut()?;
-                let service = app.workspace_service.clone()?;
-                let view = app.workspace_view.clone()?;
-                return actions.open_workspace_from_picker(
-                    comp,
-                    service,
-                    view,
-                    &mut app.session_id,
-                    &mut app.workspace_id,
+                return None;
+            }
+            if let Some(picker) = app.folder_picker.clone() {
+                super::debug::click_trace(
+                    "ZAROXI_CLICK: spawning picker thread to avoid blocking event loop",
+                );
+                let (tx, rx) = mpsc::channel();
+                app.pending_picker_rx = Some(rx);
+                app.picker_in_flight = true;
+                std::thread::spawn(move || {
+                    let outcome = picker.pick_folder();
+                    let _ = tx.send(outcome);
+                });
+                app.needs_render = true;
+                if let Some(z) = app.maybe_window.as_ref() {
+                    let _ = z.window().request_redraw();
+                }
+            } else {
+                super::debug::click_trace(
+                    "ZAROXI_CLICK: folder_picker is None, cannot open workspace",
                 );
             }
-            super::debug::click_trace(
-                "ZAROXI_CLICK: explorer_actions is None, cannot open workspace",
-            );
             return None;
         }
         _ => {}
