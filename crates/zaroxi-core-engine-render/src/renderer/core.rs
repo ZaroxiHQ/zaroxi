@@ -1602,10 +1602,7 @@ impl RenderCore {
         self.text_renderer = Some(text_renderer);
         self.initialized_format = Some(format);
 
-        info!(
-            "RenderCore pipelines initialised for format {:?}",
-            format
-        );
+        info!("RenderCore pipelines initialised for format {:?}", format);
         Ok(())
     }
 
@@ -1621,13 +1618,8 @@ impl RenderCore {
         layout: &RenderLayout,
         render_blocks: &[crate::UiBlock],
     ) -> Result<(), RenderError> {
-        let frame = FrameSurface::new(
-            &self._instance,
-            &self._adapter,
-            &self.device,
-            window,
-            surface_size,
-        )?;
+        let frame =
+            FrameSurface::new(&self._instance, &self._adapter, &self.device, window, surface_size)?;
 
         self.ensure_initialized(&frame.config)?;
 
@@ -1688,9 +1680,16 @@ fn render_frame_inner(
     if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
         eprintln!(
             "ZAROXI_DIAG: render_frame — surface={:.0}x{:.0} layout_sidebar=({:.0},{:.0},{:.0},{:.0}) layout_editor=({:.0},{:.0},{:.0},{:.0}) nblocks={}",
-            width, height,
-            layout.sidebar.x, layout.sidebar.y, layout.sidebar.w, layout.sidebar.h,
-            layout.editor.x, layout.editor.y, layout.editor.w, layout.editor.h,
+            width,
+            height,
+            layout.sidebar.x,
+            layout.sidebar.y,
+            layout.sidebar.w,
+            layout.sidebar.h,
+            layout.editor.x,
+            layout.editor.y,
+            layout.editor.w,
+            layout.editor.h,
             render_blocks.len(),
         );
     }

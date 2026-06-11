@@ -107,12 +107,9 @@ impl GuiApp {
     }
 
     fn request_render(&mut self) {
-        let already_pending = self.needs_render;
         self.needs_render = true;
-        if !already_pending {
-            if let Some(z) = self.maybe_window.as_ref() {
-                let _ = z.window().request_redraw();
-            }
+        if let Some(z) = self.maybe_window.as_ref() {
+            let _ = z.window().request_redraw();
         }
     }
 
@@ -125,80 +122,92 @@ impl GuiApp {
                 self.pending_picker_rx = None;
                 self.picker_in_flight = false;
                 match outcome {
-                        PickerOutcome::Selected(path) => {
+                    PickerOutcome::Selected(path) => {
+                        debug::click_trace_fmt!(
+                            "ZAROXI_PICKER: thread result=Selected({})",
+                            path.display()
+                        );
+                        debug::click_trace_fmt!(
+                            "ZAROXI_DIAG: picker Selected({}) — composition exists={} explorer_actions exists={}",
+                            path.display(),
+                            self.composition.is_some(),
+                            self.explorer_actions.is_some()
+                        );
+                        if let Some(ref mut actions) = self.explorer_actions {
+                            let comp = match self.composition.as_mut() {
+                                Some(c) => c,
+                                None => {
+                                    debug::click_trace(
+                                        "ZAROXI_DIAG: composition is None — cannot open workspace",
+                                    );
+                                    return;
+                                }
+                            };
+                            let service = match self.workspace_service.clone() {
+                                Some(s) => s,
+                                None => {
+                                    debug::click_trace("ZAROXI_DIAG: workspace_service is None");
+                                    return;
+                                }
+                            };
+                            let view = match self.workspace_view.clone() {
+                                Some(v) => v,
+                                None => {
+                                    debug::click_trace("ZAROXI_DIAG: workspace_view is None");
+                                    return;
+                                }
+                            };
                             debug::click_trace_fmt!(
-                                "ZAROXI_PICKER: thread result=Selected({})",
+                                "ZAROXI_DIAG: calling open_workspace with path={}",
                                 path.display()
                             );
+                            let pre_root = comp.workspace_root_path.clone();
+                            let pre_items = comp.cached_explorer_items.len();
                             debug::click_trace_fmt!(
-                                "ZAROXI_DIAG: picker Selected({}) — composition exists={} explorer_actions exists={}",
-                                path.display(),
-                                self.composition.is_some(),
-                                self.explorer_actions.is_some()
+                                "ZAROXI_DIAG: BEFORE open_workspace — root={:?} cached_items={}",
+                                pre_root,
+                                pre_items
                             );
-                            if let Some(ref mut actions) = self.explorer_actions {
-                                let comp = match self.composition.as_mut() {
-                                    Some(c) => c,
-                                    None => {
-                                        debug::click_trace("ZAROXI_DIAG: composition is None — cannot open workspace");
-                                        return;
-                                    }
-                                };
-                                let service = match self.workspace_service.clone() {
-                                    Some(s) => s,
-                                    None => {
-                                        debug::click_trace("ZAROXI_DIAG: workspace_service is None");
-                                        return;
-                                    }
-                                };
-                                let view = match self.workspace_view.clone() {
-                                    Some(v) => v,
-                                    None => {
-                                        debug::click_trace("ZAROXI_DIAG: workspace_view is None");
-                                        return;
-                                    }
-                                };
-                                debug::click_trace_fmt!("ZAROXI_DIAG: calling open_workspace with path={}", path.display());
-                                let pre_root = comp.workspace_root_path.clone();
-                                let pre_items = comp.cached_explorer_items.len();
+                            let content = actions.open_workspace(
+                                comp,
+                                service,
+                                view,
+                                &mut self.session_id,
+                                &mut self.workspace_id,
+                                path,
+                            );
+                            let post_root = comp.workspace_root_path.clone();
+                            let post_items = comp.cached_explorer_items.len();
+                            debug::click_trace_fmt!(
+                                "ZAROXI_DIAG: AFTER open_workspace — root={:?} cached_items={} content_is_some={}",
+                                post_root,
+                                post_items,
+                                content.is_some()
+                            );
+                            if let Some(ref wc) = content {
                                 debug::click_trace_fmt!(
-                                    "ZAROXI_DIAG: BEFORE open_workspace — root={:?} cached_items={}",
-                                    pre_root, pre_items
+                                    "ZAROXI_DIAG: work_content — empty_button={:?} panel_items_count={}",
+                                    wc.explorer_empty_button,
+                                    wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
                                 );
-                                let content = actions.open_workspace(
-                                    comp,
-                                    service,
-                                    view,
-                                    &mut self.session_id,
-                                    &mut self.workspace_id,
-                                    path,
-                                );
-                                let post_root = comp.workspace_root_path.clone();
-                                let post_items = comp.cached_explorer_items.len();
-                                debug::click_trace_fmt!(
-                                    "ZAROXI_DIAG: AFTER open_workspace — root={:?} cached_items={} content_is_some={}",
-                                    post_root, post_items, content.is_some()
-                                );
-                                if let Some(ref wc) = content {
-                                    debug::click_trace_fmt!(
-                                        "ZAROXI_DIAG: work_content — empty_button={:?} panel_items_count={}",
-                                        wc.explorer_empty_button,
-                                        wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
-                                    );
-                                }
-                                if let Some(wc) = content {
-                                    self.work_content = Some(wc);
-                                    self.request_render();
-                                } else {
-                                    debug::click_trace("ZAROXI_DIAG: open_workspace returned None — explorer stays empty");
-                                }
                             }
+                            if let Some(wc) = content {
+                                self.work_content = Some(wc);
+                                self.last_widget_tree_content = None;
+                                self.request_render();
+                            } else {
+                                debug::click_trace(
+                                    "ZAROXI_DIAG: open_workspace returned None — explorer stays empty",
+                                );
+                            }
+                        }
                     }
                     PickerOutcome::Cancelled => {
                         debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
                         if let Some(ref mut comp) = self.composition {
                             comp.set_status_message("No folder selected".to_string());
                             self.work_content = Some(comp.build_work_content());
+                            self.last_widget_tree_content = None;
                             self.request_render();
                         }
                     }
@@ -215,6 +224,7 @@ impl GuiApp {
                             };
                             comp.set_status_message(msg);
                             self.work_content = Some(comp.build_work_content());
+                            self.last_widget_tree_content = None;
                             self.request_render();
                         }
                     }
@@ -369,6 +379,10 @@ impl winit::application::ApplicationHandler for GuiApp {
             self.requested_initial_frame = false;
             active_loop.set_control_flow(ControlFlow::Wait);
             debug::gui_debug("GuiApp: about_to_wait -> switched control flow back to Wait");
+        } else if self.picker_in_flight {
+            active_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            active_loop.set_control_flow(ControlFlow::Wait);
         }
     }
 
@@ -627,18 +641,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 old.explorer_empty_button != new.explorer_empty_button
                                     || old.explorer_panel_items.as_ref().map(|v| v.len())
                                         != new.explorer_panel_items.as_ref().map(|v| v.len())
-                                    || old
-                                        .editor_body
-                                        .as_ref()
-                                        .map(|b| b.lines.len())
+                                    || old.editor_body.as_ref().map(|b| b.lines.len())
                                         != new.editor_body.as_ref().map(|b| b.lines.len())
                                     || old.active_file != new.active_file
                                     || old.editor_tabs != new.editor_tabs
                             })
                         })
                         .unwrap_or(true);
-                    let rebuild_tree =
-                        self.last_widget_tree_size != (sw, sh) || content_changed;
+                    let rebuild_tree = self.last_widget_tree_size != (sw, sh) || content_changed;
 
                     self.last_widget_tree_size = (sw, sh);
                     if let Some(ref wc) = self.work_content {
@@ -680,15 +690,21 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let shell_regions = self.layout_controller.shell_regions();
                     debug::click_trace_fmt!(
                         "ZAROXI_DIAG: window={}x{} layout_last={}x{} nregions={}",
-                        sw, sh,
-                        self.layout_controller.size().width, self.layout_controller.size().height,
+                        sw,
+                        sh,
+                        self.layout_controller.size().width,
+                        self.layout_controller.size().height,
                         shell_regions.len(),
                     );
                     for r in shell_regions {
                         if r.rect.width > 0 || r.rect.height > 0 {
                             debug::click_trace_fmt!(
                                 "ZAROXI_DIAG:   region id={} x={} y={} w={} h={}",
-                                r.id, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
+                                r.id,
+                                r.rect.x,
+                                r.rect.y,
+                                r.rect.width,
+                                r.rect.height,
                             );
                         }
                     }
@@ -927,7 +943,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     if let Some(ref mut rc) = self.render_core {
-                        match rc.render_to_window(z.window(), winit::dpi::PhysicalSize::new(sw, sh), &render_layout, &render_blocks) {
+                        match rc.render_to_window(
+                            z.window(),
+                            winit::dpi::PhysicalSize::new(sw, sh),
+                            &render_layout,
+                            &render_blocks,
+                        ) {
                             Ok(()) => {
                                 if !self.first_render_shown {
                                     let _ = z.window().set_visible(true);
