@@ -49,7 +49,6 @@ use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
-use zaroxi_core_engine_render::RenderCore;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::parser::ParserPool;
@@ -94,7 +93,6 @@ pub struct GuiApp {
     pub last_explorer_ids: Vec<String>,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
-    pub render_core: Option<RenderCore>,
     pub picker_in_flight: bool,
     pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
     pub last_widget_tree_size: (u32, u32),
@@ -930,36 +928,34 @@ impl winit::application::ApplicationHandler for GuiApp {
                         1.0,
                     ];
 
-                    if self.render_core.is_none() {
-                        match pollster::block_on(RenderCore::new(clear_color)) {
-                            Ok(rc) => {
-                                self.render_core = Some(rc);
-                            }
-                            Err(e) => {
-                                eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
-                                return;
-                            }
-                        }
-                    }
-
-                    if let Some(ref mut rc) = self.render_core {
-                        match rc.render_to_window(
-                            z.window(),
-                            winit::dpi::PhysicalSize::new(sw, sh),
-                            &render_layout,
-                            &render_blocks,
-                        ) {
-                            Ok(()) => {
-                                if !self.first_render_shown {
-                                    let _ = z.window().set_visible(true);
-                                    let _ = z.window().pre_present_notify();
-                                    self.first_render_shown = true;
-                                    eprintln!("GuiApp: first full-renderer frame; window visible");
+                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
+                        z.window(),
+                        clear_color,
+                    )) {
+                        Ok(mut renderer) => {
+                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
+                            match renderer.render_with_layout(
+                                &app_state,
+                                &render_layout,
+                                &render_blocks,
+                            ) {
+                                Ok(()) => {
+                                    if !self.first_render_shown {
+                                        let _ = z.window().set_visible(true);
+                                        let _ = z.window().pre_present_notify();
+                                        self.first_render_shown = true;
+                                        eprintln!(
+                                            "GuiApp: first full-renderer frame; window visible"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
                                 }
                             }
-                            Err(e) => {
-                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
-                            }
+                        }
+                        Err(e) => {
+                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
                         }
                     }
 
