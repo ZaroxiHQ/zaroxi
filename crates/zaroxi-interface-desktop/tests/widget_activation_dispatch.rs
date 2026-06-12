@@ -60,6 +60,7 @@ mod tests {
             pending_picker_rx: None,
             last_widget_tree_size: (0, 0),
             last_widget_tree_content: None,
+            render_core: None,
         }
     }
 

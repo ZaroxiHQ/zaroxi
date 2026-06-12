@@ -12,14 +12,18 @@ drive presentation without depending on winit from many places.
 // Use a module alias for the winit window module to avoid
 // ambiguous import resolution across different winit/raw-window-handle
 // versions and to match the actual public API surface in 0.30.13.
+use std::sync::Arc;
+
 use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::Window;
 
 /// A thin handle to the native window used by the engine.
-/// Thin handle storing the concrete winit Window type from the aliased module.
+///
+/// Stores the winit `Window` inside an `Arc` so that `wgpu::Surface<'static>`
+/// can be created safely from a clone without unsafe transmute.
 pub struct ZaroxiWindow {
-    window: Window,
+    window: Arc<Window>,
     width: u32,
     height: u32,
 }
@@ -42,7 +46,7 @@ impl ZaroxiWindow {
             .with_resizable(true)
             .with_transparent(false);
 
-        let window = event_loop.create_window(attrs).expect("failed to create window");
+        let window = Arc::new(event_loop.create_window(attrs).expect("failed to create window"));
 
         let size = window.inner_size();
         let width = size.width.max(1);
@@ -57,7 +61,7 @@ impl ZaroxiWindow {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
-        Self { window, width, height }
+        Self { window: Arc::new(window), width, height }
     }
 
     /// Make the window visible and perform a small "warm-up" sequence of calls
@@ -80,9 +84,15 @@ impl ZaroxiWindow {
     }
 
     /// Borrow the underlying winit Window for cases where the caller needs
-    /// direct access (for example, creating a wgpu surface).
+    /// direct access (for example, calling winit window methods).
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    /// Return a clone of the `Arc<Window>` for creating a `wgpu::Surface<'static>`
+    /// without unsafe transmute.
+    pub fn window_arc(&self) -> Arc<Window> {
+        Arc::clone(&self.window)
     }
 
     /// Update the cached window size (driver code should call this on resize).

@@ -40,7 +40,7 @@ pub(crate) fn configure_surface(
         present_mode: PresentMode::Fifo,
         alpha_mode: caps.alpha_modes[0],
         view_formats: Vec::new(),
-        desired_maximum_frame_latency: 0u32,
+        desired_maximum_frame_latency: 2u32,
     };
 
     surface.configure(device, &config);

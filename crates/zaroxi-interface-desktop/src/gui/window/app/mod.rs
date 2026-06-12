@@ -34,6 +34,7 @@ mod input;
 mod render_state;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 
 use winit::{
@@ -42,6 +43,12 @@ use winit::{
     event_loop::ControlFlow,
     window::WindowAttributes,
 };
+
+static GUI_FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn render_trace_enabled() -> bool {
+    std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
+}
 
 use crate::DesktopComposition;
 use crate::folder_picker::{DynFolderPicker, PickerOutcome};
@@ -106,13 +113,17 @@ impl GuiApp {
     }
 
     fn request_render(&mut self) {
+        if render_trace_enabled() {
+            let pending = GUI_FRAME_COUNTER.load(Ordering::Relaxed) + 1;
+            eprintln!(
+                "ZAROXI_RENDER_TRACE: request_render frame_pending={} already_dirty={}",
+                pending, self.needs_render
+            );
+        }
         if !self.needs_render {
             if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
                 if let Some(z) = self.maybe_window.as_ref() {
-                    eprintln!(
-                        "ZAROXI_FRAMEFLOW: request_render dirty id={:?}",
-                        z.window().id()
-                    );
+                    eprintln!("ZAROXI_FRAMEFLOW: request_render dirty id={:?}", z.window().id());
                 }
             }
         }
@@ -578,22 +589,44 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                let frame_id = GUI_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
                 if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
                     eprintln!(
                         "ZAROXI_FRAMEFLOW: RedrawRequested id={:?} dirty={}",
-                        window_id,
-                        self.needs_render
+                        window_id, self.needs_render
+                    );
+                }
+                if render_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_RENDER_TRACE: RedrawRequested frame={} dirty={}",
+                        frame_id, self.needs_render
                     );
                 }
                 if !self.needs_render {
+                    if render_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_RENDER_TRACE: RedrawRequested frame={} SKIPPED (not dirty)",
+                            frame_id
+                        );
+                    }
                     return;
                 }
 
                 if let Some(z) = self.maybe_window.as_mut() {
                     let (sw, sh) = z.size();
                     if sw == 0 || sh == 0 {
+                        if render_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_RENDER_TRACE: RedrawRequested frame={} SKIPPED (zero size)",
+                                frame_id
+                            );
+                        }
                         return;
                     }
+
+                    // Notify compositor before rendering this frame.
+                    // Required on Wayland to register for the next frame callback.
+                    let _ = z.window().pre_present_notify();
 
                     let system_is_dark = z
                         .window()
@@ -1004,13 +1037,67 @@ impl winit::application::ApplicationHandler for GuiApp {
                         1.0,
                     ];
 
-                    // Create/Restore persistent RenderCore on first frame.
+                    // ── Per-frame content trace (ZAROXI_RENDER_TRACE=1) ──
+                    if render_trace_enabled() {
+                        let editor_body_hash = self
+                            .work_content
+                            .as_ref()
+                            .and_then(|wc| wc.editor_body.as_ref())
+                            .map(|cv| {
+                                let mut h: u64 = 0;
+                                for line in cv.lines.iter() {
+                                    h = h.wrapping_mul(31).wrapping_add(line.len() as u64);
+                                }
+                                h
+                            })
+                            .unwrap_or(0);
+                        let explorer_count = self
+                            .work_content
+                            .as_ref()
+                            .map(|wc| wc.explorer_items.as_ref().map(|v| v.len()).unwrap_or(0))
+                            .unwrap_or(0);
+                        let mut rblock_hash: u64 = 0;
+                        for blk in &render_blocks {
+                            rblock_hash =
+                                rblock_hash.wrapping_mul(31).wrapping_add(blk.id.len() as u64);
+                            rblock_hash =
+                                rblock_hash.wrapping_mul(31).wrapping_add(blk.content.len() as u64);
+                            rblock_hash = rblock_hash
+                                .wrapping_mul(31)
+                                .wrapping_add((blk.rect.x * 100.0) as u64);
+                            rblock_hash = rblock_hash
+                                .wrapping_mul(31)
+                                .wrapping_add((blk.rect.y * 100.0) as u64);
+                        }
+                        eprintln!(
+                            "ZAROXI_RENDER_TRACE: app_frame frame={} work_hash={:016x} explorer_count={} rblocks={} rblock_hash={:016x}",
+                            frame_id,
+                            editor_body_hash,
+                            explorer_count,
+                            render_blocks.len(),
+                            rblock_hash
+                        );
+                    }
+
+                    // Create persistent RenderCore on first frame.
                     let core_exists = self.render_core.is_some();
                     if !core_exists {
+                        let window_arc = z.window_arc();
+                        let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
                         match pollster::block_on(
-                            zaroxi_core_engine_render::renderer::core::RenderCore::new(clear_color),
+                            zaroxi_core_engine_render::renderer::core::RenderCore::new(
+                                window_arc,
+                                clear_color,
+                                surface_size,
+                            ),
                         ) {
                             Ok(core) => {
+                                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                                    eprintln!(
+                                        "ZAROXI_FRAMEFLOW: RenderCore created (size={}x{})",
+                                        sw, sh
+                                    );
+                                }
                                 self.render_core = Some(core);
                             }
                             Err(e) => {
@@ -1022,25 +1109,34 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     if let Some(ref mut core) = self.render_core {
                         let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
-                        match core.render_to_window(
-                            z.window(),
-                            surface_size,
-                            &render_layout,
-                            &render_blocks,
-                        ) {
+                        match core.render_to_window(surface_size, &render_layout, &render_blocks) {
                             Ok(()) => {
                                 self.needs_render = false;
+                                if render_trace_enabled() {
+                                    eprintln!(
+                                        "ZAROXI_RENDER_TRACE: render_result frame={} ok",
+                                        frame_id
+                                    );
+                                }
                                 if !self.first_render_shown {
                                     let _ = z.window().set_visible(true);
-                                    let _ = z.window().pre_present_notify();
                                     self.first_render_shown = true;
-                                    eprintln!(
-                                        "GuiApp: first full-renderer frame; window visible"
-                                    );
+                                    eprintln!("GuiApp: first full-renderer frame; window visible");
                                 }
                             }
                             Err(e) => {
-                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
+                                if render_trace_enabled() {
+                                    eprintln!(
+                                        "ZAROXI_RENDER_TRACE: render_result frame={} err={:?}",
+                                        frame_id, e
+                                    );
+                                }
+                                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                                    eprintln!("ZAROXI_FRAMEFLOW: render_to_window error: {:?}", e);
+                                }
+                                // Keep needs_render=true and request another redraw
+                                // so the frame is retried on the next opportunity.
+                                self.needs_render = true;
                                 let _ = z.window().request_redraw();
                             }
                         }

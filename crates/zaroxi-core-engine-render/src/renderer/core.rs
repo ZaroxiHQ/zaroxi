@@ -1,9 +1,15 @@
 use crate::error::RenderError;
 use log::{debug, info};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static GUI_TEXT_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static GPU_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn gpu_trace_enabled() -> bool {
+    std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
+}
 use wgpu::{
     Backends, BindGroup, BindGroupLayout, Buffer, Color, CommandEncoderDescriptor,
     CompositeAlphaMode, Device, DeviceDescriptor, Extent3d, Features, Instance, InstanceDescriptor,
@@ -156,12 +162,12 @@ pub struct Renderer<'a> {
 
 /// Persistent renderer state that can survive across frames.
 ///
-/// Unlike `Renderer<'a>`, this struct does not hold a `Surface` (which has a
-/// lifetime tied to a `Window`). Surfaces are created per-frame from the
-/// window handle. This allows the expensive GPU resources (device, pipelines,
-/// text renderer with its atlas cache) to persist across multiple frames
-/// instead of being recreated each redraw.
+/// Owns `Arc<Window>` (shared with `ZaroxiWindow`), which enables safe creation
+/// of a `Surface<'static>` without unsafe transmute. The surface, GPU device,
+/// pipelines, and text-renderer atlas/caches all persist across frames — only
+/// the per-frame texture, view, and encoder are created fresh each redraw.
 pub struct RenderCore {
+    _window: Arc<Window>,
     _instance: Instance,
     _adapter: wgpu::Adapter,
     device: Device,
@@ -175,12 +181,12 @@ pub struct RenderCore {
     text_renderer: Option<Box<dyn crate::renderer::text::TextRenderer + Send + Sync>>,
     initialized_format: Option<TextureFormat>,
 
-    /// Persistent surface created from the window on the first frame.
+    /// Persistent surface created from the shared `Arc<Window>`.
     /// Reconfigured on resize; never destroyed until RenderCore is dropped.
-    surface: Option<Surface<'static>>,
-    surface_config: Option<SurfaceConfiguration>,
-    vertex_buffer: Option<Buffer>,
-    index_buffer: Option<Buffer>,
+    surface: Surface<'static>,
+    surface_config: SurfaceConfiguration,
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
 }
 
 impl<'a> Renderer<'a> {
@@ -1491,10 +1497,15 @@ impl<'a> Renderer<'a> {
 impl RenderCore {
     /// Create a persistent renderer state.
     ///
-    /// Does not need a Window reference — surfaces are created per-frame.
-    /// Pipelines and the text renderer are lazily initialised on the first
-    /// render_to_window call so they match the actual surface colour format.
-    pub async fn new(clear_color: [f64; 4]) -> Result<Self, RenderError> {
+    /// Takes `Arc<Window>` for shared window ownership. The surface is created
+    /// immediately from the `Arc` (safe `Surface<'static>` — no transmute).
+    /// Pipelines and text renderer are lazily initialised on the first
+    /// `render_to_window` call so they match the actual surface colour format.
+    pub async fn new(
+        window: Arc<Window>,
+        clear_color: [f64; 4],
+        surface_size: winit::dpi::PhysicalSize<u32>,
+    ) -> Result<Self, RenderError> {
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: wgpu::InstanceFlags::empty(),
@@ -1503,10 +1514,15 @@ impl RenderCore {
             display: None,
         });
 
+        // Create surface from Arc<Window> — yields Surface<'static> safely.
+        let surface = instance
+            .create_surface(Arc::clone(&window))
+            .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
+
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
+                compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
@@ -1522,6 +1538,24 @@ impl RenderCore {
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
 
+        // Configure the persistent surface immediately.
+        let surface_config =
+            crate::renderer::surface::configure_surface(&surface, &adapter, &device, surface_size)?;
+
+        // Create vertex/index buffers at a reasonable size.
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vb"),
+            size: 131072,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ib"),
+            size: 131072,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         {
             use std::mem;
             let vertex_size = mem::size_of::<Vertex>();
@@ -1536,9 +1570,13 @@ impl RenderCore {
 
         init_debug_flags();
 
-        info!("RenderCore base state ready (pipelines deferred)");
+        info!(
+            "RenderCore ready: {}x{} format={:?} (pipelines deferred)",
+            surface_config.width, surface_config.height, surface_config.format
+        );
 
         Ok(Self {
+            _window: window,
             _instance: instance,
             _adapter: adapter,
             device,
@@ -1555,10 +1593,10 @@ impl RenderCore {
             shape_pipeline: None,
             text_renderer: None,
             initialized_format: None,
-            surface: None,
-            surface_config: None,
-            vertex_buffer: None,
-            index_buffer: None,
+            surface,
+            surface_config,
+            vertex_buffer,
+            index_buffer,
         })
     }
 
@@ -1599,75 +1637,45 @@ impl RenderCore {
         Ok(())
     }
 
-    /// Render a frame to the given window.
+    /// Render a frame to the persistent surface.
     ///
-    /// Creates a surface from the window on the first call and reconfigures it
-    /// on resize. The surface (and its GPU buffers) persist across frames —
-    /// only the texture is acquired fresh each render. This is required for
-    /// Wayland where destroying a surface discards pending buffer commits.
+    /// The surface, GPU device, pipelines, and text-renderer atlas/caches
+    /// all persist across frames. Only the per-frame swapchain texture,
+    /// texture view, and command encoder are created fresh each redraw.
+    ///
+    /// Reconfigures the surface on resize. Handles surface-lost/outdated
+    /// by returning the appropriate error so the caller can retry.
     pub fn render_to_window(
         &mut self,
-        window: &Window,
         surface_size: winit::dpi::PhysicalSize<u32>,
         layout: &RenderLayout,
         render_blocks: &[crate::UiBlock],
     ) -> Result<(), RenderError> {
-        // Create or reconfigure the persistent surface.
-        let config = match &mut self.surface {
-            Some(surface) => {
-                // Reconfigure if the size changed.
-                let current_cfg = self.surface_config.as_ref().unwrap();
-                if current_cfg.width != surface_size.width
-                    || current_cfg.height != surface_size.height
-                {
-                    let mut new_cfg = current_cfg.clone();
-                    new_cfg.width = surface_size.width.max(1);
-                    new_cfg.height = surface_size.height.max(1);
-                    surface.configure(&self.device, &new_cfg);
-                    self.surface_config = Some(new_cfg.clone());
-                    new_cfg
-                } else {
-                    current_cfg.clone()
-                }
+        // Reconfigure the persistent surface if the size changed.
+        if self.surface_config.width != surface_size.width
+            || self.surface_config.height != surface_size.height
+        {
+            let mut new_cfg = self.surface_config.clone();
+            new_cfg.width = surface_size.width.max(1);
+            new_cfg.height = surface_size.height.max(1);
+            self.surface.configure(&self.device, &new_cfg);
+            self.surface_config = new_cfg;
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_FRAMEFLOW: surface reconfigured to {}x{}",
+                    self.surface_config.width, self.surface_config.height
+                );
             }
-            None => {
-                let surface = self
-                    ._instance
-                    .create_surface(window)
-                    .map_err(|e| RenderError::Other(format!("create_surface: {:?}", e)))?;
-                let cfg = crate::renderer::surface::configure_surface(
-                    &surface,
-                    &self._adapter,
-                    &self.device,
-                    surface_size,
-                )?;
-                // Safety: the window outlives this RenderCore (both owned by GuiApp).
-                let surface: Surface<'static> = unsafe { std::mem::transmute(surface) };
-                self.vertex_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("vb"),
-                    size: 131072,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
-                self.index_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("ib"),
-                    size: 131072,
-                    usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
-                self.surface = Some(surface);
-                self.surface_config = Some(cfg.clone());
-                cfg
-            }
-        };
+        }
 
+        let config = self.surface_config.clone();
         self.ensure_initialized(&config)?;
 
         let _ = self
             .text_renderer
             .as_ref()
             .unwrap()
-            .resize_viewport(config.width, config.height);
+            .resize_viewport(self.surface_config.width, self.surface_config.height);
 
         render_frame_inner(
             &self.device,
@@ -1676,10 +1684,10 @@ impl RenderCore {
             self.shape_pipeline.as_ref().unwrap(),
             self.text_renderer.as_deref_mut().unwrap(),
             &self.clear_color,
-            self.surface.as_ref().unwrap(),
-            &config,
-            self.vertex_buffer.as_ref().unwrap(),
-            self.index_buffer.as_ref().unwrap(),
+            &self.surface,
+            &self.surface_config,
+            &self.vertex_buffer,
+            &self.index_buffer,
             layout,
             render_blocks,
         )
@@ -1715,11 +1723,8 @@ fn render_frame_inner(
         return Ok(());
     }
 
-    let mut frame_start = if render_timing_enabled() {
-        Some(std::time::Instant::now())
-    } else {
-        None
-    };
+    let mut frame_start =
+        if render_timing_enabled() { Some(std::time::Instant::now()) } else { None };
 
     let width = config.width as f32;
     let height = config.height as f32;
@@ -2044,9 +2049,39 @@ fn render_frame_inner(
     let ib_bytes = bytemuck::cast_slice(&indices);
     queue.write_buffer(index_buffer, 0, ib_bytes);
 
+    let gpu_frame = GPU_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    if gpu_trace_enabled() {
+        let mut vert_hash: u64 = 0;
+        for v in &verts {
+            vert_hash = vert_hash.wrapping_mul(31).wrapping_add((v.pos[0] * 100.0) as u64);
+            vert_hash = vert_hash.wrapping_mul(31).wrapping_add((v.pos[1] * 100.0) as u64);
+        }
+        let mut idx_hash: u64 = 0;
+        for i in &indices {
+            idx_hash = idx_hash.wrapping_mul(31).wrapping_add(*i as u64);
+        }
+        let text_queued = text_renderer.queued_len();
+        eprintln!(
+            "ZAROXI_RENDER_TRACE: gpu_frame frame={} nverts={} nidx={} vert_hash={:016x} idx_hash={:016x} text_queued={}",
+            gpu_frame,
+            verts.len(),
+            indices.len(),
+            vert_hash,
+            idx_hash,
+            text_queued,
+        );
+    }
+
     let current = surface.get_current_texture();
     match current {
         wgpu::CurrentSurfaceTexture::Success(frame_tex) => {
+            if gpu_trace_enabled() {
+                eprintln!("ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Success", gpu_frame);
+            }
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                eprintln!("ZAROXI_FRAMEFLOW: get_current_texture = Success");
+            }
             let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
             let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("zaroxi-render-encoder"),
@@ -2093,6 +2128,15 @@ fn render_frame_inner(
             }
 
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
+            if gpu_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_RENDER_TRACE: present_frame frame={} submit=done present=done",
+                    gpu_frame
+                );
+            }
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                eprintln!("ZAROXI_FRAMEFLOW: queue.submit + present() done");
+            }
             if render_timing_enabled() {
                 if let Some(start) = frame_start.take() {
                     let elapsed = start.elapsed();
@@ -2105,6 +2149,15 @@ fn render_frame_inner(
             Ok(())
         }
         wgpu::CurrentSurfaceTexture::Suboptimal(frame_tex) => {
+            if gpu_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Suboptimal",
+                    gpu_frame
+                );
+            }
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                eprintln!("ZAROXI_FRAMEFLOW: get_current_texture = Suboptimal (rendering anyway)");
+            }
             let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
             let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("zaroxi-render-encoder"),
@@ -2129,16 +2182,16 @@ fn render_frame_inner(
                     crate::renderer::shapes::submit_shape_pass(
                         &mut rpass,
                         shape_pipeline,
-                    vertex_buffer,
-                    index_buffer,
-                    panel_indices_len,
-                );
-            }
-            if total_indices_len > panel_indices_len {
-                if !text_pass_disabled() {
-                    text_renderer.prepare(device, queue)?;
-                    text_renderer.render_pass(
-                        &mut rpass,
+                        vertex_buffer,
+                        index_buffer,
+                        panel_indices_len,
+                    );
+                }
+                if total_indices_len > panel_indices_len {
+                    if !text_pass_disabled() {
+                        text_renderer.prepare(device, queue)?;
+                        text_renderer.render_pass(
+                            &mut rpass,
                             text_pipeline,
                             panel_indices_len,
                             total_indices_len,
@@ -2147,19 +2200,54 @@ fn render_frame_inner(
                 }
             }
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_FRAMEFLOW: Suboptimal frame presented; returning SurfaceOutdated for reconfigure"
+                );
+            }
             Err(RenderError::SurfaceOutdated)
         }
         wgpu::CurrentSurfaceTexture::Timeout => {
-            info!("current surface texture timed out — skipping frame");
-            Ok(())
+            if gpu_trace_enabled() {
+                eprintln!("ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Timeout", gpu_frame);
+            }
+            info!("current surface texture timed out — retry needed");
+            Err(RenderError::SurfaceTimeout)
         }
         wgpu::CurrentSurfaceTexture::Occluded => {
-            info!("current surface texture occluded — skipping frame");
-            Ok(())
+            if gpu_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Occluded",
+                    gpu_frame
+                );
+            }
+            info!("current surface texture occluded — retry when visible");
+            Err(RenderError::SurfaceOccluded)
         }
-        wgpu::CurrentSurfaceTexture::Outdated => Err(RenderError::SurfaceOutdated),
-        wgpu::CurrentSurfaceTexture::Lost => Err(RenderError::SurfaceLost),
+        wgpu::CurrentSurfaceTexture::Outdated => {
+            if gpu_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Outdated",
+                    gpu_frame
+                );
+            }
+            info!("surface outdated — reconfigure needed");
+            Err(RenderError::SurfaceOutdated)
+        }
+        wgpu::CurrentSurfaceTexture::Lost => {
+            if gpu_trace_enabled() {
+                eprintln!("ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Lost", gpu_frame);
+            }
+            info!("surface lost — reconfigure needed");
+            Err(RenderError::SurfaceLost)
+        }
         wgpu::CurrentSurfaceTexture::Validation => {
+            if gpu_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_RENDER_TRACE: present_frame frame={} acquire=Validation",
+                    gpu_frame
+                );
+            }
             Err(RenderError::SurfaceValidation("validation error".to_string()))
         }
     }
