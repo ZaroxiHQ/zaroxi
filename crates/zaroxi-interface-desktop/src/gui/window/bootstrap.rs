@@ -93,6 +93,7 @@ pub fn run_shell_window(
         pending_picker_rx: None,
         last_widget_tree_size: (0, 0),
         last_widget_tree_content: None,
+        render_core: None,
     };
 
     let run_result = event_loop.run_app(&mut app);

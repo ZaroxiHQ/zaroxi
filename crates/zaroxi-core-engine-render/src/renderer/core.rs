@@ -174,6 +174,13 @@ pub struct RenderCore {
     shape_pipeline: Option<wgpu::RenderPipeline>,
     text_renderer: Option<Box<dyn crate::renderer::text::TextRenderer + Send + Sync>>,
     initialized_format: Option<TextureFormat>,
+
+    /// Persistent surface created from the window on the first frame.
+    /// Reconfigured on resize; never destroyed until RenderCore is dropped.
+    surface: Option<Surface<'static>>,
+    surface_config: Option<SurfaceConfiguration>,
+    vertex_buffer: Option<Buffer>,
+    index_buffer: Option<Buffer>,
 }
 
 impl<'a> Renderer<'a> {
@@ -725,8 +732,29 @@ impl<'a> Renderer<'a> {
                         let mut cursor_y = text_y;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let clip_bottom = content_y + content_h;
+                        // Fast-forward through spans for lines entirely above the clip area.
+                        // This avoids O(total_lines) string manipulation during scroll when
+                        // only the visible subset matters. We track line boundaries the same
+                        // way as the main loop but skip span accumulation while cursor_y is
+                        // below the clip top.
+                        let mut ff_y = cursor_y;
+                        let mut ff_idx: usize = 0;
+                        while ff_y < content_y && ff_idx < spans.len() {
+                            if spans[ff_idx].0 == "\n" {
+                                ff_y += line_h;
+                            }
+                            ff_idx += 1;
+                        }
+                        // If we advanced past any spans, update cursor_y and slice the span
+                        // iterator so we only process the visible portion.
+                        let effective_spans = if ff_idx > 0 {
+                            cursor_y = ff_y;
+                            &spans[ff_idx..]
+                        } else {
+                            spans.as_slice()
+                        };
                         let mut line_buf = String::new();
-                        for (span_text, span_color) in spans {
+                        for (span_text, span_color) in effective_spans {
                             if span_text == "\n" {
                                 if !line_buf.is_empty() {
                                     // Only queue lines whose full height fits within the
@@ -1460,56 +1488,6 @@ impl<'a> Renderer<'a> {
 
 // ── RenderCore: persistent renderer state that can be reused across frames ──
 
-/// Per-frame surface + buffers that are created fresh each redraw.
-struct FrameSurface<'a> {
-    surface: Surface<'a>,
-    config: SurfaceConfiguration,
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
-    index_count: u32,
-    frame_start: Option<std::time::Instant>,
-    size: PhysicalSize<u32>,
-}
-
-impl<'a> FrameSurface<'a> {
-    fn new(
-        instance: &Instance,
-        adapter: &wgpu::Adapter,
-        device: &Device,
-        window: &'a Window,
-        size: PhysicalSize<u32>,
-    ) -> Result<Self, RenderError> {
-        let surface = instance
-            .create_surface(window)
-            .map_err(|e| RenderError::Other(format!("create_surface failed: {:?}", e)))?;
-
-        let config = crate::renderer::surface::configure_surface(&surface, adapter, device, size)?;
-
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vb"),
-            size: 131072,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ib"),
-            size: 131072,
-            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Ok(Self {
-            surface,
-            config,
-            vertex_buffer,
-            index_buffer,
-            index_count: 0,
-            frame_start: None,
-            size,
-        })
-    }
-}
-
 impl RenderCore {
     /// Create a persistent renderer state.
     ///
@@ -1577,6 +1555,10 @@ impl RenderCore {
             shape_pipeline: None,
             text_renderer: None,
             initialized_format: None,
+            surface: None,
+            surface_config: None,
+            vertex_buffer: None,
+            index_buffer: None,
         })
     }
 
@@ -1619,9 +1601,10 @@ impl RenderCore {
 
     /// Render a frame to the given window.
     ///
-    /// Creates a surface from the window, renders the layout and blocks,
-    /// then drops the surface. The persistent state (device, pipelines,
-    /// text renderer atlas) is reused across calls.
+    /// Creates a surface from the window on the first call and reconfigures it
+    /// on resize. The surface (and its GPU buffers) persist across frames —
+    /// only the texture is acquired fresh each render. This is required for
+    /// Wayland where destroying a surface discards pending buffer commits.
     pub fn render_to_window(
         &mut self,
         window: &Window,
@@ -1629,16 +1612,62 @@ impl RenderCore {
         layout: &RenderLayout,
         render_blocks: &[crate::UiBlock],
     ) -> Result<(), RenderError> {
-        let frame =
-            FrameSurface::new(&self._instance, &self._adapter, &self.device, window, surface_size)?;
+        // Create or reconfigure the persistent surface.
+        let config = match &mut self.surface {
+            Some(surface) => {
+                // Reconfigure if the size changed.
+                let current_cfg = self.surface_config.as_ref().unwrap();
+                if current_cfg.width != surface_size.width
+                    || current_cfg.height != surface_size.height
+                {
+                    let mut new_cfg = current_cfg.clone();
+                    new_cfg.width = surface_size.width.max(1);
+                    new_cfg.height = surface_size.height.max(1);
+                    surface.configure(&self.device, &new_cfg);
+                    self.surface_config = Some(new_cfg.clone());
+                    new_cfg
+                } else {
+                    current_cfg.clone()
+                }
+            }
+            None => {
+                let surface = self
+                    ._instance
+                    .create_surface(window)
+                    .map_err(|e| RenderError::Other(format!("create_surface: {:?}", e)))?;
+                let cfg = crate::renderer::surface::configure_surface(
+                    &surface,
+                    &self._adapter,
+                    &self.device,
+                    surface_size,
+                )?;
+                // Safety: the window outlives this RenderCore (both owned by GuiApp).
+                let surface: Surface<'static> = unsafe { std::mem::transmute(surface) };
+                self.vertex_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("vb"),
+                    size: 131072,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }));
+                self.index_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("ib"),
+                    size: 131072,
+                    usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }));
+                self.surface = Some(surface);
+                self.surface_config = Some(cfg.clone());
+                cfg
+            }
+        };
 
-        self.ensure_initialized(&frame.config)?;
+        self.ensure_initialized(&config)?;
 
         let _ = self
             .text_renderer
             .as_ref()
             .unwrap()
-            .resize_viewport(frame.config.width, frame.config.height);
+            .resize_viewport(config.width, config.height);
 
         render_frame_inner(
             &self.device,
@@ -1647,7 +1676,10 @@ impl RenderCore {
             self.shape_pipeline.as_ref().unwrap(),
             self.text_renderer.as_deref_mut().unwrap(),
             &self.clear_color,
-            frame,
+            self.surface.as_ref().unwrap(),
+            &config,
+            self.vertex_buffer.as_ref().unwrap(),
+            self.index_buffer.as_ref().unwrap(),
             layout,
             render_blocks,
         )
@@ -1672,20 +1704,25 @@ fn render_frame_inner(
     shape_pipeline: &wgpu::RenderPipeline,
     text_renderer: &mut (dyn crate::renderer::text::TextRenderer + Send + Sync),
     clear_color: &Color,
-    mut frame: FrameSurface<'_>,
+    surface: &Surface,
+    config: &SurfaceConfiguration,
+    vertex_buffer: &Buffer,
+    index_buffer: &Buffer,
     layout: &RenderLayout,
     render_blocks: &[crate::UiBlock],
 ) -> Result<(), RenderError> {
-    if frame.config.width == 0 || frame.config.height == 0 {
+    if config.width == 0 || config.height == 0 {
         return Ok(());
     }
 
-    if render_timing_enabled() {
-        frame.frame_start = Some(std::time::Instant::now());
-    }
+    let mut frame_start = if render_timing_enabled() {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
 
-    let width = frame.config.width as f32;
-    let height = frame.config.height as f32;
+    let width = config.width as f32;
+    let height = config.height as f32;
     let sem = &layout.colors;
 
     if std::env::var("ZAROXI_DEBUG_CLICK").as_deref() == Ok("1") {
@@ -1811,8 +1848,23 @@ fn render_frame_inner(
                     let mut cursor_y = text_y;
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let clip_bottom = content_y + content_h;
+                    // Fast-forward invisible spans (same as first copy)
+                    let mut ff_y = cursor_y;
+                    let mut ff_idx: usize = 0;
+                    while ff_y < content_y && ff_idx < spans.len() {
+                        if spans[ff_idx].0 == "\n" {
+                            ff_y += line_h;
+                        }
+                        ff_idx += 1;
+                    }
+                    let effective_spans = if ff_idx > 0 {
+                        cursor_y = ff_y;
+                        &spans[ff_idx..]
+                    } else {
+                        spans.as_slice()
+                    };
                     let mut line_buf = String::new();
-                    for (span_text, span_color) in spans {
+                    for (span_text, span_color) in effective_spans {
                         if span_text == "\n" {
                             if !line_buf.is_empty()
                                 && cursor_y >= content_y
@@ -1988,11 +2040,11 @@ fn render_frame_inner(
     verts.extend(text_verts.into_iter());
 
     let vb_bytes = bytemuck::cast_slice(&verts);
-    queue.write_buffer(&frame.vertex_buffer, 0, vb_bytes);
+    queue.write_buffer(vertex_buffer, 0, vb_bytes);
     let ib_bytes = bytemuck::cast_slice(&indices);
-    queue.write_buffer(&frame.index_buffer, 0, ib_bytes);
+    queue.write_buffer(index_buffer, 0, ib_bytes);
 
-    let current = frame.surface.get_current_texture();
+    let current = surface.get_current_texture();
     match current {
         wgpu::CurrentSurfaceTexture::Success(frame_tex) => {
             let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
@@ -2021,8 +2073,8 @@ fn render_frame_inner(
                     crate::renderer::shapes::submit_shape_pass(
                         &mut rpass,
                         shape_pipeline,
-                        &frame.vertex_buffer,
-                        &frame.index_buffer,
+                        vertex_buffer,
+                        index_buffer,
                         panel_indices_len,
                     );
                 }
@@ -2042,7 +2094,7 @@ fn render_frame_inner(
 
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
             if render_timing_enabled() {
-                if let Some(start) = frame.frame_start.take() {
+                if let Some(start) = frame_start.take() {
                     let elapsed = start.elapsed();
                     eprintln!(
                         "GUI_RENDER_TIMING: duration_ms={:.2}",
@@ -2077,16 +2129,16 @@ fn render_frame_inner(
                     crate::renderer::shapes::submit_shape_pass(
                         &mut rpass,
                         shape_pipeline,
-                        &frame.vertex_buffer,
-                        &frame.index_buffer,
-                        panel_indices_len,
-                    );
-                }
-                if total_indices_len > panel_indices_len {
-                    if !text_pass_disabled() {
-                        text_renderer.prepare(device, queue)?;
-                        text_renderer.render_pass(
-                            &mut rpass,
+                    vertex_buffer,
+                    index_buffer,
+                    panel_indices_len,
+                );
+            }
+            if total_indices_len > panel_indices_len {
+                if !text_pass_disabled() {
+                    text_renderer.prepare(device, queue)?;
+                    text_renderer.render_pass(
+                        &mut rpass,
                             text_pipeline,
                             panel_indices_len,
                             total_indices_len,
@@ -2097,8 +2149,14 @@ fn render_frame_inner(
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
             Err(RenderError::SurfaceOutdated)
         }
-        wgpu::CurrentSurfaceTexture::Timeout => Err(RenderError::SurfaceTimeout),
-        wgpu::CurrentSurfaceTexture::Occluded => Err(RenderError::SurfaceOccluded),
+        wgpu::CurrentSurfaceTexture::Timeout => {
+            info!("current surface texture timed out — skipping frame");
+            Ok(())
+        }
+        wgpu::CurrentSurfaceTexture::Occluded => {
+            info!("current surface texture occluded — skipping frame");
+            Ok(())
+        }
         wgpu::CurrentSurfaceTexture::Outdated => Err(RenderError::SurfaceOutdated),
         wgpu::CurrentSurfaceTexture::Lost => Err(RenderError::SurfaceLost),
         wgpu::CurrentSurfaceTexture::Validation => {

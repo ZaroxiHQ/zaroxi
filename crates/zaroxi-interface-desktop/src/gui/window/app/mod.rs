@@ -97,6 +97,7 @@ pub struct GuiApp {
     pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
     pub last_widget_tree_size: (u32, u32),
     pub last_widget_tree_content: Option<ShellWorkContent>,
+    pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
 }
 
 impl GuiApp {
@@ -105,6 +106,16 @@ impl GuiApp {
     }
 
     fn request_render(&mut self) {
+        if !self.needs_render {
+            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                if let Some(z) = self.maybe_window.as_ref() {
+                    eprintln!(
+                        "ZAROXI_FRAMEFLOW: request_render dirty id={:?}",
+                        z.window().id()
+                    );
+                }
+            }
+        }
         self.needs_render = true;
         if let Some(z) = self.maybe_window.as_ref() {
             let _ = z.window().request_redraw();
@@ -192,6 +203,7 @@ impl GuiApp {
                             if let Some(wc) = content {
                                 self.work_content = Some(wc);
                                 self.last_widget_tree_content = None;
+                                self.pending_scroll_frac = 0.0;
                                 if let Some(ref mut comp) = self.composition {
                                     comp.reset_scroll_state();
                                 }
@@ -295,6 +307,7 @@ impl GuiApp {
                         if changed {
                             self.work_content = Some(wc.clone());
                             content_changed = true;
+                            self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
                                 comp.reset_scroll_state();
                             }
@@ -327,9 +340,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let _ = zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
                     self.maybe_window = Some(zaroxi_w);
 
-                    if let Some(z) = self.maybe_window.as_ref() {
-                        let _ = z.window().request_redraw();
-                    }
+                    self.request_render();
                     active_loop.set_control_flow(ControlFlow::Wait);
                     debug::gui_debug("GuiApp: window created (hidden); initial redraw requested");
                 }
@@ -358,9 +369,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     debug::gui_debug_fmt!("GuiApp: created engine window on resumed id={:?}", wid);
                     self.maybe_window = Some(zaroxi_w);
 
-                    if let Some(z) = self.maybe_window.as_ref() {
-                        let _ = z.window().request_redraw();
-                    }
+                    self.request_render();
                     debug::gui_debug(
                         "GuiApp: window created on resumed (hidden); initial redraw requested",
                     );
@@ -379,12 +388,7 @@ impl winit::application::ApplicationHandler for GuiApp {
         self.process_picker_result();
 
         if self.requested_initial_frame {
-            if let Some(z) = self.maybe_window.as_ref() {
-                debug::gui_debug(
-                    "GuiApp: about_to_wait -> requesting initial redraw (engine window)",
-                );
-                let _ = z.window().request_redraw();
-            }
+            self.request_render();
             self.requested_initial_frame = false;
             active_loop.set_control_flow(ControlFlow::Wait);
             debug::gui_debug("GuiApp: about_to_wait -> switched control flow back to Wait");
@@ -398,23 +402,25 @@ impl winit::application::ApplicationHandler for GuiApp {
     fn window_event(
         &mut self,
         active_loop: &winit::event_loop::ActiveEventLoop,
-        _window_id: winit::window::WindowId,
+        window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
         self.process_picker_result();
 
-        // ── Permanently-ungated focus & pointer-enter diagnostics ──
-        match &event {
-            WindowEvent::Focused(f) => {
-                eprintln!("ZAROXI_LIVE: window Focused({})", f);
+        // ── Gated focus / pointer-enter diagnostics (ZAROXI_LIVE_DIAG=1) ──
+        if std::env::var("ZAROXI_LIVE_DIAG").as_deref() == Ok("1") {
+            match &event {
+                WindowEvent::Focused(f) => {
+                    eprintln!("ZAROXI_LIVE: window Focused({})", f);
+                }
+                WindowEvent::CursorEntered { .. } => {
+                    eprintln!("ZAROXI_LIVE: CursorEntered");
+                }
+                WindowEvent::CursorLeft { .. } => {
+                    eprintln!("ZAROXI_LIVE: CursorLeft");
+                }
+                _ => {}
             }
-            WindowEvent::CursorEntered { .. } => {
-                eprintln!("ZAROXI_LIVE: CursorEntered");
-            }
-            WindowEvent::CursorLeft { .. } => {
-                eprintln!("ZAROXI_LIVE: CursorLeft");
-            }
-            _ => {}
         }
 
         // ── Gated full event trace (ZAROXI_DEBUG_CLICK=1) ──
@@ -572,14 +578,18 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_FRAMEFLOW: RedrawRequested id={:?} dirty={}",
+                        window_id,
+                        self.needs_render
+                    );
+                }
                 if !self.needs_render {
                     return;
                 }
-                self.needs_render = false;
 
                 if let Some(z) = self.maybe_window.as_mut() {
-                    let _ = z.window().pre_present_notify();
-
                     let (sw, sh) = z.size();
                     if sw == 0 || sh == 0 {
                         return;
@@ -641,8 +651,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     // Sync normalized scroll offset from canonical top_line to interaction model.
-                    // Must run unconditionally so that small files (total <= visible) reset the
-                    // offset to 0.0 instead of leaving a stale value from a previous large file.
+                    // Must run unconditionally — small files (total <= visible) need offset 0.0
+                    // to avoid a stale value from a previous file.
                     if let Some(ref comp) = self.composition {
                         if let Some(ref meta) = comp.metadata {
                             let total_lines = self
@@ -658,30 +668,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .clamp(0.0, 1.0);
                             let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
                             self.interaction.set_scroll_offset(&editor_id, norm_offset);
-                        }
-                    }
-
-                    if let Some(ref comp) = self.composition {
-                        if let Some(ref meta) = comp.metadata {
-                            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
-                            let total_lines = self
-                                .work_content
-                                .as_ref()
-                                .and_then(|w| w.editor_body.as_ref())
-                                .map(|cv| cv.lines.len())
-                                .unwrap_or(0);
-                            if total_lines > visible {
-                                let max_scroll_px =
-                                    (total_lines - visible) as f32 * lc::LINE_HEIGHT;
-                                let norm_offset = if max_scroll_px > 0.0 {
-                                    (meta.editor_scroll_px / max_scroll_px).clamp(0.0, 1.0)
-                                } else {
-                                    0.0
-                                };
-                                let editor_id =
-                                    WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                                self.interaction.set_scroll_offset(&editor_id, norm_offset);
-                            }
                         }
                     }
 
@@ -1018,44 +1004,50 @@ impl winit::application::ApplicationHandler for GuiApp {
                         1.0,
                     ];
 
-                    match pollster::block_on(zaroxi_core_engine_render::Renderer::new(
-                        z.window(),
-                        clear_color,
-                    )) {
-                        Ok(mut renderer) => {
-                            let app_state = zaroxi_core_engine_render::renderer::core::AppState;
-                            match renderer.render_with_layout(
-                                &app_state,
-                                &render_layout,
-                                &render_blocks,
-                            ) {
-                                Ok(()) => {
-                                    if !self.first_render_shown {
-                                        let _ = z.window().set_visible(true);
-                                        let _ = z.window().pre_present_notify();
-                                        self.first_render_shown = true;
-                                        eprintln!(
-                                            "GuiApp: first full-renderer frame; window visible"
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("GuiApp: render_with_layout failed: {:?}", e);
-                                }
+                    // Create/Restore persistent RenderCore on first frame.
+                    let core_exists = self.render_core.is_some();
+                    if !core_exists {
+                        match pollster::block_on(
+                            zaroxi_core_engine_render::renderer::core::RenderCore::new(clear_color),
+                        ) {
+                            Ok(core) => {
+                                self.render_core = Some(core);
+                            }
+                            Err(e) => {
+                                eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
+                                return;
                             }
                         }
-                        Err(e) => {
-                            eprintln!("GuiApp: failed to create renderer: {:?}", e);
+                    }
+
+                    if let Some(ref mut core) = self.render_core {
+                        let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
+                        match core.render_to_window(
+                            z.window(),
+                            surface_size,
+                            &render_layout,
+                            &render_blocks,
+                        ) {
+                            Ok(()) => {
+                                self.needs_render = false;
+                                if !self.first_render_shown {
+                                    let _ = z.window().set_visible(true);
+                                    let _ = z.window().pre_present_notify();
+                                    self.first_render_shown = true;
+                                    eprintln!(
+                                        "GuiApp: first full-renderer frame; window visible"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("GuiApp: render_to_window failed: {:?}", e);
+                                let _ = z.window().request_redraw();
+                            }
                         }
                     }
 
                     if std::env::var("ZAROXI_DEBUG_RENDER").as_deref() == Ok("1") {
-                        eprintln!(
-                            "GUI_TEXT_FRAME_SUMMARY: surface={}x{} render_blocks={}",
-                            sw,
-                            sh,
-                            render_blocks.len()
-                        );
+                        eprintln!("...");
                     }
                 }
             }
