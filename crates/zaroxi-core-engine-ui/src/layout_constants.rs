@@ -97,6 +97,10 @@ pub const SB_BOTTOM_TRACK_H_REDUCTION: f32 = 8.0;
 pub const SB_BOTTOM_THUMB_RATIO: f32 = 0.3;
 pub const SB_BOTTOM_THUMB_MIN_H: f32 = 16.0;
 
+/// Extra width added to the left of the visual scrollbar for interactive hit area.
+/// The visual scrollbar rail is ~6px wide; this expands the clickable gutter to ~30px.
+pub const SB_INTERACTIVE_GUTTER_PAD: f32 = 24.0;
+
 // ── Scrollbar spec structs (for compute_scrollbar_geometry) ──
 
 pub struct ScrollbarSpec {

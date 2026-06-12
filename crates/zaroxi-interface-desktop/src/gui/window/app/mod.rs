@@ -50,6 +50,49 @@ fn render_trace_enabled() -> bool {
     std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
 }
 
+fn scroll_trace_enabled() -> bool {
+    std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1")
+}
+
+fn record_frame_presented() {
+    if std::env::var("ZAROXI_FPS_TRACE").as_deref() != Ok("1") {
+        return;
+    }
+    let now = std::time::Instant::now();
+    use std::sync::Mutex;
+    static TRACKER: Mutex<Option<(Option<std::time::Instant>, u64, u64, f64, std::time::Instant)>> =
+        Mutex::new(None);
+    let mut guard = TRACKER.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some((None, 0, 0, 0.0, now));
+    }
+    let (last_frame, count, win_frames, win_sum_ms, win_start) = guard.as_mut().unwrap();
+    *count += 1;
+    let dt_ms: f64 = last_frame.map_or(0.0, |lf| (now - lf).as_secs_f64() * 1000.0);
+    *last_frame = Some(now);
+
+    *win_frames += 1;
+    *win_sum_ms += dt_ms;
+    let win_elapsed = (now - *win_start).as_secs_f64();
+    if win_elapsed >= 1.0 {
+        let avg_fps = *win_frames as f64 / win_elapsed;
+        let avg_ms = *win_sum_ms / (*win_frames).max(1) as f64;
+        eprintln!(
+            "ZAROXI_FPS_TRACE: rolling frames={} avg_fps={:.1} avg_frame_ms={:.1}",
+            win_frames, avg_fps, avg_ms
+        );
+        *win_start = now;
+        *win_frames = 0;
+        *win_sum_ms = 0.0;
+    }
+    eprintln!(
+        "ZAROXI_FPS_TRACE: frame={} dt_ms={:.1} instant_fps={:.0}",
+        count,
+        dt_ms,
+        if dt_ms > 0.0 { 1000.0 / dt_ms } else { 0.0 }
+    );
+}
+
 use crate::DesktopComposition;
 use crate::folder_picker::{DynFolderPicker, PickerOutcome};
 use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
@@ -405,6 +448,8 @@ impl winit::application::ApplicationHandler for GuiApp {
             debug::gui_debug("GuiApp: about_to_wait -> switched control flow back to Wait");
         } else if self.picker_in_flight {
             active_loop.set_control_flow(ControlFlow::Poll);
+        } else if self.needs_render || self.interaction.scrollbar_drag_active() {
+            active_loop.set_control_flow(ControlFlow::Poll);
         } else {
             active_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -746,8 +791,82 @@ impl winit::application::ApplicationHandler for GuiApp {
                     };
 
                     self.interaction.apply_to_tree(&mut widget_tree);
+
+                    // Fix editor scrollbar thumb height to match actual content ratio.
+                    let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                    let total_lines = self
+                        .work_content
+                        .as_ref()
+                        .and_then(|w| w.editor_body.as_ref())
+                        .map(|cv| cv.lines.len().max(1))
+                        .unwrap_or(1);
+                    let visible = self
+                        .editor_viewport
+                        .as_ref()
+                        .map(|vp| lc::visible_lines_from_region(vp.content_rect.3) as usize)
+                        .unwrap_or(10)
+                        .max(1);
+                    let thumb_ratio = (visible as f32 / total_lines as f32).clamp(0.05, 1.0);
+                    for w in &mut widget_tree.widgets {
+                        if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
+                            id,
+                            track_rect,
+                            thumb_rect,
+                            ..
+                        } = w
+                        {
+                            if id == &editor_id {
+                                let min_h = 20.0f32;
+                                let new_h = (track_rect.height * thumb_ratio)
+                                    .max(min_h)
+                                    .min(track_rect.height);
+                                thumb_rect.height = new_h;
+                            }
+                        }
+                    }
+
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
                     self.widget_tree = Some(widget_tree.clone());
+
+                    if scroll_trace_enabled() {
+                        let engine_layout = self.layout_controller.engine_shell_layout();
+                        let content_right =
+                            engine_layout.content_area.x + engine_layout.content_area.width;
+                        let ai_left = engine_layout.right_panel.x;
+                        let mut found = false;
+                        for w in &widget_tree.widgets {
+                            if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
+                                id,
+                                track_rect,
+                                thumb_rect,
+                                ..
+                            } = w
+                            {
+                                if id == &editor_id {
+                                    eprintln!(
+                                        "ZAROXI_SCROLL_TRACE: widget_tree scrollbar rect=(ix={:.1},iy={:.1},iw={:.1},ih={:.1}) thumb_h={:.1} hit_right={:.1} content_right={:.1} ai_left={:.1}",
+                                        track_rect.x,
+                                        track_rect.y,
+                                        track_rect.width,
+                                        track_rect.height,
+                                        thumb_rect.height,
+                                        track_rect.x + track_rect.width,
+                                        content_right,
+                                        ai_left
+                                    );
+                                    found = true;
+                                }
+                            }
+                        }
+                        if !found {
+                            eprintln!(
+                                "ZAROXI_SCROLL_TRACE: widget_tree scrollbar MISSING total_widgets={} content_right={:.1} ai_left={:.1}",
+                                widget_tree.widgets.len(),
+                                content_right,
+                                ai_left
+                            );
+                        }
+                    }
                     self.last_explorer_ids = self
                         .work_content
                         .as_ref()
@@ -1118,6 +1237,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         frame_id
                                     );
                                 }
+                                record_frame_presented();
                                 if !self.first_render_shown {
                                     let _ = z.window().set_visible(true);
                                     self.first_render_shown = true;

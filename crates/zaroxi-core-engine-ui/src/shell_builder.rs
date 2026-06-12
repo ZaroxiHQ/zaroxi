@@ -9,13 +9,13 @@ use crate::layout_constants::{
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET,
     EXPLORER_ROW_H, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
     PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H,
-    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC,
-    SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
-    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
-    STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H,
-    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
-    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
-    compute_scrollbar_geometry,
+    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC,
+    SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR,
+    SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W,
+    STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG,
+    TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET,
+    TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET,
+    TOOLBAR_BTN_W, compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -243,16 +243,19 @@ pub fn build_shell_widget_tree(
 
         // Sidebar scrollbar (if content overflows)
         if sidebar_rect.height > 200.0 && sidebar_rect.width > 20.0 {
-            let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+            let (sb_x, track_y, _sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
                 (sidebar_rect.x, sidebar_rect.y, sidebar_rect.width, sidebar_rect.height),
                 &SB_SIDEBAR_SPEC,
                 0.0,
             );
-            let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
+            let content_right = sidebar_rect.x + sidebar_rect.width;
+            let interactive_x = sb_x - SB_INTERACTIVE_GUTTER_PAD;
+            let interactive_w = (content_right - interactive_x).max(0.0);
+            let track_rect = Rect::new(interactive_x, track_y, interactive_w, track_h);
             tree.push(ShellWidget::ScrollBar {
                 id: WidgetId::scrollbar(SCROLLBAR_ID_SIDEBAR),
                 track_rect,
-                thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+                thumb_rect: Rect::new(interactive_x, track_rect.y, interactive_w, thumb_h),
                 track_fill: tokens.sidebar_scrollbar_track.to_array(),
                 thumb_fill: tokens.sidebar_scrollbar_thumb.to_array(),
                 state: InteractionState::Normal,
@@ -381,7 +384,7 @@ pub fn build_shell_widget_tree(
 
     // Editor scrollbar (right edge)
     if layout.content_area.height > 40.0 && layout.content_area.width > 20.0 {
-        let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+        let (sb_x, track_y, _sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
             (
                 layout.content_area.x,
                 layout.content_area.y,
@@ -391,11 +394,19 @@ pub fn build_shell_widget_tree(
             &SB_EDITOR_SPEC,
             0.0,
         );
-        let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
+        // Interactive gutter extends left from the visual rail by GUTTER_PAD.
+        // The right edge is the content area's right edge — the canonical
+        // boundary between editor scrollbar territory and AI panel / window edge.
+        // The interactive rect NEVER extends past content_area_right, so it does
+        // not overlap the AI panel and does not create ownership ambiguity.
+        let content_right = layout.content_area.x + layout.content_area.width;
+        let interactive_x = sb_x - SB_INTERACTIVE_GUTTER_PAD;
+        let interactive_w = (content_right - interactive_x).max(0.0);
+        let track_rect = Rect::new(interactive_x, track_y, interactive_w, track_h);
         tree.push(ShellWidget::ScrollBar {
             id: WidgetId::scrollbar(SCROLLBAR_ID_EDITOR),
             track_rect,
-            thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+            thumb_rect: Rect::new(interactive_x, track_rect.y, interactive_w, thumb_h),
             track_fill: tokens.editor_scrollbar_track.to_array(),
             thumb_fill: tokens.editor_scrollbar_thumb.to_array(),
             state: InteractionState::Normal,
@@ -489,7 +500,7 @@ pub fn build_shell_widget_tree(
         }
 
         // Scrollbar on right edge of terminal panel (skipping header)
-        let (sb_x, track_y, sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
+        let (sb_x, track_y, _sb_w, track_h, thumb_h) = compute_scrollbar_geometry(
             (
                 layout.bottom_panel.x,
                 layout.bottom_panel.y,
@@ -499,11 +510,14 @@ pub fn build_shell_widget_tree(
             &SB_BOTTOM_SPEC,
             header_h,
         );
-        let track_rect = Rect::new(sb_x, track_y, sb_w, track_h);
+        let content_right = layout.bottom_panel.x + layout.bottom_panel.width;
+        let interactive_x = sb_x - SB_INTERACTIVE_GUTTER_PAD;
+        let interactive_w = (content_right - interactive_x).max(0.0);
+        let track_rect = Rect::new(interactive_x, track_y, interactive_w, track_h);
         tree.push(ShellWidget::ScrollBar {
             id: WidgetId::scrollbar(SCROLLBAR_ID_BOTTOM),
             track_rect,
-            thumb_rect: Rect::new(track_rect.x, track_rect.y, sb_w, thumb_h),
+            thumb_rect: Rect::new(interactive_x, track_rect.y, interactive_w, thumb_h),
             track_fill: tokens.bottom_scrollbar_track.to_array(),
             thumb_fill: tokens.bottom_scrollbar_thumb.to_array(),
             state: InteractionState::Normal,

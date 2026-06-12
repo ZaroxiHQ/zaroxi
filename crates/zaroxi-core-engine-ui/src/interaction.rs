@@ -82,6 +82,10 @@ impl WidgetInteractionModel {
         }
     }
 
+    pub fn scrollbar_drag_active(&self) -> bool {
+        self.scrollbar_drag_state.is_some()
+    }
+
     // ── pointer input ──────────────────────────────────────────────────
 
     /// Process a pointer move event. If a scrollbar drag is active it
@@ -100,6 +104,13 @@ impl WidgetInteractionModel {
             let travel = (drag.track_height - drag.thumb_height).max(1.0);
             let raw_offset = drag.start_offset + ((y - drag.start_cursor_y) / travel);
             let clamped = raw_offset.clamp(0.0, 1.0);
+
+            if std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_SCROLL_TRACE: drag_moved y={:.1} start_y={:.1} travel={:.1} start_off={:.3} raw={:.3} clamped={:.3}",
+                    y, drag.start_cursor_y, travel, drag.start_offset, raw_offset, clamped
+                );
+            }
 
             if let Some(w) = tree.widgets.get(drag.widget_idx) {
                 if let Some(id) = w.widget_id() {
@@ -170,6 +181,30 @@ impl WidgetInteractionModel {
 
         let mut actions = Vec::new();
         let hit = tree.hit_test(x, y);
+        if std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1") {
+            let hit_widget = hit.and_then(|idx| tree.widgets.get(idx));
+            let is_scrollbar =
+                hit_widget.map_or(false, |w| matches!(w, ShellWidget::ScrollBar { .. }));
+            let hit_type = hit_widget.map(|w| format!("{:?}", std::mem::discriminant(w)));
+            // Also find the editor scrollbar widget regardless of hit to show its rect
+            let editor_sb = tree.widgets.iter().find_map(|w| {
+                if let ShellWidget::ScrollBar { id, track_rect, .. } = w {
+                    if *id == WidgetId::scrollbar(crate::layout_constants::SCROLLBAR_ID_EDITOR) {
+                        return Some(*track_rect);
+                    }
+                }
+                None
+            });
+            eprintln!(
+                "ZAROXI_SCROLL_TRACE: on_pointer_down x={:.1} y={:.1} hit={:?} hit_type={:?} is_sb={} sb_rect={:?}",
+                x,
+                y,
+                hit,
+                hit_type,
+                is_scrollbar,
+                editor_sb.map(|r| (r.x, r.y, r.width, r.height)),
+            );
+        }
         self.pressed_widget_idx = hit;
         self.pressed_widget_id =
             hit.and_then(|idx| tree.widgets.get(idx).and_then(|w| w.widget_id()));
@@ -228,6 +263,14 @@ impl WidgetInteractionModel {
         }
 
         let mut actions = Vec::new();
+
+        let was_drag = self.scrollbar_drag_state.is_some();
+        if std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_SCROLL_TRACE: on_pointer_up x={:.1} y={:.1} was_drag={}",
+                x, y, was_drag
+            );
+        }
 
         let pressed = self.pressed_widget_idx.take();
         let pressed_id = self.pressed_widget_id.take();
