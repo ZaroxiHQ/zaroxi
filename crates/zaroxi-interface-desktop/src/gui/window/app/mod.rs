@@ -192,6 +192,12 @@ impl GuiApp {
                             if let Some(wc) = content {
                                 self.work_content = Some(wc);
                                 self.last_widget_tree_content = None;
+                                if let Some(ref mut comp) = self.composition {
+                                    comp.reset_scroll_state();
+                                }
+                                let editor_id =
+                                    WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                                self.interaction.set_scroll_offset(&editor_id, 0.0);
                                 self.request_render();
                             } else {
                                 debug::click_trace(
@@ -289,6 +295,11 @@ impl GuiApp {
                         if changed {
                             self.work_content = Some(wc.clone());
                             content_changed = true;
+                            if let Some(ref mut comp) = self.composition {
+                                comp.reset_scroll_state();
+                            }
+                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                            self.interaction.set_scroll_offset(&editor_id, 0.0);
                         }
                     }
                     needs_redraw = true;
@@ -629,6 +640,51 @@ impl winit::application::ApplicationHandler for GuiApp {
                         comp.apply_pending_scrolls();
                     }
 
+                    // Sync normalized scroll offset from canonical top_line to interaction model.
+                    // Must run unconditionally so that small files (total <= visible) reset the
+                    // offset to 0.0 instead of leaving a stale value from a previous large file.
+                    if let Some(ref comp) = self.composition {
+                        if let Some(ref meta) = comp.metadata {
+                            let total_lines = self
+                                .work_content
+                                .as_ref()
+                                .and_then(|w| w.editor_body.as_ref())
+                                .map(|cv| cv.lines.len())
+                                .unwrap_or(0);
+                            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+                            let max_scroll = total_lines.saturating_sub(visible).max(1) as f32;
+                            let norm_offset = (meta.editor_scroll_top_line as f32
+                                / max_scroll.max(1.0))
+                            .clamp(0.0, 1.0);
+                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                            self.interaction.set_scroll_offset(&editor_id, norm_offset);
+                        }
+                    }
+
+                    if let Some(ref comp) = self.composition {
+                        if let Some(ref meta) = comp.metadata {
+                            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+                            let total_lines = self
+                                .work_content
+                                .as_ref()
+                                .and_then(|w| w.editor_body.as_ref())
+                                .map(|cv| cv.lines.len())
+                                .unwrap_or(0);
+                            if total_lines > visible {
+                                let max_scroll_px =
+                                    (total_lines - visible) as f32 * lc::LINE_HEIGHT;
+                                let norm_offset = if max_scroll_px > 0.0 {
+                                    (meta.editor_scroll_px / max_scroll_px).clamp(0.0, 1.0)
+                                } else {
+                                    0.0
+                                };
+                                let editor_id =
+                                    WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                                self.interaction.set_scroll_offset(&editor_id, norm_offset);
+                            }
+                        }
+                    }
+
                     let engine_layout = self.layout_controller.engine_shell_layout();
 
                     let content_changed = self
@@ -801,6 +857,39 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
                     render_blocks.extend(scroll_blocks);
 
+                    // ── Scrollbar hover/active state bridging ──
+                    if let Some(ref tree) = self.widget_tree {
+                        for w in &tree.widgets {
+                            if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
+                                id: zaroxi_core_engine_ui::WidgetId::Scrollbar { index },
+                                state,
+                                ..
+                            } = w
+                            {
+                                if *index == lc::SCROLLBAR_ID_EDITOR {
+                                    let highlight_color = match *state {
+                                        zaroxi_core_engine_ui::InteractionState::Hover
+                                        | zaroxi_core_engine_ui::InteractionState::Active => {
+                                            let mut c = tokens.editor_scrollbar_thumb.to_array();
+                                            c[3] = (c[3] * 2.0).min(1.0);
+                                            Some(c)
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(color) = highlight_color {
+                                        for block in &mut render_blocks {
+                                            if block.id == "scrollbar_thumb_editor" {
+                                                block.header_color = Some(color);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     // ── Explorer row hover/focus bridging ──
                     if let Some(ref tree) = self.widget_tree {
                         for w in &tree.widgets {
@@ -871,16 +960,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     if let Some(meta) = &comp.metadata {
                                         block.content_offset_x =
                                             meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                        let off_y = meta.editor_scroll_px;
+                                        let off_y =
+                                            meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
                                         block.content_offset_y = off_y;
                                         if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref()
                                             == Ok("1")
                                         {
                                             eprintln!(
-                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} px={:.1}",
+                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
                                                 block.content_offset_x,
                                                 off_y,
-                                                meta.editor_scroll_px
+                                                meta.editor_scroll_top_line
                                             );
                                         }
                                     }

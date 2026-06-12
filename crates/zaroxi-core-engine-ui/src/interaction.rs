@@ -183,12 +183,25 @@ impl WidgetInteractionModel {
                 if let Some(w) = tree.widgets.get(idx) {
                     if let ShellWidget::ScrollBar { track_rect, thumb_rect, id, .. } = w {
                         let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+                        let thumb_h = thumb_rect.height;
+                        let track_h = track_rect.height;
+                        let thumb_y = track_rect.y + offset * (track_h - thumb_h).max(1.0);
+
+                        if y < thumb_y || y > thumb_y + thumb_h {
+                            let travel = (track_h - thumb_h).max(1.0);
+                            let target_center_y = y - thumb_h * 0.5;
+                            let new_offset =
+                                ((target_center_y - track_rect.y) / travel).clamp(0.0, 1.0);
+                            self.scroll_offsets.insert(id.clone(), new_offset);
+                            actions.push(WidgetAction::ScrollOffsetChanged(id.clone(), new_offset));
+                        }
+
                         self.scrollbar_drag_state = Some(ScrollDragState {
                             widget_idx: idx,
                             start_cursor_y: y,
-                            start_offset: offset,
-                            track_height: track_rect.height,
-                            thumb_height: thumb_rect.height,
+                            start_offset: self.scroll_offsets.get(id).copied().unwrap_or(0.0),
+                            track_height: track_h,
+                            thumb_height: thumb_h,
                         });
                     }
                 }
@@ -485,6 +498,91 @@ impl Default for WidgetInteractionModel {
 // ---------------------------------------------------------------------------
 // ShellWidget helpers added for the interaction model
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::ShellWidget;
+    use zaroxi_core_engine_style::WidgetId;
+    use zaroxi_kernel_math::Rect;
+
+    fn make_scrollbar_widget_tree() -> ShellWidgetTree {
+        let mut tree = ShellWidgetTree::new();
+        tree.push(ShellWidget::ScrollBar {
+            id: WidgetId::scrollbar(1),
+            track_rect: Rect::new(380.0, 30.0, 6.0, 200.0),
+            thumb_rect: Rect::new(380.0, 30.0, 6.0, 40.0),
+            track_fill: [0.2, 0.2, 0.2, 0.3],
+            thumb_fill: [0.5, 0.5, 0.5, 0.6],
+            state: InteractionState::Normal,
+        });
+        tree
+    }
+
+    #[test]
+    fn scrollbar_drag_moves_thumb() {
+        let mut tree = make_scrollbar_widget_tree();
+        let mut model = WidgetInteractionModel::new();
+
+        model.on_pointer_down(&mut tree, 383.0, 50.0, PointerButton::Primary);
+        let actions = model.on_pointer_moved(&mut tree, 383.0, 100.0);
+
+        assert!(
+            actions.iter().any(|a| matches!(a, WidgetAction::ScrollOffsetChanged(..))),
+            "moving cursor during drag should emit ScrollOffsetChanged"
+        );
+    }
+
+    #[test]
+    fn track_click_moves_thumb_to_position() {
+        let mut tree = make_scrollbar_widget_tree();
+        let mut model = WidgetInteractionModel::new();
+
+        let actions = model.on_pointer_down(&mut tree, 383.0, 180.0, PointerButton::Primary);
+
+        assert!(
+            actions.iter().any(|a| matches!(a, WidgetAction::ScrollOffsetChanged(..))),
+            "clicking track below thumb should emit ScrollOffsetChanged"
+        );
+
+        let editor_id = WidgetId::scrollbar(1);
+        let offset = model.get_scroll_offset(&editor_id);
+        assert!(offset > 0.5, "click near bottom of track should give high offset");
+    }
+
+    #[test]
+    fn scroll_offset_clamped_to_zero_one() {
+        let id = WidgetId::scrollbar(1);
+        let mut model = WidgetInteractionModel::new();
+
+        model.set_scroll_offset(&id, -0.5);
+        assert!((model.get_scroll_offset(&id) - 0.0).abs() < 0.001);
+
+        model.set_scroll_offset(&id, 1.8);
+        assert!((model.get_scroll_offset(&id) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn apply_scroll_offsets_updates_thumb_y() {
+        let id = WidgetId::scrollbar(1);
+        let mut tree = make_scrollbar_widget_tree();
+        let mut model = WidgetInteractionModel::new();
+
+        model.set_scroll_offset(&id, 0.5);
+        model.apply_scroll_offsets(&mut tree);
+
+        if let ShellWidget::ScrollBar { thumb_rect, track_rect, .. } = &tree.widgets[0] {
+            let travel = track_rect.height - thumb_rect.height;
+            let expected_y = track_rect.y + 0.5 * travel;
+            assert!(
+                (thumb_rect.y - expected_y).abs() < 1.0,
+                "thumb y should reflect scroll offset"
+            );
+        } else {
+            panic!("expected ScrollBar widget");
+        }
+    }
+}
 
 impl ShellWidget {
     /// Whether this widget can receive keyboard focus.

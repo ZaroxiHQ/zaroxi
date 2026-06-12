@@ -201,7 +201,7 @@ pub struct DesktopComposition {
     pub(crate) presenter: Presenter,
     pub(crate) session_id: Option<SessionId>,
     pub(crate) workspace_id: Option<Id>,
-    pub(crate) metadata: Option<DesktopMetadata>,
+    pub metadata: Option<DesktopMetadata>,
     pub(crate) status: Option<DesktopStatus>,
     pub(crate) revision: u64,
     pub(crate) pending_refresh_reason: Option<RefreshReason>,
@@ -218,14 +218,14 @@ pub struct DesktopComposition {
     pub(crate) cached_explorer_items: Vec<ExplorerItemView>,
     /// Pending vertical scroll delta in lines. Consumed by refresh_with_service
     /// to call scroll_viewport on the workspace. Negative = scroll up, positive = down.
-    pub(crate) pending_scroll_lines: isize,
+    pub pending_scroll_lines: isize,
     /// Pending vertical scroll delta in logical pixels.  Accumulated from
     /// wheel/trackpad events and consumed by apply_pending_scrolls each frame
     /// to produce editor_scroll_px (sub-pixel smooth scrolling).
-    pub(crate) pending_vscroll_px: f32,
+    pub pending_vscroll_px: f32,
     /// Pending horizontal scroll delta in pixels. Consumed by refresh_with_service
     /// to update the editor horizontal offset for long-line scrolling.
-    pub(crate) pending_hscroll_px: f32,
+    pub pending_hscroll_px: f32,
 }
 
 impl DesktopComposition {
@@ -262,9 +262,13 @@ impl DesktopComposition {
     }
 
     /// Process pending scroll deltas synchronously (for GUI event-loop use).
-    /// Consumes pending_scroll_lines, pending_vscroll_px and pending_hscroll_px,
-    /// updating the workspace ViewportState and the render-time scroll offsets.
-    /// After this, content_offset_y will reflect the updated scroll position.
+    ///
+    /// Canonical scroll architecture:
+    /// - `editor_scroll_top_line` is the single source of truth for vertical position.
+    /// - `editor_scroll_px` is ALWAYS derived: `top_line * LINE_HEIGHT` (line-snapped).
+    /// - Input is accumulated as pixel deltas for smooth feel, then snapped to whole
+    ///   lines on apply so text/gutter rows stay line-aligned (no partial-line shifts).
+    /// - Normalized offset (for scrollbar thumb) is derived from top_line / max_scroll.
     pub fn apply_pending_scrolls(&mut self) {
         let vscroll = self.pending_scroll_lines;
         self.pending_scroll_lines = 0;
@@ -273,43 +277,38 @@ impl DesktopComposition {
         let hscroll = self.pending_hscroll_px;
         self.pending_hscroll_px = 0.0;
 
-        // Ensure metadata exists even when refresh_with_service hasn't been called
         if self.metadata.is_none() {
             self.metadata = Some(DesktopMetadata::default());
         }
         let meta = self.metadata.as_mut().unwrap();
 
-        if vscroll != 0 {
-            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
-            let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
+        let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+        let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
+        let max_scroll = total.saturating_sub(visible);
+
+        if vscroll_px.abs() > 0.01 {
+            let line_delta = (-vscroll_px / 16.0).round() as isize;
             let current = meta.editor_scroll_top_line as isize;
-            let max_scroll = total.saturating_sub(visible) as isize;
-            let new_unclamped = (current + vscroll as isize).max(0);
-            let new = new_unclamped.min(max_scroll).max(0) as usize;
+            let new_unclamped = (current + line_delta).max(0);
+            let new = new_unclamped.min(max_scroll as isize).max(0) as usize;
             meta.editor_scroll_top_line = new;
-            // Also sync pixel offset from the integer top_line
+            meta.editor_scroll_px = new as f32 * 16.0;
+            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_SCROLL: applied vscroll_px={:.1} line_delta={} top_line={}",
+                    vscroll_px, line_delta, meta.editor_scroll_top_line
+                );
+            }
+        } else if vscroll != 0 {
+            let current = meta.editor_scroll_top_line as isize;
+            let new_unclamped = (current + vscroll).max(0);
+            let new = new_unclamped.min(max_scroll as isize).max(0) as usize;
+            meta.editor_scroll_top_line = new;
             meta.editor_scroll_px = new as f32 * 16.0;
             if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                 eprintln!(
                     "ZAROXI_SCROLL: applied vscroll={} top_line={} visible={}",
                     vscroll, new, visible
-                );
-            }
-        }
-
-        // Smooth pixel accumulator: advance editor_scroll_px by the pending delta,
-        // clamped to the valid scroll range in pixels.
-        if vscroll_px.abs() > 0.01 {
-            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
-            let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
-            let max_scroll_px = total.saturating_sub(visible) as f32 * 16.0;
-            let new_px = (meta.editor_scroll_px - vscroll_px).clamp(0.0, max_scroll_px.max(0.0));
-            meta.editor_scroll_px = new_px;
-            meta.editor_scroll_top_line = (new_px / 16.0).round() as usize;
-            if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_SCROLL: applied vscroll_px={:.1} scroll_px={:.1} top_line={}",
-                    vscroll_px, meta.editor_scroll_px, meta.editor_scroll_top_line
                 );
             }
         }
@@ -321,6 +320,18 @@ impl DesktopComposition {
             if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                 eprintln!("ZAROXI_SCROLL: applied hscroll={:.1} offset={:.1}", hscroll, new);
             }
+        }
+    }
+
+    /// Reset vertical scroll state to the top of the document.
+    /// Call this when a new file is opened or content is replaced so that
+    /// stale scroll offsets from a previous document do not persist.
+    pub fn reset_scroll_state(&mut self) {
+        self.pending_scroll_lines = 0;
+        self.pending_vscroll_px = 0.0;
+        if let Some(ref mut meta) = self.metadata {
+            meta.editor_scroll_top_line = 0;
+            meta.editor_scroll_px = 0.0;
         }
     }
 
