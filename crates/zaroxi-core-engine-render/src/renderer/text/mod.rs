@@ -1,24 +1,20 @@
 /*!
 Text subsystem
 
-This module exposes a small internal TextRenderer trait used by renderer core
-and provides the native Glyphon-backed implementation under `glyphon.rs`.
+Provides the Cosmic Text–backed text rendering pipeline used by renderer core.
 
 Design summary:
 - TextCommand: small command model emitted by the renderer core for each text
-  item (title/body). Commands are queued and consumed by the native Glyphon
-  prepare/render flow.
+  item (title/body). Commands are queued and consumed by the CosmicText renderer.
 - TextRenderer trait: minimal interface used by core:
     - queue_text(cmd)
-    - prepare(queue) -> perform glyph rasterization / GPU uploads
+    - prepare(queue) -> perform glyph rasterization / GPU atlas uploads
     - render_pass(rpass, pipeline, panel_indices_len, total_indices_len)
     - resize_viewport(w,h)
-- glyphon::GlyphonTextRenderer: concrete implementation that owns glyphon-native
-  state (FontSystem, TextAtlas, TextRenderer) and registers the bundled JetBrains
-  Mono Nerd Font bytes as the preferred family if available.
+- CosmicTextRenderer: concrete implementation that owns cosmic-text native
+  state (FontSystem, SwashCache, SharedAtlas) and the wgpu instance buffer.
 
-The default implementation is fully native Glyphon; legacy FontAtlas-based
-code is gated behind the `legacy_cosmic` Cargo feature and is not used by default.
+CosmicTextRenderer is the single authoritative text renderer for GUI text.
 */
 
 use crate::error::RenderError;
@@ -96,8 +92,8 @@ impl TextCommand {
 
 /// Minimal internal trait used by renderer core to plan/prepare/render text.
 ///
-/// The goal is to keep the rest of the renderer glyphon-agnostic while giving
-/// the Glyphon backend ownership of the native prepare/render lifecycle.
+/// The goal is to keep the rest of the renderer backend-agnostic while giving
+/// the CosmicText backend ownership of the native prepare/render lifecycle.
 pub trait TextRenderer: Send + Sync {
     /// Queue a text command for the upcoming frame.
     fn queue_text(&self, cmd: TextCommand);
@@ -110,8 +106,8 @@ pub trait TextRenderer: Send + Sync {
 
     /// Prepare glyphs for queued commands: shape, rasterize and upload any GPU resources.
     ///
-    /// The prepare step needs access to the Device as glyphon may create or
-    /// update GPU resources (textures, buffers) during prepare. Device is
+    /// The prepare step needs access to the Device to create or update GPU
+    /// resources (textures, buffers) during prepare. Device is
     /// passed in along with the Queue.
     fn prepare(&self, device: &Device, queue: &mut Queue) -> Result<(), RenderError>;
 

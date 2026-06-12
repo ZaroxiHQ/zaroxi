@@ -592,30 +592,6 @@ dependencies = [
 
 [[package]]
 name = "cosmic-text"
-version = "0.18.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe782a9e7520cc7de2232c957a47f99d3a35e855552677d07a557bc1a3b66ed"
-dependencies = [
- "bitflags 2.12.1",
- "fontdb",
- "harfrust",
- "linebender_resource_handle",
- "log",
- "rangemap",
- "rustc-hash 2.1.2",
- "self_cell",
- "skrifa 0.40.0",
- "smol_str 0.3.6",
- "swash",
- "sys-locale",
- "unicode-bidi",
- "unicode-linebreak",
- "unicode-script",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "cosmic-text"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be17b688510d934ce13f48a2beba700e11583e281e0fda99c22bb256a14eda73"
@@ -785,15 +761,6 @@ name = "error-code"
 version = "3.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
-
-[[package]]
-name = "etagere"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ecb5c40d5683a270e077688f53a99eac51c1cb1ae5ba63b55590370cb3536bf"
-dependencies = [
- "euclid",
-]
 
 [[package]]
 name = "euclid"
@@ -1119,19 +1086,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "glyphon"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68dde9640ec6f986f59a265b4c0a5177f61e87e3ba71983b2195dab119cda0fa"
-dependencies = [
- "cosmic-text 0.18.2",
- "etagere",
- "lru",
- "rustc-hash 2.1.2",
- "wgpu",
 ]
 
 [[package]]
@@ -1662,12 +1616,6 @@ name = "log"
 version = "0.4.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "113b30b4cd05f7c06868fdb2854f66a7b9fece9a48425351cd532e810d74024f"
-
-[[package]]
-name = "lru"
-version = "0.16.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
 
 [[package]]
 name = "memchr"
@@ -4674,8 +4622,7 @@ name = "zaroxi-core-engine-render"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "cosmic-text 0.19.0",
- "glyphon",
+ "cosmic-text",
  "log",
  "thiserror 2.0.18",
  "wgpu",
@@ -4750,7 +4697,6 @@ version = "0.1.0"
 name = "zaroxi-core-engine-text"
 version = "0.1.0"
 dependencies = [
- "glyphon",
  "zaroxi-core-engine-font",
  "zaroxi-core-engine-scene",
 ]
@@ -5156,7 +5102,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "chrono",
- "cosmic-text 0.19.0",
+ "cosmic-text",
  "log",
  "minifb",
  "once_cell",

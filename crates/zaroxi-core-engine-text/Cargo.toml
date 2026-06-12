@@ -6,17 +6,12 @@ description = "Engine text shaping and rendering primitives."
 license = "MIT"
 
 [dependencies]
-# Glyphon remains an optional, feature-gated backend. Use workspace pin so the root
-# manifest controls the version. Keep it optional behind the glyphon_backend feature.
-glyphon = { workspace = true, optional = true }
-
 # Workspace engine crates required for Phase 5 editor-text rendering.
 zaroxi-core-engine-font = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
 
 [features]
 default = []
-glyphon_backend = ["glyphon"]
 
 [lints]
 workspace = true

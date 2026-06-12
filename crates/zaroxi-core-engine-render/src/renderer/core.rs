@@ -729,27 +729,31 @@ impl<'a> Renderer<'a> {
                         for (span_text, span_color) in spans {
                             if span_text == "\n" {
                                 if !line_buf.is_empty() {
-                                    self.text_renderer.queue_text(
-                                        crate::renderer::text::TextCommand::new_body(
-                                            &line_buf,
-                                            text_x,
-                                            cursor_y,
-                                            *span_color,
-                                            DEFAULT_FONT_SIZE,
-                                            clip_x,
-                                            content_y,
-                                            clip_w,
-                                            content_h,
-                                        ),
-                                    );
+                                    // Only queue lines whose full height fits within the
+                                    // visible clip area. Lines starting above content_y
+                                    // or ending below clip_bottom are skipped to avoid
+                                    // glyph-edge artifacts from partial clipping of ascenders
+                                    // and descenders at the viewport boundaries.
+                                    let line_ends_at = cursor_y + line_h;
+                                    if cursor_y >= content_y && line_ends_at <= clip_bottom {
+                                        self.text_renderer.queue_text(
+                                            crate::renderer::text::TextCommand::new_body(
+                                                &line_buf,
+                                                text_x,
+                                                cursor_y,
+                                                *span_color,
+                                                DEFAULT_FONT_SIZE,
+                                                clip_x,
+                                                content_y,
+                                                clip_w,
+                                                content_h,
+                                            ),
+                                        );
+                                    }
                                     line_buf.clear();
                                 }
                                 cursor_y += line_h;
-                                // Stop emitting text commands once the next line would
-                                // start entirely below the clip area. This avoids
-                                // queueing off-screen lines while preserving full
-                                // visibility for the last partially-visible line.
-                                if cursor_y >= clip_bottom {
+                                if cursor_y + line_h > clip_bottom {
                                     break;
                                 }
                                 continue;
@@ -757,7 +761,10 @@ impl<'a> Renderer<'a> {
                             line_buf.push_str(span_text);
                         }
                         // Flush any remaining line_buf that hasn't been terminated by \n
-                        if !line_buf.is_empty() && cursor_y < clip_bottom {
+                        if !line_buf.is_empty()
+                            && cursor_y >= content_y
+                            && cursor_y + line_h <= clip_bottom
+                        {
                             self.text_renderer.queue_text(
                                 crate::renderer::text::TextCommand::new_body(
                                     &line_buf,
@@ -776,28 +783,32 @@ impl<'a> Renderer<'a> {
                         // Non-spans path: apply line-level vertical culling
                         // (matches the spans-path behaviour).  clip_y uses
                         // content_y so that per-glyph top-edge culling is
-                        // effective.  Only lines whose top edge is above
-                        // clip_bottom are queued.
+                        // content_y so that per-glyph top-edge culling is
+                        // effective.  Only lines fully within the visible
+                        // clip area are queued — partial edge rows are
+                        // skipped to prevent glyph clipping artifacts.
                         let clip_bottom = content_y + content_h;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let mut cursor_y = text_y;
                         for line_str in block.content.lines() {
-                            if cursor_y >= clip_bottom {
+                            if cursor_y + line_h > clip_bottom {
                                 break;
                             }
-                            self.text_renderer.queue_text(
-                                crate::renderer::text::TextCommand::new_body(
-                                    line_str,
-                                    text_x,
-                                    cursor_y,
-                                    title_color,
-                                    DEFAULT_FONT_SIZE,
-                                    clip_x,
-                                    content_y,
-                                    clip_w,
-                                    content_h,
-                                ),
-                            );
+                            if cursor_y >= content_y {
+                                self.text_renderer.queue_text(
+                                    crate::renderer::text::TextCommand::new_body(
+                                        line_str,
+                                        text_x,
+                                        cursor_y,
+                                        title_color,
+                                        DEFAULT_FONT_SIZE,
+                                        clip_x,
+                                        content_y,
+                                        clip_w,
+                                        content_h,
+                                    ),
+                                );
+                            }
                             cursor_y += line_h;
                         }
                     }
@@ -1803,7 +1814,10 @@ fn render_frame_inner(
                     let mut line_buf = String::new();
                     for (span_text, span_color) in spans {
                         if span_text == "\n" {
-                            if !line_buf.is_empty() {
+                            if !line_buf.is_empty()
+                                && cursor_y >= content_y
+                                && cursor_y + line_h <= clip_bottom
+                            {
                                 text_renderer.queue_text(
                                     crate::renderer::text::TextCommand::new_body(
                                         &line_buf,
@@ -1817,17 +1831,20 @@ fn render_frame_inner(
                                         content_h,
                                     ),
                                 );
-                                line_buf.clear();
                             }
+                            line_buf.clear();
                             cursor_y += line_h;
-                            if cursor_y >= clip_bottom {
+                            if cursor_y + line_h > clip_bottom {
                                 break;
                             }
                             continue;
                         }
                         line_buf.push_str(span_text);
                     }
-                    if !line_buf.is_empty() && cursor_y < clip_bottom {
+                    if !line_buf.is_empty()
+                        && cursor_y >= content_y
+                        && cursor_y + line_h <= clip_bottom
+                    {
                         text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
                             &line_buf,
                             text_x,
@@ -1845,20 +1862,22 @@ fn render_frame_inner(
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let mut cursor_y = text_y;
                     for line_str in block.content.lines() {
-                        if cursor_y >= clip_bottom {
+                        if cursor_y + line_h > clip_bottom {
                             break;
                         }
-                        text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                            line_str,
-                            text_x,
-                            cursor_y,
-                            title_color,
-                            DEFAULT_FONT_SIZE,
-                            clip_x,
-                            content_y,
-                            clip_w,
-                            content_h,
-                        ));
+                        if cursor_y >= content_y {
+                            text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                                line_str,
+                                text_x,
+                                cursor_y,
+                                title_color,
+                                DEFAULT_FONT_SIZE,
+                                clip_x,
+                                content_y,
+                                clip_w,
+                                content_h,
+                            ));
+                        }
                         cursor_y += line_h;
                     }
                 }
