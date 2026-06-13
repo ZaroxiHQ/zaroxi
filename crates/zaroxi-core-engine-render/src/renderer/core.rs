@@ -868,6 +868,10 @@ impl<'a> Renderer<'a> {
                 };
                 let content_y = target.y + hh + content_padding;
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+                // Use the actual monospace glyph advance from the font system
+                // for cursor and selection positioning, so the caret aligns
+                // with the shaped text glyphs rather than a hardcoded stub.
+                let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
 
                 if content_w > 0.0 && content_h > 0.0 {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
@@ -894,8 +898,9 @@ impl<'a> Renderer<'a> {
                         );
                     }
 
-                    // Cursor vertical bar — clipped to content area on all sides
-                    let cursor_x = content_x + col as f32 * 8.0;
+                    // Cursor vertical bar — positioned using the actual monospace
+                    // glyph advance from the font system, not a hardcoded 8.0 px stub.
+                    let cursor_x = content_x + col as f32 * char_w;
                     let cursor_w = 2.0;
                     let cursor_h = line_h;
                     if cursor_x >= content_x
@@ -919,10 +924,10 @@ impl<'a> Renderer<'a> {
                     }
                 }
 
-                // Selection highlight
+                // Selection highlight — uses the same char_w computed from the
+                // font system above (cursor vertical bar block).
                 if let Some((sl, sc, el, ec)) = block.selection_range {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
-                    let char_w = 8.0;
                     let text_y = content_y - block.content_offset_y;
                     let sel_color: [f32; 4] = layout.colors.editor_selection;
                     for line in sl..=el {
@@ -1954,6 +1959,10 @@ fn render_frame_inner(
             };
             let content_y = target.y + hh + content_padding;
             let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+            // Use the actual monospace glyph advance from the font system
+            // for cursor and selection positioning, so the caret aligns
+            // with the shaped text glyphs rather than a hardcoded stub.
+            let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
             if content_w > 0.0 && content_h > 0.0 {
                 let line_h = DEFAULT_FONT_SIZE + 2.0;
                 let text_y = content_y as f32 - block.content_offset_y;
@@ -1976,7 +1985,7 @@ fn render_frame_inner(
                         0.0,
                     );
                 }
-                let cursor_x = content_x + col as f32 * 8.0;
+                let cursor_x = content_x + col as f32 * char_w;
                 let cursor_w = 2.0;
                 let cursor_h = line_h;
                 if cursor_x >= content_x
@@ -2001,7 +2010,6 @@ fn render_frame_inner(
             }
             if let Some((sl, sc, el, ec)) = block.selection_range {
                 let line_h = DEFAULT_FONT_SIZE + 2.0;
-                let char_w = 8.0;
                 let text_y = content_y - block.content_offset_y;
                 let sel_color: [f32; 4] = layout.colors.editor_selection;
                 for line in sl..=el {

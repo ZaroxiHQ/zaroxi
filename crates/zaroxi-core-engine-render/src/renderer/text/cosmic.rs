@@ -104,6 +104,9 @@ pub struct CosmicTextRenderer {
     last_atlas_uploaded: Arc<Mutex<Option<String>>>,
     last_instance_buffer_count: Arc<Mutex<Option<usize>>>,
     last_final_path: Arc<Mutex<Option<String>>>,
+    /// Monospace character advance in logical pixels, derived from actual
+    /// font shaping of a reference string at the editor font size.
+    monospace_advance: f32,
 }
 
 impl CosmicTextRenderer {
@@ -116,7 +119,46 @@ impl CosmicTextRenderer {
     ) -> Result<Self, RenderError> {
         debug!("CosmicTextRenderer::new");
         let swash = SwashCache::new();
-        let fs = cosmic_text::FontSystem::new();
+        let mut fs = cosmic_text::FontSystem::new();
+
+        // Register the bundled JetBrains Mono Nerd Font so the editor
+        // renders with the intended monospace font instead of a system
+        // fallback that may produce poor spacing/clustering.
+        match zaroxi_core_engine_font::load_project_font_bytes() {
+            Ok(font_bytes) => {
+                fs.db_mut().load_font_data(font_bytes);
+                debug!("ZAROXI_FONT: registered JetBrainsMonoNerdFont-Regular.ttf");
+            }
+            Err(e) => {
+                debug!("ZAROXI_FONT: project font not available: {}", e);
+            }
+        }
+
+        // Compute the actual monospace advance from the loaded font
+        // by shaping a reference string and measuring the glyph advance.
+        let monospace_advance = {
+            let ref_text = "xxxxxxxxxx";
+            let metrics = Metrics::new(_font_size, _font_size * 1.2);
+            let mut buf = CosmicBuffer::new(&mut fs, metrics);
+            let mut attrs = Attrs::new();
+            buf.set_text(ref_text, &attrs, Shaping::Advanced, None);
+            let mut advance = _font_size * 0.6; // fallback ~8.4 for 14px
+            let mut glyph_count = 0usize;
+            for run in buf.borrow_with(&mut fs).layout_runs() {
+                for g in run.glyphs.iter() {
+                    advance = g.w;
+                    glyph_count += 1;
+                }
+            }
+            if glyph_count > 0 {
+                let avg = advance; // monospace: last glyph advance is representative
+                debug!("ZAROXI_FONT: monospace_advance_x={:.2} from {} glyphs", avg, glyph_count);
+                avg
+            } else {
+                _font_size * 0.6
+            }
+        };
+
         Ok(Self {
             queued: Arc::new(Mutex::new(Vec::new())),
             atlas_uploaded: Arc::new(Mutex::new(false)),
@@ -142,6 +184,7 @@ impl CosmicTextRenderer {
             last_atlas_uploaded: Arc::new(Mutex::new(None)),
             last_instance_buffer_count: Arc::new(Mutex::new(None)),
             last_final_path: Arc::new(Mutex::new(None)),
+            monospace_advance,
         })
     }
 
@@ -585,12 +628,16 @@ impl TextRenderer for CosmicTextRenderer {
                     let layout_x = phys.x as f32;
                     let layout_y = phys.y as f32;
 
-                    // Build cache key for rasterization using the physical font size and layout origin.
+                    // Build cache key for rasterization. Use a fixed origin (0,0) so the
+                    // glyph bitmap is keyed only by (font_id, glyph_id, size, weight, flags)
+                    // and NOT by screen position. Using a varying position would create a
+                    // unique atlas entry per pixel offset, causing unbounded atlas growth
+                    // and eventual memory exhaustion on scroll or edit.
                     let (cache_key, _xi, _yi) = cosmic_text::CacheKey::new(
                         g.font_id,
                         g.glyph_id,
                         font_size_physical,
-                        (layout_x, layout_y),
+                        (0.0, 0.0),
                         g.font_weight,
                         g.cache_key_flags,
                     );
@@ -622,8 +669,38 @@ impl TextRenderer for CosmicTextRenderer {
             let mut rep_dumped: usize = 0;
             for idx in 0..plen {
                 let (layout_g, layout_x, layout_y, cache_key) = physicals[idx].clone();
+                let cache_key_bits = crate::renderer::text_atlas::cache_key_to_u64(&cache_key);
                 let next_layout_x_opt =
                     if idx + 1 < plen { Some(physicals[idx + 1].1) } else { None };
+
+                // Check persistent cross-frame atlas cache first — if the glyph
+                // is already in the atlas from a previous frame, reuse it directly
+                // without swash rasterization or atlas insertion.
+                if let Some((entry, cached_off_x, cached_off_y)) =
+                    self.shared_atlas.try_get(cache_key_bits)
+                {
+                    let x0 = layout_x + cached_off_x as f32;
+                    let y0 = layout_y + cached_off_y as f32;
+                    let w = entry.width;
+                    let h = entry.height;
+
+                    if glyph_in_clip(x0, y0, w as f32, h as f32) {
+                        samples.push(InstanceSample {
+                            x: x0,
+                            y: y0,
+                            width: w as f32,
+                            height: h as f32,
+                            uv0: (entry.u0, entry.v0),
+                            uv1: (entry.u1, entry.v1),
+                            color: cmd.color,
+                        });
+                        let ratio_w = (w as f32) / (entry.width as f32);
+                        let ratio_h = (h as f32) / (entry.height as f32);
+                        max_scale_ratio = max_scale_ratio.max(ratio_w.max(ratio_h));
+                        instances_total += 1;
+                    }
+                    continue;
+                }
 
                 // If we already have a cached result for this cache_key in this frame,
                 // reuse it: emit an instance if drawable, otherwise skip.
@@ -793,10 +870,10 @@ impl TextRenderer for CosmicTextRenderer {
                         }
 
                         // Attempt atlas insertion
-                        match self.shared_atlas.insert(&glyph) {
+                        match self.shared_atlas.insert(&glyph, cache_key_bits) {
                             Some(entry) => {
                                 atlas_inserted_total += 1;
-                                // Record in frame cache for reuse
+                                // Record in frame cache for reuse (also stored in persistent atlas cache by insert())
                                 local_cache.insert(
                                     cache_key,
                                     Some((
@@ -1153,9 +1230,12 @@ impl TextRenderer for CosmicTextRenderer {
                 width, height
             );
         } else {
-            // still update to be conservative (same value) but avoid duplicate log; keep state assigned
             *vp = (width, height);
         }
         Ok(())
+    }
+
+    fn monospace_advance_x(&self) -> Option<f32> {
+        Some(self.monospace_advance)
     }
 }

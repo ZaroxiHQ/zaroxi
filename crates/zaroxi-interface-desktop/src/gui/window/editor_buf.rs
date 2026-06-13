@@ -73,6 +73,68 @@ impl EditorBufferState {
         &self.rope
     }
 
+    // ── Tab expansion ──
+
+    pub const TAB_WIDTH: usize = 4;
+
+    /// Convert a line from raw text (with `\t`) to display text (tabs → spaces).
+    pub fn expand_tabs(raw: &str, tab_width: usize) -> String {
+        let mut out = String::with_capacity(raw.len());
+        for c in raw.chars() {
+            if c == '\t' {
+                let spaces = tab_width - (out.len() % tab_width);
+                for _ in 0..spaces {
+                    out.push(' ');
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// Map a visual column (tab-expanded) to a raw character index within `raw`.
+    pub fn vis_to_raw_col(raw: &str, vis_col: usize, tab_width: usize) -> usize {
+        if vis_col == 0 {
+            return 0;
+        }
+        let mut vis = 0usize;
+        for (raw_idx, c) in raw.char_indices() {
+            if c == '\t' {
+                let spaces = tab_width - (vis % tab_width);
+                for _ in 0..spaces {
+                    if vis >= vis_col {
+                        return raw_idx;
+                    }
+                    vis += 1;
+                }
+            } else {
+                if vis >= vis_col {
+                    return raw_idx;
+                }
+                vis += 1;
+            }
+        }
+        raw.chars().count() // beyond end → clamp to end
+    }
+
+    /// Map a raw character index within `raw` to a visual column (tab-expanded).
+    pub fn raw_to_vis_col(raw: &str, raw_idx: usize, tab_width: usize) -> usize {
+        let mut vis = 0usize;
+        for (ri, c) in raw.char_indices() {
+            if ri >= raw_idx {
+                break;
+            }
+            if c == '\t' {
+                let spaces = tab_width - (vis % tab_width);
+                vis += spaces;
+            } else {
+                vis += 1;
+            }
+        }
+        vis
+    }
+
     // ── Caret / line-col access ──
 
     /// Currently active caret char index.
@@ -86,10 +148,24 @@ impl EditorBufferState {
         line
     }
 
-    /// Current caret column (0-based).
+    /// Current caret column as raw character index (0-based).
+    /// For rendering, use `caret_vis_col()` which accounts for tab expansion.
     pub fn caret_col(&self) -> usize {
         let (_, col) = self.rope.char_index_to_line_col(self.caret());
         col
+    }
+
+    /// Current caret visual column, with tabs expanded to spaces.
+    /// This matches what the renderer displays after tab expansion.
+    pub fn caret_vis_col(&self) -> usize {
+        let raw_col = self.caret_col();
+        let line_str = self.rope.line(self.caret_line()).unwrap_or_default();
+        Self::raw_to_vis_col(&line_str, raw_col, Self::TAB_WIDTH)
+    }
+
+    /// Return all lines with tabs expanded for display/rendering.
+    pub fn lines_expanded(&self) -> Vec<String> {
+        self.rope.lines().map(|line| Self::expand_tabs(&line, Self::TAB_WIDTH)).collect()
     }
 
     /// Set the caret to a specific character index. Clears selection.
@@ -101,13 +177,21 @@ impl EditorBufferState {
         self.preferred_column = col;
     }
 
-    /// Set caret from line/column. Updates preferred_column.
+    /// Set caret from (line, raw character column). Updates preferred_column.
     pub fn set_caret_line_col(&mut self, line: usize, col: usize) {
         self.caret = self.rope.line_col_to_char_index(line, col);
         self.selection_anchor = None;
         self.selection_active = false;
         let (_, actual_col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = actual_col;
+    }
+
+    /// Set caret from a mouse hit-test visual column.
+    /// Converts visual column → raw char index accounting for tab stops.
+    pub fn set_caret_line_vis_col(&mut self, line: usize, vis_col: usize) {
+        let line_str = self.rope.line(line).unwrap_or_default();
+        let raw_col = Self::vis_to_raw_col(&line_str, vis_col, Self::TAB_WIDTH);
+        self.set_caret_line_col(line, raw_col);
     }
 
     /// Preferred column for vertical movement.
@@ -521,5 +605,71 @@ mod tests {
         assert_eq!(lines[0], "a");
         assert_eq!(lines[1], "b");
         assert_eq!(lines[2], "c");
+    }
+
+    #[test]
+    fn tab_expansion_replaces_tabs() {
+        let expanded = EditorBufferState::expand_tabs("a\tb", 4);
+        assert_eq!(expanded, "a   b");
+    }
+
+    #[test]
+    fn tab_expansion_at_start_of_line() {
+        let expanded = EditorBufferState::expand_tabs("\tx", 4);
+        assert_eq!(expanded, "    x");
+    }
+
+    #[test]
+    fn tab_expansion_at_tab_stop() {
+        let expanded = EditorBufferState::expand_tabs("ab\tc", 4);
+        assert_eq!(expanded, "ab  c");
+    }
+
+    #[test]
+    fn vis_to_raw_col_tab_boundaries() {
+        // "a\tb" → raw: a(0), \t(1), b(2)
+        // visual cols: a at 0, tab fills 1..4 (3 spaces), b at 4
+        assert_eq!(EditorBufferState::vis_to_raw_col("a\tb", 0, 4), 0); // 'a'
+        assert_eq!(EditorBufferState::vis_to_raw_col("a\tb", 1, 4), 1); // start of tab visual space
+        assert_eq!(EditorBufferState::vis_to_raw_col("a\tb", 3, 4), 1); // inside tab → tab char
+        assert_eq!(EditorBufferState::vis_to_raw_col("a\tb", 4, 4), 2); // 'b'
+        assert_eq!(EditorBufferState::vis_to_raw_col("a\tb", 5, 4), 3); // beyond 'b' → end of raw line
+    }
+
+    #[test]
+    fn raw_to_vis_col_tab_expansion() {
+        // "a\tb" → raw: a(0), \t(1), b(2)
+        // visual: a at 0, tab pushes to next stop at 4, b at 4
+        assert_eq!(EditorBufferState::raw_to_vis_col("a\tb", 0, 4), 0);
+        assert_eq!(EditorBufferState::raw_to_vis_col("a\tb", 1, 4), 1);
+        assert_eq!(EditorBufferState::raw_to_vis_col("a\tb", 2, 4), 4);
+    }
+
+    #[test]
+    fn caret_vis_col_with_tabs() {
+        let mut buf = EditorBufferState::from_text("a\tb");
+        buf.set_caret(1); // raw caret at the tab character
+        assert_eq!(buf.caret_col(), 1);
+        assert_eq!(buf.caret_vis_col(), 1); // visual column at start of tab
+        buf.set_caret(2); // raw caret at 'b'
+        assert_eq!(buf.caret_col(), 2);
+        assert_eq!(buf.caret_vis_col(), 4); // visual column: a(0) + tab→4, b at 4
+    }
+
+    #[test]
+    fn lines_expanded_strips_tabs() {
+        let buf = EditorBufferState::from_text("a\tb\n\tc");
+        let expanded = buf.lines_expanded();
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[0], "a   b");
+        assert_eq!(expanded[1], "    c");
+    }
+
+    #[test]
+    fn set_caret_line_vis_col_resolves_to_tab() {
+        let mut buf = EditorBufferState::from_text("a\tb");
+        buf.set_caret_line_vis_col(0, 2); // click in middle of tab visual space
+        assert_eq!(buf.caret(), 1); // raw index → tab character
+        assert_eq!(buf.caret_col(), 1); // raw column at tab
     }
 }

@@ -133,4 +133,11 @@ pub trait TextRenderer: Send + Sync {
         info!("TextRenderer: viewport resize requested ({}x{})", width, height);
         Ok(())
     }
+
+    /// Return the monospace character advance width in logical pixels,
+    /// as computed from the actual loaded font metrics. Returns None
+    /// if the backend cannot determine a reliable advance value.
+    fn monospace_advance_x(&self) -> Option<f32> {
+        None
+    }
 }

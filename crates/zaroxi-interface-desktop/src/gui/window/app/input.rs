@@ -89,6 +89,12 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 request_editor_redraw(app);
                 return Vec::new();
             }
+            Key::Named(NamedKey::Space) => {
+                app.editor_buffer.insert_text(" ");
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
 
             // Printable characters
             Key::Character(text) if !app.ctrl_held => {
@@ -220,21 +226,25 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
     }
 }
 
-/// Notify the workspace service about a text edit so the persisted state stays
-/// in sync with the local rope. Rebuilds work_content so the render path picks
-/// up the new content immediately.
+/// Update the visible work_content from the rope-backed editor buffer.
+///
+/// On each keystroke this only pushes the rope's current content into
+/// the work_content's editor_body.lines — it does NOT rebuild the rope
+/// (no `populate_from_lines`), preserving the piece-table structure.
 fn sync_editor_to_service(app: &mut GuiApp) {
-    // Rebuild work_content so the render path picks up the new content
-    // immediately. The editor_buffer already has the authoritative content.
-    if let Some(ref comp) = app.composition {
-        let mut wc = comp.build_work_content();
+    // Push rope content out into the existing work_content without
+    // rebuilding the entire ShellWorkContent or destroying the rope.
+    // Expand tabs to spaces so cosmic-text rendering matches the column
+    // model used for caret positioning and mouse hit-testing.
+    let new_lines = app.editor_buffer.lines_expanded();
+    let cursor_line = app.editor_cursor_line();
+    let cursor_col = app.editor_buffer.caret_vis_col();
+    if let Some(ref mut wc) = app.work_content {
         if let Some(ref mut body) = wc.editor_body {
-            let new_lines: Vec<String> = app.editor_buffer.lines();
             body.lines = new_lines;
-            body.cursor_line = app.editor_cursor_line();
-            body.cursor_col = app.editor_cursor_col();
+            body.cursor_line = cursor_line;
+            body.cursor_col = cursor_col;
         }
-        app.set_work_content(wc);
     }
 }
 

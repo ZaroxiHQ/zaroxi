@@ -90,18 +90,21 @@ pub(crate) fn copy_selected_text(
 
 /// Called on MouseInput Pressed — begin a selection at the current cursor position
 /// and set the caret though the rope-backed buffer.
+/// The column from pixel projection is a visual column; convert it to a raw
+/// character index using tab-aware mapping so the caret lands on the correct
+/// logical character even when the line contains tabs.
 pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
     if let Some(pos) = app.interaction.cursor_pos_f32() {
         let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
         if let Some(vp) = &app.editor_viewport {
-            if let Some((line, col)) = project_editor_cursor(
+            if let Some((line, vis_col)) = project_editor_cursor(
                 phys,
                 vp,
                 &app.shell.work_content,
                 app.interaction
                     .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
             ) {
-                app.editor_buffer.set_caret_line_col(line, col);
+                app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
                 app.needs_render = true;
                 if let Some(z) = app.maybe_window.as_ref() {
@@ -113,19 +116,26 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
 }
 
 /// Called on CursorMoved while selection is active — extend the selection range.
+/// Converts visual column from pixel projection to raw char index for the rope.
 pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition<f64>) {
     if !app.editor_buffer.selection_active {
         return;
     }
     if let Some(vp) = &app.editor_viewport {
-        if let Some((line, col)) = project_editor_cursor(
+        if let Some((line, vis_col)) = project_editor_cursor(
             position,
             vp,
             &app.shell.work_content,
             app.interaction
                 .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
         ) {
-            let char_idx = app.editor_buffer.rope().line_col_to_char_index(line, col);
+            let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
+            let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(
+                &line_str,
+                vis_col,
+                crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH,
+            );
+            let char_idx = app.editor_buffer.rope().line_col_to_char_index(line, raw_col);
             app.editor_buffer.extend_selection_to(char_idx);
             app.needs_render = true;
             if let Some(z) = app.maybe_window.as_ref() {
