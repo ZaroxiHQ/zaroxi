@@ -20,11 +20,15 @@ use super::GuiApp;
 /// Project a winit cursor position to an editor (line, col) pair.
 ///
 /// Returns None when the point does not fall inside the editor viewport.
+/// Uses the actual monospace glyph advance from the font system for
+/// column computation so the click-based caret lands on the same
+/// visual position as the rendered text.
 pub(crate) fn project_editor_cursor(
     cursor_pos: PhysicalPosition<f64>,
     viewport: &EditorViewport,
     work_content: &Option<ShellWorkContent>,
     editor_scroll_offset: f32,
+    char_w: f32,
 ) -> Option<(usize, usize)> {
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
@@ -40,9 +44,9 @@ pub(crate) fn project_editor_cursor(
     let rel_x = px - (viewport.content_rect.0 + content_pad);
     let visible_line = (rel_y / line_h).max(0.0) as usize;
 
-    // Use a fixed char width approximation for column from mouse position
-    let char_w = lc::CHAR_WIDTH_STUB;
-    let col = (rel_x / char_w).max(0.0) as usize;
+    // Use the actual monospace advance from the font system so the
+    // computed column matches the rendered glyph positions exactly.
+    let col = (rel_x / char_w.max(0.001)).max(0.0) as usize;
 
     let usable_h = viewport.content_rect.3 - header_h - content_pad * 2.0;
 
@@ -93,16 +97,22 @@ pub(crate) fn copy_selected_text(
 /// The column from pixel projection is a visual column; convert it to a raw
 /// character index using tab-aware mapping so the caret lands on the correct
 /// logical character even when the line contains tabs.
+///
+/// Uses the actual monospace glyph advance from the font system for
+/// column projection instead of a hardcoded stub, so the caret aligns
+/// with the rendered glyphs.
 pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
     if let Some(pos) = app.interaction.cursor_pos_f32() {
         let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
         if let Some(vp) = &app.editor_viewport {
+            let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
             if let Some((line, vis_col)) = project_editor_cursor(
                 phys,
                 vp,
                 &app.shell.work_content,
                 app.interaction
                     .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
+                char_w,
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
@@ -117,17 +127,20 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
 
 /// Called on CursorMoved while selection is active — extend the selection range.
 /// Converts visual column from pixel projection to raw char index for the rope.
+/// Uses the actual monospace glyph advance from the font system.
 pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition<f64>) {
     if !app.editor_buffer.selection_active {
         return;
     }
     if let Some(vp) = &app.editor_viewport {
+        let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
         if let Some((line, vis_col)) = project_editor_cursor(
             position,
             vp,
             &app.shell.work_content,
             app.interaction
                 .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
+            char_w,
         ) {
             let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
             let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(

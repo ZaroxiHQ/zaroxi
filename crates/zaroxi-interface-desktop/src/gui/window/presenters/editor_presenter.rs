@@ -1,14 +1,51 @@
+use std::collections::HashMap;
+
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::chrome::TabEntry;
 use zaroxi_core_platform_syntax::parser::ParserPool;
 use zaroxi_interface_theme::theme::SemanticColors;
 
 use super::super::editor::EditorContentData;
+use super::super::syntax_color;
 
 pub fn shape_editor_content(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
     parser_pool: &ParserPool,
+) -> EditorContentData {
+    shape_editor_content_impl(work_content, sem, parser_pool, false, None, &[], &[])
+}
+
+/// Build EditorContentData with incremental per-line syntax caching.
+/// Only lines whose content hash differs from `cached_line_hashes` are
+/// re-colored; other lines reuse spans from `line_syntax_cache`.
+pub fn shape_editor_content_incremental(
+    work_content: &Option<ShellWorkContent>,
+    sem: &SemanticColors,
+    parser_pool: &ParserPool,
+    line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    per_line_hashes: &[u64],
+    cached_line_hashes: &[u64],
+) -> EditorContentData {
+    shape_editor_content_impl(
+        work_content,
+        sem,
+        parser_pool,
+        true,
+        Some(line_syntax_cache),
+        per_line_hashes,
+        cached_line_hashes,
+    )
+}
+
+fn shape_editor_content_impl(
+    work_content: &Option<ShellWorkContent>,
+    sem: &SemanticColors,
+    parser_pool: &ParserPool,
+    incremental: bool,
+    mut line_syntax_cache: Option<&mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>>,
+    per_line_hashes: &[u64],
+    cached_line_hashes: &[u64],
 ) -> EditorContentData {
     let wc = match work_content {
         Some(w) => w,
@@ -28,53 +65,24 @@ pub fn shape_editor_content(
         .unwrap_or_default();
 
     let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.map(|cv| {
-        let mut spans: Vec<(String, [f32; 4])> = Vec::new();
-
         if cv.lines.is_empty() {
-            return spans;
+            return Vec::new();
         }
 
-        let syntax_spans = super::super::syntax_color::colorize_source(&cv.lines, sem, parser_pool);
-
-        let mut syntax_by_line: std::collections::BTreeMap<usize, Vec<(String, [f32; 4])>> =
-            std::collections::BTreeMap::new();
-        for (text, color) in syntax_spans {
-            let lines: Vec<&str> = text.split('\n').collect();
-            if lines.len() > 1 {
-                let mut line_idx = syntax_by_line.len();
-                for part in &lines {
-                    if !part.is_empty() {
-                        syntax_by_line.entry(line_idx).or_default().push((part.to_string(), color));
-                    }
-                    line_idx += 1;
-                }
+        if incremental {
+            if let Some(ref mut cache) = line_syntax_cache {
+                return syntax_color::colorize_source_incremental(
+                    &cv.lines,
+                    sem,
+                    parser_pool,
+                    cache,
+                    per_line_hashes,
+                    cached_line_hashes,
+                );
             }
         }
 
-        if syntax_by_line.is_empty() {
-            for (i, _line) in cv.lines.iter().enumerate() {
-                spans.push((_line.clone(), [1.0, 1.0, 1.0, 1.0]));
-                if i + 1 < cv.lines.len() {
-                    spans.push(("\n".to_string(), [1.0, 1.0, 1.0, 1.0]));
-                }
-            }
-            return spans;
-        }
-
-        for (i, line) in cv.lines.iter().enumerate() {
-            if let Some(line_spans) = syntax_by_line.get(&i) {
-                for (text, color) in line_spans {
-                    spans.push((text.clone(), *color));
-                }
-            } else {
-                spans.push((line.clone(), [1.0, 1.0, 1.0, 1.0]));
-            }
-
-            if i + 1 < cv.lines.len() {
-                spans.push(("\n".to_string(), [1.0, 1.0, 1.0, 1.0]));
-            }
-        }
-        spans
+        syntax_color::colorize_source(&cv.lines, sem, parser_pool)
     });
 
     let tab_labels = wc.editor_tabs.clone().unwrap_or_else(Vec::new);

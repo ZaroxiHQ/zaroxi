@@ -1707,6 +1707,13 @@ impl RenderCore {
     pub fn queue(&self) -> &Queue {
         &self.queue
     }
+
+    /// Access the text renderer for external queries (e.g. monospace advance).
+    pub fn text_renderer(
+        &self,
+    ) -> Option<&(dyn crate::renderer::text::TextRenderer + Send + Sync)> {
+        self.text_renderer.as_deref()
+    }
 }
 
 /// Shared frame rendering logic used by both Renderer and RenderCore.

@@ -33,6 +33,7 @@ mod editor_interaction;
 mod input;
 mod render_state;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -145,6 +146,11 @@ pub struct GuiApp {
     pub last_widget_tree_size: (u32, u32),
     pub last_widget_tree_content: Option<ShellWorkContent>,
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
+    /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
+    /// Avoids recomputing spans for lines whose content didn't change.
+    pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    /// Per-line raw-content fnv hash from the last cache build.
+    pub cached_line_hashes: Vec<u64>,
 }
 
 impl GuiApp {
@@ -162,6 +168,14 @@ impl GuiApp {
 
     pub fn editor_selection_active(&self) -> bool {
         self.editor_buffer.selection_active
+    }
+
+    /// Return the monospace character advance from the font system,
+    /// falling back to the layout-constant stub when the renderer isn't available.
+    pub fn monospace_advance_x(&self) -> Option<f32> {
+        self.render_core
+            .as_ref()
+            .and_then(|core| core.text_renderer().and_then(|tr| tr.monospace_advance_x()))
     }
 
     /// Set the work_content and sync the editor buffer from its content.
@@ -945,6 +959,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &mut self.cached_editor_lines_hash,
                         &self.parser_pool,
                         &sem,
+                        &mut self.line_syntax_cache,
+                        &mut self.cached_line_hashes,
                     );
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);

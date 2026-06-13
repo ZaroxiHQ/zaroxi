@@ -228,24 +228,88 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 
 /// Update the visible work_content from the rope-backed editor buffer.
 ///
-/// On each keystroke this only pushes the rope's current content into
-/// the work_content's editor_body.lines — it does NOT rebuild the rope
-/// (no `populate_from_lines`), preserving the piece-table structure.
+/// Distinguishes two edit classes:
+/// - Content-only edit (line count unchanged): incremental update of only
+///   the affected lines.  Fast path for normal single-character typing.
+/// - Structural edit (line count changed, e.g. Enter, backspace-at-start):
+///   full rebuild of work_content.lines from the rope.  Slower fallback
+///   that guarantees correctness when line indices shift.
+///
+/// Tabs are expanded to spaces so cosmic-text rendering matches the column
+/// model used for caret positioning and mouse hit-testing.
 fn sync_editor_to_service(app: &mut GuiApp) {
-    // Push rope content out into the existing work_content without
-    // rebuilding the entire ShellWorkContent or destroying the rope.
-    // Expand tabs to spaces so cosmic-text rendering matches the column
-    // model used for caret positioning and mouse hit-testing.
-    let new_lines = app.editor_buffer.lines_expanded();
     let cursor_line = app.editor_cursor_line();
     let cursor_col = app.editor_buffer.caret_vis_col();
+
     if let Some(ref mut wc) = app.work_content {
         if let Some(ref mut body) = wc.editor_body {
-            body.lines = new_lines;
             body.cursor_line = cursor_line;
             body.cursor_col = cursor_col;
+
+            let total = app.editor_buffer.line_count();
+            let old_len = body.lines.len();
+            let structural_edit = old_len != total;
+
+            if structural_edit {
+                // Structural edit: line count changed. Full rebuild of the
+                // line array and full cache invalidation to avoid stale
+                // line-indexed entries.
+                let new_lines = app.editor_buffer.lines_expanded();
+                body.lines = new_lines;
+
+                // Invalidate all per-line caches — indices have shifted.
+                app.cached_editor_data = None;
+                app.cached_editor_lines_hash = 0;
+                app.cached_line_hashes.clear();
+                app.line_syntax_cache.clear();
+
+                if std::env::var("ZAROXI_DEBUG_EDIT")
+                    .as_deref()
+                    .map_or(false, |v| v == "1" || v == "structural")
+                {
+                    eprintln!(
+                        "ZAROXI_DEBUG_EDIT: structural_edit old_len={} new_len={} caches_cleared",
+                        old_len, total,
+                    );
+                }
+            } else if let Some((first, last_excl)) = app.editor_buffer.last_edit_line_range() {
+                // Content-only edit: incremental update of changed lines.
+                let last = last_excl.min(total);
+
+                if body.lines.len() < total {
+                    body.lines.resize(total, String::new());
+                } else if body.lines.len() > total {
+                    body.lines.truncate(total);
+                }
+
+                let tab_width = crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH;
+                let mut i = first;
+                while i < last {
+                    let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                    let expanded = crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
+                        &raw, tab_width,
+                    );
+                    if i < body.lines.len() {
+                        body.lines[i] = expanded;
+                    }
+                    i += 1;
+                }
+
+                if std::env::var("ZAROXI_DEBUG_EDIT").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_DEBUG_EDIT: content_edit first={} last={} total={}",
+                        first, last, total,
+                    );
+                }
+            } else {
+                // Full rebuild when no incremental range is available
+                let new_lines = app.editor_buffer.lines_expanded();
+                body.lines = new_lines;
+            }
         }
     }
+
+    app.editor_buffer.clear_edit_line_range();
 }
 
 /// Request a redraw for the editor after an editing operation.

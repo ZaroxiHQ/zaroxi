@@ -22,6 +22,9 @@ pub struct EditorBufferState {
     preferred_column: usize,
     /// Whether selection is currently active (drag in progress).
     pub selection_active: bool,
+    /// After an edit, records the (first_changed_line, last_changed_line_exclusive)
+    /// so incremental sync can avoid rebuilding the entire file list.
+    last_edit_line_range: Option<(usize, usize)>,
 }
 
 impl EditorBufferState {
@@ -33,6 +36,7 @@ impl EditorBufferState {
             selection_anchor: None,
             preferred_column: 0,
             selection_active: false,
+            last_edit_line_range: None,
         }
     }
 
@@ -45,6 +49,7 @@ impl EditorBufferState {
             selection_anchor: None,
             preferred_column: 0,
             selection_active: false,
+            last_edit_line_range: None,
         }
     }
 
@@ -71,6 +76,18 @@ impl EditorBufferState {
     /// Get an immutable reference to the rope.
     pub fn rope(&self) -> &Rope {
         &self.rope
+    }
+
+    /// After an edit, returns the range of logical lines that were affected
+    /// (first_changed_line, last_changed_line_exclusive). None means
+    /// no edit was tracked or a full rebuild is needed.
+    pub fn last_edit_line_range(&self) -> Option<(usize, usize)> {
+        self.last_edit_line_range
+    }
+
+    /// Clear the tracked edit range after it has been consumed by sync logic.
+    pub fn clear_edit_line_range(&mut self) {
+        self.last_edit_line_range = None;
     }
 
     // ── Tab expansion ──
@@ -175,6 +192,7 @@ impl EditorBufferState {
         self.selection_active = false;
         let (_, col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = col;
+        self.last_edit_line_range = None;
     }
 
     /// Set caret from (line, raw character column). Updates preferred_column.
@@ -184,6 +202,7 @@ impl EditorBufferState {
         self.selection_active = false;
         let (_, actual_col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = actual_col;
+        self.last_edit_line_range = None;
     }
 
     /// Set caret from a mouse hit-test visual column.
@@ -275,8 +294,12 @@ impl EditorBufferState {
     /// Insert text at the current caret, replacing any selection first.
     /// Returns (start_index, inserted_text) for workspace transaction.
     pub fn insert_text(&mut self, text: &str) -> Option<(usize, String)> {
+        let mut selection_range: Option<(usize, usize)> = None;
         // Replace selection if present
         if let Some((start, end)) = self.sorted_selection() {
+            let (sl, _) = self.rope.char_index_to_line_col(start);
+            let (el, _) = self.rope.char_index_to_line_col(end);
+            selection_range = Some((sl, el + 1));
             self.rope.delete(start, end);
             self.caret = start;
             self.selection_anchor = None;
@@ -284,12 +307,22 @@ impl EditorBufferState {
         }
 
         let insert_pos = self.caret;
+        let (insert_line, _) = self.rope.char_index_to_line_col(insert_pos);
         self.rope.insert(insert_pos, text);
         let text_len = text.chars().count();
-        self.caret = insert_pos + text_len;
-        let (_, col) = self.rope.char_index_to_line_col(self.caret);
+        let new_caret = insert_pos + text_len;
+        self.caret = new_caret;
+        let (new_line, col) = self.rope.char_index_to_line_col(new_caret);
         self.preferred_column = col;
         self.selection_anchor = None;
+
+        let insert_end = if text.contains('\n') { new_line + 1 } else { insert_line + 1 };
+
+        // Union of selection range and insert range
+        self.last_edit_line_range = match selection_range {
+            Some((sl, el)) => Some((sl.min(insert_line), el.max(insert_end))),
+            None => Some((insert_line, insert_end)),
+        };
 
         Some((insert_pos, text.to_string()))
     }
@@ -303,11 +336,14 @@ impl EditorBufferState {
     /// Returns the delete range and removed text.
     pub fn backspace(&mut self) -> Option<(usize, usize)> {
         if let Some((start, end)) = self.sorted_selection() {
+            let (sl, _) = self.rope.char_index_to_line_col(start);
+            let (el, _) = self.rope.char_index_to_line_col(end);
             self.rope.delete(start, end);
             self.caret = start;
             self.selection_anchor = None;
             self.selection_active = false;
             self.preferred_column = self.rope.char_index_to_line_col(start).1;
+            self.last_edit_line_range = Some((sl, el + 1));
             return Some((start, end));
         }
 
@@ -316,10 +352,15 @@ impl EditorBufferState {
         }
         let start = self.caret - 1;
         let end = self.caret;
+        let (line, _) = self.rope.char_index_to_line_col(start);
+        let is_line_start = start == self.rope.line_start(line).unwrap_or(start);
+        let affected_end = if is_line_start && line > 0 { line + 1 } else { line + 1 };
+        let affected_start = if is_line_start && line > 0 { line - 1 } else { line };
         self.rope.delete(start, end);
         self.caret = start;
         let (_, col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = col;
+        self.last_edit_line_range = Some((affected_start, affected_end));
         Some((start, end))
     }
 
@@ -327,11 +368,14 @@ impl EditorBufferState {
     /// Returns the delete range.
     pub fn delete_forward(&mut self) -> Option<(usize, usize)> {
         if let Some((start, end)) = self.sorted_selection() {
+            let (sl, _) = self.rope.char_index_to_line_col(start);
+            let (el, _) = self.rope.char_index_to_line_col(end);
             self.rope.delete(start, end);
             self.caret = start;
             self.selection_anchor = None;
             self.selection_active = false;
             self.preferred_column = self.rope.char_index_to_line_col(start).1;
+            self.last_edit_line_range = Some((sl, el + 1));
             return Some((start, end));
         }
 
@@ -340,8 +384,14 @@ impl EditorBufferState {
         }
         let start = self.caret;
         let end = self.caret + 1;
+        let (line, _) = self.rope.char_index_to_line_col(start);
+        let is_line_end = end >= self.rope.line_start(line + 1).unwrap_or(self.rope.char_count());
+        let affected_start = line;
+        let affected_end =
+            if is_line_end && line + 1 < self.rope.line_count() { line + 2 } else { line + 1 };
         self.rope.delete(start, end);
         self.preferred_column = self.rope.char_index_to_line_col(self.caret).1;
+        self.last_edit_line_range = Some((affected_start, affected_end));
         Some((start, end))
     }
 
@@ -418,6 +468,7 @@ impl EditorBufferState {
         let new_caret = self.rope.line_col_to_char_index(old_line, old_col);
         self.caret = new_caret;
         self.preferred_column = old_col;
+        self.last_edit_line_range = None; // full rebuild needed
     }
 
     /// Populate the buffer from ContentView data (when a file is opened).
@@ -430,6 +481,7 @@ impl EditorBufferState {
         self.preferred_column = col;
         self.selection_anchor = None;
         self.selection_active = false;
+        self.last_edit_line_range = None; // full replacement
     }
 }
 
