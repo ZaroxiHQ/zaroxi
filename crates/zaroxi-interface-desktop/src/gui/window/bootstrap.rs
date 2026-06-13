@@ -93,6 +93,7 @@ pub fn run_shell_window(
         render_core: None,
         line_syntax_cache: std::collections::HashMap::new(),
         cached_line_hashes: Vec::new(),
+        large_file_mode: false,
     };
 
     let run_result = event_loop.run_app(&mut app);

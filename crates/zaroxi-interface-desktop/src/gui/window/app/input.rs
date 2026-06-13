@@ -250,6 +250,23 @@ fn sync_editor_to_service(app: &mut GuiApp) {
             let old_len = body.lines.len();
             let structural_edit = old_len != total;
 
+            // Detect large-file mode on-the-fly (editor buffer may have grown
+            // beyond thresholds during editing without going through set_work_content).
+            let byte_count: usize = body.lines.iter().map(|l| l.len() + 1).sum();
+            if total > super::LARGE_FILE_LINE_THRESHOLD
+                || byte_count > super::LARGE_FILE_BYTE_THRESHOLD
+            {
+                if !app.large_file_mode
+                    && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
+                {
+                    eprintln!(
+                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} (detected during sync)",
+                        total, byte_count,
+                    );
+                }
+                app.large_file_mode = true;
+            }
+
             if structural_edit {
                 // Structural edit: line count changed. Full rebuild of the
                 // line array and full cache invalidation to avoid stale
@@ -270,6 +287,12 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                     eprintln!(
                         "ZAROXI_DEBUG_EDIT: structural_edit old_len={} new_len={} caches_cleared",
                         old_len, total,
+                    );
+                }
+                if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_DEBUG_LARGE_FILE: structural_edit old={} new={} large_file_mode={}",
+                        old_len, total, app.large_file_mode,
                     );
                 }
             } else if let Some((first, last_excl)) = app.editor_buffer.last_edit_line_range() {
@@ -300,6 +323,21 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                         "ZAROXI_DEBUG_EDIT: content_edit first={} last={} total={}",
                         first, last, total,
                     );
+                }
+
+                // In large-file mode, content-only edits must also clear the
+                // render cache because the fast O(1) hash (line count +
+                // boundary lines) will NOT detect edits in the middle of the
+                // file.  Letting a stale editor_body_text through causes
+                // render mismatches and eventual crashes on structural edits.
+                if app.large_file_mode {
+                    app.cached_editor_data = None;
+                    app.cached_editor_lines_hash = 0;
+                    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_DEBUG_LARGE_FILE: content-edit cache cleared (large_file_mode)"
+                        );
+                    }
                 }
             } else {
                 // Full rebuild when no incremental range is available

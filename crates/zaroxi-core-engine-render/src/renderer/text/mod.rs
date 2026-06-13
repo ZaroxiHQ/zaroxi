@@ -134,9 +134,10 @@ pub trait TextRenderer: Send + Sync {
         Ok(())
     }
 
-    /// Return the monospace character advance width in logical pixels,
-    /// as computed from the actual loaded font metrics. Returns None
-    /// if the backend cannot determine a reliable advance value.
+    /// Return the monospace character advance width in physical pixels,
+    /// as computed from the actual loaded font metrics multiplied by the
+    /// surface device scale. Used for cursor and selection positioning.
+    /// Returns None if the backend cannot determine a reliable advance value.
     fn monospace_advance_x(&self) -> Option<f32> {
         None
     }

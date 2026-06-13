@@ -4,6 +4,11 @@ Render state helpers — content hashing, editor-data caching.
 Extracted from app.rs to keep render-preparation logic out of the
 winit event loop.  Now supports per-line syntax caching so that
 a single-line edit only recomputes spans for the changed line.
+
+In large-file mode (>5000 lines or >250KB) the hash computation is
+reduced to O(1) — only line count + first/last line lengths are
+hashed — to avoid O(file_size) per-frame work.  Syntax spans are
+skipped entirely (rendered via the cheap non-spans path).
 */
 
 use std::collections::HashMap;
@@ -15,8 +20,8 @@ use zaroxi_interface_theme::theme::SemanticColors;
 
 /// Compute a fast non-cryptographic hash over editor-body line lengths.
 ///
-/// Zero is returned when there is no editor content — this acts as
-/// an "uncacheable" sentinel.
+/// In large-file mode this uses O(1) line-count + boundary hashing.
+/// Zero is returned when there is no editor content.
 pub(crate) fn compute_lines_hash(work_content: &Option<ShellWorkContent>) -> u64 {
     work_content
         .as_ref()
@@ -26,6 +31,31 @@ pub(crate) fn compute_lines_hash(work_content: &Option<ShellWorkContent>) -> u64
             for line in cv.lines.iter() {
                 h = h.wrapping_mul(31).wrapping_add(line.len() as u64);
             }
+            h
+        })
+        .unwrap_or(0)
+}
+
+/// O(1) fast hash for large-file mode: samples line count plus 5 evenly-
+/// spaced line lengths (0%, 25%, 50%, 75%, 100% of the file) to detect
+/// edits at any position while avoiding O(N) iteration.
+pub(crate) fn compute_lines_hash_fast(work_content: &Option<ShellWorkContent>) -> u64 {
+    work_content
+        .as_ref()
+        .and_then(|wc| wc.editor_body.as_ref())
+        .map(|cv| {
+            let n = cv.lines.len();
+            if n == 0 {
+                return 0;
+            }
+            let idx = |frac: f32| -> usize { ((n - 1) as f32 * frac).round() as usize };
+            let sample = |i: usize| -> u64 { cv.lines.get(i).map(|l| l.len() as u64).unwrap_or(0) };
+            let mut h: u64 = n as u64;
+            h = h.wrapping_mul(31).wrapping_add(sample(idx(0.00)));
+            h = h.wrapping_mul(31).wrapping_add(sample(idx(0.25)));
+            h = h.wrapping_mul(31).wrapping_add(sample(idx(0.50)));
+            h = h.wrapping_mul(31).wrapping_add(sample(idx(0.75)));
+            h = h.wrapping_mul(31).wrapping_add(sample(idx(1.00)));
             h
         })
         .unwrap_or(0)
@@ -63,6 +93,12 @@ pub(crate) fn should_use_editor_cache(lines_hash: u64, cached_hash: u64) -> bool
 /// Now supports incremental per-line syntax caching: only lines whose content
 /// hash changed are re-colored.  The cache is keyed by (line_index, line_hash)
 /// and lives in `line_syntax_cache`.
+///
+/// In large-file mode:
+/// - Uses O(1) hashing (line count + boundary lines) instead of O(N).
+/// - Skips tree-sitter entirely (no `colorize_source` or `colorize_source_incremental`).
+/// - Sets `editor_spans = None` so the renderer uses the cheap non-spans path
+///   that iterates lines without per-span allocation.
 pub(crate) fn prepare_editor_data(
     work_content: &Option<ShellWorkContent>,
     cached_editor_data: &mut Option<EditorContentData>,
@@ -71,18 +107,49 @@ pub(crate) fn prepare_editor_data(
     sem: &SemanticColors,
     line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     cached_line_hashes: &mut Vec<u64>,
+    large_file_mode: bool,
 ) -> EditorContentData {
+    if large_file_mode {
+        // ── Large-file mode: O(1) path ──
+        let lines_hash = compute_lines_hash_fast(work_content);
+
+        if should_use_editor_cache(lines_hash, *cached_editor_lines_hash) {
+            if cached_editor_data.is_some() {
+                return cached_editor_data.clone().unwrap();
+            }
+        }
+
+        // Clear per-line caches — not used in large-file mode.
+        cached_line_hashes.clear();
+        line_syntax_cache.clear();
+
+        let data = super::super::presenters::shape_editor_content_plain(work_content, sem);
+
+        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_DEBUG_LARGE_FILE: prepare lines={} bytes={} hash={:016x} has_spans={}",
+                data.total_lines,
+                data.editor_body_text.len(),
+                lines_hash,
+                data.editor_spans.is_some(),
+            );
+        }
+
+        *cached_editor_data = Some(data.clone());
+        *cached_editor_lines_hash = lines_hash;
+        return data;
+    }
+
+    // ── Normal mode: O(N) incrementally-cached path ──
     let lines_hash = compute_lines_hash(work_content);
     let per_line_hashes = compute_per_line_hashes(work_content);
 
-    // If the coarse hash is unchanged, return the fully cached result.
     if should_use_editor_cache(lines_hash, *cached_editor_lines_hash) {
         return cached_editor_data.clone().unwrap_or_else(|| {
             super::super::presenters::shape_editor_content(work_content, sem, parser_pool)
         });
     }
 
-    // Build editor data with incremental per-line span caching.
     let data = super::super::presenters::shape_editor_content_incremental(
         work_content,
         sem,

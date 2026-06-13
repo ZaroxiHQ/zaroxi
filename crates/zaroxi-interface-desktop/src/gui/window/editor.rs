@@ -19,6 +19,9 @@ pub struct EditorContentData {
     pub cursor_line: usize,
     pub cursor_col: usize,
     pub body_title: String,
+    /// Total logical line count (0-based count of lines in the document).
+    /// Used for gutter numbering; avoids O(N) line-counting from `editor_body_text`.
+    pub total_lines: usize,
 }
 
 impl Default for EditorContentData {
@@ -31,6 +34,7 @@ impl Default for EditorContentData {
             cursor_line: 0,
             cursor_col: 0,
             body_title: String::new(),
+            total_lines: 0,
         }
     }
 }

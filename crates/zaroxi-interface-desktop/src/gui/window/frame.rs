@@ -380,7 +380,7 @@ pub fn compose_blocks(
                 explorer_cta_rect = sidebar.cta_hit_rect;
             }
             PanelRole::GutterLane => {
-                let line_count = ctx.editor_data.editor_body_text.lines().count().max(1);
+                let line_count = ctx.editor_data.total_lines.max(1);
                 blocks.push(EditorPanel::build_gutter_block(r, tokens, line_count));
             }
             PanelRole::ContentTabStrip => {

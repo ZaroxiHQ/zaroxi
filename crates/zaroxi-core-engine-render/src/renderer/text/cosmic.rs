@@ -104,8 +104,10 @@ pub struct CosmicTextRenderer {
     last_atlas_uploaded: Arc<Mutex<Option<String>>>,
     last_instance_buffer_count: Arc<Mutex<Option<usize>>>,
     last_final_path: Arc<Mutex<Option<String>>>,
-    /// Monospace character advance in logical pixels, derived from actual
-    /// font shaping of a reference string at the editor font size.
+    /// Monospace character advance in physical pixels, derived from actual
+    /// font shaping of a reference string at the editor font size multiplied by
+    /// the surface device scale so that it matches the pixel space used by block
+    /// rects, cursor positioning, and glyph instance coordinates.
     monospace_advance: f32,
 }
 
@@ -136,13 +138,21 @@ impl CosmicTextRenderer {
 
         // Compute the actual monospace advance from the loaded font
         // by shaping a reference string and measuring the glyph advance.
+        // Multiply by the surface device scale so the returned advance
+        // is in physical pixels, matching the coordinate space used by
+        // block rects, cursor positions, and glyph instance coordinates.
         let monospace_advance = {
+            let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            let font_size_physical = _font_size * device_scale;
             let ref_text = "xxxxxxxxxx";
-            let metrics = Metrics::new(_font_size, _font_size * 1.2);
+            let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut fs, metrics);
             let mut attrs = Attrs::new();
             buf.set_text(ref_text, &attrs, Shaping::Advanced, None);
-            let mut advance = _font_size * 0.6; // fallback ~8.4 for 14px
+            let mut advance = font_size_physical * 0.6; // fallback
             let mut glyph_count = 0usize;
             for run in buf.borrow_with(&mut fs).layout_runs() {
                 for g in run.glyphs.iter() {
@@ -151,11 +161,14 @@ impl CosmicTextRenderer {
                 }
             }
             if glyph_count > 0 {
-                let avg = advance; // monospace: last glyph advance is representative
-                debug!("ZAROXI_FONT: monospace_advance_x={:.2} from {} glyphs", avg, glyph_count);
+                let avg = advance;
+                debug!(
+                    "ZAROXI_FONT: monospace_advance_x={:.2} (physical) from {} glyphs at {}px",
+                    avg, glyph_count, font_size_physical
+                );
                 avg
             } else {
-                _font_size * 0.6
+                font_size_physical * 0.6
             }
         };
 

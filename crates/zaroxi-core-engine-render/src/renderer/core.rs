@@ -869,8 +869,9 @@ impl<'a> Renderer<'a> {
                 let content_y = target.y + hh + content_padding;
                 let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
                 // Use the actual monospace glyph advance from the font system
-                // for cursor and selection positioning, so the caret aligns
-                // with the shaped text glyphs rather than a hardcoded stub.
+                // for cursor and selection positioning. The advance is in
+                // physical pixels (same coordinate space as block rects and
+                // glyph instance positions), so the caret aligns with shaped text.
                 let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
 
                 if content_w > 0.0 && content_h > 0.0 {
@@ -1967,8 +1968,7 @@ fn render_frame_inner(
             let content_y = target.y + hh + content_padding;
             let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
             // Use the actual monospace glyph advance from the font system
-            // for cursor and selection positioning, so the caret aligns
-            // with the shaped text glyphs rather than a hardcoded stub.
+            // in physical pixels for cursor and selection positioning.
             let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
             if content_w > 0.0 && content_h > 0.0 {
                 let line_h = DEFAULT_FONT_SIZE + 2.0;

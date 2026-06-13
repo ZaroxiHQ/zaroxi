@@ -16,6 +16,60 @@ pub fn shape_editor_content(
     shape_editor_content_impl(work_content, sem, parser_pool, false, None, &[], &[])
 }
 
+/// Build EditorContentData with plain uncolored spans — used for large-file
+/// mode to avoid the O(file_size) tree-sitter full-document parse.
+///
+/// In large-file mode editor_spans is set to None so the renderer uses the
+/// cheap non-spans path (line-by-line iteration without per-span allocation).
+/// The editor_body_text still carries the full document text for the renderer
+/// iteration, but O(N) span allocation and O(N) hashing are avoided elsewhere.
+pub fn shape_editor_content_plain(
+    work_content: &Option<ShellWorkContent>,
+    _sem: &SemanticColors,
+) -> EditorContentData {
+    let wc = match work_content {
+        Some(w) => w,
+        None => return EditorContentData::default(),
+    };
+
+    let editor_body = wc.editor_body.as_ref();
+
+    let editor_body_text =
+        editor_body.map(|cv| cv.lines.join("\n")).unwrap_or_else(|| "No file open".to_string());
+
+    let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
+    let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
+    let total_lines = editor_body.map(|cv| cv.lines.len()).unwrap_or(0);
+
+    let body_title = editor_body
+        .map(|cv| if cv.title.is_empty() { cv.subtitle.clone() } else { cv.title.clone() })
+        .unwrap_or_default();
+
+    let tab_labels = wc.editor_tabs.clone().unwrap_or_else(Vec::new);
+    let tab_entries: Vec<TabEntry> = if tab_labels.is_empty() {
+        vec![TabEntry { label: "No file open".to_string(), active: false }]
+    } else {
+        tab_labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| TabEntry { label, active: i == 0 })
+            .collect()
+    };
+
+    let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
+
+    EditorContentData {
+        tab_entries,
+        breadcrumb_label,
+        editor_body_text,
+        editor_spans: None, // non-spans render path — avoids O(N) span alloc
+        cursor_line,
+        cursor_col,
+        body_title,
+        total_lines,
+    }
+}
+
 /// Build EditorContentData with incremental per-line syntax caching.
 /// Only lines whose content hash differs from `cached_line_hashes` are
 /// re-colored; other lines reuse spans from `line_syntax_cache`.
@@ -97,6 +151,7 @@ fn shape_editor_content_impl(
     };
 
     let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
+    let total_lines = editor_body.map(|cv| cv.lines.len()).unwrap_or(0);
 
     EditorContentData {
         tab_entries,
@@ -106,5 +161,6 @@ fn shape_editor_content_impl(
         cursor_line,
         cursor_col,
         body_title,
+        total_lines,
     }
 }

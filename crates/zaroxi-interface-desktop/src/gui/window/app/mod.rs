@@ -151,7 +151,20 @@ pub struct GuiApp {
     pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     /// Per-line raw-content fnv hash from the last cache build.
     pub cached_line_hashes: Vec<u64>,
+    /// Whether the current file exceeds large-file thresholds (>5000 lines or >250KB).
+    /// When true, full-document syntax highlighting is disabled to prevent O(file_size)
+    /// parse perf stalls; only viewport-visible lines are colored.
+    pub large_file_mode: bool,
 }
+
+// ── Large-file thresholds ──
+
+/// Maximum line count before entering large-file mode (skips full-document
+/// syntax highlighting to avoid tree-sitter O(n) parse stalls per keystroke).
+const LARGE_FILE_LINE_THRESHOLD: usize = 5000;
+
+/// Maximum byte count before entering large-file mode.
+const LARGE_FILE_BYTE_THRESHOLD: usize = 250_000;
 
 impl GuiApp {
     pub fn editor_cursor_line(&self) -> usize {
@@ -182,8 +195,30 @@ impl GuiApp {
     fn set_work_content(&mut self, wc: ShellWorkContent) {
         if let Some(ref body) = wc.editor_body {
             self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
+            // Detect large-file mode from the incoming content view.
+            self.large_file_mode = Self::is_large_file(&body.lines);
+            if self.large_file_mode
+                && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
+            {
+                eprintln!(
+                    "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={}",
+                    body.lines.len(),
+                    body.lines.iter().map(|l| l.len()).sum::<usize>(),
+                );
+            }
         }
         self.work_content = Some(wc);
+    }
+
+    /// Check whether a file exceeds large-file thresholds and should
+    /// enter reduced-feature mode to avoid perf stalls and crashes.
+    fn is_large_file(lines: &[String]) -> bool {
+        let line_count = lines.len();
+        if line_count > LARGE_FILE_LINE_THRESHOLD {
+            return true;
+        }
+        let byte_count: usize = lines.iter().map(|l| l.len() + 1).sum();
+        byte_count > LARGE_FILE_BYTE_THRESHOLD
     }
 }
 
@@ -961,6 +996,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &sem,
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
+                        self.large_file_mode,
                     );
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
