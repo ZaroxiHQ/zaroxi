@@ -95,6 +95,7 @@ fn record_frame_presented() {
 
 use crate::DesktopComposition;
 use crate::folder_picker::{DynFolderPicker, PickerOutcome};
+use crate::gui::window::editor_buf::EditorBufferState;
 use crate::gui::window::editor_shell::{EditorViewport, ShellLayoutController};
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use crate::gui::{ShellFrame, ShellWorkContent};
@@ -117,11 +118,7 @@ pub struct GuiApp {
     pub first_render_shown: bool,
     pub widget_tree: Option<zaroxi_core_engine_ui::ShellWidgetTree>,
     pub interaction: zaroxi_core_engine_ui::WidgetInteractionModel,
-    pub editor_cursor_line: usize,
-    pub editor_cursor_col: usize,
-    pub selection_anchor: Option<(usize, usize)>,
-    pub selection_range: Option<(usize, usize, usize, usize)>,
-    pub selection_active: bool,
+    pub editor_buffer: EditorBufferState,
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
     pub shift_held: bool,
     pub ctrl_held: bool,
@@ -148,6 +145,32 @@ pub struct GuiApp {
     pub last_widget_tree_size: (u32, u32),
     pub last_widget_tree_content: Option<ShellWorkContent>,
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
+}
+
+impl GuiApp {
+    pub fn editor_cursor_line(&self) -> usize {
+        self.editor_buffer.caret_line()
+    }
+
+    pub fn editor_cursor_col(&self) -> usize {
+        self.editor_buffer.caret_col()
+    }
+
+    pub fn editor_selection_range(&self) -> Option<(usize, usize, usize, usize)> {
+        self.editor_buffer.selection_range()
+    }
+
+    pub fn editor_selection_active(&self) -> bool {
+        self.editor_buffer.selection_active
+    }
+
+    /// Set the work_content and sync the editor buffer from its content.
+    fn set_work_content(&mut self, wc: ShellWorkContent) {
+        if let Some(ref body) = wc.editor_body {
+            self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
+        }
+        self.work_content = Some(wc);
+    }
 }
 
 impl GuiApp {
@@ -255,7 +278,7 @@ impl GuiApp {
                                 );
                             }
                             if let Some(wc) = content {
-                                self.work_content = Some(wc);
+                                self.set_work_content(wc);
                                 self.last_widget_tree_content = None;
                                 self.pending_scroll_frac = 0.0;
                                 if let Some(ref mut comp) = self.composition {
@@ -274,29 +297,35 @@ impl GuiApp {
                     }
                     PickerOutcome::Cancelled => {
                         debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
-                        if let Some(ref mut comp) = self.composition {
+                        let wc = if let Some(ref mut comp) = self.composition {
                             comp.set_status_message("No folder selected".to_string());
-                            self.work_content = Some(comp.build_work_content());
-                            self.last_widget_tree_content = None;
-                            self.request_render();
-                        }
+                            comp.build_work_content()
+                        } else {
+                            return;
+                        };
+                        self.set_work_content(wc);
+                        self.last_widget_tree_content = None;
+                        self.request_render();
                     }
                     PickerOutcome::Unavailable { reason, .. } => {
                         debug::click_trace_fmt!(
                             "ZAROXI_PICKER: thread result=Unavailable({})",
                             reason
                         );
-                        if let Some(ref mut comp) = self.composition {
+                        let wc = if let Some(ref mut comp) = self.composition {
                             let msg = if reason.len() > 90 {
                                 "Workspace picker unavailable — see log for details".to_string()
                             } else {
                                 format!("Workspace picker unavailable: {}", reason)
                             };
                             comp.set_status_message(msg);
-                            self.work_content = Some(comp.build_work_content());
-                            self.last_widget_tree_content = None;
-                            self.request_render();
-                        }
+                            comp.build_work_content()
+                        } else {
+                            return;
+                        };
+                        self.set_work_content(wc);
+                        self.last_widget_tree_content = None;
+                        self.request_render();
                     }
                 }
             }
@@ -359,7 +388,7 @@ impl GuiApp {
                                     != wc.editor_body.as_ref().map(|b| &b.lines)
                         });
                         if changed {
-                            self.work_content = Some(wc.clone());
+                            self.set_work_content(wc.clone());
                             content_changed = true;
                             self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
@@ -523,7 +552,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.handle_actions(actions);
 
                     // Drag-selection: extend selection range while mouse is held
-                    if self.selection_active {
+                    if self.editor_selection_active() {
                         editor_interaction::update_drag_selection(self, position);
                     }
                 }
@@ -629,7 +658,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         editor_interaction::init_selection_from_click(self);
                     }
                     if let ElementState::Released = state {
-                        self.selection_active = false;
+                        self.editor_buffer.end_selection();
                     }
                 }
             }
@@ -656,6 +685,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     return;
                 }
+
+                let cursor_line = self.editor_cursor_line();
+                let cursor_col = self.editor_cursor_col();
+                let selection_range = self.editor_selection_range();
 
                 if let Some(z) = self.maybe_window.as_mut() {
                     let (sw, sh) = z.size();
@@ -918,8 +951,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
                     let status_data = super::presenters::shape_status_content(
                         &self.shell.work_content,
-                        self.editor_cursor_line,
-                        self.editor_cursor_col,
+                        cursor_line,
+                        cursor_col,
                     );
 
                     let ctx = super::frame::ShellBlockContext {
@@ -1085,9 +1118,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if let Some(vp) = &self.editor_viewport {
                         for block in &mut render_blocks {
                             if is_content_block(&block.id) {
-                                block.cursor_line = Some(self.editor_cursor_line);
-                                block.cursor_col = Some(self.editor_cursor_col);
-                                block.selection_range = self.selection_range;
+                                block.cursor_line = Some(cursor_line);
+                                block.cursor_col = Some(cursor_col);
+                                block.selection_range = selection_range;
                                 block.clip_rect = Some(zaroxi_core_engine_render::Rect {
                                     x: vp.clip_rect.0,
                                     y: vp.clip_rect.1,
@@ -1139,9 +1172,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     } else {
                         for block in &mut render_blocks {
                             if is_content_block(&block.id) {
-                                block.cursor_line = Some(self.editor_cursor_line);
-                                block.cursor_col = Some(self.editor_cursor_col);
-                                block.selection_range = self.selection_range;
+                                block.cursor_line = Some(cursor_line);
+                                block.cursor_col = Some(cursor_col);
+                                block.selection_range = selection_range;
                             }
                         }
                     }

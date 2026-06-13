@@ -13,6 +13,7 @@ use crate::DesktopComposition;
 use crate::folder_picker::DynFolderPicker;
 use crate::gui::ShellFrame;
 use crate::gui::ShellWorkContent;
+use crate::gui::window::editor_buf::EditorBufferState;
 use crate::gui::window::explorer_panel::ExplorerPanelActions;
 use std::error::Error;
 use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::WindowAttributes};
@@ -63,11 +64,7 @@ pub fn run_shell_window(
         first_render_shown: false,
         widget_tree: None,
         interaction: zaroxi_core_engine_ui::WidgetInteractionModel::new(),
-        editor_cursor_line: 0,
-        editor_cursor_col: 0,
-        selection_anchor: None,
-        selection_range: None,
-        selection_active: false,
+        editor_buffer: EditorBufferState::empty(),
         theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
         shift_held: false,
         ctrl_held: false,

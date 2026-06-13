@@ -2,11 +2,12 @@
 Keyboard input interpretation, modifier tracking, and mouse wheel
 normalization helpers extracted from app.rs.
 
+Phase: Rope-backed editor — arrows, backspace, delete, enter, and
+printable characters now route through EditorBufferState.
+
 Responsibilities:
-- Translate winit keyboard events into widget-model actions
-  (Tab/Enter/Escape navigation, Ctrl+W/C/V/Z/Y shortcuts)
-- Normalise MouseWheel deltas into pending scroll offsets
-  on the composition
+- Translate winit keyboard events into editor editing operations
+- Normalise MouseWheel deltas into pending scroll offsets on the composition
 */
 
 use winit::event::MouseScrollDelta;
@@ -16,10 +17,104 @@ use zaroxi_core_engine_ui::WidgetAction;
 
 use super::GuiApp;
 
-/// Translate a pressed keyboard logical key into zero or more `WidgetAction`s.
-///
-/// Separating this from the event loop helps keep `window_event` readable.
+/// Returns true when the editor content panel is the active focus target.
+/// In the current architecture, the editor is always considered "focused"
+/// for editing operations unless a modal/overlay is active.
+fn editor_focused(app: &GuiApp) -> bool {
+    // The editor has content (a buffer is open) and no command bar / picker is active.
+    app.work_content.as_ref().and_then(|w| w.editor_body.as_ref()).is_some()
+        && !app.picker_in_flight
+}
+
+/// Translate a pressed keyboard logical key into zero or more `WidgetAction`s
+/// and route editing commands to the rope-backed buffer.
 pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<WidgetAction> {
+    // ── Editor editing commands (only when editor has focus/content) ──
+    if editor_focused(app) {
+        match logical_key {
+            // Cursor movement
+            Key::Named(NamedKey::ArrowLeft) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_left();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_right();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_up();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_down();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::Home) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_home();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::End) => {
+                app.editor_buffer.clear_selection();
+                app.editor_buffer.move_end();
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+
+            // Editing operations
+            Key::Named(NamedKey::Backspace) => {
+                app.editor_buffer.backspace();
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::Delete) => {
+                app.editor_buffer.delete_forward();
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+            Key::Named(NamedKey::Enter) => {
+                app.editor_buffer.insert_newline();
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+
+            // Printable characters
+            Key::Character(text) if !app.ctrl_held => {
+                // Skip control characters and empty text
+                if text.is_empty() || text.chars().any(|c| c.is_control() && c != '\t') {
+                    return Vec::new();
+                }
+                app.editor_buffer.insert_text(text.as_str());
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+
+            // Tab in editor (insert tab character)
+            Key::Named(NamedKey::Tab) if !app.ctrl_held => {
+                app.editor_buffer.insert_text("\t");
+                sync_editor_to_service(app);
+                request_editor_redraw(app);
+                return Vec::new();
+            }
+
+            _ => {}
+        }
+    }
+
+    // ── Global keyboard shortcuts / widget navigation ──
     match logical_key {
         Key::Named(NamedKey::Tab) => {
             if let Some(ref mut tree) = app.widget_tree {
@@ -28,20 +123,6 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 } else {
                     app.interaction.focus_next(tree)
                 }
-            } else {
-                Vec::new()
-            }
-        }
-        Key::Named(NamedKey::ArrowDown) => {
-            if let Some(ref mut tree) = app.widget_tree {
-                app.interaction.focus_next_explorer_item(tree)
-            } else {
-                Vec::new()
-            }
-        }
-        Key::Named(NamedKey::ArrowUp) => {
-            if let Some(ref mut tree) = app.widget_tree {
-                app.interaction.focus_prev_explorer_item(tree)
             } else {
                 Vec::new()
             }
@@ -66,38 +147,50 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
         }
         ref key if app.ctrl_held => match key {
             Key::Character(c) if c == "w" || c == "W" => {
-                if let Some(comp) = app.composition.as_mut() {
+                let wc = if let Some(comp) = app.composition.as_mut() {
                     let buf_id = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
                     if let Some(ref id) = buf_id {
                         if comp.close_opened_buffer(id) {
-                            app.work_content = Some(comp.build_work_content());
-                            app.needs_render = true;
-                            if let Some(z) = app.maybe_window.as_ref() {
-                                let _ = z.window().request_redraw();
-                            }
+                            Some(comp.build_work_content())
+                        } else {
+                            None
                         }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some(wc) = wc {
+                    app.set_work_content(wc);
+                    app.needs_render = true;
+                    if let Some(z) = app.maybe_window.as_ref() {
+                        let _ = z.window().request_redraw();
                     }
                 }
                 Vec::new()
             }
             Key::Character(c) if c == "c" || c == "x" => {
-                if let Some(text) = super::editor_interaction::copy_selected_text(
-                    &app.work_content,
-                    &app.selection_range,
-                ) {
+                let selection = app.editor_selection_range();
+                if let Some(text) =
+                    super::editor_interaction::copy_selected_text(&app.work_content, &selection)
+                {
                     let _ = zaroxi_core_engine_clipboard::copy_text(&text);
+                }
+                // If Ctrl+X, also delete the selection
+                if c == "x" {
+                    app.editor_buffer.backspace(); // backspace handles selection deletion
+                    sync_editor_to_service(app);
+                    request_editor_redraw(app);
                 }
                 Vec::new()
             }
             Key::Character(c) if c == "v" => {
                 match zaroxi_core_engine_clipboard::get_text() {
                     Ok(text) => {
-                        super::debug::gui_debug_fmt!(
-                            "ZAROXI_CLIPBOARD: paste at line={} col={} len={}",
-                            app.editor_cursor_line,
-                            app.editor_cursor_col,
-                            text.len()
-                        );
+                        app.editor_buffer.insert_text(&text);
+                        sync_editor_to_service(app);
+                        request_editor_redraw(app);
                     }
                     Err(e) => {
                         eprintln!("ZAROXI_CLIPBOARD: paste failed: {}", e);
@@ -108,22 +201,48 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             Key::Character(c) if c == "z" => {
                 super::debug::gui_debug_fmt!(
                     "ZAROXI_UNDO: undo at cursor line={} col={}",
-                    app.editor_cursor_line,
-                    app.editor_cursor_col
+                    app.editor_cursor_line(),
+                    app.editor_cursor_col()
                 );
                 Vec::new()
             }
             Key::Character(c) if c == "y" => {
                 super::debug::gui_debug_fmt!(
                     "ZAROXI_REDO: redo at cursor line={} col={}",
-                    app.editor_cursor_line,
-                    app.editor_cursor_col
+                    app.editor_cursor_line(),
+                    app.editor_cursor_col()
                 );
                 Vec::new()
             }
             _ => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+/// Notify the workspace service about a text edit so the persisted state stays
+/// in sync with the local rope. Rebuilds work_content so the render path picks
+/// up the new content immediately.
+fn sync_editor_to_service(app: &mut GuiApp) {
+    // Rebuild work_content so the render path picks up the new content
+    // immediately. The editor_buffer already has the authoritative content.
+    if let Some(ref comp) = app.composition {
+        let mut wc = comp.build_work_content();
+        if let Some(ref mut body) = wc.editor_body {
+            let new_lines: Vec<String> = app.editor_buffer.lines();
+            body.lines = new_lines;
+            body.cursor_line = app.editor_cursor_line();
+            body.cursor_col = app.editor_cursor_col();
+        }
+        app.set_work_content(wc);
+    }
+}
+
+/// Request a redraw for the editor after an editing operation.
+fn request_editor_redraw(app: &mut GuiApp) {
+    app.needs_render = true;
+    if let Some(z) = app.maybe_window.as_ref() {
+        let _ = z.window().request_redraw();
     }
 }
 

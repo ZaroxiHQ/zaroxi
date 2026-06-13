@@ -5121,6 +5121,7 @@ dependencies = [
  "zaroxi-application-navigation",
  "zaroxi-application-workspace",
  "zaroxi-core-editor-buffer",
+ "zaroxi-core-editor-rope",
  "zaroxi-core-editor-view",
  "zaroxi-core-engine-clipboard",
  "zaroxi-core-engine-font",

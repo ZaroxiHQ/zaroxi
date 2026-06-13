@@ -7,6 +7,7 @@ mod tests {
     use zaroxi_core_engine_ui::{
         ShellLayout, WidgetAction, WidgetId, WidgetInteractionModel, build_shell_widget_tree,
     };
+    use zaroxi_interface_desktop::gui::window::editor_buf::EditorBufferState;
     use zaroxi_interface_desktop::gui::window::{GuiApp, WidgetActivationHandler};
     use zaroxi_interface_desktop::gui::{ShellFrame, ShellWorkContent, Size};
     use zaroxi_interface_theme::theme::ZaroxiTheme;
@@ -29,11 +30,7 @@ mod tests {
             first_render_shown: true,
             widget_tree: Some(build_shell_widget_tree(&layout, &tokens, None)),
             interaction: WidgetInteractionModel::new(),
-            editor_cursor_line: 0,
-            editor_cursor_col: 0,
-            selection_anchor: None,
-            selection_range: None,
-            selection_active: false,
+            editor_buffer: EditorBufferState::empty(),
             theme_mode: ZaroxiTheme::Dark,
             shift_held: false,
             ctrl_held: false,
