@@ -13,6 +13,10 @@
 use std::fmt;
 use std::ops::Range;
 
+fn env_diag_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
+}
+
 /// A piece referencing a span of the original buffer or an inserted string.
 #[derive(Clone, Debug)]
 struct Piece {
@@ -88,6 +92,7 @@ impl Rope {
     }
 
     /// Return the text content of the rope as a `String`.
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         let mut out = String::with_capacity(
             self.original.len() + self.inserts.iter().map(|s| s.len()).sum::<usize>(),
@@ -173,17 +178,38 @@ impl Rope {
         (0..self.total_lines).filter_map(|li| self.line(li)).collect()
     }
 
-    /// Build line_starts from scratch by scanning all characters.
+    /// Build line_starts from scratch by scanning each piece's characters
+    /// in order without materializing the whole document as a String.
+    /// Complexity: O(total_chars) — unavoidable for structural edits that
+    /// change newline count — but avoids the O(total_chars) allocation
+    /// of `to_string()` that the old implementation performed.
+    #[allow(dead_code)]
     fn rebuild_line_starts(&mut self) {
+        let start_time = if env_diag_enabled() { Some(std::time::Instant::now()) } else { None };
         self.line_starts.clear();
         self.line_starts.push(0);
         let mut ci = 0usize;
-        let text = self.to_string();
-        for c in text.chars() {
-            ci += 1;
-            if c == '\n' {
-                self.line_starts.push(ci);
+        for pi in 0..self.pieces.len() {
+            let piece = &self.pieces[pi];
+            let src: &str = match piece.source {
+                None => &self.original,
+                Some(idx) => &self.inserts[idx],
+            };
+            for c in src[piece.byte_range.clone()].chars() {
+                ci += 1;
+                if c == '\n' && ci < self.total_chars + 1 {
+                    self.line_starts.push(ci);
+                }
             }
+        }
+        if let Some(start) = start_time {
+            let elapsed_us = start.elapsed().as_micros();
+            eprintln!(
+                "ZAROXI_DEBUG_LARGE_FILE: rebuild_line_starts chars={} lines={} duration_us={}",
+                self.total_chars,
+                self.line_starts.len(),
+                elapsed_us,
+            );
         }
     }
 
@@ -216,11 +242,10 @@ impl Rope {
         }
 
         self.total_chars += insert_chars;
-        let old_line_count = self.total_lines;
         self.total_lines += insert_lines;
 
-        if insert_lines == 0 && old_line_count == self.total_lines {
-            // Content-only edit: shift line_starts entries after insertion point
+        if insert_lines == 0 {
+            // Content-only edit: shift line_starts entries after insertion point.
             let ins_line = match self.line_starts.binary_search(&char_index) {
                 Ok(l) => l,
                 Err(l) => l.saturating_sub(1),
@@ -229,8 +254,32 @@ impl Rope {
                 *ls += insert_chars;
             }
         } else {
-            // Structural edit: rebuild line_starts from scratch
-            self.rebuild_line_starts();
+            // Structural edit: incremental line_starts patching.
+            // Find the line containing the insertion point.
+            let ins_line = match self.line_starts.binary_search(&char_index) {
+                Ok(l) => l,
+                Err(l) => l.saturating_sub(1),
+            };
+            // Compute new line start positions from the inserted text.
+            // Each newline in text creates a new line starting at
+            //   char_index + (position of newline within text) + 1
+            // where +1 skips past the newline character.
+            let mut new_starts: Vec<usize> = Vec::with_capacity(insert_lines);
+            let mut rel_ci = 0usize;
+            for c in text.chars() {
+                if c == '\n' {
+                    new_starts.push(char_index + rel_ci + 1);
+                }
+                rel_ci += 1;
+            }
+            // Splice new line starts after the line that was split.
+            let splice_at = ins_line + 1;
+            let n_new = new_starts.len();
+            self.line_starts.splice(splice_at..splice_at, new_starts.into_iter());
+            // Shift all subsequent entries by the total inserted character count.
+            for ls in &mut self.line_starts[splice_at + n_new..] {
+                *ls += insert_chars;
+            }
         }
     }
 
@@ -274,12 +323,11 @@ impl Rope {
         }
 
         self.total_chars -= removed_chars;
-        let old_line_count = self.total_lines;
         self.total_lines -= removed_lines;
         let remove_len = removed_chars;
 
-        if removed_lines == 0 && old_line_count == self.total_lines + removed_lines {
-            // Content-only delete: shift line_starts entries after deletion point
+        if removed_lines == 0 {
+            // Content-only delete: shift line_starts entries after deletion point.
             let del_line = match self.line_starts.binary_search(&start) {
                 Ok(l) => l,
                 Err(l) => l.saturating_sub(1),
@@ -288,8 +336,24 @@ impl Rope {
                 *ls = ls.saturating_sub(remove_len);
             }
         } else {
-            // Structural edit: rebuild line_starts from scratch
-            self.rebuild_line_starts();
+            // Structural delete: incremental line_starts patching.
+            // Find lines containing start and end-1.
+            let del_start_line = match self.line_starts.binary_search(&start) {
+                Ok(l) => l,
+                Err(l) => l.saturating_sub(1),
+            };
+            // Remove line_starts entries that fall within the deleted range.
+            // These are the entries between del_start_line+1 and
+            // del_start_line+1+removed_lines.
+            let rm_start = del_start_line + 1;
+            let rm_end = (rm_start + removed_lines).min(self.line_starts.len());
+            if rm_start < rm_end {
+                self.line_starts.drain(rm_start..rm_end);
+            }
+            // Shift all remaining entries after the deletion zone.
+            for ls in &mut self.line_starts[rm_start..] {
+                *ls = ls.saturating_sub(remove_len);
+            }
         }
     }
 
@@ -311,12 +375,10 @@ impl Rope {
             None => &self.original,
             Some(idx) => &self.inserts[idx],
         };
-        let mut ci = 0;
-        for (_bi, c) in src[piece.byte_range.clone()].char_indices() {
+        for (ci, (_bi, c)) in src[piece.byte_range.clone()].char_indices().enumerate() {
             if ci == offset {
                 return Some(c);
             }
-            ci += 1;
         }
         None
     }
@@ -450,13 +512,11 @@ impl Rope {
 
         // Walk characters to find byte offset
         let mut byte_offset = 0usize;
-        let mut ci = 0;
-        for (bi, _) in sub.char_indices() {
+        for (ci, (bi, _)) in sub.char_indices().enumerate() {
             if ci == char_offset {
                 byte_offset = bi;
                 break;
             }
-            ci += 1;
         }
 
         let left_lines = sub[..byte_offset].chars().filter(|&c| c == '\n').count();

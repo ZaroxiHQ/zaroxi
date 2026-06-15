@@ -93,11 +93,22 @@ pub(crate) fn prepare_editor_data(
     rope: Option<&Rope>,
 ) -> EditorContentData {
     if large_file_mode {
-        let lines_hash = compute_lines_hash_fast(work_content, rope);
+        let mut lines_hash = compute_lines_hash_fast(work_content, rope);
+
+        // Mix the viewport range into the hash so the cache invalidates on
+        // scroll.  Without this, scroll operations leave the content hash
+        // unchanged (line lengths are constant) and the cache returns stale
+        // EditorContentData with the wrong visible_line_range and
+        // content_line_offset, causing the editor to render the viewport
+        // slice at absolute line 0 regardless of scroll position.
+        if let Some((start, end)) = visible_line_range {
+            lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
+            lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
+        }
 
         if should_use_editor_cache(lines_hash, *cached_editor_lines_hash) {
-            if cached_editor_data.is_some() {
-                return cached_editor_data.clone().unwrap();
+            if let Some(cached) = cached_editor_data {
+                return cached.clone();
             }
         }
 

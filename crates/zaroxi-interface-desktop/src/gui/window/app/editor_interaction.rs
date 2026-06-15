@@ -23,12 +23,16 @@ use super::GuiApp;
 /// Uses the actual monospace glyph advance from the font system for
 /// column computation so the click-based caret lands on the same
 /// visual position as the rendered text.
+///
+/// Uses the CLI-borrowed rope total_lines as the canonical line count
+/// source when available, falling back to cv.lines.len() for backward compat.
 pub(crate) fn project_editor_cursor(
     cursor_pos: PhysicalPosition<f64>,
     viewport: &EditorViewport,
     work_content: &Option<ShellWorkContent>,
     editor_scroll_offset: f32,
     char_w: f32,
+    rope_total_lines: usize,
 ) -> Option<(usize, usize)> {
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
@@ -50,11 +54,15 @@ pub(crate) fn project_editor_cursor(
 
     let usable_h = viewport.content_rect.3 - header_h - content_pad * 2.0;
 
-    let total_lines = work_content
-        .as_ref()
-        .and_then(|w| w.editor_body.as_ref())
-        .map(|cv| cv.lines.len().max(1))
-        .unwrap_or(1);
+    let total_lines = if rope_total_lines > 0 {
+        rope_total_lines.max(1)
+    } else {
+        work_content
+            .as_ref()
+            .and_then(|w| w.editor_body.as_ref())
+            .map(|cv| cv.lines.len().max(1))
+            .unwrap_or(1)
+    };
     let visible_lines_c = (usable_h / line_h).max(1.0) as usize;
     let max_scroll_c = (total_lines.saturating_sub(visible_lines_c)).max(1);
     let first_visible = (editor_scroll_offset * max_scroll_c as f32) as usize;
@@ -106,6 +114,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
         let phys = PhysicalPosition::new(pos.0 as f64, pos.1 as f64);
         if let Some(vp) = &app.editor_viewport {
             let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
+            let rope_lines = app.editor_buffer.total_lines();
             if let Some((line, vis_col)) = project_editor_cursor(
                 phys,
                 vp,
@@ -113,6 +122,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
                 app.interaction
                     .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
                 char_w,
+                rope_lines,
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
@@ -134,6 +144,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
     }
     if let Some(vp) = &app.editor_viewport {
         let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
+        let rope_lines = app.editor_buffer.total_lines();
         if let Some((line, vis_col)) = project_editor_cursor(
             position,
             vp,
@@ -141,6 +152,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
             app.interaction
                 .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
             char_w,
+            rope_lines,
         ) {
             let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
             let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(

@@ -276,7 +276,14 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                 let incremental_range = app.editor_buffer.last_edit_line_range();
                 let needs_full = incremental_range.is_none() || body.lines.is_empty();
 
-                if needs_full || total <= 5000 {
+                // Guard: never do a full lines_expanded() rebuild for files
+                // over the huge threshold (50K lines).  Materialising all
+                // lines with tab expansion would allocate & copy the entire
+                // document on every structural edit (e.g. Enter key).
+                let huge = total > super::HUGE_FILE_LINE_THRESHOLD;
+                let force_incremental = huge && !needs_full;
+
+                if (needs_full || total <= 5000) && !huge {
                     body.lines = app.editor_buffer.lines_expanded();
                 } else if let Some((first, last_excl)) = incremental_range {
                     body.lines.resize(total, String::new());
@@ -292,6 +299,20 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                             body.lines[i] = expanded;
                         }
                         i += 1;
+                    }
+                } else if force_incremental {
+                    // Huge file with no incremental range: we must rebuild
+                    // but can't afford lines_expanded().  Resize and fill
+                    // by iterating the rope line by line (one pass, no
+                    // intermediate allocation of a full Vec<String>).
+                    body.lines.resize(total, String::new());
+                    for i in 0..total {
+                        let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                        let expanded =
+                            crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
+                                &raw, tab_width,
+                            );
+                        body.lines[i] = expanded;
                     }
                 } else {
                     body.lines = app.editor_buffer.lines_expanded();

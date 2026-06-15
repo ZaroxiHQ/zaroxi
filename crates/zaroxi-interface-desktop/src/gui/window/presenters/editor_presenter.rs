@@ -59,8 +59,20 @@ pub fn shape_editor_content_plain(
             };
             (slice, range)
         } else {
-            // No visible range: use full text (small file fallback)
-            (r.to_string(), None)
+            // No visible range: use full text only for small files.
+            // For large files (total_lines > LARGE_FILE_LINE_THRESHOLD),
+            // construct a default window so we never materialize the
+            // full 48+ MB document into a single String.
+            const LARGE: usize = 1000;
+            if total_lines > LARGE {
+                let vis_lines = 50usize; // reasonable default viewport height
+                let start = 0usize;
+                let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
+                let slice = r.visible_lines(start, end);
+                (slice, Some((start, end)))
+            } else {
+                (r.to_string(), None)
+            }
         }
     } else {
         // No rope: fallback to ContentView.lines (backward compat)
@@ -187,7 +199,19 @@ fn shape_editor_content_impl(
             };
             (slice, range)
         } else {
-            (r.to_string(), None)
+            // No visible range: use full text only for small files.
+            // For large files, construct a default window so we never
+            // materialize the full document into a single String.
+            const LARGE: usize = 1000;
+            if total_lines > LARGE {
+                let vis_lines = 50usize;
+                let start = 0usize;
+                let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
+                let slice = r.visible_lines(start, end);
+                (slice, Some((start, end)))
+            } else {
+                (r.to_string(), None)
+            }
         }
     } else {
         visible_line_range

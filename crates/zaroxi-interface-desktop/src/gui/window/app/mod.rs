@@ -171,6 +171,11 @@ const LARGE_FILE_LINE_THRESHOLD: usize = 1000;
 /// Maximum byte count before entering large-file mode.
 const LARGE_FILE_BYTE_THRESHOLD: usize = 100_000;
 
+/// Maximum line count before the background parser receives empty/plain-text
+/// snapshots instead of full-file text.  Above this threshold full-tree-sitter
+/// parsing is too slow to be useful and we degrade to viewport-only plain text.
+pub(crate) const HUGE_FILE_LINE_THRESHOLD: usize = 50_000;
+
 impl GuiApp {
     pub fn editor_cursor_line(&self) -> usize {
         self.editor_buffer.caret_line()
@@ -219,7 +224,16 @@ impl GuiApp {
                 ));
             }
             // Schedule initial background syntax parse.
-            if let Some(ref mut worker) = self.parse_worker {
+            // For huge files (>50K lines), skip full-document tree-sitter
+            // parsing entirely — plain-text fallback is the only viable mode.
+            if self.is_huge_file() {
+                if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_DEBUG_LARGE_FILE: set_work_content SKIPPED bg parse (huge_file={} lines)",
+                        self.editor_buffer.line_count(),
+                    );
+                }
+            } else if let Some(ref mut worker) = self.parse_worker {
                 let text = self.editor_buffer.to_string();
                 worker.schedule_parse(background_parse::BufferSnapshot {
                     version: self.editor_buffer.buffer_version,
@@ -242,10 +256,35 @@ impl GuiApp {
         byte_count > LARGE_FILE_BYTE_THRESHOLD
     }
 
+    /// Whether the current file is huge enough that full-document tree-sitter
+    /// parsing should be skipped entirely in favour of plain-text fallback.
+    fn is_huge_file(&self) -> bool {
+        let total = self.editor_buffer.line_count();
+        total > HUGE_FILE_LINE_THRESHOLD
+    }
+
     /// Schedule a background tree-sitter parse with the current buffer version.
     /// Called after every edit. The worker processes on a background thread
-    /// and does not block the UI. Language detection is hardcoded to Rust for now.
+    /// and does not block the UI.
+    ///
+    /// Size-aware policy:
+    /// - Small files (<1000 lines): send full text, immediate parse.
+    /// - Medium files (1000-50000 lines): send full text, debounced.
+    /// - Huge files (>50000 lines): skip full parsing; plain-text fallback.
+    ///   Tree-sitter parsing of a 1M-line file takes seconds and copies the
+    ///   entire document into the mpsc channel for every keystroke, which is
+    ///   both wasteful and adds latency to the UI thread.
     pub(crate) fn schedule_background_parse(&mut self) {
+        if self.is_huge_file() {
+            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                let total = self.editor_buffer.line_count();
+                eprintln!(
+                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse SKIPPED (huge_file={} lines)",
+                    total,
+                );
+            }
+            return;
+        }
         if let Some(ref mut worker) = self.parse_worker {
             let text = self.editor_buffer.to_string();
             let lang = zaroxi_core_platform_syntax::language::LanguageId::Rust;
@@ -254,6 +293,14 @@ impl GuiApp {
                     "ZAROXI_DEBUG_PARSE_PIPELINE: schedule v={} text_bytes={}",
                     self.editor_buffer.buffer_version,
                     text.len(),
+                );
+            }
+            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse v={} text_bytes={} lines={}",
+                    self.editor_buffer.buffer_version,
+                    text.len(),
+                    self.editor_buffer.line_count(),
                 );
             }
             worker.schedule_parse(background_parse::BufferSnapshot {
@@ -776,6 +823,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                 let cursor_line = self.editor_cursor_line();
                 let cursor_col = self.editor_cursor_col();
                 let selection_range = self.editor_selection_range();
+                // Pre-compute values needed inside the render closure
+                // (self is mutably borrowed via maybe_window below).
+                let debug_large = std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1");
+                let large_file_mode = self.large_file_mode;
+                let _is_huge = self.is_huge_file();
+                let _rope_line_count = self.editor_buffer.line_count();
 
                 if let Some(z) = self.maybe_window.as_mut() {
                     let (sw, sh) = z.size();
@@ -1041,10 +1094,21 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &sem,
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
-                        self.large_file_mode,
+                        large_file_mode,
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
                     );
+
+                    if debug_large {
+                        let content_lines = editor_data.editor_body_text.lines().count();
+                        eprintln!(
+                            "ZAROXI_DEBUG_LARGE_FILE: editor_data total={} content_lines={} content_bytes={} vis_range={:?}",
+                            editor_data.total_lines,
+                            content_lines,
+                            editor_data.editor_body_text.len(),
+                            editor_data.visible_line_range,
+                        );
+                    }
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);

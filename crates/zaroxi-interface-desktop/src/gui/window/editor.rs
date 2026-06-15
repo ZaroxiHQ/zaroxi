@@ -26,9 +26,10 @@ pub struct EditorContentData {
     /// Total logical line count (0-based count of lines in the document).
     /// Used for gutter numbering; avoids O(N) line-counting from `editor_body_text`.
     pub total_lines: usize,
-    /// When set, `editor_body_text` contains only lines in [start, end) (plus
-    /// a small overscan). `content_line_offset` on the render block tells the
-    /// renderer the absolute line number of the first line in the visible slice.
+    /// When set, `editor_body_text` contains only lines in [start, end) (with
+    /// overscan applied).  `content_line_offset` on the render block is set
+    /// to `start` so the renderer can compute the correct absolute
+    /// screen position for each visible line.
     pub visible_line_range: Option<(usize, usize)>,
 }
 
@@ -140,6 +141,11 @@ impl EditorPanel {
             h: r.rect.height as f32,
         };
 
+        // When viewport-windowed, content_line_offset is the absolute
+        // line number of the first line in the content String.  The
+        // renderer uses this to compute the correct screen position.
+        let content_line_offset = data.visible_line_range.map(|(start, _)| start);
+
         UiBlock {
             id: r.id.to_string(),
             title: data.body_title.clone(),
@@ -160,11 +166,14 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
-            content_line_offset: data.visible_line_range.map(|(start, _)| start),
+            content_line_offset,
             text_color: None,
         }
     }
 
+    /// Build a gutter block that carries the full document line-number model.
+    /// The renderer scrolls it via `content_offset_y` (set by the RedrawRequested
+    /// handler) so only the visible window appears on screen.
     pub fn build_gutter_block(r: &ShellRegion, tokens: &StyleTokens, line_count: usize) -> UiBlock {
         zaroxi_core_engine_ui::blocks::make_gutter_block(
             r.rect.x as f32,
