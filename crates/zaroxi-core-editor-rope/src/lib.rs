@@ -53,19 +53,41 @@ pub struct Rope {
 
 impl Rope {
     /// Create a new rope from the given text.
+    ///
+    /// Builds the `line_starts` index by scanning at byte level for newline
+    /// bytes (0x0A) while tracking the current character offset.  This
+    /// avoids UTF-8 decode overhead on every code point and runs
+    /// significantly faster than `text.chars()` for ASCII-dominated source.
     pub fn new(text: &str) -> Self {
         let start_time = std::time::Instant::now();
-        let char_count = text.chars().count();
-        let line_count = text.chars().filter(|&c| c == '\n').count() + 1;
+        let bytes = text.as_bytes();
+
+        let mut char_count = 0usize;
+        let mut line_count = 1usize;
+
+        // First pass: count chars and lines so we can pre-allocate
+        // line_starts to the exact capacity.
+        for &b in bytes {
+            if b & 0xC0 != 0x80 {
+                char_count += 1;
+            }
+            if b == b'\n' {
+                line_count += 1;
+            }
+        }
+
         let mut line_starts = Vec::with_capacity(line_count);
         line_starts.push(0);
         let mut ci = 0usize;
-        for c in text.chars() {
-            ci += 1;
-            if c == '\n' && ci < char_count + 1 {
+        for &b in bytes {
+            if b & 0xC0 != 0x80 {
+                ci += 1;
+            }
+            if b == b'\n' {
                 line_starts.push(ci);
             }
         }
+
         if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
             let elapsed_us = start_time.elapsed().as_micros();
             eprintln!(

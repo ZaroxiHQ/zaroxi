@@ -224,12 +224,13 @@ impl GuiApp {
                 ));
             }
             // Schedule initial background syntax parse.
-            // For huge files (>50K lines), skip full-document tree-sitter
-            // parsing entirely — plain-text fallback is the only viable mode.
-            if self.is_huge_file() {
+            // For large/huge files (>=1000 lines or >=100KB), skip full-document
+            // tree-sitter parsing entirely — viewport-only plain-text fallback
+            // is already active in the render path via `large_file_mode`.
+            if self.large_file_mode {
                 if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                     eprintln!(
-                        "ZAROXI_DEBUG_LARGE_FILE: set_work_content SKIPPED bg parse (huge_file={} lines)",
+                        "ZAROXI_DEBUG_LARGE_FILE: set_work_content SKIPPED bg parse (large_file_mode lines={})",
                         self.editor_buffer.line_count(),
                     );
                 }
@@ -268,19 +269,18 @@ impl GuiApp {
     /// and does not block the UI.
     ///
     /// Size-aware policy:
-    /// - Small files (<1000 lines): send full text, immediate parse.
-    /// - Medium files (1000-50000 lines): send full text, debounced.
-    /// - Huge files (>50000 lines): skip full parsing; plain-text fallback.
-    ///   Tree-sitter parsing of a 1M-line file takes seconds and copies the
-    ///   entire document into the mpsc channel for every keystroke, which is
-    ///   both wasteful and adds latency to the UI thread.
+    /// - Small files (<1000 lines, <100KB): full-document parse on bg thread.
+    /// - Large/huge files (>=1000 lines or >=100KB): skip full-document
+    ///   parsing entirely; plain-text fallback in the render path.
+    ///   Tree-sitter parsing of files beyond a few thousand lines is too
+    ///   slow to be useful, and materialising full text on every keystroke
+    ///   for the mpsc channel adds measurable UI-thread latency.
     pub(crate) fn schedule_background_parse(&mut self) {
-        let total_lines = self.editor_buffer.line_count();
-        if total_lines > HUGE_FILE_LINE_THRESHOLD {
+        if self.large_file_mode {
             if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                 eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse SKIPPED (huge_file={} lines)",
-                    total_lines,
+                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse SKIPPED (large_file_mode lines={})",
+                    self.editor_buffer.line_count(),
                 );
             }
             return;

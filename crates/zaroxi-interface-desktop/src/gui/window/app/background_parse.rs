@@ -7,6 +7,11 @@ use zaroxi_core_platform_syntax::highlight::{HighlightEngine, HighlightSpan};
 use zaroxi_core_platform_syntax::language::LanguageId;
 use zaroxi_core_platform_syntax::parser::ParserPool;
 
+/// Maximum text bytes to send to the background parse worker.
+/// Beyond this threshold, full-document tree-sitter parsing is too
+/// slow to be useful and we drop the snapshot without parsing.
+const MAX_PARSE_TEXT_BYTES: usize = 100_000;
+
 /// An immutable snapshot of the buffer at a specific version.
 #[derive(Clone)]
 pub struct BufferSnapshot {
@@ -131,6 +136,28 @@ impl BackgroundParseWorker {
                     lang,
                     snapshot.text.len(),
                 );
+            }
+
+            // Defence-in-depth: reject snapshots whose text payload exceeds
+            // the parse budget.  The caller-level guard in
+            // `schedule_background_parse` should already prevent these, but
+            // a stale snapshot from before the guard was tightened could
+            // still be in the channel.
+            if snapshot.text.len() > MAX_PARSE_TEXT_BYTES {
+                if debug_pipeline {
+                    eprintln!(
+                        "ZAROXI_DEBUG_PARSE_PIPELINE: worker_task DROPPED text_bytes={} (exceeds max={})",
+                        snapshot.text.len(),
+                        MAX_PARSE_TEXT_BYTES,
+                    );
+                }
+                let _ = result_tx.send(ParseResult {
+                    version: snapshot.version,
+                    spans: Vec::new(),
+                    incremental: false,
+                    duration_us: start.elapsed().as_micros() as u64,
+                });
+                continue;
             }
 
             if lang == LanguageId::PlainText {
