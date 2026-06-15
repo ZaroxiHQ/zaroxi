@@ -25,6 +25,9 @@ pub struct EditorBufferState {
     /// After an edit, records the (first_changed_line, last_changed_line_exclusive)
     /// so incremental sync can avoid rebuilding the entire file list.
     last_edit_line_range: Option<(usize, usize)>,
+    /// Monotonically increasing buffer version. Incremented on every edit.
+    /// Used by the background parse pipeline to detect stale results.
+    pub buffer_version: u64,
 }
 
 impl EditorBufferState {
@@ -37,6 +40,7 @@ impl EditorBufferState {
             preferred_column: 0,
             selection_active: false,
             last_edit_line_range: None,
+            buffer_version: 0,
         }
     }
 
@@ -50,6 +54,7 @@ impl EditorBufferState {
             preferred_column: 0,
             selection_active: false,
             last_edit_line_range: None,
+            buffer_version: 0,
         }
     }
 
@@ -68,7 +73,17 @@ impl EditorBufferState {
         self.rope.to_string()
     }
 
-    /// Return a Vec of all lines.
+    /// Return joined text of lines `[start..end)` from the rope via O(1) index.
+    pub fn visible_lines(&self, start: usize, end: usize) -> String {
+        self.rope.visible_lines(start, end)
+    }
+
+    /// Return the total document line count (from rope, always correct).
+    pub fn total_lines(&self) -> usize {
+        self.rope.line_count()
+    }
+
+    /// Return all lines.
     pub fn lines(&self) -> Vec<String> {
         self.rope.lines().collect()
     }
@@ -294,6 +309,7 @@ impl EditorBufferState {
     /// Insert text at the current caret, replacing any selection first.
     /// Returns (start_index, inserted_text) for workspace transaction.
     pub fn insert_text(&mut self, text: &str) -> Option<(usize, String)> {
+        self.buffer_version += 1;
         let mut selection_range: Option<(usize, usize)> = None;
         // Replace selection if present
         if let Some((start, end)) = self.sorted_selection() {
@@ -335,6 +351,7 @@ impl EditorBufferState {
     /// Delete one character before the caret, or the current selection.
     /// Returns the delete range and removed text.
     pub fn backspace(&mut self) -> Option<(usize, usize)> {
+        self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
             let (el, _) = self.rope.char_index_to_line_col(end);
@@ -367,6 +384,7 @@ impl EditorBufferState {
     /// Delete one character after the caret, or the current selection.
     /// Returns the delete range.
     pub fn delete_forward(&mut self) -> Option<(usize, usize)> {
+        self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
             let (el, _) = self.rope.char_index_to_line_col(end);
@@ -459,6 +477,7 @@ impl EditorBufferState {
     /// Replace the entire buffer content with new text.
     /// Preserves cursor position when possible, clamps otherwise.
     pub fn replace_content(&mut self, text: &str) {
+        self.buffer_version += 1;
         let old_line = self.caret_line();
         let old_col = self.caret_col();
         self.rope = Rope::new(text);
@@ -474,6 +493,7 @@ impl EditorBufferState {
     /// Populate the buffer from ContentView data (when a file is opened).
     /// Sets the cursor to the ContentView cursor position if available.
     pub fn populate_from_lines(&mut self, lines: &[String], cursor_line: usize, cursor_col: usize) {
+        self.buffer_version += 1;
         let text = lines.join("\n");
         self.rope = Rope::new(&text);
         self.caret = self.rope.line_col_to_char_index(cursor_line, cursor_col);

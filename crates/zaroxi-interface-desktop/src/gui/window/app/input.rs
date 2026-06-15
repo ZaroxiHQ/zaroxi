@@ -268,11 +268,34 @@ fn sync_editor_to_service(app: &mut GuiApp) {
             }
 
             if structural_edit {
-                // Structural edit: line count changed. Full rebuild of the
-                // line array and full cache invalidation to avoid stale
-                // line-indexed entries.
-                let new_lines = app.editor_buffer.lines_expanded();
-                body.lines = new_lines;
+                // Structural edit: line count changed. For large files, use
+                // the incremental range to update only affected lines from
+                // the rope (now O(1) per line). Full rebuild only for small
+                // files or when no incremental range is available.
+                let tab_width = crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH;
+                let incremental_range = app.editor_buffer.last_edit_line_range();
+                let needs_full = incremental_range.is_none() || body.lines.is_empty();
+
+                if needs_full || total <= 5000 {
+                    body.lines = app.editor_buffer.lines_expanded();
+                } else if let Some((first, last_excl)) = incremental_range {
+                    body.lines.resize(total, String::new());
+                    let last = last_excl.min(total + 1);
+                    let mut i = first.min(total.saturating_sub(1));
+                    while i < last {
+                        let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                        let expanded =
+                            crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
+                                &raw, tab_width,
+                            );
+                        if i < body.lines.len() {
+                            body.lines[i] = expanded;
+                        }
+                        i += 1;
+                    }
+                } else {
+                    body.lines = app.editor_buffer.lines_expanded();
+                }
 
                 // Invalidate all per-line caches — indices have shifted.
                 app.cached_editor_data = None;
@@ -348,6 +371,11 @@ fn sync_editor_to_service(app: &mut GuiApp) {
     }
 
     app.editor_buffer.clear_edit_line_range();
+
+    // Schedule background tree-sitter parse for syntax highlighting.
+    // Works for ALL file sizes — the worker processes on a background thread
+    // and never blocks the UI. Stale results are safely discarded.
+    app.schedule_background_parse();
 }
 
 /// Request a redraw for the editor after an editing operation.

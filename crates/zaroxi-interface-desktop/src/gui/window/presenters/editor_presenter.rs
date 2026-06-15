@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use zaroxi_core_editor_rope::Rope;
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::chrome::TabEntry;
 use zaroxi_core_platform_syntax::parser::ParserPool;
@@ -8,24 +9,33 @@ use zaroxi_interface_theme::theme::SemanticColors;
 use super::super::editor::EditorContentData;
 use super::super::syntax_color;
 
+const OVERSCAN_LINES: usize = 20;
+
 pub fn shape_editor_content(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
     parser_pool: &ParserPool,
+    visible_line_range: Option<(usize, usize)>,
+    rope: Option<&Rope>,
 ) -> EditorContentData {
-    shape_editor_content_impl(work_content, sem, parser_pool, false, None, &[], &[])
+    shape_editor_content_impl(
+        work_content,
+        sem,
+        parser_pool,
+        false,
+        None,
+        &[],
+        &[],
+        visible_line_range,
+        rope,
+    )
 }
 
-/// Build EditorContentData with plain uncolored spans — used for large-file
-/// mode to avoid the O(file_size) tree-sitter full-document parse.
-///
-/// In large-file mode editor_spans is set to None so the renderer uses the
-/// cheap non-spans path (line-by-line iteration without per-span allocation).
-/// The editor_body_text still carries the full document text for the renderer
-/// iteration, but O(N) span allocation and O(N) hashing are avoided elsewhere.
 pub fn shape_editor_content_plain(
     work_content: &Option<ShellWorkContent>,
     _sem: &SemanticColors,
+    visible_line_range: Option<(usize, usize)>,
+    rope: Option<&Rope>,
 ) -> EditorContentData {
     let wc = match work_content {
         Some(w) => w,
@@ -33,13 +43,53 @@ pub fn shape_editor_content_plain(
     };
 
     let editor_body = wc.editor_body.as_ref();
+    let total_lines = rope
+        .map(|r| r.line_count())
+        .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
 
-    let editor_body_text =
-        editor_body.map(|cv| cv.lines.join("\n")).unwrap_or_else(|| "No file open".to_string());
+    let (editor_body_text, used_visible_range) = if let Some(r) = rope {
+        if let Some((vis_start, vis_end)) = visible_line_range {
+            let start = vis_start.saturating_sub(OVERSCAN_LINES);
+            let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+            let slice = r.visible_lines(start, end);
+            let range = if slice.is_empty() && start >= total_lines {
+                None
+            } else {
+                Some((start, end.min(total_lines)))
+            };
+            (slice, range)
+        } else {
+            // No visible range: use full text (small file fallback)
+            (r.to_string(), None)
+        }
+    } else {
+        // No rope: fallback to ContentView.lines (backward compat)
+        visible_line_range
+            .map(|(vis_start, vis_end)| {
+                let start = vis_start.saturating_sub(OVERSCAN_LINES);
+                let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+                let slice = editor_body
+                    .map(|cv| {
+                        if start < cv.lines.len() {
+                            cv.lines[start..end.min(cv.lines.len())].join("\n")
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .unwrap_or_default();
+                let range = if slice.is_empty() { None } else { Some((start, end)) };
+                (slice, range)
+            })
+            .unwrap_or_else(|| {
+                let text = editor_body
+                    .map(|cv| cv.lines.join("\n"))
+                    .unwrap_or_else(|| "No file open".to_string());
+                (text, None)
+            })
+    };
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
     let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
-    let total_lines = editor_body.map(|cv| cv.lines.len()).unwrap_or(0);
 
     let body_title = editor_body
         .map(|cv| if cv.title.is_empty() { cv.subtitle.clone() } else { cv.title.clone() })
@@ -58,21 +108,29 @@ pub fn shape_editor_content_plain(
 
     let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
 
+    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_DEBUG_LARGE_FILE: shape_plain visible_range={:?} total={} text_bytes={} has_rope={}",
+            used_visible_range,
+            total_lines,
+            editor_body_text.len(),
+            rope.is_some(),
+        );
+    }
+
     EditorContentData {
         tab_entries,
         breadcrumb_label,
         editor_body_text,
-        editor_spans: None, // non-spans render path — avoids O(N) span alloc
+        editor_spans: None,
         cursor_line,
         cursor_col,
         body_title,
         total_lines,
+        visible_line_range: used_visible_range,
     }
 }
 
-/// Build EditorContentData with incremental per-line syntax caching.
-/// Only lines whose content hash differs from `cached_line_hashes` are
-/// re-colored; other lines reuse spans from `line_syntax_cache`.
 pub fn shape_editor_content_incremental(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
@@ -80,6 +138,8 @@ pub fn shape_editor_content_incremental(
     line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
+    visible_line_range: Option<(usize, usize)>,
+    rope: Option<&Rope>,
 ) -> EditorContentData {
     shape_editor_content_impl(
         work_content,
@@ -89,6 +149,8 @@ pub fn shape_editor_content_incremental(
         Some(line_syntax_cache),
         per_line_hashes,
         cached_line_hashes,
+        visible_line_range,
+        rope,
     )
 }
 
@@ -100,6 +162,8 @@ fn shape_editor_content_impl(
     mut line_syntax_cache: Option<&mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>>,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
+    visible_line_range: Option<(usize, usize)>,
+    rope: Option<&Rope>,
 ) -> EditorContentData {
     let wc = match work_content {
         Some(w) => w,
@@ -107,9 +171,48 @@ fn shape_editor_content_impl(
     };
 
     let editor_body = wc.editor_body.as_ref();
+    let total_lines = rope
+        .map(|r| r.line_count())
+        .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
 
-    let editor_body_text =
-        editor_body.map(|cv| cv.lines.join("\n")).unwrap_or_else(|| "No file open".to_string());
+    let (editor_body_text, used_visible_range) = if let Some(r) = rope {
+        if let Some((vis_start, vis_end)) = visible_line_range {
+            let start = vis_start.saturating_sub(OVERSCAN_LINES);
+            let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+            let slice = r.visible_lines(start, end);
+            let range = if slice.is_empty() && start >= total_lines {
+                None
+            } else {
+                Some((start, end.min(total_lines)))
+            };
+            (slice, range)
+        } else {
+            (r.to_string(), None)
+        }
+    } else {
+        visible_line_range
+            .map(|(vis_start, vis_end)| {
+                let start = vis_start.saturating_sub(OVERSCAN_LINES);
+                let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+                let slice = editor_body
+                    .map(|cv| {
+                        if start < cv.lines.len() {
+                            cv.lines[start..end.min(cv.lines.len())].join("\n")
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .unwrap_or_default();
+                let range = if slice.is_empty() { None } else { Some((start, end)) };
+                (slice, range)
+            })
+            .unwrap_or_else(|| {
+                let text = editor_body
+                    .map(|cv| cv.lines.join("\n"))
+                    .unwrap_or_else(|| "No file open".to_string());
+                (text, None)
+            })
+    };
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
     let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
@@ -151,7 +254,6 @@ fn shape_editor_content_impl(
     };
 
     let breadcrumb_label = wc.editor_breadcrumb.clone().unwrap_or_else(String::new);
-    let total_lines = editor_body.map(|cv| cv.lines.len()).unwrap_or(0);
 
     EditorContentData {
         tab_entries,
@@ -162,5 +264,6 @@ fn shape_editor_content_impl(
         cursor_col,
         body_title,
         total_lines,
+        visible_line_range: used_visible_range,
     }
 }

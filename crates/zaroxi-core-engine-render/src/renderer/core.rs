@@ -817,13 +817,34 @@ impl<'a> Renderer<'a> {
                         // Non-spans path: apply line-level vertical culling
                         // (matches the spans-path behaviour).  clip_y uses
                         // content_y so that per-glyph top-edge culling is
-                        // content_y so that per-glyph top-edge culling is
                         // effective.  Only lines fully within the visible
                         // clip area are queued — partial edge rows are
                         // skipped to prevent glyph clipping artifacts.
+                        //
+                        // Viewport-only rendering: when content_line_offset is
+                        // set, `content` carries only the visible window of
+                        // lines (plus overscan). The offset adjusts cursor_y
+                        // so the first line in `content` starts at the correct
+                        // absolute y-position, matching scroll and cursor
+                        // positioning computed from absolute line numbers.
                         let clip_bottom = content_y + content_h;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
-                        let mut cursor_y = text_y;
+                        let mut cursor_y =
+                            text_y + block.content_line_offset.unwrap_or(0) as f32 * line_h;
+                        let visible_line_start = block.content_line_offset.unwrap_or(0);
+                        if std::env::var("ZAROXI_DEBUG_RENDER_WINDOW").as_deref() == Ok("1") {
+                            let content_byte_count = block.content.len();
+                            let line_count = block.content.lines().count();
+                            eprintln!(
+                                "ZAROXI_DEBUG_RENDER_WINDOW: block={} clip_y={:.1} clip_bottom={:.1} line_start={} content_bytes={} content_lines={}",
+                                block.id,
+                                content_y,
+                                clip_bottom,
+                                visible_line_start,
+                                content_byte_count,
+                                line_count,
+                            );
+                        }
                         for line_str in block.content.lines() {
                             if cursor_y + line_h > clip_bottom {
                                 break;
@@ -1007,6 +1028,17 @@ impl<'a> Renderer<'a> {
             verts.len(),
             total_indices_len
         );
+
+        if std::env::var("ZAROXI_DEBUG_RENDER_WINDOW").as_deref() == Ok("1") {
+            let glyph_count = verts.len() / 4;
+            let quad_count = glyph_count;
+            eprintln!(
+                "ZAROXI_DEBUG_RENDER_WINDOW: final glyph_instances={} panel_quads={} text_quads={}",
+                quad_count,
+                panel_vertex_count as usize / 4,
+                (verts.len() - panel_vertex_count as usize) / 4,
+            );
+        }
 
         // Log final totals (debug only to avoid frame spam)
         if RENDER_DEBUG {

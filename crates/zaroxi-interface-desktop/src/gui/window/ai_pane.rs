@@ -53,6 +53,7 @@ impl AiPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
         }
     }
 
@@ -107,6 +108,7 @@ impl AiPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
         }
     }
 }

@@ -8,6 +8,12 @@
 /// Extended for Phase 27: corner radius, border color/width, and surface role
 /// allow the renderer to produce richer geometry without tying it to
 /// application-layer concepts.
+///
+/// Large-file viewport rendering: when `content_line_offset` is set, the
+/// `content` field carries only the visible window of text lines (plus overscan),
+/// not the full document. The offset tells the renderer the absolute line number
+/// of the first line in `content`, so cursor positioning and scroll-adjustment
+/// remain correct without iterating the full document.
 #[derive(Debug, Clone)]
 pub struct UiBlock {
     pub id: String,
@@ -49,6 +55,12 @@ pub struct UiBlock {
     /// Subtracted from the text y-position when clip_rect is active so that
     /// scrolled-down content becomes visible at the top of the viewport.
     pub content_offset_y: f32,
+    /// Absolute document line number of the first line in `content`.
+    /// When set, `content` is a viewport-only window of lines (not the full
+    /// document). The renderer adjusts its line-y counter so cursor/selection
+    /// and line-highlight positioning remain absolute. When `None`, `content`
+    /// carries the full document text (backward-compatible path).
+    pub content_line_offset: Option<usize>,
 }
 
 use super::core::Rect;

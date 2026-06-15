@@ -28,6 +28,7 @@ and high-level delegation.  Detail lives in:
 */
 
 mod activation;
+pub(crate) mod background_parse;
 pub(crate) mod debug;
 mod editor_interaction;
 mod input;
@@ -132,7 +133,7 @@ pub struct GuiApp {
     pub folder_picker: Option<DynFolderPicker>,
     pub explorer_actions: Option<ExplorerPanelActions>,
     pub explorer_button_rect: Option<(f32, f32, f32, f32)>,
-    pub parser_pool: ParserPool,
+    pub parser_pool: Arc<ParserPool>,
     pub cached_editor_data: Option<crate::gui::window::editor::EditorContentData>,
     pub cached_editor_lines_hash: u64,
     pub layout_controller: ShellLayoutController,
@@ -151,20 +152,24 @@ pub struct GuiApp {
     pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     /// Per-line raw-content fnv hash from the last cache build.
     pub cached_line_hashes: Vec<u64>,
-    /// Whether the current file exceeds large-file thresholds (>5000 lines or >250KB).
+    /// Whether the current file exceeds large-file thresholds (>1000 lines or >100KB).
     /// When true, full-document syntax highlighting is disabled to prevent O(file_size)
-    /// parse perf stalls; only viewport-visible lines are colored.
+    /// parse perf stalls; only viewport-visible lines are rendered.
     pub large_file_mode: bool,
+    /// Monotonically increasing buffer version for background parse snapshots.
+    pub buffer_version: u64,
+    /// Background parse worker for off-thread tree-sitter parsing.
+    pub parse_worker: Option<background_parse::BackgroundParseWorker>,
 }
 
 // ── Large-file thresholds ──
 
 /// Maximum line count before entering large-file mode (skips full-document
 /// syntax highlighting to avoid tree-sitter O(n) parse stalls per keystroke).
-const LARGE_FILE_LINE_THRESHOLD: usize = 5000;
+const LARGE_FILE_LINE_THRESHOLD: usize = 1000;
 
 /// Maximum byte count before entering large-file mode.
-const LARGE_FILE_BYTE_THRESHOLD: usize = 250_000;
+const LARGE_FILE_BYTE_THRESHOLD: usize = 100_000;
 
 impl GuiApp {
     pub fn editor_cursor_line(&self) -> usize {
@@ -206,6 +211,22 @@ impl GuiApp {
                     body.lines.iter().map(|l| l.len()).sum::<usize>(),
                 );
             }
+
+            // Spawn background parse worker for off-thread syntax highlighting.
+            if self.parse_worker.is_none() {
+                self.parse_worker = Some(background_parse::BackgroundParseWorker::spawn(
+                    Arc::clone(&self.parser_pool),
+                ));
+            }
+            // Schedule initial background syntax parse.
+            if let Some(ref mut worker) = self.parse_worker {
+                let text = self.editor_buffer.to_string();
+                worker.schedule_parse(background_parse::BufferSnapshot {
+                    version: self.editor_buffer.buffer_version,
+                    text,
+                    language: zaroxi_core_platform_syntax::language::LanguageId::Rust,
+                });
+            }
         }
         self.work_content = Some(wc);
     }
@@ -219,6 +240,28 @@ impl GuiApp {
         }
         let byte_count: usize = lines.iter().map(|l| l.len() + 1).sum();
         byte_count > LARGE_FILE_BYTE_THRESHOLD
+    }
+
+    /// Schedule a background tree-sitter parse with the current buffer version.
+    /// Called after every edit. The worker processes on a background thread
+    /// and does not block the UI. Language detection is hardcoded to Rust for now.
+    pub(crate) fn schedule_background_parse(&mut self) {
+        if let Some(ref mut worker) = self.parse_worker {
+            let text = self.editor_buffer.to_string();
+            let lang = zaroxi_core_platform_syntax::language::LanguageId::Rust;
+            if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_PARSE_PIPELINE: schedule v={} text_bytes={}",
+                    self.editor_buffer.buffer_version,
+                    text.len(),
+                );
+            }
+            worker.schedule_parse(background_parse::BufferSnapshot {
+                version: self.editor_buffer.buffer_version,
+                text,
+                language: lang,
+            });
+        }
     }
 }
 
@@ -399,12 +442,7 @@ impl GuiApp {
                     if (id == WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR })
                         && offset_delta.abs() > 0.0001
                     {
-                        let total_lines = self
-                            .work_content
-                            .as_ref()
-                            .and_then(|w| w.editor_body.as_ref())
-                            .map(|cv| cv.lines.len().max(1))
-                            .unwrap_or(1) as f32;
+                        let total_lines = self.editor_buffer.line_count().max(1) as f32;
                         let visible = self
                             .editor_viewport
                             .as_ref()
@@ -815,12 +853,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // to avoid a stale value from a previous file.
                     if let Some(ref comp) = self.composition {
                         if let Some(ref meta) = comp.metadata {
-                            let total_lines = self
-                                .work_content
-                                .as_ref()
-                                .and_then(|w| w.editor_body.as_ref())
-                                .map(|cv| cv.lines.len())
-                                .unwrap_or(0);
+                            let total_lines = self.editor_buffer.line_count();
                             let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
                             let max_scroll = total_lines.saturating_sub(visible).max(1) as f32;
                             let norm_offset = (meta.editor_scroll_top_line as f32
@@ -876,12 +909,7 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     // Fix editor scrollbar thumb height to match actual content ratio.
                     let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                    let total_lines = self
-                        .work_content
-                        .as_ref()
-                        .and_then(|w| w.editor_body.as_ref())
-                        .map(|cv| cv.lines.len().max(1))
-                        .unwrap_or(1);
+                    let total_lines = self.editor_buffer.line_count().max(1);
                     let visible = self
                         .editor_viewport
                         .as_ref()
@@ -988,6 +1016,23 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.shell.regions = shell_regions.to_vec();
                     self.shell.size = *self.layout_controller.size();
 
+                    // Compute visible line range for viewport-only rendering.
+                    let editor_region = crate::gui::region_dispatch::find_region_by_role(
+                        shell_regions,
+                        zaroxi_core_engine_style::PanelRole::ContentArea,
+                    );
+                    let editor_visible_lines = editor_region
+                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
+                        .unwrap_or(1);
+                    let visible_line_range: Option<(usize, usize)> =
+                        self.composition.as_ref().and_then(|comp| comp.metadata.as_ref()).map(
+                            |meta| {
+                                let scroll_top = meta.editor_scroll_top_line;
+                                let scroll_end = scroll_top + editor_visible_lines;
+                                (scroll_top, scroll_end.max(scroll_top + 1))
+                            },
+                        );
+
                     let editor_data = render_state::prepare_editor_data(
                         &self.shell.work_content,
                         &mut self.cached_editor_data,
@@ -997,6 +1042,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
                         self.large_file_mode,
+                        visible_line_range,
+                        Some(self.editor_buffer.rope()),
                     );
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
@@ -1027,21 +1074,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|(x, y, w, h)| format!("({:.0},{:.0},{:.0}x{:.0})", x, y, w, h))
                     );
 
-                    let editor_total_lines = self
-                        .shell
-                        .work_content
-                        .as_ref()
-                        .and_then(|wc| wc.editor_body.as_ref())
-                        .map(|cv| cv.lines.len())
-                        .unwrap_or(0);
+                    let editor_total_lines = self.editor_buffer.line_count();
                     let line_h = 16.0f32;
-                    let editor_region = crate::gui::region_dispatch::find_region_by_role(
-                        shell_regions,
-                        zaroxi_core_engine_style::PanelRole::ContentArea,
-                    );
-                    let editor_visible_lines = editor_region
-                        .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
-                        .unwrap_or(1);
 
                     if let Some(ref mut comp) = self.composition {
                         comp.set_editor_viewport_lines(editor_visible_lines);
@@ -1079,6 +1113,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         editor_scroll_offset,
                     );
                     render_blocks.extend(scroll_blocks);
+
+                    // Poll background parse worker for completed results.
+                    if let Some(ref mut worker) = self.parse_worker {
+                        let _ = worker.poll_result();
+                    }
 
                     // ── Scrollbar hover/active state bridging ──
                     if let Some(ref tree) = self.widget_tree {

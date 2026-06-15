@@ -103,6 +103,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
 
             blocks.push(UiBlock {
@@ -131,6 +132,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
         }
     }
@@ -170,6 +172,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
 
             blocks.push(UiBlock {
@@ -198,6 +201,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
         }
     }
@@ -237,6 +241,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
 
             blocks.push(UiBlock {
@@ -265,6 +270,7 @@ pub fn compute_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
         }
     }
@@ -328,6 +334,7 @@ pub fn extract_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
             blocks.push(UiBlock {
                 id: "scrollbar_thumb".to_string(),
@@ -355,6 +362,7 @@ pub fn extract_scrollbar_blocks(
                 clip_rect: None,
                 content_offset_x: 0.0,
                 content_offset_y: 0.0,
+                content_line_offset: None,
             });
         }
     }

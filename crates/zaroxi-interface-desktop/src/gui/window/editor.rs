@@ -14,6 +14,10 @@ use zaroxi_core_engine_ui::chrome::TabEntry;
 pub struct EditorContentData {
     pub tab_entries: Vec<TabEntry>,
     pub breadcrumb_label: String,
+    /// Viewport window of visible lines joined by '\n' (plus overscan above/below).
+    /// For small files this may be the full document; for large files it is
+    /// restricted to `visible_line_start..visible_line_end` to avoid O(file_size)
+    /// string materialization on the render hot path.
     pub editor_body_text: String,
     pub editor_spans: Option<Vec<(String, [f32; 4])>>,
     pub cursor_line: usize,
@@ -22,6 +26,10 @@ pub struct EditorContentData {
     /// Total logical line count (0-based count of lines in the document).
     /// Used for gutter numbering; avoids O(N) line-counting from `editor_body_text`.
     pub total_lines: usize,
+    /// When set, `editor_body_text` contains only lines in [start, end) (plus
+    /// a small overscan). `content_line_offset` on the render block tells the
+    /// renderer the absolute line number of the first line in the visible slice.
+    pub visible_line_range: Option<(usize, usize)>,
 }
 
 impl Default for EditorContentData {
@@ -35,6 +43,7 @@ impl Default for EditorContentData {
             cursor_col: 0,
             body_title: String::new(),
             total_lines: 0,
+            visible_line_range: None,
         }
     }
 }
@@ -78,6 +87,7 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
         }
     }
 
@@ -114,6 +124,7 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
         }
     }
 
@@ -149,6 +160,7 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: data.visible_line_range.map(|(start, _)| start),
             text_color: None,
         }
     }
@@ -192,6 +204,7 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
             text_color: None,
         }
     }
@@ -239,6 +252,7 @@ impl EditorPanel {
             clip_rect: None,
             content_offset_x: 0.0,
             content_offset_y: 0.0,
+            content_line_offset: None,
         }
     }
 }

@@ -3,7 +3,8 @@
 //! The `Rope` supports:
 //! - O(1) construction from a `String`
 //! - O(log n) insert, delete, replace at character indices
-//! - Line/column conversion
+//! - O(1) line-start lookup via `line_starts` index
+//! - O(log L) char→line/col via binary search
 //! - Iteration over lines or characters
 //!
 //! All positions are in **characters** (UTF-32 code points), not bytes.
@@ -40,6 +41,10 @@ pub struct Rope {
     total_chars: usize,
     /// Cached total line count (1-based: empty rope == 1 line).
     total_lines: usize,
+    /// Cumulative character offsets where each logical line starts.
+    /// `line_starts[0] == 0`, `line_starts.len() == total_lines`.
+    /// Maintained incrementally on insert/delete for O(1) line lookup.
+    line_starts: Vec<usize>,
 }
 
 impl Rope {
@@ -47,6 +52,15 @@ impl Rope {
     pub fn new(text: &str) -> Self {
         let char_count = text.chars().count();
         let line_count = text.chars().filter(|&c| c == '\n').count() + 1;
+        let mut line_starts = Vec::with_capacity(line_count);
+        line_starts.push(0);
+        let mut ci = 0usize;
+        for c in text.chars() {
+            ci += 1;
+            if c == '\n' && ci < char_count + 1 {
+                line_starts.push(ci);
+            }
+        }
         let piece = Piece { source: None, byte_range: 0..text.len(), char_count, line_count };
         Self {
             original: text.to_string(),
@@ -54,6 +68,7 @@ impl Rope {
             pieces: vec![piece],
             total_chars: char_count,
             total_lines: line_count,
+            line_starts,
         }
     }
 
@@ -91,6 +106,87 @@ impl Rope {
         }
     }
 
+    /// Substring of the rope from `start` to `end` character indices.
+    /// Used for efficient line extraction with the line-starts index.
+    pub fn substring_range(&self, start: usize, end: usize) -> String {
+        let start = start.min(self.total_chars);
+        let end = end.min(self.total_chars);
+        if start >= end {
+            return String::new();
+        }
+        let mut chars_seen = 0usize;
+        let cap = end - start;
+        let mut out = String::with_capacity(cap);
+        for piece in &self.pieces {
+            let piece_len = piece.char_count;
+            if chars_seen + piece_len <= start {
+                chars_seen += piece_len;
+                continue;
+            }
+            if chars_seen >= end {
+                break;
+            }
+            let src: &str = match piece.source {
+                None => &self.original,
+                Some(idx) => &self.inserts[idx],
+            };
+            let sub = &src[piece.byte_range.clone()];
+            for c in sub.chars() {
+                if chars_seen >= end {
+                    break;
+                }
+                if chars_seen >= start {
+                    out.push(c);
+                }
+                chars_seen += 1;
+            }
+        }
+        out
+    }
+
+    /// Return characters in `[start_char..start_char+count)`.
+    pub fn extract_chars(&self, start_char: usize, count: usize) -> String {
+        self.substring_range(start_char, start_char + count)
+    }
+
+    /// Return joined text of lines `[line_start_idx..line_end_idx)`.
+    pub fn visible_lines(&self, line_start_idx: usize, line_end_idx: usize) -> String {
+        let start = line_start_idx.min(self.total_lines);
+        let end = line_end_idx.min(self.total_lines);
+        if start >= end {
+            return String::new();
+        }
+        let char_start = self.line_starts.get(start).copied().unwrap_or(self.total_chars);
+        let char_end = self.line_starts.get(end).copied().unwrap_or(self.total_chars);
+        let out = self.substring_range(char_start, char_end);
+        if out.ends_with('\n') {
+            let mut s = out;
+            s.pop();
+            s
+        } else {
+            out
+        }
+    }
+
+    /// Return the iterable count of visible lines (for tab-expanded display).
+    pub fn lines_expanded_iter(&self) -> Vec<String> {
+        (0..self.total_lines).filter_map(|li| self.line(li)).collect()
+    }
+
+    /// Build line_starts from scratch by scanning all characters.
+    fn rebuild_line_starts(&mut self) {
+        self.line_starts.clear();
+        self.line_starts.push(0);
+        let mut ci = 0usize;
+        let text = self.to_string();
+        for c in text.chars() {
+            ci += 1;
+            if c == '\n' {
+                self.line_starts.push(ci);
+            }
+        }
+    }
+
     /// Insert `text` at the given character index.
     ///
     /// If `char_index` is beyond the end of the rope, text is appended.
@@ -120,7 +216,22 @@ impl Rope {
         }
 
         self.total_chars += insert_chars;
+        let old_line_count = self.total_lines;
         self.total_lines += insert_lines;
+
+        if insert_lines == 0 && old_line_count == self.total_lines {
+            // Content-only edit: shift line_starts entries after insertion point
+            let ins_line = match self.line_starts.binary_search(&char_index) {
+                Ok(l) => l,
+                Err(l) => l.saturating_sub(1),
+            };
+            for ls in &mut self.line_starts[ins_line + 1..] {
+                *ls += insert_chars;
+            }
+        } else {
+            // Structural edit: rebuild line_starts from scratch
+            self.rebuild_line_starts();
+        }
     }
 
     /// Delete characters in the range `[start, end)` (character indices).
@@ -163,7 +274,23 @@ impl Rope {
         }
 
         self.total_chars -= removed_chars;
+        let old_line_count = self.total_lines;
         self.total_lines -= removed_lines;
+        let remove_len = removed_chars;
+
+        if removed_lines == 0 && old_line_count == self.total_lines + removed_lines {
+            // Content-only delete: shift line_starts entries after deletion point
+            let del_line = match self.line_starts.binary_search(&start) {
+                Ok(l) => l,
+                Err(l) => l.saturating_sub(1),
+            };
+            for ls in &mut self.line_starts[del_line + 1..] {
+                *ls = ls.saturating_sub(remove_len);
+            }
+        } else {
+            // Structural edit: rebuild line_starts from scratch
+            self.rebuild_line_starts();
+        }
     }
 
     /// Replace characters in `[start, end)` with `text` (equivalent to delete + insert).
@@ -194,102 +321,74 @@ impl Rope {
         None
     }
 
-    /// Get a line by 0-based index. Returns None if the line index is out of range.
+    /// Get a line by 0-based index using the line_starts index.  O(line_length).
     pub fn line(&self, line_index: usize) -> Option<String> {
         if line_index >= self.total_lines {
             return None;
         }
-        let mut current_line = 0usize;
-        let mut buf = String::new();
-        let total = self.total_chars;
-        for ci in 0..=total {
-            let c = if ci == total { Some('\n') } else { self.char_at(ci) };
-            match c {
-                Some('\n') => {
-                    if current_line == line_index {
-                        return Some(buf);
-                    }
-                    current_line += 1;
-                    buf.clear();
-                }
-                Some(ch) => {
-                    if current_line == line_index {
-                        buf.push(ch);
-                    }
-                }
-                None => break,
-            }
+        let start = self.line_starts.get(line_index).copied().unwrap_or(self.total_chars);
+        let end = if line_index + 1 < self.total_lines {
+            self.line_starts[line_index + 1]
+        } else {
+            self.total_chars
+        };
+        let mut s = self.substring_range(start, end);
+        if s.ends_with('\n') {
+            s.pop();
         }
-        if current_line == line_index {
-            return Some(buf);
-        }
-        None
+        Some(s)
     }
 
-    /// Get the start character index of the given line.
+    /// Get the start character index of the given line.  O(1).
     pub fn line_start(&self, line_index: usize) -> Option<usize> {
-        if line_index == 0 {
-            return Some(0);
-        }
+        self.line_starts.get(line_index).copied()
+    }
+
+    /// Get the end character index of the given line.  O(1).
+    pub fn line_end(&self, line_index: usize) -> Option<usize> {
         if line_index >= self.total_lines {
             return None;
         }
-        let mut li = 0usize;
-        for ci in 0..self.total_chars {
-            if li == line_index {
-                return Some(ci);
-            }
-            if let Some('\n') = self.char_at(ci) {
-                li += 1;
-            }
-        }
-        if li == line_index {
-            return Some(self.total_chars);
-        }
-        None
-    }
-
-    /// Get the length (in characters) of line `line_index`.
-    pub fn line_length(&self, line_index: usize) -> usize {
-        let start = self.line_start(line_index).unwrap_or(0);
-        let next = self.line_start(line_index + 1).unwrap_or(self.total_chars);
-        if next > start && line_index + 1 <= self.total_lines {
-            // Exclude the trailing newline
-            if next > start && self.char_at(next.saturating_sub(1)) == Some('\n') {
-                next.saturating_sub(1).saturating_sub(start)
-            } else {
-                next.saturating_sub(start)
-            }
+        if line_index + 1 < self.total_lines {
+            Some(self.line_starts[line_index + 1])
         } else {
-            0
+            Some(self.total_chars)
         }
     }
 
-    /// Convert a character index to (line, column).
+    /// Get the length (in characters) of line `line_index`.  O(1).
+    pub fn line_length(&self, line_index: usize) -> usize {
+        let start = self.line_starts.get(line_index).copied().unwrap_or(self.total_chars);
+        let end = if line_index + 1 < self.total_lines {
+            self.line_starts[line_index + 1]
+        } else {
+            self.total_chars
+        };
+        let len = end.saturating_sub(start);
+        if end > start && end >= 1 && len > 0 {
+            let text = self.substring_range(end.saturating_sub(1), end);
+            if text == "\n" { len.saturating_sub(1) } else { len }
+        } else {
+            len
+        }
+    }
+
+    /// Convert a character index to (line, column).  O(log L) via binary search.
     pub fn char_index_to_line_col(&self, char_index: usize) -> (usize, usize) {
         let idx = char_index.min(self.total_chars);
-        let mut line = 0usize;
-        let mut col = 0usize;
-        for ci in 0..idx {
-            match self.char_at(ci) {
-                Some('\n') => {
-                    line += 1;
-                    col = 0;
-                }
-                Some(_) => {
-                    col += 1;
-                }
-                None => break,
-            }
-        }
+        let line = match self.line_starts.binary_search(&idx) {
+            Ok(l) => l,
+            Err(l) => l.saturating_sub(1),
+        };
+        let col = idx.saturating_sub(self.line_starts[line]);
         (line, col)
     }
 
-    /// Convert (line, column) to a character index.
+    /// Convert (line, column) to a character index.  O(1).
     /// Line/column are clamped to valid ranges.
     pub fn line_col_to_char_index(&self, line: usize, col: usize) -> usize {
         let line = line.min(self.total_lines.saturating_sub(1));
-        let start = self.line_start(line).unwrap_or(0);
+        let start = self.line_starts.get(line).copied().unwrap_or(0);
         let line_len = self.line_length(line);
         let col = col.min(line_len);
         start + col

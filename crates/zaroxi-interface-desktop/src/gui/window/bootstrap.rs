@@ -77,7 +77,7 @@ pub fn run_shell_window(
         folder_picker,
         explorer_actions,
         explorer_button_rect: None,
-        parser_pool: zaroxi_core_platform_syntax::parser::ParserPool::new(),
+        parser_pool: Arc::new(zaroxi_core_platform_syntax::parser::ParserPool::new()),
         cached_editor_data: None,
         cached_editor_lines_hash: 0,
         layout_controller: super::editor_shell::ShellLayoutController::new(),
@@ -94,6 +94,8 @@ pub fn run_shell_window(
         line_syntax_cache: std::collections::HashMap::new(),
         cached_line_hashes: Vec::new(),
         large_file_mode: false,
+        buffer_version: 0,
+        parse_worker: None,
     };
 
     let run_result = event_loop.run_app(&mut app);
