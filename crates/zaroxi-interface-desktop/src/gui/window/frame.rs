@@ -388,8 +388,12 @@ pub fn compose_blocks(
                 explorer_cta_rect = sidebar.cta_hit_rect;
             }
             PanelRole::GutterLane => {
-                let line_count = ctx.editor_data.total_lines.max(1);
-                blocks.push(EditorPanel::build_gutter_block(r, tokens, line_count));
+                blocks.push(EditorPanel::build_gutter_block(
+                    r,
+                    tokens,
+                    ctx.editor_data.total_lines,
+                    ctx.editor_data.visible_line_range,
+                ));
             }
             PanelRole::ContentTabStrip => {
                 blocks.push(EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data));

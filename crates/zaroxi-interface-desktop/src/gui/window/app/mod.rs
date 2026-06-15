@@ -275,12 +275,12 @@ impl GuiApp {
     ///   entire document into the mpsc channel for every keystroke, which is
     ///   both wasteful and adds latency to the UI thread.
     pub(crate) fn schedule_background_parse(&mut self) {
-        if self.is_huge_file() {
+        let total_lines = self.editor_buffer.line_count();
+        if total_lines > HUGE_FILE_LINE_THRESHOLD {
             if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                let total = self.editor_buffer.line_count();
                 eprintln!(
                     "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse SKIPPED (huge_file={} lines)",
-                    total,
+                    total_lines,
                 );
             }
             return;

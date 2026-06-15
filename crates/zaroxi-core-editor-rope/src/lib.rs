@@ -54,6 +54,7 @@ pub struct Rope {
 impl Rope {
     /// Create a new rope from the given text.
     pub fn new(text: &str) -> Self {
+        let start_time = std::time::Instant::now();
         let char_count = text.chars().count();
         let line_count = text.chars().filter(|&c| c == '\n').count() + 1;
         let mut line_starts = Vec::with_capacity(line_count);
@@ -64,6 +65,13 @@ impl Rope {
             if c == '\n' && ci < char_count + 1 {
                 line_starts.push(ci);
             }
+        }
+        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+            let elapsed_us = start_time.elapsed().as_micros();
+            eprintln!(
+                "ZAROXI_DEBUG_LARGE_FILE: Rope::new chars={} lines={} duration_us={}",
+                char_count, line_count, elapsed_us,
+            );
         }
         let piece = Piece { source: None, byte_range: 0..text.len(), char_count, line_count };
         Self {

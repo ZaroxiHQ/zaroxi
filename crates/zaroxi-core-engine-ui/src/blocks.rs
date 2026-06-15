@@ -95,3 +95,54 @@ pub fn make_gutter_block(
         content_line_offset: None,
     }
 }
+
+/// Build a windowed gutter block containing only line numbers in
+/// `[start+1 .. end+1]` (1-based from 0-based inputs).  The block
+/// carries `content_line_offset = Some(start)` so the renderer can
+/// compute the correct absolute y-coordinate for each line without
+/// iterating through the entire document.
+///
+/// `total_lines` is the full document size (for width calculation
+/// and bounds clamping); only the window `[start, end)` is built.
+pub fn make_gutter_block_windowed(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    total_lines: usize,
+    start: usize,
+    end: usize,
+    tokens: &StyleTokens,
+) -> UiBlock {
+    let model = GutterModel::new(w as u32);
+    let end = end.min(total_lines);
+    let start = start.min(end);
+    let gutter_text: String = (start + 1..=end)
+        .map(|n| model.line_number_string(n as u32))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    UiBlock {
+        id: "gutter_lane".to_string(),
+        title: String::new(),
+        content: gutter_text,
+        visible: true,
+        rect: zaroxi_core_engine_render::Rect { x, y, w, h },
+        header_color: Some(tokens.editor_gutter_bg.to_array()),
+        content_color: Some(tokens.editor_gutter_bg.to_array()),
+        corner_radius: 0.0,
+        border_color: None,
+        border_width: 0.0,
+        header_only: false,
+        content_spans: None,
+        cursor_line: None,
+        cursor_col: None,
+        highlight_active_line: false,
+        selection_range: None,
+        text_color: Some(tokens.text_faint.to_array()),
+        clip_rect: None,
+        content_offset_x: 0.0,
+        content_offset_y: 0.0,
+        content_line_offset: Some(start),
+    }
+}

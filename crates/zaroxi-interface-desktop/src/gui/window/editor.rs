@@ -171,18 +171,37 @@ impl EditorPanel {
         }
     }
 
-    /// Build a gutter block that carries the full document line-number model.
-    /// The renderer scrolls it via `content_offset_y` (set by the RedrawRequested
-    /// handler) so only the visible window appears on screen.
-    pub fn build_gutter_block(r: &ShellRegion, tokens: &StyleTokens, line_count: usize) -> UiBlock {
-        zaroxi_core_engine_ui::blocks::make_gutter_block(
-            r.rect.x as f32,
-            r.rect.y as f32,
-            r.rect.width as f32,
-            r.rect.height as f32,
-            line_count,
-            tokens,
-        )
+    /// Build a gutter block. When `visible_range` is set, only the
+    /// line numbers within that window are materialised, and the block
+    /// carries `content_line_offset` for absolute y-positioning so the
+    /// renderer does not iterate through the full document.
+    pub fn build_gutter_block(
+        r: &ShellRegion,
+        tokens: &StyleTokens,
+        total_lines: usize,
+        visible_range: Option<(usize, usize)>,
+    ) -> UiBlock {
+        if let Some((start, end)) = visible_range {
+            zaroxi_core_engine_ui::blocks::make_gutter_block_windowed(
+                r.rect.x as f32,
+                r.rect.y as f32,
+                r.rect.width as f32,
+                r.rect.height as f32,
+                total_lines,
+                start,
+                end,
+                tokens,
+            )
+        } else {
+            zaroxi_core_engine_ui::blocks::make_gutter_block(
+                r.rect.x as f32,
+                r.rect.y as f32,
+                r.rect.width as f32,
+                r.rect.height as f32,
+                total_lines.max(1),
+                tokens,
+            )
+        }
     }
 
     pub fn build_minimap_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
