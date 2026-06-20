@@ -595,8 +595,28 @@ impl TextRenderer for CosmicTextRenderer {
             let font_size_physical = cmd.size * device_scale;
             let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut *fs, metrics);
-            let mut attrs = Attrs::new();
-            buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
+            let attrs = Attrs::new();
+            if let Some(ref runs) = cmd.color_runs {
+                // Shape the whole logical line as ONE buffer with per-run color
+                // attributes: continuous advances/baseline, syntax colors via
+                // each glyph's `color_opt`.
+                let spans: Vec<(&str, Attrs)> = runs
+                    .iter()
+                    .filter(|(t, _)| !t.is_empty())
+                    .map(|(t, c)| {
+                        let col = cosmic_text::Color::rgba(
+                            (c[0] * 255.0).round() as u8,
+                            (c[1] * 255.0).round() as u8,
+                            (c[2] * 255.0).round() as u8,
+                            (c[3] * 255.0).round() as u8,
+                        );
+                        (t.as_str(), Attrs::new().color(col))
+                    })
+                    .collect();
+                buf.set_rich_text(spans, &attrs, Shaping::Advanced, None);
+            } else {
+                buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
+            }
 
             // Compute command-level physical origin and apply snapping consistently per command.
             let snap_enabled =
@@ -682,6 +702,20 @@ impl TextRenderer for CosmicTextRenderer {
             let mut rep_dumped: usize = 0;
             for idx in 0..plen {
                 let (layout_g, layout_x, layout_y, cache_key) = physicals[idx].clone();
+                // Per-glyph color: prefer the color attribute carried by the
+                // glyph (set via rich-text spans for syntax highlighting),
+                // falling back to the command-level color for plain text.
+                let glyph_color: [f32; 4] = layout_g
+                    .color_opt
+                    .map(|c| {
+                        [
+                            c.r() as f32 / 255.0,
+                            c.g() as f32 / 255.0,
+                            c.b() as f32 / 255.0,
+                            c.a() as f32 / 255.0,
+                        ]
+                    })
+                    .unwrap_or(cmd.color);
                 let cache_key_bits = crate::renderer::text_atlas::cache_key_to_u64(&cache_key);
                 let next_layout_x_opt =
                     if idx + 1 < plen { Some(physicals[idx + 1].1) } else { None };
@@ -705,7 +739,7 @@ impl TextRenderer for CosmicTextRenderer {
                             height: h as f32,
                             uv0: (entry.u0, entry.v0),
                             uv1: (entry.u1, entry.v1),
-                            color: cmd.color,
+                            color: glyph_color,
                         });
                         let ratio_w = (w as f32) / (entry.width as f32);
                         let ratio_h = (h as f32) / (entry.height as f32);
@@ -809,7 +843,7 @@ impl TextRenderer for CosmicTextRenderer {
                             height: h as f32,
                             uv0: (entry.u0, entry.v0),
                             uv1: (entry.u1, entry.v1),
-                            color: cmd.color,
+                            color: glyph_color,
                         });
                         // update scale ratio tracking: onscreen (w) vs atlas (entry.width)
                         let ratio_w = (w as f32) / (entry.width as f32);
@@ -994,7 +1028,7 @@ impl TextRenderer for CosmicTextRenderer {
                                     height: glyph.height as f32,
                                     uv0: (entry.u0, entry.v0),
                                     uv1: (entry.u1, entry.v1),
-                                    color: cmd.color,
+                                    color: glyph_color,
                                 });
 
                                 // update scale ratio tracking: onscreen (glyph.width) vs atlas (entry.width)

@@ -12,6 +12,29 @@ use zaroxi_core_platform_syntax::parser::ParserPool;
 /// slow to be useful and we drop the snapshot without parsing.
 const MAX_PARSE_TEXT_BYTES: usize = 100_000;
 
+/// Parse `text` with `language` and return highlight spans, or an empty vector
+/// when the language is plain text, the grammar is unavailable, parsing fails,
+/// or the text exceeds the parse budget.
+///
+/// Shared by the background worker and the synchronous first-paint highlight on
+/// file open. The compiled query is cached process-wide (see
+/// `HighlightEngine`), so repeated calls are cheap.
+pub fn compute_spans(pool: &ParserPool, language: LanguageId, text: &str) -> Vec<HighlightSpan> {
+    if language == LanguageId::PlainText || text.len() > MAX_PARSE_TEXT_BYTES {
+        return Vec::new();
+    }
+    let mut parser = match pool.acquire(&language) {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let spans = match parser.parse(text, None) {
+        Some(tree) => HighlightEngine::new().highlight(language, text, &tree).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    pool.release(&language, parser);
+    spans
+}
+
 /// An immutable snapshot of the buffer at a specific version.
 #[derive(Clone)]
 pub struct BufferSnapshot {

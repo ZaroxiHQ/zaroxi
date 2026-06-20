@@ -737,15 +737,12 @@ impl<'a> Renderer<'a> {
                     if let Some(ref spans) = block.content_spans {
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let clip_bottom = content_y + content_h;
-                        let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
                         // Honor content_line_offset symmetrically with the plain
                         // path so a viewport-windowed span list lands at the
                         // correct absolute y (content_offset_y applies scroll).
                         let mut cursor_y =
                             text_y + block.content_line_offset.unwrap_or(0) as f32 * line_h;
                         // Fast-forward through spans for lines entirely above the clip area.
-                        // This avoids O(total_lines) work during scroll when only the
-                        // visible subset matters.
                         let mut ff_y = cursor_y;
                         let mut ff_idx: usize = 0;
                         while ff_y < content_y && ff_idx < spans.len() {
@@ -760,39 +757,56 @@ impl<'a> Renderer<'a> {
                         } else {
                             spans.as_slice()
                         };
-                        // Emit each colored segment as its own draw command at the
-                        // correct monospace column so multiple colors per line are
-                        // preserved.  Only lines whose full height fits the clip area
-                        // are drawn (avoids glyph-edge artifacts at the boundaries).
-                        let mut col_chars: usize = 0;
+                        // Accumulate each line's colored runs and shape the whole
+                        // line as ONE continuous buffer (per-run colors), keeping
+                        // normal editor-text layout. Only fully-visible lines are
+                        // drawn (avoids glyph-edge artifacts at the boundaries).
+                        let mut line_runs: Vec<(String, [f32; 4])> = Vec::new();
                         for (span_text, span_color) in effective_spans {
                             if span_text == "\n" {
+                                let line_visible =
+                                    cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                                if line_visible && !line_runs.is_empty() {
+                                    self.text_renderer.queue_text(
+                                        crate::renderer::text::TextCommand::new_body_runs(
+                                            std::mem::take(&mut line_runs),
+                                            text_x,
+                                            cursor_y,
+                                            DEFAULT_FONT_SIZE,
+                                            clip_x,
+                                            content_y,
+                                            clip_w,
+                                            content_h,
+                                        ),
+                                    );
+                                } else {
+                                    line_runs.clear();
+                                }
                                 cursor_y += line_h;
-                                col_chars = 0;
                                 if cursor_y + line_h > clip_bottom {
                                     break;
                                 }
                                 continue;
                             }
-                            let line_visible =
-                                cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
-                            if line_visible && !span_text.is_empty() {
-                                let seg_x = text_x + col_chars as f32 * char_w;
-                                self.text_renderer.queue_text(
-                                    crate::renderer::text::TextCommand::new_body(
-                                        span_text,
-                                        seg_x,
-                                        cursor_y,
-                                        *span_color,
-                                        DEFAULT_FONT_SIZE,
-                                        clip_x,
-                                        content_y,
-                                        clip_w,
-                                        content_h,
-                                    ),
-                                );
+                            if !span_text.is_empty() {
+                                line_runs.push((span_text.clone(), *span_color));
                             }
-                            col_chars += span_text.chars().count();
+                        }
+                        let last_visible =
+                            cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                        if last_visible && !line_runs.is_empty() {
+                            self.text_renderer.queue_text(
+                                crate::renderer::text::TextCommand::new_body_runs(
+                                    line_runs,
+                                    text_x,
+                                    cursor_y,
+                                    DEFAULT_FONT_SIZE,
+                                    clip_x,
+                                    content_y,
+                                    clip_w,
+                                    content_h,
+                                ),
+                            );
                         }
                     } else {
                         // Non-spans path: apply line-level vertical culling
@@ -1878,9 +1892,6 @@ fn render_frame_inner(
                 if let Some(ref spans) = block.content_spans {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let clip_bottom = content_y + content_h;
-                    // Monospace advance for per-segment horizontal positioning
-                    // (matches the cursor/selection column math below).
-                    let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
                     // Honor content_line_offset symmetrically with the plain
                     // path so a viewport-windowed span list (whose first run is
                     // absolute line `content_line_offset`) lands at the correct
@@ -1905,37 +1916,57 @@ fn render_frame_inner(
                         spans.as_slice()
                     };
 
-                    // Emit each colored segment as its own draw command at the
-                    // correct monospace column so multiple colors per line are
-                    // preserved (the previous implementation concatenated a whole
-                    // line into one buffer and drew it with a single color).
-                    let mut col_chars: usize = 0;
+                    // Accumulate each logical line's colored runs and shape the
+                    // whole line as ONE continuous buffer (per-run colors via
+                    // rich-text attrs). This preserves syntax colors while
+                    // keeping normal continuous editor-text layout — no
+                    // per-segment positioning, no advance drift.
+                    let mut line_runs: Vec<(String, [f32; 4])> = Vec::new();
                     for (span_text, span_color) in effective_spans {
                         if span_text == "\n" {
+                            let line_visible =
+                                cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                            if line_visible && !line_runs.is_empty() {
+                                text_renderer.queue_text(
+                                    crate::renderer::text::TextCommand::new_body_runs(
+                                        std::mem::take(&mut line_runs),
+                                        text_x,
+                                        cursor_y,
+                                        DEFAULT_FONT_SIZE,
+                                        clip_x,
+                                        content_y,
+                                        clip_w,
+                                        content_h,
+                                    ),
+                                );
+                            } else {
+                                line_runs.clear();
+                            }
                             cursor_y += line_h;
-                            col_chars = 0;
                             if cursor_y + line_h > clip_bottom {
                                 break;
                             }
                             continue;
                         }
-                        let line_visible =
-                            cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
-                        if line_visible && !span_text.is_empty() {
-                            let seg_x = text_x + col_chars as f32 * char_w;
-                            text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                                span_text,
-                                seg_x,
+                        if !span_text.is_empty() {
+                            line_runs.push((span_text.clone(), *span_color));
+                        }
+                    }
+                    // Flush a trailing line not terminated by "\n".
+                    let last_visible = cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                    if last_visible && !line_runs.is_empty() {
+                        text_renderer.queue_text(
+                            crate::renderer::text::TextCommand::new_body_runs(
+                                line_runs,
+                                text_x,
                                 cursor_y,
-                                *span_color,
                                 DEFAULT_FONT_SIZE,
                                 clip_x,
                                 content_y,
                                 clip_w,
                                 content_h,
-                            ));
-                        }
-                        col_chars += span_text.chars().count();
+                            ),
+                        );
                     }
                 } else {
                     let clip_bottom = content_y + content_h;

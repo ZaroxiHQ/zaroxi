@@ -43,6 +43,12 @@ pub struct TextCommand {
     pub clip_w: f32,
     pub clip_h: f32,
     pub is_title: bool,
+    /// Optional per-run colors for a single logical line. When present the line
+    /// is shaped as ONE continuous cosmic buffer (natural advances, stable
+    /// baseline) with per-range color attributes, instead of one independently
+    /// positioned buffer per colored segment. This keeps syntax colors while
+    /// preserving normal continuous editor-text layout.
+    pub color_runs: Option<Vec<(String, [f32; 4])>>,
 }
 
 impl TextCommand {
@@ -58,7 +64,19 @@ impl TextCommand {
         clip_h: f32,
         is_title: bool,
     ) -> Self {
-        Self { text: text.into(), x, y, color, size, clip_x, clip_y, clip_w, clip_h, is_title }
+        Self {
+            text: text.into(),
+            x,
+            y,
+            color,
+            size,
+            clip_x,
+            clip_y,
+            clip_w,
+            clip_h,
+            is_title,
+            color_runs: None,
+        }
     }
 
     pub fn new_title(
@@ -87,6 +105,36 @@ impl TextCommand {
         clip_h: f32,
     ) -> Self {
         Self::new(text, x, y, color, size, clip_x, clip_y, clip_w, clip_h, false)
+    }
+
+    /// Build a body command for a single logical line composed of colored runs.
+    /// The runs are shaped as one continuous buffer with per-range colors.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_body_runs(
+        runs: Vec<(String, [f32; 4])>,
+        x: f32,
+        y: f32,
+        size: f32,
+        clip_x: f32,
+        clip_y: f32,
+        clip_w: f32,
+        clip_h: f32,
+    ) -> Self {
+        let text: String = runs.iter().map(|(t, _)| t.as_str()).collect();
+        let fallback_color = runs.first().map(|(_, c)| *c).unwrap_or([1.0; 4]);
+        Self {
+            text,
+            x,
+            y,
+            color: fallback_color,
+            size,
+            clip_x,
+            clip_y,
+            clip_w,
+            clip_h,
+            is_title: false,
+            color_runs: Some(runs),
+        }
     }
 }
 

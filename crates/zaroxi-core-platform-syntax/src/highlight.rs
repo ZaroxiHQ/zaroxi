@@ -2,7 +2,20 @@
 
 use crate::error::SyntaxError;
 use crate::language::LanguageId;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
+
+/// Process-wide cache of compiled highlight queries, keyed by canonical
+/// language id. Compiling a tree-sitter `Query` (reading + parsing the
+/// `highlights.scm`) is the dominant cost of the first parse of a language;
+/// caching it makes every subsequent parse (edits, re-opens, the synchronous
+/// first-paint pass) cheap, which removes most of the open-to-highlight latency.
+static QUERY_CACHE: OnceLock<Mutex<HashMap<String, Arc<Query>>>> = OnceLock::new();
+
+fn query_cache() -> &'static Mutex<HashMap<String, Arc<Query>>> {
+    QUERY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Whether the targeted highlight-query diagnostics are enabled.
 ///
@@ -152,7 +165,7 @@ impl HighlightEngine {
         };
 
         // Execute the query against the syntax tree
-        let spans = self.execute_query(&query, source, tree);
+        let spans = self.execute_query(query.as_ref(), source, tree);
 
         // Post-process spans: sort and filter covered plain spans
         let before = spans.len();
@@ -172,9 +185,14 @@ impl HighlightEngine {
     /// Load and compile the highlighting query for a language.
     ///
     /// Returns `None` if the query cannot be loaded or compiled.
-    fn load_query(&self, language: &LanguageId) -> Option<Query> {
+    fn load_query(&self, language: &LanguageId) -> Option<Arc<Query>> {
         let debug = query_debug_enabled();
         let language_id = language.as_str();
+
+        // Fast path: reuse a previously compiled query for this language.
+        if let Some(cached) = query_cache().lock().ok().and_then(|c| c.get(language_id).cloned()) {
+            return Some(cached);
+        }
 
         // Get the Tree-sitter language for query compilation
         let ts_lang = language.tree_sitter_language()?;
@@ -225,7 +243,11 @@ impl HighlightEngine {
                         q.capture_names().len()
                     );
                 }
-                Some(q)
+                let arc = Arc::new(q);
+                if let Ok(mut cache) = query_cache().lock() {
+                    cache.insert(language_id.to_string(), Arc::clone(&arc));
+                }
+                Some(arc)
             }
             Err(e) => {
                 // Log the error for debugging but don't crash
