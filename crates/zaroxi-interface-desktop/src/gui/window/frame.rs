@@ -22,13 +22,13 @@ use super::ai_pane::{AiPanel, AiPanelData};
 use super::bottom_panel::BottomDockPanel;
 use super::editor::{EditorContentData, EditorPanel};
 use super::rail::{ExplorerData, RailPanel};
-use super::status_bar::{StatusBarData, StatusBarPanel};
+use super::status_bar::{StatusModel, StatusView};
 use super::toolbar::TopBarPanel;
 
 pub struct ShellBlockContext {
     pub editor_data: EditorContentData,
     pub explorer_data: ExplorerData,
-    pub status_bar_data: StatusBarData,
+    pub status_bar_data: StatusModel,
     pub ai_data: AiPanelData,
     pub terminal_tabs: Option<Vec<String>>,
 }
@@ -416,7 +416,7 @@ pub fn compose_blocks(
                 blocks.push(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
             }
             PanelRole::StatusBar => {
-                blocks.push(StatusBarPanel::build_block(r, tokens, &ctx.status_bar_data));
+                blocks.push(StatusView::build_block(r, tokens, &ctx.status_bar_data));
             }
         };
     }

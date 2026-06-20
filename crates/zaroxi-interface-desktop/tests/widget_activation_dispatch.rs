@@ -8,7 +8,7 @@ mod tests {
         ShellLayout, WidgetAction, WidgetId, WidgetInteractionModel, build_shell_widget_tree,
     };
     use zaroxi_interface_desktop::gui::window::editor_buf::EditorBufferState;
-    use zaroxi_interface_desktop::gui::window::{GuiApp, WidgetActivationHandler};
+    use zaroxi_interface_desktop::gui::window::{FrameScheduler, GuiApp, WidgetActivationHandler};
     use zaroxi_interface_desktop::gui::{ShellFrame, ShellWorkContent, Size};
     use zaroxi_interface_theme::theme::ZaroxiTheme;
 
@@ -66,6 +66,7 @@ mod tests {
             latest_spans: None,
             latest_spans_version: 0,
             parse_worker: None,
+            frame_scheduler: FrameScheduler::new(),
         }
     }
 

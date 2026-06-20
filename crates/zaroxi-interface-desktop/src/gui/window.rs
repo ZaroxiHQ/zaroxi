@@ -34,4 +34,4 @@ mod toolbar;
 pub use bootstrap::run_shell_window;
 
 #[cfg(feature = "gui_window")]
-pub use app::{GuiApp, WidgetActivationHandler};
+pub use app::{FrameScheduler, GuiApp, WidgetActivationHandler};

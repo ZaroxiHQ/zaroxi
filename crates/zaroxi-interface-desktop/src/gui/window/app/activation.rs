@@ -55,10 +55,7 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                     let outcome = picker.pick_folder();
                     let _ = tx.send(outcome);
                 });
-                app.needs_render = true;
-                if let Some(z) = app.maybe_window.as_ref() {
-                    let _ = z.window().request_redraw();
-                }
+                app.invalidate(super::InvalidationFlags::content());
             } else {
                 super::debug::click_trace(
                     "ZAROXI_CLICK: folder_picker is None, cannot open workspace",

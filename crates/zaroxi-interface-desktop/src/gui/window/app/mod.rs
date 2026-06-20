@@ -32,6 +32,7 @@ pub(crate) mod background_parse;
 pub(crate) mod debug;
 mod editor_interaction;
 mod input;
+mod render_schedule;
 mod render_state;
 
 use std::collections::HashMap;
@@ -39,6 +40,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+pub use render_schedule::{FrameScheduler, InvalidationFlags};
 
 use winit::{
     dpi::PhysicalPosition,
@@ -49,8 +53,17 @@ use winit::{
 
 static GUI_FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Cadence for polling background work (parse results, folder picker) while the
+/// UI is otherwise idle. Relaxed enough to avoid pinning a CPU core, tight
+/// enough that results land promptly.
+const BACKGROUND_POLL_INTERVAL: Duration = Duration::from_millis(8);
+
 fn render_trace_enabled() -> bool {
     std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
+}
+
+fn frame_trace_enabled() -> bool {
+    std::env::var("ZAROXI_FRAME_TRACE").as_deref() == Ok("1")
 }
 
 fn scroll_trace_enabled() -> bool {
@@ -176,6 +189,9 @@ pub struct GuiApp {
     pub latest_spans_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
+    /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
+    /// owns the pacing/cadence and outstanding-redraw bookkeeping.
+    pub frame_scheduler: FrameScheduler,
 }
 
 // ── Large-file thresholds ──
@@ -417,7 +433,7 @@ impl GuiApp {
                 // Force the editor shaping caches to rebuild with the new spans.
                 self.cached_editor_lines_hash = 0;
                 self.line_syntax_cache.clear();
-                self.request_render();
+                self.invalidate(InvalidationFlags::syntax());
             }
         }
     }
@@ -439,23 +455,41 @@ impl GuiApp {
     }
 
     fn request_render(&mut self) {
+        self.invalidate(InvalidationFlags::content());
+    }
+
+    /// Mark the UI dirty for `reason` and schedule a (possibly paced) redraw.
+    /// Multiple invalidations before the next frame are coalesced into a single
+    /// presented frame.
+    pub(crate) fn invalidate(&mut self, reason: InvalidationFlags) {
         if render_trace_enabled() {
             let pending = GUI_FRAME_COUNTER.load(Ordering::Relaxed) + 1;
             eprintln!(
-                "ZAROXI_RENDER_TRACE: request_render frame_pending={} already_dirty={}",
-                pending, self.needs_render
+                "ZAROXI_RENDER_TRACE: invalidate reason={} frame_pending={} already_dirty={}",
+                reason.summary(),
+                pending,
+                self.needs_render
             );
         }
-        if !self.needs_render {
-            if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
-                if let Some(z) = self.maybe_window.as_ref() {
-                    eprintln!("ZAROXI_FRAMEFLOW: request_render dirty id={:?}", z.window().id());
-                }
-            }
-        }
+        self.frame_scheduler.note_reason(reason);
         self.needs_render = true;
+        self.schedule_redraw();
+    }
+
+    /// Issue a winit redraw now if the frame budget has elapsed and none is
+    /// already outstanding; otherwise leave it for `about_to_wait`, which parks
+    /// the loop with `WaitUntil(deadline)` and issues the redraw once the budget
+    /// elapses. This is what coalesces event bursts into one paced frame.
+    fn schedule_redraw(&mut self) {
+        if self.frame_scheduler.redraw_outstanding() {
+            return;
+        }
+        if !self.frame_scheduler.budget_elapsed(Instant::now()) {
+            return;
+        }
         if let Some(z) = self.maybe_window.as_ref() {
-            let _ = z.window().request_redraw();
+            z.window().request_redraw();
+            self.frame_scheduler.mark_redraw_requested();
         }
     }
 
@@ -463,130 +497,126 @@ impl GuiApp {
         if !self.picker_in_flight {
             return;
         }
-        if let Some(ref rx) = self.pending_picker_rx {
-            if let Ok(outcome) = rx.try_recv() {
-                self.pending_picker_rx = None;
-                self.picker_in_flight = false;
-                match outcome {
-                    PickerOutcome::Selected(path) => {
+        if let Some(ref rx) = self.pending_picker_rx
+            && let Ok(outcome) = rx.try_recv()
+        {
+            self.pending_picker_rx = None;
+            self.picker_in_flight = false;
+            match outcome {
+                PickerOutcome::Selected(path) => {
+                    debug::click_trace_fmt!(
+                        "ZAROXI_PICKER: thread result=Selected({})",
+                        path.display()
+                    );
+                    debug::click_trace_fmt!(
+                        "ZAROXI_DIAG: picker Selected({}) — composition exists={} explorer_actions exists={}",
+                        path.display(),
+                        self.composition.is_some(),
+                        self.explorer_actions.is_some()
+                    );
+                    if let Some(ref mut actions) = self.explorer_actions {
+                        let comp = match self.composition.as_mut() {
+                            Some(c) => c,
+                            None => {
+                                debug::click_trace(
+                                    "ZAROXI_DIAG: composition is None — cannot open workspace",
+                                );
+                                return;
+                            }
+                        };
+                        let service = match self.workspace_service.clone() {
+                            Some(s) => s,
+                            None => {
+                                debug::click_trace("ZAROXI_DIAG: workspace_service is None");
+                                return;
+                            }
+                        };
+                        let view = match self.workspace_view.clone() {
+                            Some(v) => v,
+                            None => {
+                                debug::click_trace("ZAROXI_DIAG: workspace_view is None");
+                                return;
+                            }
+                        };
                         debug::click_trace_fmt!(
-                            "ZAROXI_PICKER: thread result=Selected({})",
+                            "ZAROXI_DIAG: calling open_workspace with path={}",
                             path.display()
                         );
+                        let pre_root = comp.workspace_root_path.clone();
+                        let pre_items = comp.cached_explorer_items.len();
                         debug::click_trace_fmt!(
-                            "ZAROXI_DIAG: picker Selected({}) — composition exists={} explorer_actions exists={}",
-                            path.display(),
-                            self.composition.is_some(),
-                            self.explorer_actions.is_some()
+                            "ZAROXI_DIAG: BEFORE open_workspace — root={:?} cached_items={}",
+                            pre_root,
+                            pre_items
                         );
-                        if let Some(ref mut actions) = self.explorer_actions {
-                            let comp = match self.composition.as_mut() {
-                                Some(c) => c,
-                                None => {
-                                    debug::click_trace(
-                                        "ZAROXI_DIAG: composition is None — cannot open workspace",
-                                    );
-                                    return;
-                                }
-                            };
-                            let service = match self.workspace_service.clone() {
-                                Some(s) => s,
-                                None => {
-                                    debug::click_trace("ZAROXI_DIAG: workspace_service is None");
-                                    return;
-                                }
-                            };
-                            let view = match self.workspace_view.clone() {
-                                Some(v) => v,
-                                None => {
-                                    debug::click_trace("ZAROXI_DIAG: workspace_view is None");
-                                    return;
-                                }
-                            };
+                        let content = actions.open_workspace(
+                            comp,
+                            service,
+                            view,
+                            &mut self.session_id,
+                            &mut self.workspace_id,
+                            path,
+                        );
+                        let post_root = comp.workspace_root_path.clone();
+                        let post_items = comp.cached_explorer_items.len();
+                        debug::click_trace_fmt!(
+                            "ZAROXI_DIAG: AFTER open_workspace — root={:?} cached_items={} content_is_some={}",
+                            post_root,
+                            post_items,
+                            content.is_some()
+                        );
+                        if let Some(ref wc) = content {
                             debug::click_trace_fmt!(
-                                "ZAROXI_DIAG: calling open_workspace with path={}",
-                                path.display()
+                                "ZAROXI_DIAG: work_content — empty_button={:?} panel_items_count={}",
+                                wc.explorer_empty_button,
+                                wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
                             );
-                            let pre_root = comp.workspace_root_path.clone();
-                            let pre_items = comp.cached_explorer_items.len();
-                            debug::click_trace_fmt!(
-                                "ZAROXI_DIAG: BEFORE open_workspace — root={:?} cached_items={}",
-                                pre_root,
-                                pre_items
-                            );
-                            let content = actions.open_workspace(
-                                comp,
-                                service,
-                                view,
-                                &mut self.session_id,
-                                &mut self.workspace_id,
-                                path,
-                            );
-                            let post_root = comp.workspace_root_path.clone();
-                            let post_items = comp.cached_explorer_items.len();
-                            debug::click_trace_fmt!(
-                                "ZAROXI_DIAG: AFTER open_workspace — root={:?} cached_items={} content_is_some={}",
-                                post_root,
-                                post_items,
-                                content.is_some()
-                            );
-                            if let Some(ref wc) = content {
-                                debug::click_trace_fmt!(
-                                    "ZAROXI_DIAG: work_content — empty_button={:?} panel_items_count={}",
-                                    wc.explorer_empty_button,
-                                    wc.explorer_panel_items.as_ref().map_or(0, |v| v.len())
-                                );
+                        }
+                        if let Some(wc) = content {
+                            self.set_work_content(wc);
+                            self.last_widget_tree_content = None;
+                            self.pending_scroll_frac = 0.0;
+                            if let Some(ref mut comp) = self.composition {
+                                comp.reset_scroll_state();
                             }
-                            if let Some(wc) = content {
-                                self.set_work_content(wc);
-                                self.last_widget_tree_content = None;
-                                self.pending_scroll_frac = 0.0;
-                                if let Some(ref mut comp) = self.composition {
-                                    comp.reset_scroll_state();
-                                }
-                                let editor_id =
-                                    WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                                self.interaction.set_scroll_offset(&editor_id, 0.0);
-                                self.request_render();
-                            } else {
-                                debug::click_trace(
-                                    "ZAROXI_DIAG: open_workspace returned None — explorer stays empty",
-                                );
-                            }
+                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                            self.interaction.set_scroll_offset(&editor_id, 0.0);
+                            self.request_render();
+                        } else {
+                            debug::click_trace(
+                                "ZAROXI_DIAG: open_workspace returned None — explorer stays empty",
+                            );
                         }
                     }
-                    PickerOutcome::Cancelled => {
-                        debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
-                        let wc = if let Some(ref mut comp) = self.composition {
-                            comp.set_status_message("No folder selected".to_string());
-                            comp.build_work_content()
+                }
+                PickerOutcome::Cancelled => {
+                    debug::click_trace("ZAROXI_PICKER: thread result=Cancelled");
+                    let wc = if let Some(ref mut comp) = self.composition {
+                        comp.set_status_message("No folder selected".to_string());
+                        comp.build_work_content()
+                    } else {
+                        return;
+                    };
+                    self.set_work_content(wc);
+                    self.last_widget_tree_content = None;
+                    self.request_render();
+                }
+                PickerOutcome::Unavailable { reason, .. } => {
+                    debug::click_trace_fmt!("ZAROXI_PICKER: thread result=Unavailable({})", reason);
+                    let wc = if let Some(ref mut comp) = self.composition {
+                        let msg = if reason.len() > 90 {
+                            "Workspace picker unavailable — see log for details".to_string()
                         } else {
-                            return;
+                            format!("Workspace picker unavailable: {}", reason)
                         };
-                        self.set_work_content(wc);
-                        self.last_widget_tree_content = None;
-                        self.request_render();
-                    }
-                    PickerOutcome::Unavailable { reason, .. } => {
-                        debug::click_trace_fmt!(
-                            "ZAROXI_PICKER: thread result=Unavailable({})",
-                            reason
-                        );
-                        let wc = if let Some(ref mut comp) = self.composition {
-                            let msg = if reason.len() > 90 {
-                                "Workspace picker unavailable — see log for details".to_string()
-                            } else {
-                                format!("Workspace picker unavailable: {}", reason)
-                            };
-                            comp.set_status_message(msg);
-                            comp.build_work_content()
-                        } else {
-                            return;
-                        };
-                        self.set_work_content(wc);
-                        self.last_widget_tree_content = None;
-                        self.request_render();
-                    }
+                        comp.set_status_message(msg);
+                        comp.build_work_content()
+                    } else {
+                        return;
+                    };
+                    self.set_work_content(wc);
+                    self.last_widget_tree_content = None;
+                    self.request_render();
                 }
             }
         }
@@ -615,7 +645,7 @@ impl GuiApp {
                             .editor_viewport
                             .as_ref()
                             .map(|vp| lc::visible_lines_from_region(vp.content_rect.3) as f32)
-                            .unwrap_or(1.0) as f32;
+                            .unwrap_or(1.0);
                         let max_scroll_lines = (total_lines - visible).max(1.0);
                         let line_delta = (offset_delta * max_scroll_lines).round() as isize;
                         if let Some(ref mut comp) = self.composition {
@@ -635,7 +665,7 @@ impl GuiApp {
                         .or_else(|| activation::dispatch_activation(self, id));
 
                     if let Some(ref wc) = content {
-                        let changed = self.work_content.as_ref().map_or(true, |old| {
+                        let changed = self.work_content.as_ref().is_none_or(|old| {
                             old.explorer_items != wc.explorer_items
                                 || old.active_file != wc.active_file
                                 || old.editor_tabs != wc.editor_tabs
@@ -675,7 +705,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let wid = zaroxi_w.window().id();
                     debug::gui_debug_fmt!("GuiApp: created engine window id={:?}", wid);
                     zaroxi_w.window().set_title(&self.title);
-                    let _ = zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
+                    zaroxi_w.window().set_outer_position(PhysicalPosition::new(100, 100));
                     self.maybe_window = Some(zaroxi_w);
 
                     self.request_render();
@@ -725,23 +755,33 @@ impl winit::application::ApplicationHandler for GuiApp {
     fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
         self.process_picker_result();
 
-        // Apply any completed background parse result; this may request a
-        // redraw so freshly parsed highlight spans become visible.
+        // Apply any completed background parse result; this may invalidate the
+        // UI so freshly parsed highlight spans become visible.
         self.poll_parse_results();
 
         if self.requested_initial_frame {
-            self.request_render();
+            self.invalidate(InvalidationFlags::content());
             self.requested_initial_frame = false;
-            active_loop.set_control_flow(ControlFlow::Wait);
-            debug::gui_debug("GuiApp: about_to_wait -> switched control flow back to Wait");
-        } else if self.picker_in_flight {
-            active_loop.set_control_flow(ControlFlow::Poll);
-        } else if self.needs_render || self.interaction.scrollbar_drag_active() {
-            active_loop.set_control_flow(ControlFlow::Poll);
-        } else if self.parse_result_pending() {
-            // A background parse is in flight; keep polling so the result is
-            // applied promptly without requiring further user interaction.
-            active_loop.set_control_flow(ControlFlow::Poll);
+        }
+
+        let now = Instant::now();
+
+        if self.needs_render || self.interaction.scrollbar_drag_active() {
+            // A frame is pending. Honour the pacing budget: issue the redraw now
+            // if the budget has elapsed, otherwise park until the deadline. No
+            // busy spinning — the loop sleeps until there is real work.
+            if self.frame_scheduler.budget_elapsed(now) {
+                self.schedule_redraw();
+                active_loop.set_control_flow(ControlFlow::Wait);
+            } else {
+                active_loop.set_control_flow(ControlFlow::WaitUntil(
+                    self.frame_scheduler.next_deadline(now),
+                ));
+            }
+        } else if self.picker_in_flight || self.parse_result_pending() {
+            // Background work is in flight; poll on a relaxed cadence so the
+            // result is applied promptly without pinning a CPU core.
+            active_loop.set_control_flow(ControlFlow::WaitUntil(now + BACKGROUND_POLL_INTERVAL));
         } else {
             active_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -750,7 +790,7 @@ impl winit::application::ApplicationHandler for GuiApp {
     fn window_event(
         &mut self,
         active_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
         self.process_picker_result();
@@ -779,23 +819,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                 active_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                self.needs_render = true;
                 if let Some(z) = self.maybe_window.as_mut() {
                     z.update_size(size.width, size.height);
-                    debug::gui_debug_fmt!(
-                        "GuiApp: Resized -> {size:?}, requesting redraw (engine window)"
-                    );
-                    let _ = z.window().request_redraw();
+                    debug::gui_debug_fmt!("GuiApp: Resized -> {size:?}, invalidating");
                 }
+                self.invalidate(InvalidationFlags::resize());
             }
             WindowEvent::ScaleFactorChanged { .. } => {
-                self.needs_render = true;
-                if let Some(z) = self.maybe_window.as_ref() {
-                    debug::gui_debug(
-                        "GuiApp: ScaleFactorChanged -> requesting redraw (engine window)",
-                    );
-                    let _ = z.window().request_redraw();
-                }
+                debug::gui_debug("GuiApp: ScaleFactorChanged -> invalidating");
+                self.invalidate(InvalidationFlags::resize());
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.interaction.set_cursor_pos(position.x as f32, position.y as f32);
@@ -829,112 +861,114 @@ impl winit::application::ApplicationHandler for GuiApp {
             WindowEvent::MouseWheel { delta, .. } => {
                 input::process_mouse_wheel(self, &delta);
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    let (x, y) = match self.interaction.cursor_pos_f32() {
-                        Some(pos) => pos,
-                        None => {
-                            debug::click_trace(
-                                "ZAROXI_CLICK: MouseInput — cursor_pos is None, skipping",
-                            );
-                            return;
+            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
+                let (x, y) = match self.interaction.cursor_pos_f32() {
+                    Some(pos) => pos,
+                    None => {
+                        debug::click_trace(
+                            "ZAROXI_CLICK: MouseInput — cursor_pos is None, skipping",
+                        );
+                        return;
+                    }
+                };
+                debug::click_trace_fmt!(
+                    "ZAROXI_CLICK: MouseInput state={:?} x={:.1} y={:.1} btn_rect={:?}",
+                    state,
+                    x,
+                    y,
+                    self.explorer_button_rect
+                );
+                let actions = match state {
+                    ElementState::Pressed => {
+                        if let Some(ref mut tree) = self.widget_tree {
+                            self.interaction.on_pointer_down(
+                                tree,
+                                x,
+                                y,
+                                zaroxi_core_engine_ui::PointerButton::Primary,
+                            )
+                        } else {
+                            Vec::new()
                         }
-                    };
-                    debug::click_trace_fmt!(
-                        "ZAROXI_CLICK: MouseInput state={:?} x={:.1} y={:.1} btn_rect={:?}",
-                        state,
-                        x,
-                        y,
-                        self.explorer_button_rect
-                    );
-                    let actions = match state {
-                        ElementState::Pressed => {
-                            if let Some(ref mut tree) = self.widget_tree {
-                                self.interaction.on_pointer_down(
-                                    tree,
+                    }
+                    ElementState::Released => {
+                        let mut explorer_activated = false;
+                        if let Some((bx, by, bw, bh)) = self.explorer_button_rect {
+                            if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
+                                explorer_activated = true;
+                                debug::click_trace_fmt!(
+                                    "ZAROXI_CLICK: RELEASE hit CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                    bx,
+                                    by,
+                                    bw,
+                                    bh,
                                     x,
-                                    y,
-                                    zaroxi_core_engine_ui::PointerButton::Primary,
-                                )
-                            } else {
-                                Vec::new()
-                            }
-                        }
-                        ElementState::Released => {
-                            let mut explorer_activated = false;
-                            if let Some((bx, by, bw, bh)) = self.explorer_button_rect {
-                                if x >= bx && x <= bx + bw && y >= by && y <= by + bh {
-                                    explorer_activated = true;
-                                    debug::click_trace_fmt!(
-                                        "ZAROXI_CLICK: RELEASE hit CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
-                                        bx,
-                                        by,
-                                        bw,
-                                        bh,
-                                        x,
-                                        y
-                                    );
-                                } else {
-                                    debug::click_trace_fmt!(
-                                        "ZAROXI_CLICK: RELEASE outside CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
-                                        bx,
-                                        by,
-                                        bw,
-                                        bh,
-                                        x,
-                                        y
-                                    );
-                                }
+                                    y
+                                );
                             } else {
                                 debug::click_trace_fmt!(
-                                    "ZAROXI_CLICK: RELEASE btn_rect is None click=({:.1},{:.1})",
+                                    "ZAROXI_CLICK: RELEASE outside CTA rect=({:.1},{:.1},{:.1},{:.1}) click=({:.1},{:.1})",
+                                    bx,
+                                    by,
+                                    bw,
+                                    bh,
                                     x,
                                     y
                                 );
                             }
-                            if explorer_activated {
-                                let id = zaroxi_core_engine_ui::WidgetId::button(
-                                    lc::BTN_ID_EXPLORER_CTA,
-                                );
-                                debug::click_trace(
-                                    "ZAROXI_CLICK: dispatching Activated(Explorer CTA)",
-                                );
-                                self.handle_actions(vec![
-                                    zaroxi_core_engine_ui::WidgetAction::Activated(id),
-                                ]);
-                                Vec::new()
-                            } else if let Some(ref mut tree) = self.widget_tree {
-                                self.interaction.on_pointer_up(
-                                    tree,
-                                    x,
-                                    y,
-                                    zaroxi_core_engine_ui::PointerButton::Primary,
-                                )
-                            } else {
-                                Vec::new()
-                            }
+                        } else {
+                            debug::click_trace_fmt!(
+                                "ZAROXI_CLICK: RELEASE btn_rect is None click=({:.1},{:.1})",
+                                x,
+                                y
+                            );
                         }
-                    };
-                    self.handle_actions(actions);
+                        if explorer_activated {
+                            let id =
+                                zaroxi_core_engine_ui::WidgetId::button(lc::BTN_ID_EXPLORER_CTA);
+                            debug::click_trace("ZAROXI_CLICK: dispatching Activated(Explorer CTA)");
+                            self.handle_actions(vec![
+                                zaroxi_core_engine_ui::WidgetAction::Activated(id),
+                            ]);
+                            Vec::new()
+                        } else if let Some(ref mut tree) = self.widget_tree {
+                            self.interaction.on_pointer_up(
+                                tree,
+                                x,
+                                y,
+                                zaroxi_core_engine_ui::PointerButton::Primary,
+                            )
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                };
+                self.handle_actions(actions);
 
-                    if let ElementState::Pressed = state {
-                        editor_interaction::init_selection_from_click(self);
-                    }
-                    if let ElementState::Released = state {
-                        self.editor_buffer.end_selection();
-                    }
+                if let ElementState::Pressed = state {
+                    editor_interaction::init_selection_from_click(self);
+                }
+                if let ElementState::Released = state {
+                    self.editor_buffer.end_selection();
                 }
             }
             WindowEvent::RedrawRequested => {
                 let frame_id = GUI_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+                // A redraw arrived: clear the outstanding-redraw bookkeeping so a
+                // later invalidation can schedule a fresh one.
+                self.frame_scheduler.on_redraw_received();
+
                 // Apply any completed background parse result before shaping the
                 // editor content for this frame so fresh highlight spans are
-                // used immediately (may set needs_render via request_render).
+                // used immediately (may invalidate the UI).
                 self.poll_parse_results();
-                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
+
+                if frame_trace_enabled() {
                     eprintln!(
-                        "ZAROXI_FRAMEFLOW: RedrawRequested id={:?} dirty={}",
-                        window_id, self.needs_render
+                        "ZAROXI_FRAME_TRACE: frame={} dirty={} reasons={}",
+                        frame_id,
+                        self.needs_render,
+                        self.frame_scheduler.pending_summary()
                     );
                 }
                 if render_trace_enabled() {
@@ -977,7 +1011,7 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     // Notify compositor before rendering this frame.
                     // Required on Wayland to register for the next frame callback.
-                    let _ = z.window().pre_present_notify();
+                    z.window().pre_present_notify();
 
                     let system_is_dark = z
                         .window()
@@ -988,7 +1022,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let variant = resolved;
 
                     let _ = self.layout_controller.get_or_compute(sw, sh, resolved);
-                    self.editor_viewport = Some(self.layout_controller.viewport().clone());
+                    self.editor_viewport = Some(*self.layout_controller.viewport());
                     self.shell.work_content = self.work_content.clone();
 
                     let mut sem = variant.colors(false);
@@ -1037,17 +1071,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // Sync normalized scroll offset from canonical top_line to interaction model.
                     // Must run unconditionally — small files (total <= visible) need offset 0.0
                     // to avoid a stale value from a previous file.
-                    if let Some(ref comp) = self.composition {
-                        if let Some(ref meta) = comp.metadata {
-                            let total_lines = self.editor_buffer.line_count();
-                            let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
-                            let max_scroll = total_lines.saturating_sub(visible).max(1) as f32;
-                            let norm_offset = (meta.editor_scroll_top_line as f32
-                                / max_scroll.max(1.0))
-                            .clamp(0.0, 1.0);
-                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                            self.interaction.set_scroll_offset(&editor_id, norm_offset);
-                        }
+                    if let Some(ref comp) = self.composition
+                        && let Some(ref meta) = comp.metadata
+                    {
+                        let total_lines = self.editor_buffer.line_count();
+                        let visible = meta.editor_viewport_line_count.unwrap_or(10).max(1);
+                        let max_scroll = total_lines.saturating_sub(visible).max(1) as f32;
+                        let norm_offset = (meta.editor_scroll_top_line as f32
+                            / max_scroll.max(1.0))
+                        .clamp(0.0, 1.0);
+                        let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                        self.interaction.set_scroll_offset(&editor_id, norm_offset);
                     }
 
                     let engine_layout = self.layout_controller.engine_shell_layout();
@@ -1075,12 +1109,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let mut widget_tree = if rebuild_tree {
-                        let new_tree = zaroxi_core_engine_ui::build_shell_widget_tree(
+                        zaroxi_core_engine_ui::build_shell_widget_tree(
                             engine_layout,
                             &tokens,
                             self.work_content.as_ref(),
-                        );
-                        new_tree
+                        )
                     } else {
                         self.widget_tree.clone().unwrap_or_else(|| {
                             zaroxi_core_engine_ui::build_shell_widget_tree(
@@ -1110,14 +1143,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                             thumb_rect,
                             ..
                         } = w
+                            && id == &editor_id
                         {
-                            if id == &editor_id {
-                                let min_h = 20.0f32;
-                                let new_h = (track_rect.height * thumb_ratio)
-                                    .max(min_h)
-                                    .min(track_rect.height);
-                                thumb_rect.height = new_h;
-                            }
+                            let min_h = 20.0f32;
+                            let new_h =
+                                (track_rect.height * thumb_ratio).max(min_h).min(track_rect.height);
+                            thumb_rect.height = new_h;
                         }
                     }
 
@@ -1137,21 +1168,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 thumb_rect,
                                 ..
                             } = w
+                                && id == &editor_id
                             {
-                                if id == &editor_id {
-                                    eprintln!(
-                                        "ZAROXI_SCROLL_TRACE: widget_tree scrollbar rect=(ix={:.1},iy={:.1},iw={:.1},ih={:.1}) thumb_h={:.1} hit_right={:.1} content_right={:.1} ai_left={:.1}",
-                                        track_rect.x,
-                                        track_rect.y,
-                                        track_rect.width,
-                                        track_rect.height,
-                                        thumb_rect.height,
-                                        track_rect.x + track_rect.width,
-                                        content_right,
-                                        ai_left
-                                    );
-                                    found = true;
-                                }
+                                eprintln!(
+                                    "ZAROXI_SCROLL_TRACE: widget_tree scrollbar rect=(ix={:.1},iy={:.1},iw={:.1},ih={:.1}) thumb_h={:.1} hit_right={:.1} content_right={:.1} ai_left={:.1}",
+                                    track_rect.x,
+                                    track_rect.y,
+                                    track_rect.width,
+                                    track_rect.height,
+                                    thumb_rect.height,
+                                    track_rect.x + track_rect.width,
+                                    content_right,
+                                    ai_left
+                                );
+                                found = true;
                             }
                         }
                         if !found {
@@ -1257,8 +1287,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let explorer_data =
                         super::presenters::shape_explorer_content(&self.shell.work_content);
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
+
+                    let workspace_name = self
+                        .composition
+                        .as_ref()
+                        .and_then(|c| c.workspace_root_path.as_ref())
+                        .and_then(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().into_owned());
+
+                    // Small leading slice of the document for indent detection.
+                    let indent_sample = {
+                        let total = self.editor_buffer.total_lines();
+                        self.editor_buffer.visible_lines(0, total.min(64))
+                    };
+
                     let status_data = super::presenters::shape_status_content(
                         &self.shell.work_content,
+                        workspace_name.as_deref(),
+                        Some(indent_sample.as_str()),
                         cursor_line,
                         cursor_col,
                     );
@@ -1352,27 +1398,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 state,
                                 ..
                             } = w
+                                && *index == lc::SCROLLBAR_ID_EDITOR
                             {
-                                if *index == lc::SCROLLBAR_ID_EDITOR {
-                                    let highlight_color = match *state {
-                                        zaroxi_core_engine_ui::InteractionState::Hover
-                                        | zaroxi_core_engine_ui::InteractionState::Active => {
-                                            let mut c = tokens.editor_scrollbar_thumb.to_array();
-                                            c[3] = (c[3] * 2.0).min(1.0);
-                                            Some(c)
-                                        }
-                                        _ => None,
-                                    };
-                                    if let Some(color) = highlight_color {
-                                        for block in &mut render_blocks {
-                                            if block.id == "scrollbar_thumb_editor" {
-                                                block.header_color = Some(color);
-                                                break;
-                                            }
+                                let highlight_color = match *state {
+                                    zaroxi_core_engine_ui::InteractionState::Hover
+                                    | zaroxi_core_engine_ui::InteractionState::Active => {
+                                        let mut c = tokens.editor_scrollbar_thumb.to_array();
+                                        c[3] = (c[3] * 2.0).min(1.0);
+                                        Some(c)
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(color) = highlight_color {
+                                    for block in &mut render_blocks {
+                                        if block.id == "scrollbar_thumb_editor" {
+                                            block.header_color = Some(color);
+                                            break;
                                         }
                                     }
-                                    break;
                                 }
+                                break;
                             }
                         }
                     }
@@ -1385,27 +1430,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 state,
                                 ..
                             } = w
+                                && *index >= 10
                             {
-                                if *index >= 10 {
-                                    let row_idx = *index - 10;
-                                    let state = *state;
-                                    let hover_focus_color = match state {
-                                        zaroxi_core_engine_ui::InteractionState::Hover => {
-                                            Some(tokens.hover_bg.to_array())
-                                        }
-                                        zaroxi_core_engine_ui::InteractionState::Focused
-                                        | zaroxi_core_engine_ui::InteractionState::Selected => {
-                                            Some(tokens.rail_item_active.to_array())
-                                        }
-                                        _ => None,
-                                    };
-                                    if let Some(color) = hover_focus_color {
-                                        let block_id = format!("explorer_row_{}", row_idx);
-                                        for block in &mut render_blocks {
-                                            if block.id == block_id {
-                                                block.header_color = Some(color);
-                                                break;
-                                            }
+                                let row_idx = *index - 10;
+                                let state = *state;
+                                let hover_focus_color = match state {
+                                    zaroxi_core_engine_ui::InteractionState::Hover => {
+                                        Some(tokens.hover_bg.to_array())
+                                    }
+                                    zaroxi_core_engine_ui::InteractionState::Focused
+                                    | zaroxi_core_engine_ui::InteractionState::Selected => {
+                                        Some(tokens.rail_item_active.to_array())
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(color) = hover_focus_color {
+                                    let block_id = format!("explorer_row_{}", row_idx);
+                                    for block in &mut render_blocks {
+                                        if block.id == block_id {
+                                            block.header_color = Some(color);
+                                            break;
                                         }
                                     }
                                 }
@@ -1443,45 +1487,43 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     w: vp.clip_rect.2,
                                     h: vp.clip_rect.3,
                                 });
-                                if let Some(ref comp) = self.composition {
-                                    if let Some(meta) = &comp.metadata {
-                                        block.content_offset_x =
-                                            meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                        let off_y =
-                                            meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
-                                        block.content_offset_y = off_y;
-                                        if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref()
-                                            == Ok("1")
-                                        {
-                                            eprintln!(
-                                                "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
-                                                block.content_offset_x,
-                                                off_y,
-                                                meta.editor_scroll_top_line
-                                            );
-                                        }
+                                if let Some(ref comp) = self.composition
+                                    && let Some(meta) = &comp.metadata
+                                {
+                                    block.content_offset_x =
+                                        meta.editor_horizontal_offset_px.unwrap_or(0.0);
+                                    let off_y =
+                                        meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                                    block.content_offset_y = off_y;
+                                    if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
+                                        eprintln!(
+                                            "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
+                                            block.content_offset_x,
+                                            off_y,
+                                            meta.editor_scroll_top_line
+                                        );
                                     }
                                 }
                             }
                         }
 
                         // Apply vertical scroll offset to the gutter lane block
-                        if let Some(ref comp) = self.composition {
-                            if let Some(meta) = &comp.metadata {
-                                let off_y = meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
-                                for block in &mut render_blocks {
-                                    if block.id == "gutter_lane" {
-                                        block.clip_rect = Some(zaroxi_core_engine_render::Rect {
-                                            x: block.rect.x,
-                                            y: block.rect.y,
-                                            w: block.rect.w,
-                                            h: block.rect.h,
-                                        });
-                                        block.content_offset_y = off_y;
-                                        block.content_offset_x =
-                                            meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                        break;
-                                    }
+                        if let Some(ref comp) = self.composition
+                            && let Some(meta) = &comp.metadata
+                        {
+                            let off_y = meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                            for block in &mut render_blocks {
+                                if block.id == "gutter_lane" {
+                                    block.clip_rect = Some(zaroxi_core_engine_render::Rect {
+                                        x: block.rect.x,
+                                        y: block.rect.y,
+                                        w: block.rect.w,
+                                        h: block.rect.h,
+                                    });
+                                    block.content_offset_y = off_y;
+                                    block.content_offset_x =
+                                        meta.editor_horizontal_offset_px.unwrap_or(0.0);
+                                    break;
                                 }
                             }
                         }
@@ -1496,7 +1538,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     // ── Renderer lifecycle ──
-                    self.last_render_size = (sw as u32, sh as u32);
+                    self.last_render_size = (sw, sh);
 
                     let clear_color = [
                         tokens.app_background.r as f64,
@@ -1560,12 +1602,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                             ),
                         ) {
                             Ok(core) => {
-                                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
-                                    eprintln!(
-                                        "ZAROXI_FRAMEFLOW: RenderCore created (size={}x{})",
-                                        sw, sh
-                                    );
-                                }
                                 self.render_core = Some(core);
                             }
                             Err(e) => {
@@ -1580,6 +1616,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         match core.render_to_window(surface_size, &render_layout, &render_blocks) {
                             Ok(()) => {
                                 self.needs_render = false;
+                                self.frame_scheduler.on_frame_presented(Instant::now());
                                 if render_trace_enabled() {
                                     eprintln!(
                                         "ZAROXI_RENDER_TRACE: render_result frame={} ok",
@@ -1588,7 +1625,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 }
                                 record_frame_presented();
                                 if !self.first_render_shown {
-                                    let _ = z.window().set_visible(true);
+                                    z.window().set_visible(true);
                                     self.first_render_shown = true;
                                     eprintln!("GuiApp: first full-renderer frame; window visible");
                                 }
@@ -1600,13 +1637,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         frame_id, e
                                     );
                                 }
-                                if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
-                                    eprintln!("ZAROXI_FRAMEFLOW: render_to_window error: {:?}", e);
-                                }
-                                // Keep needs_render=true and request another redraw
-                                // so the frame is retried on the next opportunity.
+                                // Retry on the next opportunity: stay dirty and
+                                // re-arm a redraw, keeping scheduler state in sync.
                                 self.needs_render = true;
-                                let _ = z.window().request_redraw();
+                                self.frame_scheduler.mark_redraw_requested();
+                                z.window().request_redraw();
                             }
                         }
                     }

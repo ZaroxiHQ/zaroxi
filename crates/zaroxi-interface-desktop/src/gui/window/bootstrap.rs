@@ -99,6 +99,7 @@ pub fn run_shell_window(
         latest_spans: None,
         latest_spans_version: 0,
         parse_worker: None,
+        frame_scheduler: super::app::FrameScheduler::new(),
     };
 
     let run_result = event_loop.run_app(&mut app);

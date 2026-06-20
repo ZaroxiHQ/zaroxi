@@ -126,10 +126,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
-                app.needs_render = true;
-                if let Some(z) = app.maybe_window.as_ref() {
-                    let _ = z.window().request_redraw();
-                }
+                app.invalidate(super::InvalidationFlags::input());
             }
         }
     }
@@ -162,10 +159,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
             );
             let char_idx = app.editor_buffer.rope().line_col_to_char_index(line, raw_col);
             app.editor_buffer.extend_selection_to(char_idx);
-            app.needs_render = true;
-            if let Some(z) = app.maybe_window.as_ref() {
-                let _ = z.window().request_redraw();
-            }
+            app.invalidate(super::InvalidationFlags::input());
         }
     }
 }
