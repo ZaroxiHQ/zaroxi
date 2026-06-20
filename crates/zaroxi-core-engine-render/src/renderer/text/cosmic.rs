@@ -271,11 +271,14 @@ impl CosmicTextRenderer {
     ) -> Result<(), RenderError> {
         assert!(targetwidth > 0 && targetheight > 0, "Text render target is zero-sized!");
 
-        // Required exact diagnostic line (do not change).
-        eprintln!(
-            "TEXTRENDERINPUT targetviewpresent=true targetwidth={} targetheight={}",
-            targetwidth, targetheight
-        );
+        // Required exact diagnostic line (do not change). Gated behind
+        // ZAROXI_TEXT_DEBUG so it does not spam the default runtime.
+        if text_debug_enabled() {
+            eprintln!(
+                "TEXTRENDERINPUT targetviewpresent=true targetwidth={} targetheight={}",
+                targetwidth, targetheight
+            );
+        }
 
         // Build a simple color attachment and begin the pass.
         let color_attachment = wgpu::RenderPassColorAttachment {
@@ -325,7 +328,7 @@ impl CosmicTextRenderer {
             (0u32, 0u32, 0usize, "unknown".to_string())
         };
 
-        {
+        if text_debug_enabled() {
             let new = format!(
                 "GUI_TEXT_RENDER_PASS_ACTIVE: instance_count={} atlas_texture_size={}x{} atlas_regions={} surface_format={:?} target_dim={}x{}",
                 instance_count,
@@ -443,8 +446,8 @@ impl CosmicTextRenderer {
             if let Some(ref inst_buf) = *ib_guard {
                 rpass.set_vertex_buffer(0, inst_buf.slice(..));
                 rpass.draw(0..6, 0..(instance_count as u32));
-                eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: instances={}", instance_count);
-            } else {
+            }
+            if text_debug_enabled() {
                 eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: instances={}", instance_count);
             }
         }
@@ -472,7 +475,7 @@ impl CosmicTextRenderer {
         let bind_group_state = if bind_group_live { "live" } else { "none" };
         let sampler_state = if bind_group_live { "real" } else { "none" };
         let texture_view_state = if bind_group_live { "real" } else { "none" };
-        {
+        if text_debug_enabled() {
             let new = format!(
                 "GUI_TEXT_FINAL_PATH: atlas_format={} bind_group={} shader_mode={} sampler={} texture_view={}",
                 atlas_format, bind_group_state, shader_mode, sampler_state, texture_view_state
@@ -490,7 +493,9 @@ impl CosmicTextRenderer {
         if total > panel {
             let start = panel;
             let count = total - panel;
-            eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: start={} count={}", start, count);
+            if text_debug_enabled() {
+                eprintln!("GUI_TEXT_ISSUED_INSTANCED_DRAW: start={} count={}", start, count);
+            }
             rpass.draw_indexed(start..(start + count), 0, 0..1);
         }
 
@@ -1167,7 +1172,7 @@ impl TextRenderer for CosmicTextRenderer {
                 });
                 let mut uploaded = self.atlas_uploaded.lock().unwrap();
                 *uploaded = true;
-                {
+                if text_debug_enabled() {
                     let new =
                         format!("GUI_TEXT_ATLAS_UPLOADED: regions={} size={}x{}", regions, aw, ah);
                     let mut guard = self.last_atlas_uploaded.lock().unwrap();
@@ -1176,14 +1181,12 @@ impl TextRenderer for CosmicTextRenderer {
                         *guard = Some(new);
                     }
                 }
-            } else {
-                {
-                    let new = "GUI_TEXT_ATLAS_UPLOADED: no_texture_returned".to_string();
-                    let mut guard = self.last_atlas_uploaded.lock().unwrap();
-                    if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
-                        eprintln!("{}", new);
-                        *guard = Some(new);
-                    }
+            } else if text_debug_enabled() {
+                let new = "GUI_TEXT_ATLAS_UPLOADED: no_texture_returned".to_string();
+                let mut guard = self.last_atlas_uploaded.lock().unwrap();
+                if guard.as_ref().map(|s| s != &new).unwrap_or(true) {
+                    eprintln!("{}", new);
+                    *guard = Some(new);
                 }
             }
         }
@@ -1238,7 +1241,7 @@ impl TextRenderer for CosmicTextRenderer {
             });
             let mut ib = self.instance_buffer.lock().unwrap();
             *ib = Some(buf);
-            {
+            if text_debug_enabled() {
                 let cnt = insts.len();
                 let mut guard = self.last_instance_buffer_count.lock().unwrap();
                 if guard.as_ref().map(|v| *v != cnt).unwrap_or(true) {
@@ -1289,14 +1292,12 @@ impl TextRenderer for CosmicTextRenderer {
     fn resize_viewport(&self, width: u32, height: u32) -> Result<(), RenderError> {
         let mut vp = self.viewport.lock().unwrap();
         let old = *vp;
-        if old != (width, height) {
-            *vp = (width, height);
+        *vp = (width, height);
+        if old != (width, height) && text_debug_enabled() {
             eprintln!(
                 "GUI_TEXT_VIEWPORT_UPDATED: viewport_width={} viewport_height={}",
                 width, height
             );
-        } else {
-            *vp = (width, height);
         }
         Ok(())
     }
