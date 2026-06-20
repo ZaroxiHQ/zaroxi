@@ -321,17 +321,20 @@ impl GuiApp {
         total > HUGE_FILE_LINE_THRESHOLD
     }
 
-    /// Schedule a background tree-sitter parse with the current buffer version.
-    /// Called after every edit. The worker processes on a background thread
-    /// and does not block the UI.
+    /// Recompute syntax highlighting after an edit.
+    ///
+    /// Called after every edit. For non-large files this performs a
+    /// **synchronous** re-highlight of the current buffer so `latest_spans`
+    /// stays in lockstep with the edited text. This is what keeps highlighting
+    /// visually stable while typing: previously the async worker left the old
+    /// spans (with pre-edit byte offsets) applied to the new text for a few
+    /// frames, mis-colouring everything after the edit point until the parse
+    /// landed — the visible "syntax churn". The compiled query is cached, so a
+    /// full reparse of a small file is cheap.
     ///
     /// Size-aware policy:
-    /// - Small files (<1000 lines, <100KB): full-document parse on bg thread.
-    /// - Large/huge files (>=1000 lines or >=100KB): skip full-document
-    ///   parsing entirely; plain-text fallback in the render path.
-    ///   Tree-sitter parsing of files beyond a few thousand lines is too
-    ///   slow to be useful, and materialising full text on every keystroke
-    ///   for the mpsc channel adds measurable UI-thread latency.
+    /// - Small files (<1000 lines, <100KB): synchronous re-highlight.
+    /// - Large/huge files: skip parsing entirely; plain-text fallback.
     pub(crate) fn schedule_background_parse(&mut self) {
         if self.large_file_mode {
             if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
@@ -342,29 +345,31 @@ impl GuiApp {
             }
             return;
         }
-        if let Some(ref mut worker) = self.parse_worker {
-            let text = self.editor_buffer.to_string();
-            let lang = self.current_language;
-            if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_DEBUG_PARSE_PIPELINE: schedule v={} text_bytes={}",
-                    self.editor_buffer.buffer_version,
-                    text.len(),
-                );
-            }
-            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse v={} text_bytes={} lines={}",
-                    self.editor_buffer.buffer_version,
-                    text.len(),
-                    self.editor_buffer.line_count(),
-                );
-            }
-            worker.schedule_parse(background_parse::BufferSnapshot {
-                version: self.editor_buffer.buffer_version,
-                text,
-                language: lang,
-            });
+
+        let text = self.editor_buffer.to_string();
+        let version = self.editor_buffer.buffer_version;
+        let language = self.current_language;
+
+        if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_DEBUG_PARSE_PIPELINE: sync_rehighlight v={} text_bytes={}",
+                version,
+                text.len(),
+            );
+        }
+
+        // Synchronous re-highlight keeps spans aligned with the current text.
+        // Only overwrite the stored highlights when we have a result (a
+        // supported language with non-empty text), so an unsupported/empty
+        // parse never flashes existing colours away.
+        let spans = background_parse::compute_spans(&self.parser_pool, language, &text);
+        if !spans.is_empty() {
+            self.latest_spans = Some(spans);
+            self.latest_spans_version = version;
+            // The line hash changes on every edit, so the editor cache already
+            // rebuilds; clearing keeps the per-line syntax cache consistent.
+            self.cached_editor_lines_hash = 0;
+            self.line_syntax_cache.clear();
         }
     }
 
@@ -393,7 +398,12 @@ impl GuiApp {
         };
 
         if let Some((spans, version)) = accepted {
-            if version != self.latest_spans_version {
+            // Only apply strictly-newer results. Synchronous re-highlighting on
+            // edit advances `latest_spans_version` to the current buffer
+            // version, so any stale async result (an older version still in the
+            // worker channel) is dropped silently and can never overwrite the
+            // current highlights.
+            if version > self.latest_spans_version {
                 if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
                     eprintln!(
                         "ZAROXI_DEBUG_PARSE_PIPELINE: spans_stored v={} span_count={} lang={:?}",
@@ -418,7 +428,7 @@ impl GuiApp {
     pub(crate) fn parse_result_pending(&self) -> bool {
         self.parse_worker
             .as_ref()
-            .map(|w| w.latest_version() != self.latest_spans_version)
+            .map(|w| w.latest_version() > self.latest_spans_version)
             .unwrap_or(false)
     }
 }
