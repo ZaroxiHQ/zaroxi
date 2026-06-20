@@ -65,8 +65,45 @@ pub fn colorize_source(
     result
 }
 
-/// Extract colored spans for a single line given the full-source highlight spans
-/// and the line's byte offset into the source.
+/// Colorize only the lines in a viewport window, rebasing the full-document
+/// highlight spans into window-local byte coordinates.
+///
+/// `window_lines` are the visible (overscanned) lines; `window_base_byte` is the
+/// absolute byte offset of the first window line within the full document. The
+/// returned runs cover exactly `window_lines` (with `"\n"` separators), so the
+/// renderer emits only viewport rows rather than the whole document — this is
+/// the key to bounding per-frame text/clone cost on large files.
+pub fn colorize_window(
+    window_lines: &[String],
+    window_base_byte: usize,
+    spans: &[HighlightSpan],
+    sem: &SemanticColors,
+) -> Vec<(String, [f32; 4])> {
+    // Window byte length (lines joined by '\n').
+    let window_len: usize = if window_lines.is_empty() {
+        0
+    } else {
+        window_lines.iter().map(|l| l.len()).sum::<usize>() + (window_lines.len() - 1)
+    };
+    let window_end_byte = window_base_byte + window_len;
+
+    // Rebase + clip spans that intersect the window into window-local coords.
+    let mut local_spans: Vec<HighlightSpan> = Vec::new();
+    for s in spans {
+        if s.end <= window_base_byte || s.start >= window_end_byte {
+            continue;
+        }
+        let start = s.start.saturating_sub(window_base_byte);
+        let end = (s.end - window_base_byte).min(window_len);
+        if start < end {
+            local_spans.push(HighlightSpan { start, end, highlight: s.highlight });
+        }
+    }
+
+    colorize_source(window_lines, sem, &local_spans)
+}
+
+/// Extract colored runs for a single line given byte-offset highlight spans.
 fn extract_line_spans(
     line: &str,
     byte_offset: usize,

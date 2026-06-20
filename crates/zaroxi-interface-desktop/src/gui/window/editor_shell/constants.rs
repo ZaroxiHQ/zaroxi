@@ -197,8 +197,16 @@ pub fn compute_scrollbar_geometry(
     (x, y, w, h, thumb_h)
 }
 
-/// Compute visible lines from region height using standard content padding.
+/// Compute visible lines from region height using the SAME content-rect insets
+/// the renderer applies, so the line count equals the number of full rows the
+/// renderer can actually draw (no underfill, no bottom-row drop).
+///
+/// Renderer (`render_frame_inner`) content rect:
+///   content_h = region_h - header(28) - content_padding(8) * 2 = region_h - 44.
+/// Rows that fully fit = floor(content_h / LINE_HEIGHT).
 pub fn visible_lines_from_region(region_h: f32) -> usize {
-    let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_Y * 2.0;
-    (usable_h / LINE_HEIGHT).max(1.0) as usize
+    // Mirror the renderer: header height + content_padding*2.
+    const RENDER_CONTENT_PADDING: f32 = 8.0;
+    let usable_h = region_h - CONTENT_HEADER_H - RENDER_CONTENT_PADDING * 2.0;
+    (usable_h / LINE_HEIGHT).floor().max(1.0) as usize
 }

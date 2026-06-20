@@ -153,7 +153,15 @@ pub(crate) fn prepare_editor_data(
         return data;
     }
 
-    let lines_hash = compute_lines_hash(work_content);
+    let mut lines_hash = compute_lines_hash(work_content);
+    // Mix the viewport range into the cache key: `editor_spans` (and the body
+    // text) are now viewport-windowed, so a scroll must invalidate the cache to
+    // re-window. Without this the renderer would draw a stale window at the new
+    // scroll offset.
+    if let Some((start, end)) = visible_line_range {
+        lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
+        lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
+    }
     let per_line_hashes = compute_per_line_hashes(work_content);
 
     // The editor cache is keyed on BOTH content (lines_hash) AND the highlight

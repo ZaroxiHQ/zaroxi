@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use zaroxi_core_platform_syntax::highlight::{Highlight, HighlightSpan};
 use zaroxi_interface_desktop::gui::window::syntax_color::{
-    colorize_source, colorize_source_incremental,
+    colorize_source, colorize_source_incremental, colorize_window,
 };
 use zaroxi_interface_theme::theme::SemanticColors;
 
@@ -70,4 +70,45 @@ fn incremental_matches_full_for_changed_lines() {
     let inc = colorize_source_incremental(&lines, &sem, &spans, &mut cache, &per_line, &cached);
     assert_eq!(inc[0], ("let".to_string(), keyword_color(&sem)));
     assert_eq!(inc[1], (" x = 1".to_string(), default_color(&sem)));
+}
+
+// Document: "aaa\nbbb\nccc\nddd" — byte offsets aaa[0,3] bbb[4,7] ccc[8,11] ddd[12,15].
+
+#[test]
+fn window_rebases_document_spans() {
+    let sem = SemanticColors::debug();
+    let window = vec!["bbb".to_string(), "ccc".to_string()];
+    let window_base = 4; // byte offset of "bbb" in the full document
+    let spans = vec![
+        HighlightSpan { start: 4, end: 7, highlight: Highlight::Keyword }, // bbb
+        HighlightSpan { start: 8, end: 11, highlight: Highlight::Keyword }, // ccc
+    ];
+    let out = colorize_window(&window, window_base, &spans, &sem);
+    assert_eq!(out[0], ("bbb".to_string(), keyword_color(&sem)));
+    assert_eq!(out[1], ("\n".to_string(), default_color(&sem)));
+    assert_eq!(out[2], ("ccc".to_string(), keyword_color(&sem)));
+}
+
+#[test]
+fn window_clips_span_crossing_top_boundary() {
+    let sem = SemanticColors::debug();
+    let window = vec!["bbb".to_string(), "ccc".to_string()];
+    let window_base = 4;
+    // Span starts inside "aaa" (byte 2), extends into "bbb" — only the in-window
+    // portion ("bbb") should be colored.
+    let spans = vec![HighlightSpan { start: 2, end: 7, highlight: Highlight::Keyword }];
+    let out = colorize_window(&window, window_base, &spans, &sem);
+    assert_eq!(out[0], ("bbb".to_string(), keyword_color(&sem)));
+}
+
+#[test]
+fn window_clips_span_crossing_bottom_boundary() {
+    let sem = SemanticColors::debug();
+    let window = vec!["bbb".to_string(), "ccc".to_string()];
+    let window_base = 4;
+    // Span covers "ccc" and extends past the window into "ddd"; only "ccc"
+    // (clipped to the window end) should be colored.
+    let spans = vec![HighlightSpan { start: 8, end: 14, highlight: Highlight::Keyword }];
+    let out = colorize_window(&window, window_base, &spans, &sem);
+    assert_eq!(out[2], ("ccc".to_string(), keyword_color(&sem)));
 }

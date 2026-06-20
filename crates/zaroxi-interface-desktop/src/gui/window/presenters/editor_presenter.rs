@@ -226,28 +226,47 @@ fn shape_editor_content_impl(
         .unwrap_or_default();
 
     // Apply the latest stored highlight spans (full-document, byte offsets).
-    // When no spans are available (parse pending, unsupported language, or
-    // large-file mode) we leave `editor_spans = None` so the renderer falls
-    // back to plain text.
+    // When a viewport window is active we colorize ONLY the visible (overscanned)
+    // rows, rebasing the document-global spans into the window. This bounds the
+    // per-frame styled-run vector (and its clone cost) to the viewport rather
+    // than the whole document. When no spans are available (parse pending,
+    // unsupported language, or large-file mode) we leave `editor_spans = None`
+    // so the renderer falls back to plain text.
     let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.and_then(|cv| {
         if cv.lines.is_empty() || spans.is_empty() {
             return None;
         }
 
-        if incremental {
-            if let Some(ref mut cache) = line_syntax_cache {
-                return Some(syntax_color::colorize_source_incremental(
-                    &cv.lines,
-                    sem,
-                    spans,
-                    cache,
-                    per_line_hashes,
-                    cached_line_hashes,
-                ));
+        match used_visible_range {
+            Some((start, end)) => {
+                let n = cv.lines.len();
+                let start = start.min(n);
+                let end = end.min(n);
+                if start >= end {
+                    return None;
+                }
+                let window = &cv.lines[start..end];
+                // Absolute byte offset of the first window line (lines joined by
+                // '\n', matching the parsed source).
+                let window_base_byte: usize = cv.lines[..start].iter().map(|l| l.len() + 1).sum();
+                Some(syntax_color::colorize_window(window, window_base_byte, spans, sem))
+            }
+            None => {
+                if incremental {
+                    if let Some(ref mut cache) = line_syntax_cache {
+                        return Some(syntax_color::colorize_source_incremental(
+                            &cv.lines,
+                            sem,
+                            spans,
+                            cache,
+                            per_line_hashes,
+                            cached_line_hashes,
+                        ));
+                    }
+                }
+                Some(syntax_color::colorize_source(&cv.lines, sem, spans))
             }
         }
-
-        Some(syntax_color::colorize_source(&cv.lines, sem, spans))
     });
 
     if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {

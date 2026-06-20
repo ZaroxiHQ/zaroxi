@@ -738,7 +738,11 @@ impl<'a> Renderer<'a> {
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let clip_bottom = content_y + content_h;
                         let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
-                        let mut cursor_y = text_y;
+                        // Honor content_line_offset symmetrically with the plain
+                        // path so a viewport-windowed span list lands at the
+                        // correct absolute y (content_offset_y applies scroll).
+                        let mut cursor_y =
+                            text_y + block.content_line_offset.unwrap_or(0) as f32 * line_h;
                         // Fast-forward through spans for lines entirely above the clip area.
                         // This avoids O(total_lines) work during scroll when only the
                         // visible subset matters.
@@ -1877,7 +1881,12 @@ fn render_frame_inner(
                     // Monospace advance for per-segment horizontal positioning
                     // (matches the cursor/selection column math below).
                     let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
-                    let mut cursor_y = text_y;
+                    // Honor content_line_offset symmetrically with the plain
+                    // path so a viewport-windowed span list (whose first run is
+                    // absolute line `content_line_offset`) lands at the correct
+                    // absolute y. content_offset_y still applies the scroll.
+                    let mut cursor_y =
+                        text_y + block.content_line_offset.unwrap_or(0) as f32 * line_h;
 
                     // Fast-forward whole lines entirely above the visible clip
                     // area so scrolling does not pay O(total_lines) cost.
