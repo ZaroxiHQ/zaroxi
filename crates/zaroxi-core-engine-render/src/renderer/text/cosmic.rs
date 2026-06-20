@@ -25,7 +25,7 @@ use crate::renderer::text::{TextCommand, TextRenderer};
 use crate::renderer::text_atlas::{RasterizedGlyph, SharedAtlas};
 use crate::renderer::text_pipeline;
 use cosmic_text::SwashCache;
-use cosmic_text::{Attrs, Buffer as CosmicBuffer, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer as CosmicBuffer, Family, Metrics, Shaping};
 use log::{debug, info};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -109,6 +109,12 @@ pub struct CosmicTextRenderer {
     /// the surface device scale so that it matches the pixel space used by block
     /// rects, cursor positioning, and glyph instance coordinates.
     monospace_advance: f32,
+    /// Family name of the bundled editor font. Pinned on every text `Attrs` so
+    /// the whole editor (and each colored run) shapes with ONE monospace font
+    /// instead of cosmic's default/per-run font matching, which otherwise mixes
+    /// fonts across runs and makes code look fragmented ("characters from
+    /// different places").
+    font_family: String,
 }
 
 impl CosmicTextRenderer {
@@ -125,16 +131,25 @@ impl CosmicTextRenderer {
 
         // Register the bundled JetBrains Mono Nerd Font so the editor
         // renders with the intended monospace font instead of a system
-        // fallback that may produce poor spacing/clustering.
-        match zaroxi_core_engine_font::load_project_font_bytes() {
+        // fallback that may produce poor spacing/clustering. Capture its family
+        // name so every text `Attrs` can pin it explicitly.
+        let font_family: String = match zaroxi_core_engine_font::load_project_font_bytes() {
             Ok(font_bytes) => {
                 fs.db_mut().load_font_data(font_bytes);
-                debug!("ZAROXI_FONT: registered JetBrainsMonoNerdFont-Regular.ttf");
+                let name = fs
+                    .db()
+                    .faces()
+                    .last()
+                    .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+                    .unwrap_or_else(|| "JetBrains Mono".to_string());
+                debug!("ZAROXI_FONT: registered editor font family='{}'", name);
+                name
             }
             Err(e) => {
                 debug!("ZAROXI_FONT: project font not available: {}", e);
+                "monospace".to_string()
             }
-        }
+        };
 
         // Compute the actual monospace advance from the loaded font
         // by shaping a reference string and measuring the glyph advance.
@@ -150,7 +165,7 @@ impl CosmicTextRenderer {
             let ref_text = "xxxxxxxxxx";
             let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut fs, metrics);
-            let mut attrs = Attrs::new();
+            let attrs = Attrs::new().family(Family::Name(&font_family));
             buf.set_text(ref_text, &attrs, Shaping::Advanced, None);
             let mut advance = font_size_physical * 0.6; // fallback
             let mut glyph_count = 0usize;
@@ -198,6 +213,7 @@ impl CosmicTextRenderer {
             last_instance_buffer_count: Arc::new(Mutex::new(None)),
             last_final_path: Arc::new(Mutex::new(None)),
             monospace_advance,
+            font_family,
         })
     }
 
@@ -595,7 +611,10 @@ impl TextRenderer for CosmicTextRenderer {
             let font_size_physical = cmd.size * device_scale;
             let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut *fs, metrics);
-            let attrs = Attrs::new();
+            // Pin the bundled editor font on every run so the whole line shapes
+            // with one monospace font (no default/per-run font matching).
+            let family = Family::Name(&self.font_family);
+            let attrs = Attrs::new().family(family);
             if let Some(ref runs) = cmd.color_runs {
                 // Shape the whole logical line as ONE buffer with per-run color
                 // attributes: continuous advances/baseline, syntax colors via
@@ -610,7 +629,7 @@ impl TextRenderer for CosmicTextRenderer {
                             (c[2] * 255.0).round() as u8,
                             (c[3] * 255.0).round() as u8,
                         );
-                        (t.as_str(), Attrs::new().color(col))
+                        (t.as_str(), Attrs::new().family(family).color(col))
                     })
                     .collect();
                 buf.set_rich_text(spans, &attrs, Shaping::Advanced, None);
