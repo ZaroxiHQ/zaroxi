@@ -735,14 +735,13 @@ impl<'a> Renderer<'a> {
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
-                        let mut cursor_y = text_y;
                         let line_h = DEFAULT_FONT_SIZE + 2.0;
                         let clip_bottom = content_y + content_h;
+                        let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
+                        let mut cursor_y = text_y;
                         // Fast-forward through spans for lines entirely above the clip area.
-                        // This avoids O(total_lines) string manipulation during scroll when
-                        // only the visible subset matters. We track line boundaries the same
-                        // way as the main loop but skip span accumulation while cursor_y is
-                        // below the clip top.
+                        // This avoids O(total_lines) work during scroll when only the
+                        // visible subset matters.
                         let mut ff_y = cursor_y;
                         let mut ff_idx: usize = 0;
                         while ff_y < content_y && ff_idx < spans.len() {
@@ -751,67 +750,45 @@ impl<'a> Renderer<'a> {
                             }
                             ff_idx += 1;
                         }
-                        // If we advanced past any spans, update cursor_y and slice the span
-                        // iterator so we only process the visible portion.
                         let effective_spans = if ff_idx > 0 {
                             cursor_y = ff_y;
                             &spans[ff_idx..]
                         } else {
                             spans.as_slice()
                         };
-                        let mut line_buf = String::new();
+                        // Emit each colored segment as its own draw command at the
+                        // correct monospace column so multiple colors per line are
+                        // preserved.  Only lines whose full height fits the clip area
+                        // are drawn (avoids glyph-edge artifacts at the boundaries).
+                        let mut col_chars: usize = 0;
                         for (span_text, span_color) in effective_spans {
                             if span_text == "\n" {
-                                if !line_buf.is_empty() {
-                                    // Only queue lines whose full height fits within the
-                                    // visible clip area. Lines starting above content_y
-                                    // or ending below clip_bottom are skipped to avoid
-                                    // glyph-edge artifacts from partial clipping of ascenders
-                                    // and descenders at the viewport boundaries.
-                                    let line_ends_at = cursor_y + line_h;
-                                    if cursor_y >= content_y && line_ends_at <= clip_bottom {
-                                        self.text_renderer.queue_text(
-                                            crate::renderer::text::TextCommand::new_body(
-                                                &line_buf,
-                                                text_x,
-                                                cursor_y,
-                                                *span_color,
-                                                DEFAULT_FONT_SIZE,
-                                                clip_x,
-                                                content_y,
-                                                clip_w,
-                                                content_h,
-                                            ),
-                                        );
-                                    }
-                                    line_buf.clear();
-                                }
                                 cursor_y += line_h;
+                                col_chars = 0;
                                 if cursor_y + line_h > clip_bottom {
                                     break;
                                 }
                                 continue;
                             }
-                            line_buf.push_str(span_text);
-                        }
-                        // Flush any remaining line_buf that hasn't been terminated by \n
-                        if !line_buf.is_empty()
-                            && cursor_y >= content_y
-                            && cursor_y + line_h <= clip_bottom
-                        {
-                            self.text_renderer.queue_text(
-                                crate::renderer::text::TextCommand::new_body(
-                                    &line_buf,
-                                    text_x,
-                                    cursor_y,
-                                    *spans.last().map(|(_, c)| c).unwrap_or(&[1.0; 4]),
-                                    DEFAULT_FONT_SIZE,
-                                    clip_x,
-                                    content_y,
-                                    clip_w,
-                                    content_h,
-                                ),
-                            );
+                            let line_visible =
+                                cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                            if line_visible && !span_text.is_empty() {
+                                let seg_x = text_x + col_chars as f32 * char_w;
+                                self.text_renderer.queue_text(
+                                    crate::renderer::text::TextCommand::new_body(
+                                        span_text,
+                                        seg_x,
+                                        cursor_y,
+                                        *span_color,
+                                        DEFAULT_FONT_SIZE,
+                                        clip_x,
+                                        content_y,
+                                        clip_w,
+                                        content_h,
+                                    ),
+                                );
+                            }
+                            col_chars += span_text.chars().count();
                         }
                     } else {
                         // Non-spans path: apply line-level vertical culling
@@ -1895,10 +1872,15 @@ fn render_frame_inner(
             let text_y = content_y - block.content_offset_y;
             if clip_w > 0.0 && content_h > 0.0 {
                 if let Some(ref spans) = block.content_spans {
-                    let mut cursor_y = text_y;
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
                     let clip_bottom = content_y + content_h;
-                    // Fast-forward invisible spans (same as first copy)
+                    // Monospace advance for per-segment horizontal positioning
+                    // (matches the cursor/selection column math below).
+                    let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
+                    let mut cursor_y = text_y;
+
+                    // Fast-forward whole lines entirely above the visible clip
+                    // area so scrolling does not pay O(total_lines) cost.
                     let mut ff_y = cursor_y;
                     let mut ff_idx: usize = 0;
                     while ff_y < content_y && ff_idx < spans.len() {
@@ -1913,51 +1895,38 @@ fn render_frame_inner(
                     } else {
                         spans.as_slice()
                     };
-                    let mut line_buf = String::new();
+
+                    // Emit each colored segment as its own draw command at the
+                    // correct monospace column so multiple colors per line are
+                    // preserved (the previous implementation concatenated a whole
+                    // line into one buffer and drew it with a single color).
+                    let mut col_chars: usize = 0;
                     for (span_text, span_color) in effective_spans {
                         if span_text == "\n" {
-                            if !line_buf.is_empty()
-                                && cursor_y >= content_y
-                                && cursor_y + line_h <= clip_bottom
-                            {
-                                text_renderer.queue_text(
-                                    crate::renderer::text::TextCommand::new_body(
-                                        &line_buf,
-                                        text_x,
-                                        cursor_y,
-                                        *span_color,
-                                        DEFAULT_FONT_SIZE,
-                                        clip_x,
-                                        content_y,
-                                        clip_w,
-                                        content_h,
-                                    ),
-                                );
-                            }
-                            line_buf.clear();
                             cursor_y += line_h;
+                            col_chars = 0;
                             if cursor_y + line_h > clip_bottom {
                                 break;
                             }
                             continue;
                         }
-                        line_buf.push_str(span_text);
-                    }
-                    if !line_buf.is_empty()
-                        && cursor_y >= content_y
-                        && cursor_y + line_h <= clip_bottom
-                    {
-                        text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                            &line_buf,
-                            text_x,
-                            cursor_y,
-                            *spans.last().map(|(_, c)| c).unwrap_or(&[1.0; 4]),
-                            DEFAULT_FONT_SIZE,
-                            clip_x,
-                            content_y,
-                            clip_w,
-                            content_h,
-                        ));
+                        let line_visible =
+                            cursor_y >= content_y && cursor_y + line_h <= clip_bottom;
+                        if line_visible && !span_text.is_empty() {
+                            let seg_x = text_x + col_chars as f32 * char_w;
+                            text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                                span_text,
+                                seg_x,
+                                cursor_y,
+                                *span_color,
+                                DEFAULT_FONT_SIZE,
+                                clip_x,
+                                content_y,
+                                clip_w,
+                                content_h,
+                            ));
+                        }
+                        col_chars += span_text.chars().count();
                     }
                 } else {
                     let clip_bottom = content_y + content_h;

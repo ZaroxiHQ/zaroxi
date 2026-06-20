@@ -48,21 +48,25 @@ mod tests {
     fn test_toml_language_detection() {
         use std::path::Path;
 
-        assert_eq!(LanguageId::from_path(Path::new("Cargo.toml")), LanguageId::Toml);
-        assert_eq!(LanguageId::from_path(Path::new("test.toml")), LanguageId::Toml);
-        assert_eq!(LanguageId::from_path(Path::new(".clippy.toml")), LanguageId::Toml);
-        assert_eq!(LanguageId::from_path(Path::new("pyproject.toml")), LanguageId::Toml);
-        assert_eq!(LanguageId::from_path(Path::new("rustfmt.toml")), LanguageId::Toml);
-        assert_eq!(LanguageId::from_path(Path::new("config.toml")), LanguageId::Toml);
+        // Compare canonical ids: depending on whether the runtime grammar
+        // registry is populated, a `.toml` file may resolve to the static
+        // `LanguageId::Toml` or the equivalent `Dynamic("toml")`; both share
+        // the same canonical id and query directory.
+        assert_eq!(LanguageId::from_path(Path::new("Cargo.toml")).as_str(), "toml");
+        assert_eq!(LanguageId::from_path(Path::new("test.toml")).as_str(), "toml");
+        assert_eq!(LanguageId::from_path(Path::new(".clippy.toml")).as_str(), "toml");
+        assert_eq!(LanguageId::from_path(Path::new("pyproject.toml")).as_str(), "toml");
+        assert_eq!(LanguageId::from_path(Path::new("rustfmt.toml")).as_str(), "toml");
+        assert_eq!(LanguageId::from_path(Path::new("config.toml")).as_str(), "toml");
     }
 
     #[test]
     fn test_markdown_language_detection() {
         use std::path::Path;
 
-        assert_eq!(LanguageId::from_path(Path::new("README.md")), LanguageId::Markdown);
-        assert_eq!(LanguageId::from_path(Path::new("document.markdown")), LanguageId::Markdown);
-        assert_eq!(LanguageId::from_path(Path::new("notes.MD")), LanguageId::Markdown);
+        assert_eq!(LanguageId::from_path(Path::new("README.md")).as_str(), "markdown");
+        assert_eq!(LanguageId::from_path(Path::new("document.markdown")).as_str(), "markdown");
+        assert_eq!(LanguageId::from_path(Path::new("notes.MD")).as_str(), "markdown");
         assert_eq!(
             LanguageId::from_path(Path::new("test.mdx")),
             LanguageId::PlainText // .mdx is not supported by default
@@ -110,7 +114,6 @@ mod tests {
     #[test]
     fn test_markdown_language_parsing() {
         use crate::language::LanguageId;
-        use std::path::Path;
 
         let lang = LanguageId::Markdown;
         assert_eq!(lang.as_str(), "markdown");

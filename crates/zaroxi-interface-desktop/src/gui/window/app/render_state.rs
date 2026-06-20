@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::gui::ShellWorkContent;
 use crate::gui::window::editor::EditorContentData;
 use zaroxi_core_editor_rope::Rope;
-use zaroxi_core_platform_syntax::parser::ParserPool;
+use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::theme::SemanticColors;
 
 pub(crate) fn compute_lines_hash(work_content: &Option<ShellWorkContent>) -> u64 {
@@ -80,11 +80,18 @@ pub(crate) fn should_use_editor_cache(lines_hash: u64, cached_hash: u64) -> bool
     lines_hash > 0 && lines_hash == cached_hash
 }
 
+pub(crate) fn editor_spans_debug_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1")
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_editor_data(
     work_content: &Option<ShellWorkContent>,
     cached_editor_data: &mut Option<EditorContentData>,
     cached_editor_lines_hash: &mut u64,
-    parser_pool: &ParserPool,
+    cached_editor_spans_version: &mut u64,
+    spans: &[HighlightSpan],
+    spans_version: u64,
     sem: &SemanticColors,
     line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     cached_line_hashes: &mut Vec<u64>,
@@ -115,6 +122,13 @@ pub(crate) fn prepare_editor_data(
         cached_line_hashes.clear();
         line_syntax_cache.clear();
 
+        // Phase 1 large-file policy: large files are rendered as plain text.
+        // The background parser is not run for them (see
+        // `GuiApp::schedule_background_parse`), so no spans exist and the
+        // plain shaper is used unconditionally here.  This is an explicit,
+        // documented limitation — syntax highlighting for large files is
+        // deferred to a later phase.
+        let _ = spans;
         let data = super::super::presenters::shape_editor_content_plain(
             work_content,
             sem,
@@ -135,28 +149,37 @@ pub(crate) fn prepare_editor_data(
 
         *cached_editor_data = Some(data.clone());
         *cached_editor_lines_hash = lines_hash;
+        *cached_editor_spans_version = spans_version;
         return data;
     }
 
     let lines_hash = compute_lines_hash(work_content);
     let per_line_hashes = compute_per_line_hashes(work_content);
 
-    if should_use_editor_cache(lines_hash, *cached_editor_lines_hash) {
-        return cached_editor_data.clone().unwrap_or_else(|| {
-            super::super::presenters::shape_editor_content(
-                work_content,
-                sem,
-                parser_pool,
-                visible_line_range,
-                rope,
-            )
-        });
+    // The editor cache is keyed on BOTH content (lines_hash) AND the highlight
+    // spans version. Without the spans-version key, content that was shaped as
+    // plain text *before* the background parse result arrived would be reused
+    // even after spans are stored, leaving the editor permanently uncolored.
+    let cache_valid = should_use_editor_cache(lines_hash, *cached_editor_lines_hash)
+        && spans_version == *cached_editor_spans_version;
+
+    if cache_valid {
+        if let Some(cached) = cached_editor_data {
+            if editor_spans_debug_enabled() {
+                eprintln!(
+                    "ZAROXI_DEBUG_EDITOR_SPANS: cache_hit spans_version={} has_spans={}",
+                    spans_version,
+                    cached.editor_spans.is_some(),
+                );
+            }
+            return cached.clone();
+        }
     }
 
     let data = super::super::presenters::shape_editor_content_incremental(
         work_content,
         sem,
-        parser_pool,
+        spans,
         line_syntax_cache,
         &per_line_hashes,
         cached_line_hashes,
@@ -164,8 +187,19 @@ pub(crate) fn prepare_editor_data(
         rope,
     );
 
+    if editor_spans_debug_enabled() {
+        eprintln!(
+            "ZAROXI_DEBUG_EDITOR_SPANS: rebuild spans_in={} spans_version={} editor_spans_segments={:?} visible_range={:?}",
+            spans.len(),
+            spans_version,
+            data.editor_spans.as_ref().map(|s| s.len()),
+            data.visible_line_range,
+        );
+    }
+
     *cached_editor_data = Some(data.clone());
     *cached_editor_lines_hash = lines_hash;
+    *cached_editor_spans_version = spans_version;
     *cached_line_hashes = per_line_hashes;
 
     data

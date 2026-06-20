@@ -3,33 +3,13 @@ use std::collections::HashMap;
 use zaroxi_core_editor_rope::Rope;
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::chrome::TabEntry;
-use zaroxi_core_platform_syntax::parser::ParserPool;
+use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::theme::SemanticColors;
 
 use super::super::editor::EditorContentData;
 use super::super::syntax_color;
 
 const OVERSCAN_LINES: usize = 20;
-
-pub fn shape_editor_content(
-    work_content: &Option<ShellWorkContent>,
-    sem: &SemanticColors,
-    parser_pool: &ParserPool,
-    visible_line_range: Option<(usize, usize)>,
-    rope: Option<&Rope>,
-) -> EditorContentData {
-    shape_editor_content_impl(
-        work_content,
-        sem,
-        parser_pool,
-        false,
-        None,
-        &[],
-        &[],
-        visible_line_range,
-        rope,
-    )
-}
 
 pub fn shape_editor_content_plain(
     work_content: &Option<ShellWorkContent>,
@@ -146,7 +126,7 @@ pub fn shape_editor_content_plain(
 pub fn shape_editor_content_incremental(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
-    parser_pool: &ParserPool,
+    spans: &[HighlightSpan],
     line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
@@ -156,7 +136,7 @@ pub fn shape_editor_content_incremental(
     shape_editor_content_impl(
         work_content,
         sem,
-        parser_pool,
+        spans,
         true,
         Some(line_syntax_cache),
         per_line_hashes,
@@ -169,7 +149,7 @@ pub fn shape_editor_content_incremental(
 fn shape_editor_content_impl(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
-    parser_pool: &ParserPool,
+    spans: &[HighlightSpan],
     incremental: bool,
     mut line_syntax_cache: Option<&mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>>,
     per_line_hashes: &[u64],
@@ -245,26 +225,41 @@ fn shape_editor_content_impl(
         .map(|cv| if cv.title.is_empty() { cv.subtitle.clone() } else { cv.title.clone() })
         .unwrap_or_default();
 
-    let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.map(|cv| {
-        if cv.lines.is_empty() {
-            return Vec::new();
+    // Apply the latest stored highlight spans (full-document, byte offsets).
+    // When no spans are available (parse pending, unsupported language, or
+    // large-file mode) we leave `editor_spans = None` so the renderer falls
+    // back to plain text.
+    let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.and_then(|cv| {
+        if cv.lines.is_empty() || spans.is_empty() {
+            return None;
         }
 
         if incremental {
             if let Some(ref mut cache) = line_syntax_cache {
-                return syntax_color::colorize_source_incremental(
+                return Some(syntax_color::colorize_source_incremental(
                     &cv.lines,
                     sem,
-                    parser_pool,
+                    spans,
                     cache,
                     per_line_hashes,
                     cached_line_hashes,
-                );
+                ));
             }
         }
 
-        syntax_color::colorize_source(&cv.lines, sem, parser_pool)
+        Some(syntax_color::colorize_source(&cv.lines, sem, spans))
     });
+
+    if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_DEBUG_EDITOR_SPANS: presenter spans_in={} editor_spans_segments={:?} total_lines={} used_visible_range={:?} body_bytes={}",
+            spans.len(),
+            editor_spans.as_ref().map(|s| s.len()),
+            total_lines,
+            used_visible_range,
+            editor_body_text.len(),
+        );
+    }
 
     let tab_labels = wc.editor_tabs.clone().unwrap_or_else(Vec::new);
     let tab_entries: Vec<TabEntry> = if tab_labels.is_empty() {

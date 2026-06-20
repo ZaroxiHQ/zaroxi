@@ -4,6 +4,16 @@ use crate::error::SyntaxError;
 use crate::language::LanguageId;
 use tree_sitter::{Query, QueryCursor, StreamingIterator, Tree};
 
+/// Whether the targeted highlight-query diagnostics are enabled.
+///
+/// Gated behind `ZAROXI_DEBUG_HIGHLIGHT_QUERY=1` so the (potentially per-parse)
+/// resolution logs do not spam normal runs.  Emits the resolved language id,
+/// grammar/query directories, which query files were found, query-compilation
+/// success, capture/match counts, and any spans dropped by filtering.
+fn query_debug_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_HIGHLIGHT_QUERY").as_deref() == Ok("1")
+}
+
 /// A highlight span in the document.
 ///
 /// Represents a contiguous byte range in the source with its highlight
@@ -82,20 +92,45 @@ impl HighlightEngine {
     ) -> Result<Vec<HighlightSpan>, SyntaxError> {
         // For plaintext or unknown languages, return empty spans
         if language == LanguageId::PlainText {
-            eprintln!("DEBUG: PlainText language, returning empty highlights");
             return Ok(Vec::new());
         }
 
-        eprintln!("DEBUG: Highlighting for language: {:?}", language);
+        let debug = query_debug_enabled();
+        if debug {
+            let id = language.as_str();
+            let grammar_lib = self.runtime.grammar_library_path(id);
+            let query_dir = self.runtime.language_dir(id).join("queries");
+            eprintln!(
+                "ZAROXI_HL_QUERY: runtime_root={} current_exe={:?} current_dir={:?}",
+                self.runtime.root().display(),
+                std::env::current_exe().ok(),
+                std::env::current_dir().ok(),
+            );
+            eprintln!(
+                "ZAROXI_HL_QUERY: lang_id={:?} grammar_lib={} grammar_exists={} query_dir={}",
+                id,
+                grammar_lib.display(),
+                grammar_lib.exists(),
+                query_dir.display(),
+            );
+            eprintln!(
+                "ZAROXI_HL_QUERY: highlights.scm={} injections.scm={} locals.scm={}",
+                query_dir.join("highlights.scm").exists(),
+                query_dir.join("injections.scm").exists(),
+                query_dir.join("locals.scm").exists(),
+            );
+        }
 
         // Get the Tree-sitter language
         let _ts_lang = match language.tree_sitter_language() {
-            Some(lang) => {
-                eprintln!("DEBUG: Got Tree-sitter language for {:?}", language);
-                lang
-            }
+            Some(lang) => lang,
             None => {
-                eprintln!("DEBUG: No Tree-sitter language available for {:?}", language);
+                if debug {
+                    eprintln!(
+                        "ZAROXI_HL_QUERY: no grammar loaded for {:?} -> plain-text fallback",
+                        language
+                    );
+                }
                 // No grammar available, return empty spans
                 return Ok(Vec::new());
             }
@@ -105,7 +140,12 @@ impl HighlightEngine {
         let query = match self.load_query(&language) {
             Some(q) => q,
             None => {
-                eprintln!("DEBUG: No query available for {:?}", language);
+                if debug {
+                    eprintln!(
+                        "ZAROXI_HL_QUERY: no/invalid highlights query for {:?} -> plain-text fallback",
+                        language
+                    );
+                }
                 // No query available, return empty spans
                 return Ok(Vec::new());
             }
@@ -113,11 +153,18 @@ impl HighlightEngine {
 
         // Execute the query against the syntax tree
         let spans = self.execute_query(&query, source, tree);
-        eprintln!("DEBUG: Got {} raw highlight spans", spans.len());
 
         // Post-process spans: sort and filter covered plain spans
+        let before = spans.len();
         let filtered = self.filter_spans(spans);
-        eprintln!("DEBUG: After filtering: {} highlight spans", filtered.len());
+        if debug {
+            eprintln!(
+                "ZAROXI_HL_QUERY: spans before_filter={} after_filter={} dropped={}",
+                before,
+                filtered.len(),
+                before.saturating_sub(filtered.len()),
+            );
+        }
 
         Ok(filtered)
     }
@@ -126,6 +173,7 @@ impl HighlightEngine {
     ///
     /// Returns `None` if the query cannot be loaded or compiled.
     fn load_query(&self, language: &LanguageId) -> Option<Query> {
+        let debug = query_debug_enabled();
         let language_id = language.as_str();
 
         // Get the Tree-sitter language for query compilation
@@ -138,18 +186,22 @@ impl HighlightEngine {
         let query_text = match std::fs::read_to_string(&query_path) {
             Ok(text) => text,
             Err(e) => {
-                eprintln!(
-                    "DEBUG: Query file not found for {}: {} (path: {})",
-                    language_id,
-                    e,
-                    query_path.display()
-                );
+                if debug {
+                    eprintln!(
+                        "ZAROXI_HL_QUERY: highlights.scm not found for {} ({}) at {}",
+                        language_id,
+                        e,
+                        query_path.display()
+                    );
+                }
                 // Try alternative path: look for queries directly in language directory
                 let alt_path = self.runtime.language_dir(language_id).join("highlights.scm");
                 match std::fs::read_to_string(&alt_path) {
                     Ok(text) => text,
                     Err(e2) => {
-                        eprintln!("DEBUG: Alternative path also failed: {}", e2);
+                        if debug {
+                            eprintln!("ZAROXI_HL_QUERY: alternative path also failed: {}", e2);
+                        }
                         return None;
                     }
                 }
@@ -157,19 +209,32 @@ impl HighlightEngine {
         };
 
         if query_text.trim().is_empty() {
-            eprintln!("DEBUG: Query file for {} is empty", language_id);
+            if debug {
+                eprintln!("ZAROXI_HL_QUERY: highlights.scm for {} is empty", language_id);
+            }
             return None;
         }
 
         // Compile the query
         match Query::new(&ts_lang, &query_text) {
             Ok(q) => {
-                eprintln!("DEBUG: Successfully compiled query for {}", language_id);
+                if debug {
+                    eprintln!(
+                        "ZAROXI_HL_QUERY: compiled highlights query for {} ({} captures)",
+                        language_id,
+                        q.capture_names().len()
+                    );
+                }
                 Some(q)
             }
             Err(e) => {
                 // Log the error for debugging but don't crash
-                eprintln!("Warning: Failed to compile query for {}: {}", language_id, e);
+                if debug {
+                    eprintln!(
+                        "ZAROXI_HL_QUERY: failed to compile query for {}: {}",
+                        language_id, e
+                    );
+                }
                 None
             }
         }
@@ -180,13 +245,6 @@ impl HighlightEngine {
         let mut cursor = QueryCursor::new();
         let root_node = tree.root_node();
         let mut spans = Vec::new();
-
-        eprintln!("DEBUG: Executing query, source length: {} bytes", source.len());
-        eprintln!(
-            "DEBUG: Root node: start={}, end={}",
-            root_node.start_byte(),
-            root_node.end_byte()
-        );
 
         // Iterate over query matches using QueryCursor::matches which returns a streaming
         // iterator. Use the StreamingIterator trait's `next` helper to walk matches.
@@ -205,7 +263,14 @@ impl HighlightEngine {
             }
         }
 
-        eprintln!("DEBUG: Found {} query matches, {} total captures", match_count, spans.len());
+        if query_debug_enabled() {
+            eprintln!(
+                "ZAROXI_HL_QUERY: query matches={} captures(emitted spans)={} source_bytes={}",
+                match_count,
+                spans.len(),
+                source.len(),
+            );
+        }
         spans
     }
 
@@ -478,7 +543,9 @@ pub fn get_query_for_language(language: LanguageId) -> Result<&'static str, Synt
             Ok(query_text) => {
                 // Check if the query is not empty
                 if query_text.trim().is_empty() {
-                    eprintln!("DEBUG: Query file for {} is empty", language_id);
+                    if query_debug_enabled() {
+                        eprintln!("ZAROXI_HL_QUERY: highlights.scm for {} is empty", language_id);
+                    }
                     return Ok("");
                 }
 
@@ -489,14 +556,22 @@ pub fn get_query_for_language(language: LanguageId) -> Result<&'static str, Synt
             Err(e) => {
                 // If we can't read the query file, return an empty query instead of failing
                 // This allows syntax highlighting to fall back gracefully
-                eprintln!("Warning: Failed to read query file for {}: {}", language_id, e);
+                if query_debug_enabled() {
+                    eprintln!("ZAROXI_HL_QUERY: failed to read query for {}: {}", language_id, e);
+                }
                 Ok("")
             }
         }
     } else {
         // If no query file exists, return an empty query
         // This is better than failing, as it allows the editor to work without syntax highlighting
-        eprintln!("Warning: No query file found for {} at {}", language_id, query_path.display());
+        if query_debug_enabled() {
+            eprintln!(
+                "ZAROXI_HL_QUERY: no query file for {} at {}",
+                language_id,
+                query_path.display()
+            );
+        }
         Ok("")
     }
 }

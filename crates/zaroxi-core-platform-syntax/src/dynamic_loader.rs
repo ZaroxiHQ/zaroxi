@@ -9,6 +9,10 @@
 //
 // This keeps the crate small and allows consumers to opt into dynamic loading.
 
+// Re-exported into the stub module via `super::tree_sitter`. The enabled module
+// imports `tree_sitter` directly, so this top-level import is only needed when
+// dynamic loading is disabled.
+#[cfg(not(feature = "dynamic-loading"))]
 use tree_sitter;
 
 #[cfg(not(feature = "dynamic-loading"))]
@@ -74,6 +78,15 @@ mod enabled {
     static LANGUAGE_CACHE: OnceLock<Mutex<HashMap<String, Option<tree_sitter::Language>>>> =
         OnceLock::new();
 
+    /// Whether grammar-loader diagnostics are enabled.
+    ///
+    /// Shares the `ZAROXI_DEBUG_HIGHLIGHT_QUERY=1` flag with the highlight
+    /// engine so a single env var surfaces the full resolution chain
+    /// (grammar lib path, resolved symbol, query loading).
+    fn loader_debug() -> bool {
+        std::env::var("ZAROXI_DEBUG_HIGHLIGHT_QUERY").as_deref() == Ok("1")
+    }
+
     /// Load a Tree-sitter language dynamically from the runtime directory
     pub fn load_language(language_id: &str) -> Option<tree_sitter::Language> {
         let cache = LANGUAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -97,10 +110,13 @@ mod enabled {
     }
 
     fn load_language_impl(language_id: &str) -> Option<tree_sitter::Language> {
+        let debug = loader_debug();
         // Check if the language is in the registry
         let registry = GrammarRegistry::global();
         if !registry.contains_language(language_id) {
-            eprintln!("DEBUG: Language {} not in registry", language_id);
+            if debug {
+                eprintln!("ZAROXI_HL_QUERY: language {} not in registry", language_id);
+            }
             return None;
         }
 
@@ -108,20 +124,37 @@ mod enabled {
 
         // Check if the grammar library exists
         let library_path = runtime.grammar_library_path(language_id);
-        eprintln!("DEBUG: load_language_impl: checking path {:?}", library_path);
-        if !library_path.exists() {
+        if debug {
             eprintln!(
-                "DEBUG: load_language_impl: Library path doesn't exist: {}",
+                "ZAROXI_HL_QUERY: grammar lib for {} -> {}",
+                language_id,
                 library_path.display()
             );
+        }
+        if !library_path.exists() {
+            // Always emit a one-time, actionable diagnostic: a missing grammar
+            // library is the difference between "highlighting works" and silent
+            // zero-span behavior, so it must not be hidden behind the debug flag.
+            use std::sync::Once;
+            static MISSING_WARNED: Once = Once::new();
+            MISSING_WARNED.call_once(|| {
+                eprintln!(
+                    "ZAROXI_RUNTIME: grammar library missing (runtime_root={}, looked for {}). \
+                     Syntax highlighting disabled for affected languages. \
+                     Set ZAROXI_TREESITTER_RUNTIME_DIR to a directory containing 'grammars/'.",
+                    runtime.root().display(),
+                    library_path.display(),
+                );
+            });
+            if debug {
+                eprintln!(
+                    "ZAROXI_HL_QUERY: grammar lib missing for {}: {}",
+                    language_id,
+                    library_path.display()
+                );
+            }
             return None;
         }
-
-        eprintln!(
-            "DEBUG: load_language_impl: Loading language {} from {}",
-            language_id,
-            library_path.display()
-        );
 
         // Load the library
         unsafe {
@@ -141,8 +174,6 @@ mod enabled {
                     let mut last_error = None;
 
                     for symbol_name in symbol_names {
-                        eprintln!("DEBUG: load_language_impl: Looking for symbol: {}", symbol_name);
-
                         // Use explicit generic to help type inference across libloading versions.
                         let language_fn = lib
                             .get::<unsafe extern "C" fn() -> tree_sitter::Language>(
@@ -151,59 +182,52 @@ mod enabled {
 
                         match language_fn {
                             Ok(func) => {
-                                eprintln!(
-                                    "DEBUG: load_language_impl: Found symbol {} for {}",
-                                    symbol_name, language_id
-                                );
                                 let language = func();
                                 // Leak the library to keep it loaded
                                 std::mem::forget(lib);
-                                // Print some info about the language
-                                eprintln!(
-                                    "DEBUG: load_language_impl: Language {} loaded successfully via {}, node count: {}",
-                                    language_id,
-                                    symbol_name,
-                                    language.node_kind_count()
-                                );
-                                // Print node types for debugging
-                                if language_id == "markdown" {
-                                    for i in 0..language.node_kind_count() {
-                                        let kind = language.node_kind_for_id(i as u16);
-                                        if let Some(kind) = kind {
-                                            eprintln!("DEBUG: Node type {}: {}", i, kind);
-                                        }
-                                    }
+                                if debug {
+                                    eprintln!(
+                                        "ZAROXI_HL_QUERY: grammar {} loaded via symbol {} (node_kinds={})",
+                                        language_id,
+                                        symbol_name,
+                                        language.node_kind_count()
+                                    );
                                 }
                                 return Some(language);
                             }
                             Err(e) => {
                                 // Store error message string instead of the error itself
-                                let error_msg = format!("{}", e);
-                                last_error = Some(error_msg);
-                                eprintln!(
-                                    "DEBUG: load_language_impl: Failed to get symbol {}: {}",
-                                    symbol_name, e
-                                );
+                                last_error = Some(format!("{}", e));
+                                if debug {
+                                    eprintln!(
+                                        "ZAROXI_HL_QUERY: symbol {} not found for {}: {}",
+                                        symbol_name, language_id, e
+                                    );
+                                }
                                 // Try next symbol
                             }
                         }
                     }
 
                     // If we get here, all symbols failed
-                    if let Some(e) = last_error {
-                        eprintln!(
-                            "DEBUG: load_language_impl: All symbols failed for {}: {}",
-                            language_id, e
-                        );
+                    if debug {
+                        if let Some(e) = last_error {
+                            eprintln!(
+                                "ZAROXI_HL_QUERY: all symbols failed for {}: {}",
+                                language_id, e
+                            );
+                        }
                     }
                     None
                 }
                 Err(e) => {
-                    eprintln!(
-                        "DEBUG: load_language_impl: Failed to load library {}: {}",
-                        library_path.display(),
-                        e
-                    );
+                    if debug {
+                        eprintln!(
+                            "ZAROXI_HL_QUERY: failed to load grammar library {}: {}",
+                            library_path.display(),
+                            e
+                        );
+                    }
                     None
                 }
             }

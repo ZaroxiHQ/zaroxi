@@ -46,6 +46,7 @@ mod tests {
             parser_pool: std::sync::Arc::new(zaroxi_core_platform_syntax::parser::ParserPool::new()),
             cached_editor_data: None,
             cached_editor_lines_hash: 0,
+            cached_editor_spans_version: 0,
             layout_controller:
                 zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
             editor_viewport: None,
@@ -61,7 +62,9 @@ mod tests {
             line_syntax_cache: std::collections::HashMap::new(),
             cached_line_hashes: Vec::new(),
             large_file_mode: false,
-            buffer_version: 0,
+            current_language: zaroxi_core_platform_syntax::language::LanguageId::PlainText,
+            latest_spans: None,
+            latest_spans_version: 0,
             parse_worker: None,
         }
     }

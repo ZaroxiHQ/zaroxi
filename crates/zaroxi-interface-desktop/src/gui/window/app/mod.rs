@@ -35,6 +35,7 @@ mod input;
 mod render_state;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -104,6 +105,8 @@ use crate::gui::{ShellFrame, ShellWorkContent};
 use zaroxi_application_workspace::ports::{SessionId, WorkspaceService, WorkspaceView};
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
+use zaroxi_core_platform_syntax::highlight::HighlightSpan;
+use zaroxi_core_platform_syntax::language::LanguageId;
 use zaroxi_core_platform_syntax::parser::ParserPool;
 use zaroxi_kernel_types::Id;
 
@@ -136,6 +139,10 @@ pub struct GuiApp {
     pub parser_pool: Arc<ParserPool>,
     pub cached_editor_data: Option<crate::gui::window::editor::EditorContentData>,
     pub cached_editor_lines_hash: u64,
+    /// Spans version the cached editor data was shaped with. Part of the editor
+    /// cache key so stored plain-text content is never reused after highlight
+    /// spans arrive (see `render_state::prepare_editor_data`).
+    pub cached_editor_spans_version: u64,
     pub layout_controller: ShellLayoutController,
     pub editor_viewport: Option<EditorViewport>,
     pub needs_render: bool,
@@ -156,8 +163,17 @@ pub struct GuiApp {
     /// When true, full-document syntax highlighting is disabled to prevent O(file_size)
     /// parse perf stalls; only viewport-visible lines are rendered.
     pub large_file_mode: bool,
-    /// Monotonically increasing buffer version for background parse snapshots.
-    pub buffer_version: u64,
+    /// Detected language for the currently open buffer.  Source of truth is
+    /// the active file path (`LanguageId::from_path`), assigned in
+    /// `set_work_content`.  Defaults to `PlainText` when no path is known.
+    pub current_language: LanguageId,
+    /// Latest accepted full-document highlight spans for the current buffer,
+    /// produced by the background parse worker.  Cleared when the buffer
+    /// changes so stale spans are never reused across files.
+    pub latest_spans: Option<Vec<HighlightSpan>>,
+    /// Buffer version the `latest_spans` correspond to.  Used to detect when a
+    /// fresh parse result has arrived and to avoid re-applying the same result.
+    pub latest_spans_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
 }
@@ -203,6 +219,30 @@ impl GuiApp {
 
     /// Set the work_content and sync the editor buffer from its content.
     fn set_work_content(&mut self, wc: ShellWorkContent) {
+        // ── Phase 1 language detection (single source of truth) ──
+        // The active file path determines the language used by the background
+        // parser.  There is no hardcoded language anywhere in the pipeline.
+        let detected_language = wc
+            .active_file
+            .as_deref()
+            .map(|p| LanguageId::from_path(Path::new(p)))
+            .unwrap_or(LanguageId::PlainText);
+
+        // When the file being shown changes (or its detected language changes),
+        // drop spans from the previous buffer so stale highlights are never
+        // reused, and discard any pending worker result for the old buffer.
+        let prev_active = self.work_content.as_ref().and_then(|w| w.active_file.clone());
+        let buffer_changed = prev_active.as_deref() != wc.active_file.as_deref()
+            || detected_language != self.current_language;
+        self.current_language = detected_language;
+        if buffer_changed {
+            self.latest_spans = None;
+            self.latest_spans_version = 0;
+            if let Some(ref mut worker) = self.parse_worker {
+                worker.clear_result();
+            }
+        }
+
         if let Some(ref body) = wc.editor_body {
             self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
             // Detect large-file mode from the incoming content view.
@@ -239,7 +279,7 @@ impl GuiApp {
                 worker.schedule_parse(background_parse::BufferSnapshot {
                     version: self.editor_buffer.buffer_version,
                     text,
-                    language: zaroxi_core_platform_syntax::language::LanguageId::Rust,
+                    language: self.current_language,
                 });
             }
         }
@@ -287,7 +327,7 @@ impl GuiApp {
         }
         if let Some(ref mut worker) = self.parse_worker {
             let text = self.editor_buffer.to_string();
-            let lang = zaroxi_core_platform_syntax::language::LanguageId::Rust;
+            let lang = self.current_language;
             if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
                 eprintln!(
                     "ZAROXI_DEBUG_PARSE_PIPELINE: schedule v={} text_bytes={}",
@@ -309,6 +349,60 @@ impl GuiApp {
                 language: lang,
             });
         }
+    }
+
+    /// Drain the background parse worker and store the latest accepted result.
+    ///
+    /// Only a result whose version matches the most recently *scheduled*
+    /// version is accepted; this rejects stale results left over from a
+    /// previous buffer or a superseded edit.  When a new result is stored we
+    /// invalidate the editor caches and request a redraw so the fresh
+    /// highlight spans become visible.
+    pub(crate) fn poll_parse_results(&mut self) {
+        let accepted = if let Some(ref mut worker) = self.parse_worker {
+            let current = worker.latest_version();
+            let got = match worker.poll_result() {
+                Some(result) if result.version == current => {
+                    Some((result.spans.clone(), result.version))
+                }
+                _ => None,
+            };
+            if got.is_some() {
+                worker.clear_result();
+            }
+            got
+        } else {
+            None
+        };
+
+        if let Some((spans, version)) = accepted {
+            if version != self.latest_spans_version {
+                if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_DEBUG_PARSE_PIPELINE: spans_stored v={} span_count={} lang={:?}",
+                        version,
+                        spans.len(),
+                        self.current_language,
+                    );
+                }
+                self.latest_spans = Some(spans);
+                self.latest_spans_version = version;
+                // Force the editor shaping caches to rebuild with the new spans.
+                self.cached_editor_lines_hash = 0;
+                self.line_syntax_cache.clear();
+                self.request_render();
+            }
+        }
+    }
+
+    /// Whether the background worker has a scheduled parse whose result has not
+    /// yet been applied.  Used to keep the event loop polling until the result
+    /// arrives so highlights appear without requiring further user input.
+    pub(crate) fn parse_result_pending(&self) -> bool {
+        self.parse_worker
+            .as_ref()
+            .map(|w| w.latest_version() != self.latest_spans_version)
+            .unwrap_or(false)
     }
 }
 
@@ -604,6 +698,10 @@ impl winit::application::ApplicationHandler for GuiApp {
     fn about_to_wait(&mut self, active_loop: &winit::event_loop::ActiveEventLoop) {
         self.process_picker_result();
 
+        // Apply any completed background parse result; this may request a
+        // redraw so freshly parsed highlight spans become visible.
+        self.poll_parse_results();
+
         if self.requested_initial_frame {
             self.request_render();
             self.requested_initial_frame = false;
@@ -612,6 +710,10 @@ impl winit::application::ApplicationHandler for GuiApp {
         } else if self.picker_in_flight {
             active_loop.set_control_flow(ControlFlow::Poll);
         } else if self.needs_render || self.interaction.scrollbar_drag_active() {
+            active_loop.set_control_flow(ControlFlow::Poll);
+        } else if self.parse_result_pending() {
+            // A background parse is in flight; keep polling so the result is
+            // applied promptly without requiring further user interaction.
             active_loop.set_control_flow(ControlFlow::Poll);
         } else {
             active_loop.set_control_flow(ControlFlow::Wait);
@@ -798,6 +900,10 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::RedrawRequested => {
                 let frame_id = GUI_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+                // Apply any completed background parse result before shaping the
+                // editor content for this frame so fresh highlight spans are
+                // used immediately (may set needs_render via request_render).
+                self.poll_parse_results();
                 if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
                     eprintln!(
                         "ZAROXI_FRAMEFLOW: RedrawRequested id={:?} dirty={}",
@@ -1086,11 +1192,23 @@ impl winit::application::ApplicationHandler for GuiApp {
                             },
                         );
 
+                    if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_DEBUG_EDITOR_SPANS: prepare large_file_mode={} visible_range={:?} latest_spans={} spans_version={}",
+                            large_file_mode,
+                            visible_line_range,
+                            self.latest_spans.as_ref().map(|s| s.len()).unwrap_or(0),
+                            self.latest_spans_version,
+                        );
+                    }
+
                     let editor_data = render_state::prepare_editor_data(
                         &self.shell.work_content,
                         &mut self.cached_editor_data,
                         &mut self.cached_editor_lines_hash,
-                        &self.parser_pool,
+                        &mut self.cached_editor_spans_version,
+                        self.latest_spans.as_deref().unwrap_or(&[]),
+                        self.latest_spans_version,
                         &sem,
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
@@ -1132,6 +1250,27 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let (mut render_blocks, explorer_cta_rect) =
                         super::frame::compose_blocks(shell_regions, &tokens, &ctx);
                     self.explorer_button_rect = explorer_cta_rect;
+
+                    if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
+                        for block in &render_blocks {
+                            let is_content = block.id.contains("ContentArea")
+                                || block.id.contains("content_area")
+                                || block.id == "editor_content";
+                            if is_content {
+                                eprintln!(
+                                    "ZAROXI_DEBUG_EDITOR_SPANS: render_block id='{}' content_bytes={} content_spans={:?} (styled_path={})",
+                                    block.id,
+                                    block.content.len(),
+                                    block.content_spans.as_ref().map(|s| s.len()),
+                                    block
+                                        .content_spans
+                                        .as_ref()
+                                        .map(|s| !s.is_empty())
+                                        .unwrap_or(false),
+                                );
+                            }
+                        }
+                    }
                     debug::click_trace_fmt!(
                         "ZAROXI_REDRAW: cta_rect={:?}",
                         explorer_cta_rect
@@ -1177,11 +1316,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         editor_scroll_offset,
                     );
                     render_blocks.extend(scroll_blocks);
-
-                    // Poll background parse worker for completed results.
-                    if let Some(ref mut worker) = self.parse_worker {
-                        let _ = worker.poll_result();
-                    }
 
                     // ── Scrollbar hover/active state bridging ──
                     if let Some(ref tree) = self.widget_tree {

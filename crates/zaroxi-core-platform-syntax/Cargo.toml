@@ -20,5 +20,9 @@ cc = { workspace = true }
 # The crate now uses an internal theme shim for the minimal types it needs.
 
 [features]
-# Optional dynamic loading for runtime plugins / grammars.
+# Dynamic loading of bundled runtime Tree-sitter grammars.  Enabled by default
+# because this crate ships its own `runtime/treesitter` grammars and is expected
+# to perform real highlighting.  Consumers that want the lightweight stub (no
+# native `libloading`) can opt out with `default-features = false`.
+default = ["dynamic-loading"]
 dynamic-loading = ["libloading"]

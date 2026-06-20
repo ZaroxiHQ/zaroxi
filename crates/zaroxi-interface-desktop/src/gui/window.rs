@@ -26,7 +26,7 @@ mod renderbridge;
 mod status_bar;
 pub mod style_tokens_adapter;
 #[cfg(feature = "gui_window")]
-mod syntax_color;
+pub mod syntax_color;
 #[cfg(feature = "gui_window")]
 mod toolbar;
 
