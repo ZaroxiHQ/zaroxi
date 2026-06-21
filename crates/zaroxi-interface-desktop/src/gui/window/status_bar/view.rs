@@ -76,11 +76,11 @@ impl StatusView {
 
         if render_debug_enabled() {
             eprintln!(
-                "ZAROXI_STATUS_RENDER_DEBUG: left={:?} right={:?}",
+                "ZAROXI_STATUS_RENDER_DEBUG[view]: left={:?} right={:?}",
                 zones.left_segments, right_segments
             );
             eprintln!(
-                "ZAROXI_STATUS_RENDER_DEBUG: left_title={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
+                "ZAROXI_STATUS_RENDER_DEBUG[view]: left_title={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
                 left_text, rect.x, rect.y, rect.w, rect.h
             );
         }

@@ -708,7 +708,7 @@ impl<'a> Renderer<'a> {
                     std::env::var("ZAROXI_STATUS_RENDER_DEBUG").as_deref() == Ok("1");
                 if status_render_debug {
                     eprintln!(
-                        "ZAROXI_STATUS_RENDER_DEBUG: block='{}' rect=(x={:.0} w={:.0}) advance={:.2} gap={:.1} title={:?} right_segs={:?} runs={}",
+                        "ZAROXI_STATUS_RENDER_DEBUG[core:legacy]: block='{}' rect=(x={:.0} w={:.0}) advance={:.2} gap={:.1} title={:?} right_segs={:?} runs={}",
                         block.id,
                         hx,
                         hw,
@@ -720,7 +720,7 @@ impl<'a> Renderer<'a> {
                     );
                     for (i, r) in runs.iter().enumerate() {
                         eprintln!(
-                            "ZAROXI_STATUS_RENDER_DEBUG:   run[{}] text={:?} x={:.1} y={:.1} clip=(x={:.1} w={:.1})",
+                            "ZAROXI_STATUS_RENDER_DEBUG[core:legacy]:   run[{}] text={:?} x={:.1} y={:.1} clip=(x={:.1} w={:.1})",
                             i, r.text, r.x, title_y, r.clip_x, r.clip_w
                         );
                     }
@@ -1931,17 +1931,98 @@ fn render_frame_inner(
         let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
         let title_color: [f32; 4] = block.text_color.unwrap_or(layout.colors.text_default);
 
-        text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
-            &block.title,
-            title_x,
-            title_y,
-            title_color,
-            DEFAULT_FONT_SIZE,
-            hx,
-            hy,
-            hw,
-            hh,
-        ));
+        // Status strip: a header-only block whose `content_spans` carry the
+        // right-aligned segments. Render the title left-aligned and those
+        // segments right-aligned via the responsive planner so the two groups
+        // never overlap. This is the LIVE gui_shell path (`render_to_window` →
+        // `render_frame_inner`); the equivalent branch in `render_with_layout`
+        // is the legacy `Renderer` path and is not exercised by the desktop app.
+        let status_render_debug = std::env::var("ZAROXI_STATUS_RENDER_DEBUG").as_deref() == Ok("1");
+        if block.header_only && block.content_spans.is_some() {
+            let pad = 8.0f32;
+            let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            let advance = text_renderer
+                .monospace_advance_x()
+                .map(|a| a / device_scale.max(0.01))
+                .filter(|a| a.is_finite() && *a > 1.0 && *a < DEFAULT_FONT_SIZE * 2.0)
+                .unwrap_or(DEFAULT_FONT_SIZE * 0.6);
+            let gap = (advance * 2.0).max(12.0);
+            let right_segments: Vec<String> = block
+                .content_spans
+                .as_ref()
+                .map(|spans| spans.iter().map(|(t, _)| t.clone()).collect())
+                .unwrap_or_default();
+            let runs = crate::renderer::header_layout::plan_status_header(
+                &block.title,
+                &right_segments,
+                hx,
+                hw,
+                pad,
+                advance,
+                gap,
+            );
+
+            if status_render_debug {
+                eprintln!(
+                    "ZAROXI_STATUS_RENDER_DEBUG[core]: branch=dual_run block='{}' header_only={} title={:?} right_segs={} rect=(x={:.0} y={:.0} w={:.0} h={:.0}) advance={:.2} gap={:.1} runs={}",
+                    block.id,
+                    block.header_only,
+                    block.title,
+                    right_segments.len(),
+                    hx,
+                    hy,
+                    hw,
+                    hh,
+                    advance,
+                    gap,
+                    runs.len()
+                );
+                for (i, run) in runs.iter().enumerate() {
+                    eprintln!(
+                        "ZAROXI_STATUS_RENDER_DEBUG[core]:   run[{}] text={:?} x={:.1} y={:.1} clip=(x={:.1} w={:.1}) queued=true",
+                        i, run.text, run.x, title_y, run.clip_x, run.clip_w
+                    );
+                }
+            }
+
+            for run in &runs {
+                text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+                    &run.text,
+                    run.x,
+                    title_y,
+                    title_color,
+                    DEFAULT_FONT_SIZE,
+                    run.clip_x,
+                    hy,
+                    run.clip_w,
+                    hh,
+                ));
+            }
+        } else {
+            if status_render_debug && block.id == "status_bar" {
+                eprintln!(
+                    "ZAROXI_STATUS_RENDER_DEBUG[core]: branch=fallback_title_only block='{}' header_only={} has_spans={} title={:?} — right segments NOT rendered",
+                    block.id,
+                    block.header_only,
+                    block.content_spans.is_some(),
+                    block.title
+                );
+            }
+            text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+                &block.title,
+                title_x,
+                title_y,
+                title_color,
+                DEFAULT_FONT_SIZE,
+                hx,
+                hy,
+                hw,
+                hh,
+            ));
+        }
 
         let content = block.content.trim();
         let is_titlebar =

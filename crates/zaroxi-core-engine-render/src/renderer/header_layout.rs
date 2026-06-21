@@ -255,4 +255,27 @@ mod tests {
         assert!(runs[0].text.ends_with('\u{2026}'), "left truncated: {:?}", runs[0].text);
         assert!(runs[0].clip_w > 0.0);
     }
+
+    /// Regression guard for the LIVE gui_shell path (`render_frame_inner`): the
+    /// exact field set `status_bar::view` feeds — a left label plus the full
+    /// priority-ordered right group — on a realistic full-width strip must plan
+    /// a visible, right-aligned right run. If this ever collapses to one run the
+    /// status bar's right side silently disappears, as it did before the live
+    /// dual-run branch was wired.
+    #[test]
+    fn realistic_full_width_strip_emits_visible_right_run() {
+        let left = "zaroxi  Modified  E 2 W 1";
+        let right = segs(&["Ln 1, Col 1", "Sel 5", "Rust", "Spaces: 4", "UTF-8", "LF"]);
+        // 1200px strip, 8px pad, ~8.4px monospace advance at 14px.
+        let runs = plan_status_header(left, &right, 0.0, 1200.0, 8.0, 8.4, 16.8);
+        assert_eq!(runs.len(), 2, "full-width strip must emit both left and right runs");
+        assert!(runs[0].text.contains("zaroxi"), "left run carries the workspace label");
+        assert!(runs[1].text.contains("Ln 1, Col 1"), "right run carries position");
+        assert!(runs[1].clip_w > 0.0, "right run clip must be non-empty (visible)");
+        assert!(runs[1].x > 600.0, "right run is right-aligned on the strip: {:?}", runs[1]);
+        assert!(
+            runs[0].clip_x + runs[0].clip_w <= runs[1].x + 0.01,
+            "left and right groups must not overlap"
+        );
+    }
 }
