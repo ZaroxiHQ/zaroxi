@@ -1791,14 +1791,30 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
                                 if pipeline_trace_enabled() {
+                                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
+                                    let app_update_ms = (total_ms
+                                        - layout_ms
+                                        - syntax_ms
+                                        - perf.text_shape_ms
+                                        - perf.text_prepare_ms
+                                        - perf.gpu_encode_ms
+                                        - perf.gpu_submit_present_ms)
+                                        .max(0.0);
+                                    // Residual app_update not attributed to the
+                                    // instrumented sub-phases (status gather, poll,
+                                    // scroll-sync, region copy). Should be ~0.
+                                    let misc_ms =
+                                        (app_update_ms - widget_ms - block_build_ms - enrich_ms)
+                                            .max(0.0);
                                     eprintln!(
-                                        "ZAROXI_PIPELINE_TRACE: frame={} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} content_prep_ms={:.2} layout_ms={:.2}",
+                                        "ZAROXI_PIPELINE_TRACE: frame={} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} content_prep_ms={:.2} layout_ms={:.2} misc_ms={:.2}",
                                         frame_id,
                                         widget_ms,
                                         block_build_ms,
                                         enrich_ms,
                                         syntax_ms,
                                         layout_ms,
+                                        misc_ms,
                                     );
                                 }
                                 if render_trace_enabled() {

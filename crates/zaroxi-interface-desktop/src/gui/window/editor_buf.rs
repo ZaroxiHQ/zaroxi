@@ -81,9 +81,13 @@ impl EditorBufferState {
     /// Return up to `max_chars` characters from the start of the buffer, verbatim
     /// (original `\r`/`\n` bytes preserved). Used for cheap indentation and
     /// line-ending detection without materializing the whole document.
+    ///
+    /// Uses a single O(max_chars) piece-table walk via `extract_chars`. (The
+    /// previous `char_at(i)` loop was O(n²) — each `char_at` re-walks from the
+    /// start — and dominated `app_update` every frame: ~520ms on large files.)
     pub fn raw_head(&self, max_chars: usize) -> String {
         let n = self.rope.char_count().min(max_chars);
-        (0..n).filter_map(|i| self.rope.char_at(i)).collect()
+        self.rope.extract_chars(0, n)
     }
 
     /// Return the total document line count (from rope, always correct).
@@ -540,6 +544,19 @@ mod tests {
         buf.insert_text(" world");
         assert_eq!(buf.to_string(), "hello world");
         assert_eq!(buf.caret(), 11);
+    }
+
+    #[test]
+    fn raw_head_returns_verbatim_capped_head() {
+        let buf = EditorBufferState::from_text("abc\ndef\nghi");
+        // Full content when the cap exceeds length.
+        assert_eq!(buf.raw_head(1000), "abc\ndef\nghi");
+        // Capped to the first N chars.
+        assert_eq!(buf.raw_head(3), "abc");
+        // Newlines are preserved verbatim.
+        assert_eq!(buf.raw_head(4), "abc\n");
+        // Empty buffer yields empty head regardless of cap.
+        assert_eq!(EditorBufferState::empty().raw_head(10), "");
     }
 
     #[test]
