@@ -669,17 +669,89 @@ impl<'a> Renderer<'a> {
             // upload missing glyph bitmaps into its internal atlas before returning
             // placed glyphs with valid UVs.
             // Queue title for the CosmicText text renderer (prepare/render will occur later).
-            self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
-                &block.title,
-                title_x,
-                title_y,
-                title_color,
-                DEFAULT_FONT_SIZE,
-                hx,
-                hy,
-                hw,
-                hh,
-            ));
+            // Status strip: a header-only block whose `content_spans` carries the
+            // right-aligned segments. Render the title left-aligned and those
+            // segments right-aligned, with responsive collapse/truncation so the
+            // two groups never overlap (no manual space padding for alignment).
+            if block.header_only && block.content_spans.is_some() {
+                let pad = 8.0f32;
+                let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .unwrap_or(1.0);
+                // Status text shapes in the bundled monospace font, so per-char
+                // advance gives an exact width in the title's logical space. Clamp
+                // to a plausible range so a bad metric can't collapse the layout.
+                let advance = self
+                    .text_renderer
+                    .monospace_advance_x()
+                    .map(|a| a / device_scale.max(0.01))
+                    .filter(|a| a.is_finite() && *a > 1.0 && *a < DEFAULT_FONT_SIZE * 2.0)
+                    .unwrap_or(DEFAULT_FONT_SIZE * 0.6);
+                let gap = (advance * 2.0).max(12.0);
+                let right_segments: Vec<String> = block
+                    .content_spans
+                    .as_ref()
+                    .map(|s| s.iter().map(|(t, _)| t.clone()).collect())
+                    .unwrap_or_default();
+                let runs = crate::renderer::header_layout::plan_status_header(
+                    &block.title,
+                    &right_segments,
+                    hx,
+                    hw,
+                    pad,
+                    advance,
+                    gap,
+                );
+
+                let status_render_debug =
+                    std::env::var("ZAROXI_STATUS_RENDER_DEBUG").as_deref() == Ok("1");
+                if status_render_debug {
+                    eprintln!(
+                        "ZAROXI_STATUS_RENDER_DEBUG: block='{}' rect=(x={:.0} w={:.0}) advance={:.2} gap={:.1} title={:?} right_segs={:?} runs={}",
+                        block.id,
+                        hx,
+                        hw,
+                        advance,
+                        gap,
+                        block.title,
+                        right_segments,
+                        runs.len()
+                    );
+                    for (i, r) in runs.iter().enumerate() {
+                        eprintln!(
+                            "ZAROXI_STATUS_RENDER_DEBUG:   run[{}] text={:?} x={:.1} y={:.1} clip=(x={:.1} w={:.1})",
+                            i, r.text, r.x, title_y, r.clip_x, r.clip_w
+                        );
+                    }
+                }
+
+                for run in &runs {
+                    self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+                        &run.text,
+                        run.x,
+                        title_y,
+                        title_color,
+                        DEFAULT_FONT_SIZE,
+                        run.clip_x,
+                        hy,
+                        run.clip_w,
+                        hh,
+                    ));
+                }
+            } else {
+                self.text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
+                    &block.title,
+                    title_x,
+                    title_y,
+                    title_color,
+                    DEFAULT_FONT_SIZE,
+                    hx,
+                    hy,
+                    hw,
+                    hh,
+                ));
+            }
             // Emit core queue-stage trace: what the core queued for the text backend.
             let queued_after = self.text_renderer.queued_len();
             info!(

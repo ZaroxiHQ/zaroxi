@@ -14,7 +14,7 @@
 use crate::gui::ShellRegion;
 use zaroxi_core_engine_render::{Rect, UiBlock};
 use zaroxi_core_engine_style::StyleTokens;
-use zaroxi_core_engine_ui::chrome::{StatusBarZones, format_status_bar_spans};
+use zaroxi_core_engine_ui::chrome::StatusBarZones;
 
 use super::model::StatusModel;
 use super::panels::{diagnostics, document_state, editor_position, file_format, workspace};
@@ -47,10 +47,25 @@ impl StatusView {
         let style = StatusStyle::from_tokens(tokens);
 
         let zones = zones(model);
-        let spans = format_status_bar_spans(&zones, tokens);
-        // Concatenated status text. Emitted as the block title because the engine
-        // renders the (header-only) status strip's text from `title`.
-        let text: String = spans.iter().map(|(t, _)| t.as_str()).collect();
+        // Left group → block title (left-aligned). Joined for display; the engine
+        // renders the (header-only) strip's title text.
+        let left_text = zones.left_segments.join("  ");
+
+        // Right group → priority-ordered segments carried in `content_spans`. The
+        // renderer right-aligns them and drops the lowest-priority (trailing) ones
+        // first when the strip is narrow. Order: position/selection, then the
+        // glanceable language, then the remaining format fields.
+        let mut right_segments = editor_position::segments(model);
+        let mut fmt = file_format::segments(model);
+        if !fmt.is_empty() {
+            // file_format yields [indent, encoding, EOL, language]; move language
+            // ahead of the lower-priority format fields.
+            fmt.rotate_right(1);
+        }
+        right_segments.extend(fmt);
+        let right_spans: Vec<(String, [f32; 4])> =
+            right_segments.iter().map(|s| (s.clone(), style.primary_text)).collect();
+        let content_spans = if right_spans.is_empty() { None } else { Some(right_spans) };
 
         let rect = Rect {
             x: r.rect.x as f32,
@@ -62,17 +77,17 @@ impl StatusView {
         if render_debug_enabled() {
             eprintln!(
                 "ZAROXI_STATUS_RENDER_DEBUG: left={:?} right={:?}",
-                zones.left_segments, zones.right_segments
+                zones.left_segments, right_segments
             );
             eprintln!(
-                "ZAROXI_STATUS_RENDER_DEBUG: title_text={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
-                text, rect.x, rect.y, rect.w, rect.h
+                "ZAROXI_STATUS_RENDER_DEBUG: left_title={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
+                left_text, rect.x, rect.y, rect.w, rect.h
             );
         }
 
         UiBlock {
             id: r.id.to_string(),
-            title: text,
+            title: left_text,
             content: String::new(),
             visible: true,
             rect,
@@ -82,7 +97,7 @@ impl StatusView {
             border_color: None,
             border_width: 0.0,
             header_only: true,
-            content_spans: None,
+            content_spans,
             cursor_line: None,
             cursor_col: None,
             highlight_active_line: false,
@@ -152,11 +167,12 @@ mod tests {
         assert!(z.right_segments.is_empty(), "no-file bar must not show editor/format fields");
     }
 
-    /// The final `UiBlock` the renderer paints must carry the rich status text in
-    /// the slot the engine actually renders for the header-only status strip
-    /// (`title`), not in the culled body (`content`/`content_spans`).
+    /// The final `UiBlock` carries the LEFT group in `title` (left-aligned slot)
+    /// and the priority-ordered RIGHT segments in `content_spans` (right-aligned
+    /// by the renderer). Both live in the header slot the engine paints — not the
+    /// culled body.
     #[test]
-    fn build_block_emits_text_in_rendered_title_slot() {
+    fn build_block_splits_left_title_and_right_segments() {
         let region = crate::gui::ShellRegion {
             id: "status_bar",
             name: "status_bar",
@@ -168,23 +184,36 @@ mod tests {
 
         assert!(block.header_only, "status strip must render as a header-only region");
         assert!(block.content.is_empty(), "body content is culled for the strip; must be empty");
-        assert!(block.content_spans.is_none(), "body spans are culled; must be None");
-        for expected in [
-            "zaroxi",
-            "Modified",
-            "E 2 W 1",
-            "Ln 1, Col 1",
-            "Sel 5",
-            "Spaces: 4",
-            "UTF-8",
-            "LF",
-            "Rust",
-        ] {
+
+        // Left group lives in the title.
+        for expected in ["zaroxi", "Modified", "E 2 W 1"] {
             assert!(
                 block.title.contains(expected),
-                "rendered status title missing {expected:?}; title: {:?}",
+                "left title missing {expected:?}; title: {:?}",
                 block.title
             );
         }
+        assert!(!block.title.contains("Ln 1, Col 1"), "right fields must not be in the left title");
+
+        // Right group lives in content_spans (priority-ordered, right-aligned).
+        let segs: Vec<String> = block
+            .content_spans
+            .as_ref()
+            .expect("right segments must be present when a file is open")
+            .iter()
+            .map(|(t, _)| t.clone())
+            .collect();
+        let joined = segs.join(" ");
+        for expected in ["Ln 1, Col 1", "Sel 5", "Spaces: 4", "UTF-8", "LF", "Rust"] {
+            assert!(
+                joined.contains(expected),
+                "right segment missing {expected:?}; right: {:?}",
+                joined
+            );
+        }
+        // Language is prioritized ahead of the lower-priority format fields.
+        let lang_idx = segs.iter().position(|s| s == "Rust").unwrap();
+        let enc_idx = segs.iter().position(|s| s == "UTF-8").unwrap();
+        assert!(lang_idx < enc_idx, "language keeps priority over encoding; segs: {segs:?}");
     }
 }

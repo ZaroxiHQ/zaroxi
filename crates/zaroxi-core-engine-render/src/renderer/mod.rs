@@ -2,6 +2,7 @@ mod backend;
 pub mod core;
 mod debug;
 mod geometry;
+mod header_layout;
 mod pipelines;
 mod shapes;
 mod surface;
