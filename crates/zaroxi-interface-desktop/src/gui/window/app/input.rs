@@ -28,6 +28,38 @@ fn editor_focused(app: &GuiApp) -> bool {
 
 /// Translate a pressed keyboard logical key into zero or more `WidgetAction`s
 /// and route editing commands to the rope-backed buffer.
+/// Classify a key press for `ZAROXI_PERF_TRACE` event labelling, but only when
+/// the editor is focused (so global shortcuts aren't mislabelled). Returns
+/// `Some("edit")` for content-mutating keys, `Some("cursor_move")` for caret
+/// movement, and `None` otherwise. Mirrors the dispatch in
+/// [`handle_keyboard_press`]; used purely for instrumentation.
+pub(crate) fn classify_editor_key(app: &GuiApp, logical_key: &Key) -> Option<&'static str> {
+    if !editor_focused(app) {
+        return None;
+    }
+    match logical_key {
+        Key::Named(NamedKey::ArrowLeft)
+        | Key::Named(NamedKey::ArrowRight)
+        | Key::Named(NamedKey::ArrowUp)
+        | Key::Named(NamedKey::ArrowDown)
+        | Key::Named(NamedKey::Home)
+        | Key::Named(NamedKey::End) => Some("cursor_move"),
+        Key::Named(NamedKey::Backspace)
+        | Key::Named(NamedKey::Delete)
+        | Key::Named(NamedKey::Enter)
+        | Key::Named(NamedKey::Space) => Some("edit"),
+        Key::Character(text) if !app.ctrl_held => {
+            if text.is_empty() || text.chars().any(|c| c.is_control() && c != '\t') {
+                None
+            } else {
+                Some("edit")
+            }
+        }
+        Key::Named(NamedKey::Tab) if !app.ctrl_held => Some("edit"),
+        _ => None,
+    }
+}
+
 pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<WidgetAction> {
     // ── Editor editing commands (only when editor has focus/content) ──
     if editor_focused(app) {

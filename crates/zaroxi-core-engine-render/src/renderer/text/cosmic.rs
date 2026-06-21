@@ -115,6 +115,11 @@ pub struct CosmicTextRenderer {
     /// fonts across runs and makes code look fragmented ("characters from
     /// different places").
     font_family: String,
+    /// Most-recent `prepare` timing: `(shape_ms, prepare_ms, glyph_count)`.
+    /// Populated only when `ZAROXI_PERF_TRACE=1`; read back via the `perf_*`
+    /// `TextRenderer` trait methods so the app frame loop can print a single
+    /// consolidated per-frame perf line.
+    last_perf: Arc<Mutex<(f32, f32, usize)>>,
 }
 
 impl CosmicTextRenderer {
@@ -214,6 +219,7 @@ impl CosmicTextRenderer {
             last_final_path: Arc::new(Mutex::new(None)),
             monospace_advance,
             font_family,
+            last_perf: Arc::new(Mutex::new((0.0, 0.0, 0))),
         })
     }
 
@@ -587,6 +593,7 @@ impl TextRenderer for CosmicTextRenderer {
             });
             let mut ss = self.last_frame_samples.lock().unwrap();
             ss.clear();
+            *self.last_perf.lock().unwrap() = (0.0, 0.0, 0);
             return Ok(());
         }
 
@@ -607,6 +614,9 @@ impl TextRenderer for CosmicTextRenderer {
         let mut max_scale_ratio: f32 = 0.0;
 
         // Iterate queued commands and perform shaping/rasterization.
+        // PERF: time the whole shaping + per-glyph rasterization loop as
+        // `text_shape_ms` (CPU-bound). GPU upload below is `text_prepare_ms`.
+        let shape_t0 = std::time::Instant::now();
         for cmd in q.iter() {
             // Build metrics & buffer at device pixel scale
             let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
@@ -1144,6 +1154,9 @@ impl TextRenderer for CosmicTextRenderer {
             }
         }
 
+        let shape_ms = shape_t0.elapsed().as_secs_f32() * 1000.0;
+        let prepare_t0 = std::time::Instant::now();
+
         // If atlas gained content, perform GPU upload and create bind group.
         let regions = self.shared_atlas.regions();
         if regions > 0 {
@@ -1256,8 +1269,22 @@ impl TextRenderer for CosmicTextRenderer {
         // GUITEXT summary removed (use GUI_TEXT_FRAME_SUMMARY as authoritative)
 
         // Clear queue after prepare.
+        let prepare_ms = prepare_t0.elapsed().as_secs_f32() * 1000.0;
+        *self.last_perf.lock().unwrap() = (shape_ms, prepare_ms, samples.len());
         q.clear();
         Ok(())
+    }
+
+    fn perf_shape_ms(&self) -> f32 {
+        self.last_perf.lock().unwrap().0
+    }
+
+    fn perf_prepare_ms(&self) -> f32 {
+        self.last_perf.lock().unwrap().1
+    }
+
+    fn perf_glyph_count(&self) -> usize {
+        self.last_perf.lock().unwrap().2
     }
 
     fn render_pass<'a>(

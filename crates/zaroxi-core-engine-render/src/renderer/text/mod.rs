@@ -189,4 +189,23 @@ pub trait TextRenderer: Send + Sync {
     fn monospace_advance_x(&self) -> Option<f32> {
         None
     }
+
+    /// Wall time (ms) spent shaping + rasterizing glyphs in the most recent
+    /// `prepare` call. Gated reporting: backends only populate this when
+    /// `ZAROXI_PERF_TRACE=1`. Default `0.0` for backends without instrumentation.
+    fn perf_shape_ms(&self) -> f32 {
+        0.0
+    }
+
+    /// Wall time (ms) spent on GPU atlas + instance-buffer upload in the most
+    /// recent `prepare` call. Default `0.0` for uninstrumented backends.
+    fn perf_prepare_ms(&self) -> f32 {
+        0.0
+    }
+
+    /// Number of glyph instances emitted in the most recent `prepare` call.
+    /// Default `0` for uninstrumented backends.
+    fn perf_glyph_count(&self) -> usize {
+        0
+    }
 }

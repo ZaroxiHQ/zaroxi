@@ -70,6 +70,23 @@ fn scroll_trace_enabled() -> bool {
     std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether `ZAROXI_PERF_TRACE=1` is set. Drives the consolidated per-frame
+/// `ZAROXI_PERF_TRACE` line and the event-scoped (file/workspace open, edit,
+/// cursor move, scroll) timing lines.
+pub(crate) fn perf_trace_enabled() -> bool {
+    std::env::var("ZAROXI_PERF_TRACE").as_deref() == Ok("1")
+}
+
+/// Emit an event-scoped perf line (no-op unless `ZAROXI_PERF_TRACE=1`).
+/// `detail` is appended verbatim (e.g. `lines=120 bytes=4096`).
+pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
+    if !perf_trace_enabled() {
+        return;
+    }
+    let ms = start.elapsed().as_secs_f32() * 1000.0;
+    eprintln!("ZAROXI_PERF_TRACE: event={} ms={:.2} {}", label, ms, detail);
+}
+
 fn record_frame_presented() {
     if std::env::var("ZAROXI_FPS_TRACE").as_deref() != Ok("1") {
         return;
@@ -271,6 +288,7 @@ impl GuiApp {
 
     /// Set the work_content and sync the editor buffer from its content.
     fn set_work_content(&mut self, wc: ShellWorkContent) {
+        let ev_start = std::time::Instant::now();
         // ── Phase 1 language detection (single source of truth) ──
         // The active file path determines the language used by the background
         // parser.  There is no hardcoded language anywhere in the pipeline.
@@ -355,6 +373,16 @@ impl GuiApp {
             }
         }
         self.work_content = Some(wc);
+        perf_event(
+            "open_document",
+            ev_start,
+            &format!(
+                "lines={} large_file={} lang={:?}",
+                self.editor_buffer.line_count(),
+                self.large_file_mode,
+                self.current_language,
+            ),
+        );
     }
 
     /// Check whether a file exceeds large-file thresholds and should
@@ -897,7 +925,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                let ev_start = std::time::Instant::now();
                 input::process_mouse_wheel(self, &delta);
+                perf_event("scroll", ev_start, "");
             }
             WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
                 let (x, y) = match self.interaction.cursor_pos_f32() {
@@ -992,6 +1022,8 @@ impl winit::application::ApplicationHandler for GuiApp {
             }
             WindowEvent::RedrawRequested => {
                 let frame_id = GUI_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let perf_on = perf_trace_enabled();
+                let frame_start = std::time::Instant::now();
                 // A redraw arrived: clear the outstanding-redraw bookkeeping so a
                 // later invalidation can schedule a fresh one.
                 self.frame_scheduler.on_redraw_received();
@@ -1085,7 +1117,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let resolved = self.theme_mode.resolve(system_is_dark);
                     let variant = resolved;
 
+                    let layout_t = std::time::Instant::now();
                     let _ = self.layout_controller.get_or_compute(sw, sh, resolved);
+                    let layout_ms = layout_t.elapsed().as_secs_f32() * 1000.0;
                     self.editor_viewport = Some(*self.layout_controller.viewport());
                     self.shell.work_content = self.work_content.clone();
 
@@ -1323,6 +1357,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
+                    let syntax_t = std::time::Instant::now();
                     let editor_data = render_state::prepare_editor_data(
                         &self.shell.work_content,
                         &mut self.cached_editor_data,
@@ -1365,6 +1400,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         diagnostics: status_diagnostics,
                     };
                     let status_data = super::presenters::shape_status_content(&status_inputs);
+                    let syntax_ms = syntax_t.elapsed().as_secs_f32() * 1000.0;
 
                     if std::env::var("ZAROXI_STATUS_DEBUG").as_deref() == Ok("1") {
                         eprintln!(
@@ -1688,9 +1724,40 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if let Some(ref mut core) = self.render_core {
                         let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
                         match core.render_to_window(surface_size, &render_layout, &render_blocks) {
-                            Ok(()) => {
+                            Ok(perf) => {
                                 self.needs_render = false;
                                 self.frame_scheduler.on_frame_presented(Instant::now());
+                                if perf_on {
+                                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
+                                    // app_update = everything on the CPU app path
+                                    // not separately attributed to layout/syntax
+                                    // or the render-side phases.
+                                    let app_update_ms = (total_ms
+                                        - layout_ms
+                                        - syntax_ms
+                                        - perf.text_shape_ms
+                                        - perf.text_prepare_ms
+                                        - perf.gpu_encode_ms
+                                        - perf.gpu_submit_present_ms)
+                                        .max(0.0);
+                                    eprintln!(
+                                        "ZAROXI_PERF_TRACE: frame={} total_ms={:.2} app_update_ms={:.2} layout_ms={:.2} syntax_ms={:.2} text_shape_ms={:.2} text_prepare_ms={:.2} gpu_encode_ms={:.2} gpu_submit_present_ms={:.2} blocks={} text_cmds={} glyphs={} visible_lines={} total_lines={}",
+                                        frame_id,
+                                        total_ms,
+                                        app_update_ms,
+                                        layout_ms,
+                                        syntax_ms,
+                                        perf.text_shape_ms,
+                                        perf.text_prepare_ms,
+                                        perf.gpu_encode_ms,
+                                        perf.gpu_submit_present_ms,
+                                        render_blocks.len(),
+                                        perf.text_cmd_count,
+                                        perf.glyph_count,
+                                        editor_visible_lines,
+                                        editor_total_lines,
+                                    );
+                                }
                                 if render_trace_enabled() {
                                     eprintln!(
                                         "ZAROXI_RENDER_TRACE: render_result frame={} ok",
@@ -1733,7 +1800,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                 if event.state != ElementState::Pressed {
                     return;
                 }
+                let ev_kind = input::classify_editor_key(self, &event.logical_key);
+                let ev_start = std::time::Instant::now();
                 let actions = input::handle_keyboard_press(self, &event.logical_key);
+                if let Some(kind) = ev_kind {
+                    perf_event(
+                        kind,
+                        ev_start,
+                        &format!(
+                            "ln={} col={}",
+                            self.editor_cursor_line(),
+                            self.editor_cursor_col()
+                        ),
+                    );
+                }
                 self.handle_actions(actions);
             }
             _ => {}

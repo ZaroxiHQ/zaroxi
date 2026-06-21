@@ -1755,7 +1755,7 @@ impl RenderCore {
         surface_size: winit::dpi::PhysicalSize<u32>,
         layout: &RenderLayout,
         render_blocks: &[crate::UiBlock],
-    ) -> Result<(), RenderError> {
+    ) -> Result<RenderPerf, RenderError> {
         // Reconfigure the persistent surface if the size changed.
         if self.surface_config.width != surface_size.width
             || self.surface_config.height != surface_size.height
@@ -1816,6 +1816,33 @@ impl RenderCore {
     }
 }
 
+/// Per-frame render-side timing + counters, gated behind `ZAROXI_PERF_TRACE=1`.
+///
+/// Populated by `render_frame_inner` on the live success path and returned to
+/// the caller (the app frame loop) so a single consolidated per-frame
+/// `ZAROXI_PERF_TRACE` line can be printed with both app-side and render-side
+/// phases. All ms fields are wall-clock milliseconds for the current frame.
+///
+/// Phase split (see `CosmicTextRenderer::prepare`):
+/// - `text_shape_ms`: per-command cosmic shaping + per-glyph rasterization loop
+///   (CPU-bound; the dominant suspect for the hot path).
+/// - `text_prepare_ms`: GPU atlas upload + instance-buffer build/upload.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RenderPerf {
+    pub text_shape_ms: f32,
+    pub text_prepare_ms: f32,
+    pub gpu_encode_ms: f32,
+    pub gpu_submit_present_ms: f32,
+    pub text_cmd_count: usize,
+    pub glyph_count: usize,
+}
+
+/// Whether `ZAROXI_PERF_TRACE=1` is set. Cheap env read; only consulted on the
+/// success path so timing overhead is paid solely when tracing is requested.
+fn perf_trace_enabled() -> bool {
+    std::env::var("ZAROXI_PERF_TRACE").as_deref() == Ok("1")
+}
+
 /// Shared frame rendering logic used by both Renderer and RenderCore.
 fn render_frame_inner(
     device: &Device,
@@ -1830,9 +1857,9 @@ fn render_frame_inner(
     index_buffer: &Buffer,
     layout: &RenderLayout,
     render_blocks: &[crate::UiBlock],
-) -> Result<(), RenderError> {
+) -> Result<RenderPerf, RenderError> {
     if config.width == 0 || config.height == 0 {
-        return Ok(());
+        return Ok(RenderPerf::default());
     }
 
     let mut frame_start =
@@ -2313,12 +2340,20 @@ fn render_frame_inner(
                 eprintln!("ZAROXI_FRAMEFLOW: get_current_texture = Success");
             }
             let view = frame_tex.texture.create_view(&TextureViewDescriptor::default());
+            let perf_on = perf_trace_enabled();
+            let encode_start = std::time::Instant::now();
             let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
                 label: Some("zaroxi-render-encoder"),
             });
 
             let panel_indices_len = panel_indices.len() as u32;
             let total_indices_len = indices.len() as u32;
+            // Captured before `prepare` (which clears the queue) so it reflects
+            // the number of text commands shaped this frame.
+            let mut text_cmd_count: usize = 0;
+            // Wall time spent inside text_renderer.prepare(), subtracted from the
+            // encode window so gpu_encode_ms reflects only render-pass recording.
+            let mut prepare_wall_ms: f32 = 0.0;
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("main-pass"),
@@ -2346,7 +2381,10 @@ fn render_frame_inner(
 
                 if total_indices_len > panel_indices_len || text_renderer.queued_len() > 0 {
                     if !text_pass_disabled() {
+                        text_cmd_count = text_renderer.queued_len();
+                        let prep_start = std::time::Instant::now();
                         text_renderer.prepare(device, queue)?;
+                        prepare_wall_ms = prep_start.elapsed().as_secs_f32() * 1000.0;
                         text_renderer.render_pass(
                             &mut rpass,
                             text_pipeline,
@@ -2357,7 +2395,11 @@ fn render_frame_inner(
                 }
             }
 
+            let gpu_encode_ms =
+                (encode_start.elapsed().as_secs_f32() * 1000.0 - prepare_wall_ms).max(0.0);
+            let submit_start = std::time::Instant::now();
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);
+            let gpu_submit_present_ms = submit_start.elapsed().as_secs_f32() * 1000.0;
             if gpu_trace_enabled() {
                 eprintln!(
                     "ZAROXI_RENDER_TRACE: present_frame frame={} submit=done present=done",
@@ -2376,7 +2418,19 @@ fn render_frame_inner(
                     );
                 }
             }
-            Ok(())
+            let perf = if perf_on {
+                RenderPerf {
+                    text_shape_ms: text_renderer.perf_shape_ms(),
+                    text_prepare_ms: text_renderer.perf_prepare_ms(),
+                    gpu_encode_ms,
+                    gpu_submit_present_ms,
+                    text_cmd_count,
+                    glyph_count: text_renderer.perf_glyph_count(),
+                }
+            } else {
+                RenderPerf::default()
+            };
+            Ok(perf)
         }
         wgpu::CurrentSurfaceTexture::Suboptimal(frame_tex) => {
             if gpu_trace_enabled() {
