@@ -90,7 +90,7 @@ pub fn run_shell_window(
         picker_in_flight: false,
         pending_picker_rx: None,
         last_widget_tree_size: (0, 0),
-        last_widget_tree_content: None,
+        last_widget_tree_fingerprint: None,
         render_core: None,
         line_syntax_cache: std::collections::HashMap::new(),
         cached_line_hashes: Vec::new(),

@@ -87,6 +87,32 @@ pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
     eprintln!("ZAROXI_PERF_TRACE: event={} ms={:.2} {}", label, ms, detail);
 }
 
+/// Cheap fingerprint of the `ShellWorkContent` fields that drive widget-tree
+/// rebuilds. Replaces a per-frame full `ShellWorkContent` clone — which carried
+/// the entire document body AND the whole explorer file tree — that existed
+/// only to detect changes between frames. Cloning a few small fields (tab
+/// names, active-file path, lengths) is O(1)-ish instead of O(document).
+#[derive(Clone, PartialEq, Default)]
+pub struct WidgetTreeFingerprint {
+    explorer_empty_button: Option<String>,
+    explorer_items_len: Option<usize>,
+    editor_lines_len: Option<usize>,
+    active_file: Option<String>,
+    editor_tabs: Option<Vec<String>>,
+}
+
+impl WidgetTreeFingerprint {
+    fn of(wc: &ShellWorkContent) -> Self {
+        Self {
+            explorer_empty_button: wc.explorer_empty_button.clone(),
+            explorer_items_len: wc.explorer_panel_items.as_ref().map(|v| v.len()),
+            editor_lines_len: wc.editor_body.as_ref().map(|b| b.lines.len()),
+            active_file: wc.active_file.clone(),
+            editor_tabs: wc.editor_tabs.clone(),
+        }
+    }
+}
+
 fn record_frame_presented() {
     if std::env::var("ZAROXI_FPS_TRACE").as_deref() != Ok("1") {
         return;
@@ -182,7 +208,7 @@ pub struct GuiApp {
     pub picker_in_flight: bool,
     pub pending_picker_rx: Option<mpsc::Receiver<PickerOutcome>>,
     pub last_widget_tree_size: (u32, u32),
-    pub last_widget_tree_content: Option<ShellWorkContent>,
+    pub last_widget_tree_fingerprint: Option<WidgetTreeFingerprint>,
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
     /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
     /// Avoids recomputing spans for lines whose content didn't change.
@@ -640,7 +666,7 @@ impl GuiApp {
                         }
                         if let Some(wc) = content {
                             self.set_work_content(wc);
-                            self.last_widget_tree_content = None;
+                            self.last_widget_tree_fingerprint = None;
                             self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
                                 comp.reset_scroll_state();
@@ -664,7 +690,7 @@ impl GuiApp {
                         return;
                     };
                     self.set_work_content(wc);
-                    self.last_widget_tree_content = None;
+                    self.last_widget_tree_fingerprint = None;
                     self.request_render();
                 }
                 PickerOutcome::Unavailable { reason, .. } => {
@@ -681,7 +707,7 @@ impl GuiApp {
                         return;
                     };
                     self.set_work_content(wc);
-                    self.last_widget_tree_content = None;
+                    self.last_widget_tree_fingerprint = None;
                     self.request_render();
                 }
             }
@@ -1121,7 +1147,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let _ = self.layout_controller.get_or_compute(sw, sh, resolved);
                     let layout_ms = layout_t.elapsed().as_secs_f32() * 1000.0;
                     self.editor_viewport = Some(*self.layout_controller.viewport());
-                    self.shell.work_content = self.work_content.clone();
 
                     let mut sem = variant.colors(false);
 
@@ -1184,26 +1209,17 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     let engine_layout = self.layout_controller.engine_shell_layout();
 
-                    let content_changed = self
-                        .last_widget_tree_content
-                        .as_ref()
-                        .and_then(|old| {
-                            self.work_content.as_ref().map(|new| {
-                                old.explorer_empty_button != new.explorer_empty_button
-                                    || old.explorer_panel_items.as_ref().map(|v| v.len())
-                                        != new.explorer_panel_items.as_ref().map(|v| v.len())
-                                    || old.editor_body.as_ref().map(|b| b.lines.len())
-                                        != new.editor_body.as_ref().map(|b| b.lines.len())
-                                    || old.active_file != new.active_file
-                                    || old.editor_tabs != new.editor_tabs
-                            })
-                        })
-                        .unwrap_or(true);
+                    let new_fingerprint = self.work_content.as_ref().map(WidgetTreeFingerprint::of);
+                    let content_changed =
+                        match (&self.last_widget_tree_fingerprint, &new_fingerprint) {
+                            (Some(old), Some(new)) => old != new,
+                            _ => true,
+                        };
                     let rebuild_tree = self.last_widget_tree_size != (sw, sh) || content_changed;
 
                     self.last_widget_tree_size = (sw, sh);
-                    if let Some(ref wc) = self.work_content {
-                        self.last_widget_tree_content = Some(wc.clone());
+                    if new_fingerprint.is_some() {
+                        self.last_widget_tree_fingerprint = new_fingerprint;
                     }
 
                     let mut widget_tree = if rebuild_tree {
@@ -1359,7 +1375,7 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     let syntax_t = std::time::Instant::now();
                     let editor_data = render_state::prepare_editor_data(
-                        &self.shell.work_content,
+                        &self.work_content,
                         &mut self.cached_editor_data,
                         &mut self.cached_editor_lines_hash,
                         &mut self.cached_editor_spans_version,
@@ -1384,8 +1400,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
                     let explorer_data =
-                        super::presenters::shape_explorer_content(&self.shell.work_content);
-                    let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
+                        super::presenters::shape_explorer_content(&self.work_content);
+                    let ai_data = super::presenters::shape_ai_content(&self.work_content);
 
                     let status_inputs = super::status_bar::StatusInputs {
                         file_label: status_file_label.as_deref(),

@@ -40,6 +40,50 @@ fn text_debug_enabled() -> bool {
     std::env::var("ZAROXI_TEXT_DEBUG").map(|v| v == "1").unwrap_or(false)
 }
 
+/// FNV-1a hash over the queued text commands plus the viewport. Two frames with
+/// the same hash produce byte-identical glyph instances, so the previously
+/// built GPU instance buffer (and atlas/summary/samples) can be reused and the
+/// expensive shape + rasterize pass skipped. Covers every field that influences
+/// emitted instances: text, position, size, clip, color(s) and run boundaries.
+fn hash_text_commands(cmds: &[TextCommand], vw: u32, vh: u32) -> u64 {
+    #[inline]
+    fn mix(h: &mut u64, v: u64) {
+        *h ^= v;
+        *h = h.wrapping_mul(0x100000001b3);
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    mix(&mut h, vw as u64);
+    mix(&mut h, vh as u64);
+    mix(&mut h, cmds.len() as u64);
+    for c in cmds {
+        for &b in c.text.as_bytes() {
+            mix(&mut h, b as u64);
+        }
+        mix(&mut h, c.x.to_bits() as u64);
+        mix(&mut h, c.y.to_bits() as u64);
+        mix(&mut h, c.size.to_bits() as u64);
+        mix(&mut h, c.clip_x.to_bits() as u64);
+        mix(&mut h, c.clip_y.to_bits() as u64);
+        mix(&mut h, c.clip_w.to_bits() as u64);
+        mix(&mut h, c.clip_h.to_bits() as u64);
+        for ch in c.color {
+            mix(&mut h, ch.to_bits() as u64);
+        }
+        mix(&mut h, c.is_title as u64);
+        if let Some(ref runs) = c.color_runs {
+            // `c.text` already covers the concatenated run text; hash run
+            // lengths (boundaries) + per-run colors, which `c.text` does not.
+            for (t, col) in runs {
+                mix(&mut h, t.len() as u64);
+                for ch in col {
+                    mix(&mut h, ch.to_bits() as u64);
+                }
+            }
+        }
+    }
+    h
+}
+
 /// Atlas metadata used for diagnostics only.
 #[derive(Clone, Debug)]
 struct AtlasMeta {
@@ -120,6 +164,10 @@ pub struct CosmicTextRenderer {
     /// `TextRenderer` trait methods so the app frame loop can print a single
     /// consolidated per-frame perf line.
     last_perf: Arc<Mutex<(f32, f32, usize)>>,
+    /// Hash of the queued commands + viewport from the last fully-shaped frame.
+    /// When the next frame's hash matches, the instance buffer/atlas/summary are
+    /// still valid and the shape+rasterize pass is skipped entirely.
+    last_queue_hash: Arc<Mutex<Option<u64>>>,
 }
 
 impl CosmicTextRenderer {
@@ -220,6 +268,7 @@ impl CosmicTextRenderer {
             monospace_advance,
             font_family,
             last_perf: Arc::new(Mutex::new((0.0, 0.0, 0))),
+            last_queue_hash: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -594,8 +643,32 @@ impl TextRenderer for CosmicTextRenderer {
             let mut ss = self.last_frame_samples.lock().unwrap();
             ss.clear();
             *self.last_perf.lock().unwrap() = (0.0, 0.0, 0);
+            *self.last_queue_hash.lock().unwrap() = None;
             return Ok(());
         }
+
+        // PERF: if the queued commands + viewport are byte-identical to the last
+        // fully-shaped frame, the previous instance buffer, atlas bind group and
+        // frame summary/samples are still exactly correct. Reuse them and skip
+        // the entire shape + rasterize loop (the dominant per-frame cost on
+        // idle / repeated redraws). Any real change — scroll, edit, resize —
+        // alters a position/text/viewport and changes the hash.
+        let queue_hash = {
+            let (vw, vh) = *self.viewport.lock().unwrap();
+            hash_text_commands(&q[..], vw, vh)
+        };
+        {
+            let prev = *self.last_queue_hash.lock().unwrap();
+            let have_buffers = self.instance_buffer.lock().unwrap().is_some()
+                && self.atlas_bind_group.lock().unwrap().is_some();
+            if prev == Some(queue_hash) && have_buffers {
+                let prev_glyphs = self.last_perf.lock().unwrap().2;
+                *self.last_perf.lock().unwrap() = (0.0, 0.0, prev_glyphs);
+                q.clear();
+                return Ok(());
+            }
+        }
+        *self.last_queue_hash.lock().unwrap() = Some(queue_hash);
 
         // Lock font system and swash cache for shaping + rasterization.
         let mut fs = self.font_system.lock().unwrap();
