@@ -208,4 +208,11 @@ pub trait TextRenderer: Send + Sync {
     fn perf_glyph_count(&self) -> usize {
         0
     }
+
+    /// Number of lines whose shaping was deferred by the per-frame shaping
+    /// budget in the most recent `prepare` (staged first paint). >0 means the
+    /// caller should request another frame to finish shaping. Default `0`.
+    fn perf_pending_lines(&self) -> usize {
+        0
+    }
 }

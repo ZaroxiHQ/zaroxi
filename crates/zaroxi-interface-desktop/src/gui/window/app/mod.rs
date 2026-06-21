@@ -1748,6 +1748,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                             Ok(perf) => {
                                 self.needs_render = false;
                                 self.frame_scheduler.on_frame_presented(Instant::now());
+                                // Staged first paint: the renderer budgeted its
+                                // shaping and deferred some lines. Re-arm a redraw
+                                // so the remaining lines shape over the next
+                                // frame(s) instead of freezing this one.
+                                if perf.shaping_pending > 0 {
+                                    self.needs_render = true;
+                                    self.frame_scheduler.mark_redraw_requested();
+                                    z.window().request_redraw();
+                                }
                                 if perf_on {
                                     let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                     // app_update = everything on the CPU app path

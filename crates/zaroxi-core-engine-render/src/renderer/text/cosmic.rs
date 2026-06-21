@@ -235,6 +235,13 @@ pub struct CosmicTextRenderer {
     /// scroll/edit reuse unchanged lines and re-emit them at a new vertical
     /// offset without re-running cosmic shaping (the dominant per-frame cost).
     line_shape_cache: Arc<Mutex<std::collections::HashMap<u64, Vec<CachedGlyph>>>>,
+    /// Count of lines deferred by the per-frame shaping budget on the last
+    /// `prepare` (staged first paint). >0 means the caller should request
+    /// another frame to finish shaping.
+    last_pending_lines: Arc<Mutex<usize>>,
+    /// True while the last frame left shaping work unfinished. Suppresses the
+    /// whole-frame shape-skip so the deferred lines actually get shaped.
+    shaping_incomplete: Arc<Mutex<bool>>,
 }
 
 impl CosmicTextRenderer {
@@ -337,6 +344,8 @@ impl CosmicTextRenderer {
             last_perf: Arc::new(Mutex::new((0.0, 0.0, 0))),
             last_queue_hash: Arc::new(Mutex::new(None)),
             line_shape_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            last_pending_lines: Arc::new(Mutex::new(0)),
+            shaping_incomplete: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -703,6 +712,15 @@ impl TextRenderer for CosmicTextRenderer {
         let mut lines_shaped: usize = 0;
         let mut cache_evictions: usize = 0;
         let line_cache_disabled = shape_cache_disabled();
+        // Staged first paint: cap NEW shaping per frame; defer the rest to the
+        // next frame so the editor paints immediately and fills in. Always shape
+        // at least one line per frame to guarantee forward progress. Set to a
+        // very large value to disable.
+        let shaping_budget_ms: f32 = std::env::var("ZAROXI_SHAPE_BUDGET_MS")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(16.0);
+        let mut pending_lines: usize = 0;
 
         if queued_count == 0 {
             // Nothing queued: clear previous frame info and exit early.
@@ -719,6 +737,8 @@ impl TextRenderer for CosmicTextRenderer {
             ss.clear();
             *self.last_perf.lock().unwrap() = (0.0, 0.0, 0);
             *self.last_queue_hash.lock().unwrap() = None;
+            *self.last_pending_lines.lock().unwrap() = 0;
+            *self.shaping_incomplete.lock().unwrap() = false;
             return Ok(());
         }
 
@@ -736,9 +756,11 @@ impl TextRenderer for CosmicTextRenderer {
             let prev = *self.last_queue_hash.lock().unwrap();
             let have_buffers = self.instance_buffer.lock().unwrap().is_some()
                 && self.atlas_bind_group.lock().unwrap().is_some();
-            if prev == Some(queue_hash) && have_buffers {
+            if prev == Some(queue_hash) && have_buffers && !*self.shaping_incomplete.lock().unwrap()
+            {
                 let prev_glyphs = self.last_perf.lock().unwrap().2;
                 *self.last_perf.lock().unwrap() = (0.0, 0.0, prev_glyphs);
+                *self.last_pending_lines.lock().unwrap() = 0;
                 q.clear();
                 return Ok(());
             }
@@ -828,6 +850,16 @@ impl TextRenderer for CosmicTextRenderer {
                     lines_reused += 1;
                     continue;
                 }
+            }
+
+            // Staged first paint / shaping budget: this line is a cache miss and
+            // would require (expensive) cosmic shaping. If we've already shaped at
+            // least one line this frame AND the budget is spent, defer it to the
+            // next frame (it simply doesn't paint yet) and ask the caller for
+            // another frame. Reused lines above are cheap and never deferred.
+            if lines_shaped > 0 && shape_t0.elapsed().as_secs_f32() * 1000.0 > shaping_budget_ms {
+                pending_lines += 1;
+                continue;
             }
             lines_shaped += 1;
 
@@ -1378,6 +1410,11 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         let shape_ms = shape_t0.elapsed().as_secs_f32() * 1000.0;
+        // Record staged-paint state: how many lines were deferred, and whether
+        // shaping is incomplete (which suppresses the whole-frame skip next
+        // frame so the deferred lines get shaped).
+        *self.last_pending_lines.lock().unwrap() = pending_lines;
+        *self.shaping_incomplete.lock().unwrap() = pending_lines > 0;
         if shape_trace_enabled() {
             let ratio = if lines_considered > 0 {
                 lines_reused as f32 / lines_considered as f32
@@ -1385,13 +1422,15 @@ impl TextRenderer for CosmicTextRenderer {
                 0.0
             };
             eprintln!(
-                "ZAROXI_SHAPE_TRACE: considered={} reused={} shaped={} reuse_ratio={:.2} cache_size={} evictions={} shape_ms={:.2}",
+                "ZAROXI_SHAPE_TRACE: considered={} reused={} shaped={} pending={} reuse_ratio={:.2} cache_size={} evictions={} budget_ms={:.1} shape_ms={:.2}",
                 lines_considered,
                 lines_reused,
                 lines_shaped,
+                pending_lines,
                 ratio,
                 self.line_shape_cache.lock().unwrap().len(),
                 cache_evictions,
+                shaping_budget_ms,
                 shape_ms,
             );
         }
@@ -1525,6 +1564,10 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn perf_glyph_count(&self) -> usize {
         self.last_perf.lock().unwrap().2
+    }
+
+    fn perf_pending_lines(&self) -> usize {
+        *self.last_pending_lines.lock().unwrap()
     }
 
     fn render_pass<'a>(

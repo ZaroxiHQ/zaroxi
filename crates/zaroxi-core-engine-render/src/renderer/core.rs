@@ -1835,6 +1835,10 @@ pub struct RenderPerf {
     pub gpu_submit_present_ms: f32,
     pub text_cmd_count: usize,
     pub glyph_count: usize,
+    /// Lines whose shaping was deferred by the per-frame budget (staged first
+    /// paint). >0 means the caller should request another frame to finish.
+    /// Populated regardless of `ZAROXI_PERF_TRACE` so staged paint works always.
+    pub shaping_pending: usize,
 }
 
 /// Whether `ZAROXI_PERF_TRACE=1` is set. Cheap env read; only consulted on the
@@ -2426,9 +2430,15 @@ fn render_frame_inner(
                     gpu_submit_present_ms,
                     text_cmd_count,
                     glyph_count: text_renderer.perf_glyph_count(),
+                    shaping_pending: text_renderer.perf_pending_lines(),
                 }
             } else {
-                RenderPerf::default()
+                // Staged first paint needs `shaping_pending` even when perf
+                // tracing is off, so always populate it.
+                RenderPerf {
+                    shaping_pending: text_renderer.perf_pending_lines(),
+                    ..RenderPerf::default()
+                }
             };
             Ok(perf)
         }
