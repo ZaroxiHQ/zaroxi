@@ -40,6 +40,69 @@ fn text_debug_enabled() -> bool {
     std::env::var("ZAROXI_TEXT_DEBUG").map(|v| v == "1").unwrap_or(false)
 }
 
+/// Whether the per-line shaped-glyph cache is disabled (kill-switch). Default
+/// enabled; set `ZAROXI_NO_SHAPE_CACHE=1` to force full reshaping every frame
+/// (used to A/B the cache against visual correctness without a rebuild).
+fn shape_cache_disabled() -> bool {
+    std::env::var("ZAROXI_NO_SHAPE_CACHE").as_deref() == Ok("1")
+}
+
+/// Whether to emit the per-frame `ZAROXI_SHAPE_TRACE` reuse breakdown.
+fn shape_trace_enabled() -> bool {
+    matches!(std::env::var("ZAROXI_PIPELINE_TRACE").as_deref(), Ok("1"))
+        || matches!(std::env::var("ZAROXI_SHAPE_TRACE").as_deref(), Ok("1"))
+}
+
+/// One shaped glyph of a logical line, stored position-independently so the
+/// line can be re-emitted at any vertical scroll offset without re-shaping.
+/// `rel_x`/`rel_y` are physical-pixel offsets from the command origin
+/// (`cmd.x*scale`, `cmd.y*scale`); the atlas uv is looked up live at emit time
+/// (the atlas grows, which shifts uvs, so uvs must NOT be cached).
+#[derive(Clone, Copy)]
+struct CachedGlyph {
+    rel_x: f32,
+    rel_y: f32,
+    cache_key_bits: u64,
+    color: [f32; 4],
+}
+
+/// Maximum number of distinct logical lines retained in the shape cache before
+/// it is flushed wholesale. The visible window plus recent scroll/edit history
+/// is far smaller; this just bounds memory on pathological churn.
+const SHAPE_CACHE_MAX_LINES: usize = 4096;
+
+/// Position-independent hash of a queued command's layout-affecting inputs.
+/// Two commands with the same key shape to the same relative glyph layout, so
+/// one can reuse the other's cached glyphs (translated to its own origin).
+/// Excludes x/y (applied at emit) but includes color (drives glyph color) and
+/// size/scale/font (drive shaping). The editor does not soft-wrap, so width is
+/// not a layout input here.
+fn hash_line_command(cmd: &TextCommand, font_size_physical: f32, device_scale: f32) -> u64 {
+    #[inline]
+    fn mix(h: &mut u64, v: u64) {
+        *h ^= v;
+        *h = h.wrapping_mul(0x100000001b3);
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in cmd.text.as_bytes() {
+        mix(&mut h, b as u64);
+    }
+    mix(&mut h, font_size_physical.to_bits() as u64);
+    mix(&mut h, device_scale.to_bits() as u64);
+    for ch in cmd.color {
+        mix(&mut h, ch.to_bits() as u64);
+    }
+    if let Some(ref runs) = cmd.color_runs {
+        for (t, col) in runs {
+            mix(&mut h, t.len() as u64);
+            for ch in col {
+                mix(&mut h, ch.to_bits() as u64);
+            }
+        }
+    }
+    h
+}
+
 /// FNV-1a hash over the queued text commands plus the viewport. Two frames with
 /// the same hash produce byte-identical glyph instances, so the previously
 /// built GPU instance buffer (and atlas/summary/samples) can be reused and the
@@ -168,6 +231,10 @@ pub struct CosmicTextRenderer {
     /// When the next frame's hash matches, the instance buffer/atlas/summary are
     /// still valid and the shape+rasterize pass is skipped entirely.
     last_queue_hash: Arc<Mutex<Option<u64>>>,
+    /// Per-logical-line shaped-glyph cache (keyed by content/size/color). Lets
+    /// scroll/edit reuse unchanged lines and re-emit them at a new vertical
+    /// offset without re-running cosmic shaping (the dominant per-frame cost).
+    line_shape_cache: Arc<Mutex<std::collections::HashMap<u64, Vec<CachedGlyph>>>>,
 }
 
 impl CosmicTextRenderer {
@@ -269,6 +336,7 @@ impl CosmicTextRenderer {
             font_family,
             last_perf: Arc::new(Mutex::new((0.0, 0.0, 0))),
             last_queue_hash: Arc::new(Mutex::new(None)),
+            line_shape_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -629,6 +697,13 @@ impl TextRenderer for CosmicTextRenderer {
         // Log up to the first few rasterized glyphs for diagnostics.
         let mut glyphs_logged: usize = 0;
 
+        // Per-line shape cache counters (ZAROXI_SHAPE_TRACE).
+        let mut lines_considered: usize = 0;
+        let mut lines_reused: usize = 0;
+        let mut lines_shaped: usize = 0;
+        let mut cache_evictions: usize = 0;
+        let line_cache_disabled = shape_cache_disabled();
+
         if queued_count == 0 {
             // Nothing queued: clear previous frame info and exit early.
             let mut s = self.last_frame_summary.lock().unwrap();
@@ -691,12 +766,72 @@ impl TextRenderer for CosmicTextRenderer {
         // `text_shape_ms` (CPU-bound). GPU upload below is `text_prepare_ms`.
         let shape_t0 = std::time::Instant::now();
         for cmd in q.iter() {
-            // Build metrics & buffer at device pixel scale
+            lines_considered += 1;
+            // Device pixel scale + physical font size (needed for both the cache
+            // key and shaping).
             let device_scale: f32 = std::env::var("ZAROXI_SURFACE_SCALE")
                 .ok()
                 .and_then(|s| s.parse::<f32>().ok())
                 .unwrap_or(1.0);
             let font_size_physical = cmd.size * device_scale;
+
+            // Command origin in physical pixels. Glyph positions are stored in
+            // the line cache RELATIVE to this origin so the same line can be
+            // re-emitted at any scroll offset without reshaping.
+            let snapped_cmd_x = cmd.x * device_scale;
+            let snapped_cmd_y = cmd.y * device_scale;
+
+            // Per-glyph clip bounds (physical px). Applied at emit on BOTH the
+            // reuse and shape paths so scrolling reveals/culls glyphs correctly.
+            let clip_l = cmd.clip_x * device_scale;
+            let clip_t = cmd.clip_y * device_scale;
+            let clip_r = (cmd.clip_x + cmd.clip_w) * device_scale;
+            let clip_b = (cmd.clip_y + cmd.clip_h) * device_scale;
+            let glyph_in_clip = |gx: f32, gy: f32, gw: f32, gh: f32| {
+                gx + gw > clip_l && gx < clip_r && gy + gh > clip_t && gy < clip_b
+            };
+
+            // PERF: per-line shaped-glyph reuse. If this exact line content was
+            // shaped before, re-emit its glyphs at the current origin via a LIVE
+            // atlas lookup (uvs recomputed for the current atlas size) instead of
+            // re-running cosmic shaping (the dominant per-frame cost). Whitespace
+            // glyphs have no atlas entry and are simply skipped on reuse. The
+            // atlas is append-only, so a previously-shaped drawable glyph is
+            // always present.
+            let line_key = hash_line_command(cmd, font_size_physical, device_scale);
+            if !line_cache_disabled {
+                let cached = self.line_shape_cache.lock().unwrap().get(&line_key).cloned();
+                if let Some(glyphs) = cached {
+                    for g in &glyphs {
+                        if let Some((entry, off_x, off_y)) =
+                            self.shared_atlas.try_get(g.cache_key_bits)
+                        {
+                            let x0 = snapped_cmd_x + g.rel_x + off_x as f32;
+                            let y0 = snapped_cmd_y + g.rel_y + off_y as f32;
+                            let w = entry.width as f32;
+                            let h = entry.height as f32;
+                            if glyph_in_clip(x0, y0, w, h) {
+                                samples.push(InstanceSample {
+                                    x: x0,
+                                    y: y0,
+                                    width: w,
+                                    height: h,
+                                    uv0: (entry.u0, entry.v0),
+                                    uv1: (entry.u1, entry.v1),
+                                    color: g.color,
+                                });
+                                max_scale_ratio = max_scale_ratio.max(1.0);
+                                instances_total += 1;
+                            }
+                        }
+                    }
+                    lines_reused += 1;
+                    continue;
+                }
+            }
+            lines_shaped += 1;
+
+            // ── Shape path (cache miss): build the cosmic buffer and lay it out ──
             let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
             let mut buf = CosmicBuffer::new(&mut *fs, metrics);
             // Pin the bundled editor font on every run so the whole line shapes
@@ -725,28 +860,10 @@ impl TextRenderer for CosmicTextRenderer {
                 buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
             }
 
-            // Compute command-level physical origin and apply snapping consistently per command.
+            // Snapping remains an observable diagnostic flag; quantization is
+            // deferred until/if the GPU or atlas need integer coordinates.
             let snap_enabled =
                 std::env::var("ZAROXI_TEXT_SNAP").ok().map(|v| v == "1").unwrap_or(true);
-            let cmd_origin_x_phys = cmd.x * device_scale;
-            let cmd_origin_y_phys = cmd.y * device_scale;
-            // Preserve float command origins; avoid early integer snapping which alters shaped positions.
-            // Snapping remains an observable diagnostic flag (`snap_enabled`) but quantization is
-            // deferred until/if the GPU or atlas need integer coordinates.
-            let snapped_cmd_x = cmd_origin_x_phys;
-            let snapped_cmd_y = cmd_origin_y_phys;
-
-            // Compute clip bounds in physical pixels for per-glyph culling.
-            // Horizontal: prevent bleed into adjacent panels.
-            // Vertical top-edge: glyphs scrolled above the content area are culled.
-            // Bottom-edge: glyphs that fall entirely below the clip are culled.
-            let clip_l = cmd.clip_x * device_scale;
-            let clip_t = cmd.clip_y * device_scale;
-            let clip_r = (cmd.clip_x + cmd.clip_w) * device_scale;
-            let clip_b = (cmd.clip_y + cmd.clip_h) * device_scale;
-            let glyph_in_clip = |gx: f32, gy: f32, gw: f32, gh: f32| {
-                gx + gw > clip_l && gx < clip_r && gy + gh > clip_t && gy < clip_b
-            };
 
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
             // borrow is active, compute precise float layout positions (avoid integer truncation),
@@ -802,6 +919,39 @@ impl TextRenderer for CosmicTextRenderer {
                 }
             }
             drop(borrowed);
+
+            // Record this line's shaped glyphs (positions relative to the command
+            // origin) into the per-line cache so later frames can re-emit it at a
+            // new scroll offset without reshaping. uvs are intentionally NOT
+            // cached (the atlas grows, shifting uvs); they are recomputed live
+            // from the atlas on reuse.
+            if !line_cache_disabled {
+                let line_glyphs: Vec<CachedGlyph> = physicals
+                    .iter()
+                    .map(|(lg, lx, ly, ck)| CachedGlyph {
+                        rel_x: lx - snapped_cmd_x,
+                        rel_y: ly - snapped_cmd_y,
+                        cache_key_bits: crate::renderer::text_atlas::cache_key_to_u64(ck),
+                        color: lg
+                            .color_opt
+                            .map(|c| {
+                                [
+                                    c.r() as f32 / 255.0,
+                                    c.g() as f32 / 255.0,
+                                    c.b() as f32 / 255.0,
+                                    c.a() as f32 / 255.0,
+                                ]
+                            })
+                            .unwrap_or(cmd.color),
+                    })
+                    .collect();
+                let mut cache = self.line_shape_cache.lock().unwrap();
+                if cache.len() >= SHAPE_CACHE_MAX_LINES && !cache.contains_key(&line_key) {
+                    cache_evictions += cache.len();
+                    cache.clear();
+                }
+                cache.insert(line_key, line_glyphs);
+            }
 
             // Process each physical glyph in-order. Use index-based iteration so we can
             // look ahead to the next glyph's shaped position for validation checks.
@@ -1228,6 +1378,23 @@ impl TextRenderer for CosmicTextRenderer {
         }
 
         let shape_ms = shape_t0.elapsed().as_secs_f32() * 1000.0;
+        if shape_trace_enabled() {
+            let ratio = if lines_considered > 0 {
+                lines_reused as f32 / lines_considered as f32
+            } else {
+                0.0
+            };
+            eprintln!(
+                "ZAROXI_SHAPE_TRACE: considered={} reused={} shaped={} reuse_ratio={:.2} cache_size={} evictions={} shape_ms={:.2}",
+                lines_considered,
+                lines_reused,
+                lines_shaped,
+                ratio,
+                self.line_shape_cache.lock().unwrap().len(),
+                cache_evictions,
+                shape_ms,
+            );
+        }
         let prepare_t0 = std::time::Instant::now();
 
         // If atlas gained content, perform GPU upload and create bind group.
