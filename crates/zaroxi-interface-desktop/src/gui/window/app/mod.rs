@@ -379,29 +379,18 @@ impl GuiApp {
                     );
                 }
             } else if let Some(ref mut worker) = self.parse_worker {
-                // Synchronous first-paint highlight: compute spans for the
-                // (small) file on the main thread so the very first frame is
-                // already styled — no plain-text flash on open. The compiled
-                // query is cached process-wide, so this is cheap on repeat
-                // opens. The background worker is still scheduled for
-                // resilience; its same-version result is deduplicated by
-                // `poll_parse_results`.
+                // Schedule highlighting on the background worker ONLY. The
+                // previous synchronous first-paint highlight ran tree-sitter
+                // parse+query on the main thread here (~400ms for markdown),
+                // blocking the whole file open. The worker computes spans
+                // off-thread; the event loop keeps polling via
+                // `parse_result_pending()` and applies the result in
+                // `poll_parse_results` a frame or two later, so the file opens
+                // immediately (brief plain-text paint until highlights land).
                 let text = self.editor_buffer.to_string();
                 let version = self.editor_buffer.buffer_version;
                 let language = self.current_language;
-                worker.schedule_parse(background_parse::BufferSnapshot {
-                    version,
-                    text: text.clone(),
-                    language,
-                });
-
-                let spans = background_parse::compute_spans(&self.parser_pool, language, &text);
-                if !spans.is_empty() {
-                    self.latest_spans = Some(spans);
-                    self.latest_spans_version = version;
-                    self.cached_editor_lines_hash = 0;
-                    self.line_syntax_cache.clear();
-                }
+                worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
             }
         }
         self.work_content = Some(wc);
