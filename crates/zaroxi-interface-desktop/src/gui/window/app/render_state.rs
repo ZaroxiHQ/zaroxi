@@ -20,42 +20,6 @@ pub(crate) fn compute_lines_hash(work_content: &Option<ShellWorkContent>) -> u64
         .unwrap_or(0)
 }
 
-pub(crate) fn compute_lines_hash_fast(
-    work_content: &Option<ShellWorkContent>,
-    rope: Option<&Rope>,
-) -> u64 {
-    let total = rope.map(|r| r.line_count()).unwrap_or_else(|| {
-        work_content
-            .as_ref()
-            .and_then(|wc| wc.editor_body.as_ref())
-            .map(|cv| cv.lines.len())
-            .unwrap_or(0)
-    });
-    if total == 0 {
-        return 0;
-    }
-    let n = total;
-    let idx = |frac: f32| -> usize { ((n - 1) as f32 * frac).round() as usize };
-    let sample = |i: usize| -> u64 {
-        if let Some(r) = rope {
-            r.line(i).map(|l| l.len() as u64).unwrap_or(0)
-        } else {
-            work_content
-                .as_ref()
-                .and_then(|wc| wc.editor_body.as_ref())
-                .and_then(|cv| cv.lines.get(i).map(|l| l.len() as u64))
-                .unwrap_or(0)
-        }
-    };
-    let mut h: u64 = n as u64;
-    h = h.wrapping_mul(31).wrapping_add(sample(idx(0.00)));
-    h = h.wrapping_mul(31).wrapping_add(sample(idx(0.25)));
-    h = h.wrapping_mul(31).wrapping_add(sample(idx(0.50)));
-    h = h.wrapping_mul(31).wrapping_add(sample(idx(0.75)));
-    h = h.wrapping_mul(31).wrapping_add(sample(idx(1.00)));
-    h
-}
-
 pub(crate) fn compute_per_line_hashes(work_content: &Option<ShellWorkContent>) -> Vec<u64> {
     work_content
         .as_ref()
@@ -98,9 +62,16 @@ pub(crate) fn prepare_editor_data(
     large_file_mode: bool,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
+    buffer_version: u64,
 ) -> EditorContentData {
     if large_file_mode {
-        let mut lines_hash = compute_lines_hash_fast(work_content, rope);
+        // Large-file fallback: avoid the O(total_lines) content hash
+        // (`compute_lines_hash_fast` walks/seeks the rope every frame and is
+        // catastrophic at hundreds of thousands of lines). The editor buffer's
+        // monotonic `buffer_version` is an O(1) change signal: identical version
+        // + identical viewport range ⇒ the cached windowed data is still valid,
+        // so static frames skip all per-frame document work.
+        let mut lines_hash = buffer_version.wrapping_add(1);
 
         // Mix the viewport range into the hash so the cache invalidates on
         // scroll.  Without this, scroll operations leave the content hash

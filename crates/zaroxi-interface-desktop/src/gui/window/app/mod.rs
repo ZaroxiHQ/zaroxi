@@ -77,6 +77,12 @@ pub(crate) fn perf_trace_enabled() -> bool {
     std::env::var("ZAROXI_PERF_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether `ZAROXI_PIPELINE_TRACE=1` is set. Drives the finer-grained
+/// `app_update` sub-phase breakdown (widget tree / block build / enrich).
+pub(crate) fn pipeline_trace_enabled() -> bool {
+    std::env::var("ZAROXI_PIPELINE_TRACE").as_deref() == Ok("1")
+}
+
 /// Emit an event-scoped perf line (no-op unless `ZAROXI_PERF_TRACE=1`).
 /// `detail` is appended verbatim (e.g. `lines=120 bytes=4096`).
 pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
@@ -1207,6 +1213,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         self.interaction.set_scroll_offset(&editor_id, norm_offset);
                     }
 
+                    let widget_t = std::time::Instant::now();
                     let engine_layout = self.layout_controller.engine_shell_layout();
 
                     let new_fingerprint = self.work_content.as_ref().map(WidgetTreeFingerprint::of);
@@ -1229,7 +1236,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             self.work_content.as_ref(),
                         )
                     } else {
-                        self.widget_tree.clone().unwrap_or_else(|| {
+                        self.widget_tree.take().unwrap_or_else(|| {
                             zaroxi_core_engine_ui::build_shell_widget_tree(
                                 engine_layout,
                                 &tokens,
@@ -1267,7 +1274,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     self.interaction.apply_scroll_offsets(&mut widget_tree);
-                    self.widget_tree = Some(widget_tree.clone());
 
                     if scroll_trace_enabled() {
                         let engine_layout = self.layout_controller.engine_shell_layout();
@@ -1318,6 +1324,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         widget_tree.widgets.len(),
                         self.explorer_button_rect.is_some()
                     );
+
+                    // Store the fully-interacted tree (move, not clone) so enrich
+                    // passes below can read interaction state from `self.widget_tree`.
+                    self.widget_tree = Some(widget_tree);
+                    let widget_ms = widget_t.elapsed().as_secs_f32() * 1000.0;
 
                     let shell_regions = self.layout_controller.shell_regions();
                     debug::click_trace_fmt!(
@@ -1387,6 +1398,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         large_file_mode,
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
+                        self.editor_buffer.buffer_version,
                     );
 
                     if debug_large {
@@ -1435,6 +1447,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
+                    let block_t = std::time::Instant::now();
                     let ctx = super::frame::ShellBlockContext {
                         editor_data,
                         explorer_data,
@@ -1515,6 +1528,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         editor_scroll_offset,
                     );
                     render_blocks.extend(scroll_blocks);
+                    let block_build_ms = block_t.elapsed().as_secs_f32() * 1000.0;
+                    let enrich_t = std::time::Instant::now();
 
                     // ── Scrollbar hover/active state bridging ──
                     if let Some(ref tree) = self.widget_tree {
@@ -1664,6 +1679,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     // ── Renderer lifecycle ──
+                    let enrich_ms = enrich_t.elapsed().as_secs_f32() * 1000.0;
                     self.last_render_size = (sw, sh);
 
                     let clear_color = [
@@ -1772,6 +1788,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         perf.glyph_count,
                                         editor_visible_lines,
                                         editor_total_lines,
+                                    );
+                                }
+                                if pipeline_trace_enabled() {
+                                    eprintln!(
+                                        "ZAROXI_PIPELINE_TRACE: frame={} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} content_prep_ms={:.2} layout_ms={:.2}",
+                                        frame_id,
+                                        widget_ms,
+                                        block_build_ms,
+                                        enrich_ms,
+                                        syntax_ms,
+                                        layout_ms,
                                     );
                                 }
                                 if render_trace_enabled() {
