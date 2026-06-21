@@ -346,11 +346,27 @@ impl GuiApp {
         }
 
         if let Some(ref body) = wc.editor_body {
+            let open_t = std::time::Instant::now();
             self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
+            let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
             // The freshly loaded content is the saved baseline for dirty tracking.
             self.saved_buffer_version = self.editor_buffer.buffer_version;
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
+            if perf_trace_enabled() || pipeline_trace_enabled() {
+                let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
+                // load_mode: 'degraded' large files render plain + viewport-only;
+                // 'full' files get background syntax. (Streamed/mapped open is a
+                // future phase; rope build is now a single fused pass either way.)
+                let load_mode = if self.large_file_mode { "degraded" } else { "full" };
+                eprintln!(
+                    "ZAROXI_OPEN_TRACE: lines={} bytes={} open_buffer_ms={:.2} load_mode={}",
+                    body.lines.len(),
+                    open_bytes,
+                    open_buffer_ms,
+                    load_mode,
+                );
+            }
             if self.large_file_mode
                 && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
             {

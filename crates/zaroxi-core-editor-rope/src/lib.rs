@@ -94,6 +94,50 @@ impl Rope {
         }
     }
 
+    /// Build a rope directly from a slice of lines, fusing the `join("\n")` and
+    /// the index build into a SINGLE pass. On the file-open hot path this roughly
+    /// halves construction cost for huge files vs `from_string(lines.join("\n"))`,
+    /// which writes every byte during the join and then reads them all again to
+    /// build the index. Behaviour is identical to that two-step form.
+    pub fn from_lines(lines: &[String]) -> Self {
+        let start_time = std::time::Instant::now();
+        // Exact capacity: each line + one '\n' separator between adjacent lines.
+        let sep_bytes = lines.len().saturating_sub(1);
+        let total_bytes: usize = lines.iter().map(|l| l.len()).sum::<usize>() + sep_bytes;
+        let mut original = String::with_capacity(total_bytes);
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len() + 1);
+        line_starts.push(0);
+        let mut char_count = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                original.push('\n');
+                char_count += 1; // the newline separator is one char
+                line_starts.push(char_count);
+            }
+            original.push_str(line);
+            char_count += line.chars().count();
+        }
+        let line_count = line_starts.len();
+        let total_len = original.len();
+        if env_diag_enabled() {
+            eprintln!(
+                "ZAROXI_DEBUG_LARGE_FILE: Rope::from_lines lines={} chars={} bytes={} duration_us={}",
+                lines.len(),
+                char_count,
+                total_len,
+                start_time.elapsed().as_micros(),
+            );
+        }
+        Self {
+            original,
+            inserts: Vec::new(),
+            pieces: vec![Piece { source: None, byte_range: 0..total_len, char_count, line_count }],
+            total_chars: char_count,
+            total_lines: line_count,
+            line_starts,
+        }
+    }
+
     /// Build the `(char_count, line_count, line_starts)` index in a **single**
     /// byte-level pass (newline 0x0A detection while tracking the char offset).
     /// `line_starts[i]` is the char offset of line `i`; `line_starts.len()`
@@ -659,6 +703,35 @@ mod tests {
                     a.line_col_to_char_index(line, 0),
                     b.line_col_to_char_index(line, 0),
                     "line_start[{line}] for {s:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn from_lines_matches_join() {
+        // `from_lines` (single-pass open path) must be identical to the previous
+        // `from_string(lines.join("\n"))` form across multi-line, unicode and
+        // empty-line cases.
+        let cases: Vec<Vec<String>> = vec![
+            vec![],
+            vec!["only".into()],
+            vec!["a".into(), "b".into(), "c".into()],
+            vec!["héllo".into(), "wörld".into(), "☃".into()],
+            vec!["x".into(), "".into(), "y".into()], // embedded empty line
+            vec!["trailing".into(), "".into()],      // trailing newline
+        ];
+        for lines in &cases {
+            let a = Rope::from_lines(lines);
+            let b = Rope::from_string(lines.join("\n"));
+            assert_eq!(a.char_count(), b.char_count(), "char_count for {lines:?}");
+            assert_eq!(a.line_count(), b.line_count(), "line_count for {lines:?}");
+            assert_eq!(a.to_string(), b.to_string(), "to_string for {lines:?}");
+            for line in 0..a.line_count() {
+                assert_eq!(
+                    a.line_col_to_char_index(line, 0),
+                    b.line_col_to_char_index(line, 0),
+                    "line_start[{line}] for {lines:?}"
                 );
             }
         }
