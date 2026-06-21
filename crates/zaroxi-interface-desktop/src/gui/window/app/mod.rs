@@ -189,6 +189,10 @@ pub struct GuiApp {
     pub latest_spans_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
+    /// `editor_buffer.buffer_version` captured when the active file was last
+    /// loaded (or saved). The document is considered modified when the live
+    /// buffer version diverges from this baseline.
+    pub saved_buffer_version: u64,
     /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
     /// owns the pacing/cadence and outstanding-redraw bookkeeping.
     pub frame_scheduler: FrameScheduler,
@@ -223,6 +227,38 @@ impl GuiApp {
 
     pub fn editor_selection_active(&self) -> bool {
         self.editor_buffer.selection_active
+    }
+
+    /// Whether the active document has unsaved edits since it was loaded/saved.
+    fn document_modified(&self) -> bool {
+        self.editor_buffer.buffer_version != self.saved_buffer_version
+    }
+
+    /// Compact selection summary for the status bar, when a selection is active.
+    fn status_selection(&self) -> Option<super::status_bar::SelectionInfo> {
+        let (start_line, _, end_line, _) = self.editor_selection_range()?;
+        let chars = self.editor_buffer.selected_text().map(|t| t.chars().count()).unwrap_or(0);
+        if chars == 0 {
+            return None;
+        }
+        Some(super::status_bar::SelectionInfo {
+            chars,
+            lines: end_line.saturating_sub(start_line) + 1,
+        })
+    }
+
+    /// Diagnostics counts for the status bar, only when a provider is ready.
+    fn status_diagnostics(&self) -> Option<super::status_bar::DiagnosticCounts> {
+        let snapshot = self.composition.as_ref()?.latest_diagnostics_snapshot()?;
+        if snapshot.provider != crate::diagnostics::ProviderState::Ready {
+            return None;
+        }
+        Some(super::status_bar::DiagnosticCounts {
+            errors: snapshot.errors,
+            warnings: snapshot.warnings,
+            infos: snapshot.infos,
+            hints: snapshot.hints,
+        })
     }
 
     /// Return the monospace character advance from the font system,
@@ -261,6 +297,8 @@ impl GuiApp {
 
         if let Some(ref body) = wc.editor_body {
             self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
+            // The freshly loaded content is the saved baseline for dirty tracking.
+            self.saved_buffer_version = self.editor_buffer.buffer_version;
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
             if self.large_file_mode
@@ -997,6 +1035,32 @@ impl winit::application::ApplicationHandler for GuiApp {
                 let _is_huge = self.is_huge_file();
                 let _rope_line_count = self.editor_buffer.line_count();
 
+                // Status bar inputs gathered before the window borrow below
+                // (these use whole-`&self` accessors that cannot run while the
+                // mutable `maybe_window` borrow `z` is held).
+                let status_modified = self.document_modified();
+                let status_parsing = self.parse_result_pending();
+                let status_selection = self.status_selection();
+                let status_diagnostics = self.status_diagnostics();
+                let status_workspace_name = self
+                    .composition
+                    .as_ref()
+                    .and_then(|c| c.workspace_root_path.as_ref())
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned());
+                // Raw leading slice (line endings preserved) for indent + EOL detection.
+                let status_text_sample = self.editor_buffer.raw_head(4096);
+                // Active-document label from the best available real signal so the
+                // status bar reflects the document the editor is actually showing,
+                // even when the workspace's `active_file` id is not yet populated.
+                let status_file_label = self.work_content.as_ref().and_then(|w| {
+                    w.active_file
+                        .clone()
+                        .or_else(|| w.editor_breadcrumb.clone())
+                        .or_else(|| w.editor_body.as_ref().map(|b| b.title.clone()))
+                        .filter(|s| !s.trim().is_empty())
+                });
+
                 if let Some(z) = self.maybe_window.as_mut() {
                     let (sw, sh) = z.size();
                     if sw == 0 || sh == 0 {
@@ -1288,26 +1352,36 @@ impl winit::application::ApplicationHandler for GuiApp {
                         super::presenters::shape_explorer_content(&self.shell.work_content);
                     let ai_data = super::presenters::shape_ai_content(&self.shell.work_content);
 
-                    let workspace_name = self
-                        .composition
-                        .as_ref()
-                        .and_then(|c| c.workspace_root_path.as_ref())
-                        .and_then(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().into_owned());
-
-                    // Small leading slice of the document for indent detection.
-                    let indent_sample = {
-                        let total = self.editor_buffer.total_lines();
-                        self.editor_buffer.visible_lines(0, total.min(64))
-                    };
-
-                    let status_data = super::presenters::shape_status_content(
-                        &self.shell.work_content,
-                        workspace_name.as_deref(),
-                        Some(indent_sample.as_str()),
+                    let status_inputs = super::status_bar::StatusInputs {
+                        file_label: status_file_label.as_deref(),
+                        workspace_name: status_workspace_name.as_deref(),
                         cursor_line,
                         cursor_col,
-                    );
+                        text_sample: Some(status_text_sample.as_str()),
+                        modified: status_modified,
+                        parsing: status_parsing,
+                        readonly: false,
+                        selection: status_selection,
+                        diagnostics: status_diagnostics,
+                    };
+                    let status_data = super::presenters::shape_status_content(&status_inputs);
+
+                    if std::env::var("ZAROXI_STATUS_DEBUG").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_STATUS_DEBUG: has_file={} ws={:?} state={:?} modified={} ln={} col={} sel={:?} indent={:?} eol={} lang={:?} diag={:?}",
+                            status_data.has_file,
+                            status_data.workspace,
+                            status_data.document_state,
+                            status_data.modified,
+                            status_data.line + 1,
+                            status_data.column + 1,
+                            status_data.selection,
+                            status_data.indent,
+                            status_data.line_ending.label(),
+                            status_data.language,
+                            status_data.diagnostics,
+                        );
+                    }
 
                     let ctx = super::frame::ShellBlockContext {
                         editor_data,

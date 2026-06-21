@@ -78,6 +78,14 @@ impl EditorBufferState {
         self.rope.visible_lines(start, end)
     }
 
+    /// Return up to `max_chars` characters from the start of the buffer, verbatim
+    /// (original `\r`/`\n` bytes preserved). Used for cheap indentation and
+    /// line-ending detection without materializing the whole document.
+    pub fn raw_head(&self, max_chars: usize) -> String {
+        let n = self.rope.char_count().min(max_chars);
+        (0..n).filter_map(|i| self.rope.char_at(i)).collect()
+    }
+
     /// Return the total document line count (from rope, always correct).
     pub fn total_lines(&self) -> usize {
         self.rope.line_count()

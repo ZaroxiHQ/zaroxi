@@ -66,6 +66,7 @@ mod tests {
             latest_spans: None,
             latest_spans_version: 0,
             parse_worker: None,
+            saved_buffer_version: 0,
             frame_scheduler: FrameScheduler::new(),
         }
     }

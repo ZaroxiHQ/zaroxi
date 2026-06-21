@@ -1,24 +1,15 @@
-//! Left-zone panel: workspace identity and transient document state.
+//! Left-zone panel: workspace identity.
 //!
-//! Restrained by design — it shows the workspace name. The `document_state`
-//! match is the extension point for transient hints (`Parsing…`/`Saving…`) once
-//! those signals exist; idle documents add no noise.
+//! Restrained by design — it shows the workspace folder name, or a clean
+//! "No Workspace" when none is open. Document-level status moved to the
+//! dedicated `document_state` panel.
 
-use super::super::model::{DocumentState, StatusModel};
+use super::super::model::StatusModel;
 
-/// Build the left-zone segments (workspace + optional transient state).
+/// Build the workspace segment.
 pub fn segments(model: &StatusModel) -> Vec<String> {
-    let mut out = Vec::new();
-
     match &model.workspace {
-        Some(name) => out.push(name.clone()),
-        None => out.push("No Workspace".to_string()),
+        Some(name) => vec![name.clone()],
+        None => vec!["No Workspace".to_string()],
     }
-
-    match model.document_state {
-        // Phase 2 will surface transient states (parsing/saving) here.
-        DocumentState::Ready | DocumentState::NoFile => {}
-    }
-
-    out
 }

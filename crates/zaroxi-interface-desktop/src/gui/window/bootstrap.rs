@@ -99,6 +99,7 @@ pub fn run_shell_window(
         latest_spans: None,
         latest_spans_version: 0,
         parse_worker: None,
+        saved_buffer_version: 0,
         frame_scheduler: super::app::FrameScheduler::new(),
     };
 
