@@ -58,52 +58,72 @@ impl Rope {
     /// bytes (0x0A) while tracking the current character offset.  This
     /// avoids UTF-8 decode overhead on every code point and runs
     /// significantly faster than `text.chars()` for ASCII-dominated source.
+    /// Create a new rope from a borrowed string (clones the text once into the
+    /// owned original buffer). Prefer [`Rope::from_string`] on the hot open path
+    /// to avoid that clone when you already own a `String`.
     pub fn new(text: &str) -> Self {
+        let (char_count, line_count, line_starts) = Self::build_index(text.as_bytes());
+        let total_len = text.len();
+        Self {
+            original: text.to_string(),
+            inserts: Vec::new(),
+            pieces: vec![Piece { source: None, byte_range: 0..total_len, char_count, line_count }],
+            total_chars: char_count,
+            total_lines: line_count,
+            line_starts,
+        }
+    }
+
+    /// Create a new rope, taking ownership of `text` with **no copy**.
+    ///
+    /// This is the hot path for opening files: the caller's joined document
+    /// `String` is moved directly into the rope's original buffer, avoiding the
+    /// extra full-document copy that `Rope::new(&str)` would incur. For very
+    /// large files (hundreds of MB) that copy is a significant fraction of open
+    /// time.
+    pub fn from_string(text: String) -> Self {
+        let (char_count, line_count, line_starts) = Self::build_index(text.as_bytes());
+        let total_len = text.len();
+        Self {
+            original: text,
+            inserts: Vec::new(),
+            pieces: vec![Piece { source: None, byte_range: 0..total_len, char_count, line_count }],
+            total_chars: char_count,
+            total_lines: line_count,
+            line_starts,
+        }
+    }
+
+    /// Build the `(char_count, line_count, line_starts)` index in a **single**
+    /// byte-level pass (newline 0x0A detection while tracking the char offset).
+    /// `line_starts[i]` is the char offset of line `i`; `line_starts.len()`
+    /// equals the line count (1-based: a buffer with no newline is one line).
+    /// One pass (vs the previous two) halves the traversal cost on huge files.
+    fn build_index(bytes: &[u8]) -> (usize, usize, Vec<usize>) {
         let start_time = std::time::Instant::now();
-        let bytes = text.as_bytes();
-
+        // Heuristic reservation to minimize reallocations without a counting
+        // pre-pass (~24 bytes/line is typical for source/markdown).
+        let mut line_starts: Vec<usize> = Vec::with_capacity((bytes.len() / 24).max(1) + 1);
+        line_starts.push(0);
         let mut char_count = 0usize;
-        let mut line_count = 1usize;
-
-        // First pass: count chars and lines so we can pre-allocate
-        // line_starts to the exact capacity.
         for &b in bytes {
             if b & 0xC0 != 0x80 {
                 char_count += 1;
             }
             if b == b'\n' {
-                line_count += 1;
+                line_starts.push(char_count);
             }
         }
-
-        let mut line_starts = Vec::with_capacity(line_count);
-        line_starts.push(0);
-        let mut ci = 0usize;
-        for &b in bytes {
-            if b & 0xC0 != 0x80 {
-                ci += 1;
-            }
-            if b == b'\n' {
-                line_starts.push(ci);
-            }
-        }
-
-        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-            let elapsed_us = start_time.elapsed().as_micros();
+        let line_count = line_starts.len();
+        if env_diag_enabled() {
             eprintln!(
-                "ZAROXI_DEBUG_LARGE_FILE: Rope::new chars={} lines={} duration_us={}",
-                char_count, line_count, elapsed_us,
+                "ZAROXI_DEBUG_LARGE_FILE: Rope::build_index chars={} lines={} duration_us={}",
+                char_count,
+                line_count,
+                start_time.elapsed().as_micros(),
             );
         }
-        let piece = Piece { source: None, byte_range: 0..text.len(), char_count, line_count };
-        Self {
-            original: text.to_string(),
-            inserts: Vec::new(),
-            pieces: vec![piece],
-            total_chars: char_count,
-            total_lines: line_count,
-            line_starts,
-        }
+        (char_count, line_count, line_starts)
     }
 
     /// Create an empty rope.
@@ -621,6 +641,27 @@ mod tests {
         let r = Rope::new("hello world");
         assert_eq!(r.char_count(), 11);
         assert_eq!(r.to_string(), "hello world");
+    }
+
+    #[test]
+    fn from_string_matches_new() {
+        // `from_string` (zero-copy open path) must produce a rope observably
+        // identical to `new` (borrowed path), including multi-line + unicode.
+        for s in ["", "one line", "a\nb\nc\n", "héllo\nwörld\n☃\n", "trailing\n"] {
+            let a = Rope::new(s);
+            let b = Rope::from_string(s.to_string());
+            assert_eq!(a.char_count(), b.char_count(), "char_count for {s:?}");
+            assert_eq!(a.line_count(), b.line_count(), "line_count for {s:?}");
+            assert_eq!(a.to_string(), b.to_string(), "to_string for {s:?}");
+            // Line-start index parity across every line.
+            for line in 0..a.line_count() {
+                assert_eq!(
+                    a.line_col_to_char_index(line, 0),
+                    b.line_col_to_char_index(line, 0),
+                    "line_start[{line}] for {s:?}"
+                );
+            }
+        }
     }
 
     #[test]

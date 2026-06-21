@@ -506,8 +506,9 @@ impl EditorBufferState {
     /// Sets the cursor to the ContentView cursor position if available.
     pub fn populate_from_lines(&mut self, lines: &[String], cursor_line: usize, cursor_col: usize) {
         self.buffer_version += 1;
-        let text = lines.join("\n");
-        self.rope = Rope::new(&text);
+        // Move the joined document straight into the rope (no extra copy). For
+        // very large files this avoids re-copying the whole buffer on open.
+        self.rope = Rope::from_string(lines.join("\n"));
         self.caret = self.rope.line_col_to_char_index(cursor_line, cursor_col);
         let (_, col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = col;
