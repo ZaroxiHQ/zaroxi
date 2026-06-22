@@ -90,6 +90,13 @@ pub(crate) fn settle_trace_enabled() -> bool {
     std::env::var("ZAROXI_SETTLE_TRACE").as_deref() == Ok("1") || perf_trace_enabled()
 }
 
+/// Whether the staged file-open trace is enabled (`ZAROXI_FILE_OPEN_TRACE=1`,
+/// also implied by `ZAROXI_OPEN_TRACE=1`).
+pub(crate) fn file_open_trace_enabled() -> bool {
+    std::env::var("ZAROXI_FILE_OPEN_TRACE").as_deref() == Ok("1")
+        || std::env::var("ZAROXI_OPEN_TRACE").as_deref() == Ok("1")
+}
+
 /// Emit an event-scoped perf line (no-op unless `ZAROXI_PERF_TRACE=1`).
 /// `detail` is appended verbatim (e.g. `lines=120 bytes=4096`).
 pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
@@ -272,6 +279,27 @@ pub struct GuiApp {
     /// Set when a parse-result commit was deferred this frame because a resize
     /// was in flight (for `ZAROXI_SETTLE_TRACE`).
     pub commit_deferred_resize: bool,
+    /// Monotonic open-request generation. Incremented on every `request_open`
+    /// (explorer selection / programmatic open). The newest token always wins;
+    /// any in-flight or pending open carrying an older token is stale.
+    pub open_token: u64,
+    /// Token of the open that was last actually committed (buffer materialized).
+    pub committed_open_token: u64,
+    /// Latest requested-but-not-yet-committed work content + its token. Only
+    /// the newest is kept: a newer `request_open` supersedes (drops) the
+    /// previous pending open before it ever does the heavy buffer load, so
+    /// rapid file switching never runs stale opens.
+    pub pending_open: Option<(u64, ShellWorkContent)>,
+    /// Active file path of the last committed open (for change detection at
+    /// commit time, since `work_content` is updated eagerly for instant chrome).
+    pub committed_active_file: Option<String>,
+    /// Total open requests seen (for `ZAROXI_FILE_OPEN_TRACE`).
+    pub file_switch_count: u64,
+    /// True between a `request_open` and its commit: the editor still shows the
+    /// previous content (or a placeholder) while the new file loads.
+    pub visible_loading_state: bool,
+    /// When the latest open was requested, for time-to-viewport accounting.
+    pub open_request_at: Option<std::time::Instant>,
 }
 
 /// Per-frame shaping budget (ms) used during the open burst. Large enough to
@@ -355,8 +383,56 @@ impl GuiApp {
             .and_then(|core| core.text_renderer().and_then(|tr| tr.monospace_advance_x()))
     }
 
-    /// Set the work_content and sync the editor buffer from its content.
-    fn set_work_content(&mut self, wc: ShellWorkContent) {
+    /// Stage A — request an open. Cheap and non-blocking: stamps a new open
+    /// token, updates the chrome (explorer selection / title / status) instantly
+    /// via `work_content`, and records the content as *pending*. The heavy
+    /// buffer load happens later in `commit_open` (next frame). A newer
+    /// `request_open` supersedes the pending one, so rapid explorer switching
+    /// never runs a stale file's heavy open work. The newest selection wins.
+    fn request_open(&mut self, wc: ShellWorkContent) {
+        self.open_token += 1;
+        let token = self.open_token;
+        self.file_switch_count += 1;
+        // Supersede any not-yet-committed open: its heavy load never runs.
+        if let Some((stale_token, _)) = self.pending_open.take()
+            && file_open_trace_enabled()
+        {
+            eprintln!(
+                "ZAROXI_FILE_OPEN_TRACE: token={} stage=cancelled cancelled=1 superseded_by={} commit_skipped_stale=1 t_ms=0.00",
+                stale_token, token,
+            );
+        }
+        // Loading state only when the active file actually changes (not for a
+        // status-message refresh of the same file).
+        self.visible_loading_state =
+            wc.active_file.as_deref() != self.committed_active_file.as_deref();
+        self.open_request_at = Some(std::time::Instant::now());
+        if file_open_trace_enabled() {
+            let path = wc.active_file.clone().unwrap_or_else(|| "<none>".into());
+            eprintln!(
+                "ZAROXI_FILE_OPEN_TRACE: token={} stage=start cancelled=0 superseded_by=- file_switch_count={} pending_open_requests=1 file={}",
+                token, self.file_switch_count, path,
+            );
+        }
+        // Stage A instant chrome ack: explorer selection / title / status
+        // reflect the new file immediately. The editor keeps showing the
+        // previous content (a brief "loading" state) until the commit
+        // materializes the new buffer on the next frame.
+        self.work_content = Some(wc.clone());
+        self.pending_open = Some((token, wc));
+        self.invalidate(InvalidationFlags::content());
+    }
+
+    /// Stages B–E — commit the newest pending open. Runs once per frame from the
+    /// redraw loop. Does the heavy work (buffer materialization, large-file
+    /// decision, background syntax kickoff, open burst) for the *latest* token
+    /// only; superseded requests were already dropped in `request_open`, so no
+    /// stale buffer is ever materialized or committed.
+    fn commit_open(&mut self) {
+        let (token, wc) = match self.pending_open.take() {
+            Some(p) => p,
+            None => return,
+        };
         let ev_start = std::time::Instant::now();
         // ── Phase 1 language detection (single source of truth) ──
         // The active file path determines the language used by the background
@@ -370,8 +446,7 @@ impl GuiApp {
         // When the file being shown changes (or its detected language changes),
         // drop spans from the previous buffer so stale highlights are never
         // reused, and discard any pending worker result for the old buffer.
-        let prev_active = self.work_content.as_ref().and_then(|w| w.active_file.clone());
-        let buffer_changed = prev_active.as_deref() != wc.active_file.as_deref()
+        let buffer_changed = self.committed_active_file.as_deref() != wc.active_file.as_deref()
             || detected_language != self.current_language;
         self.current_language = detected_language;
         if buffer_changed {
@@ -390,8 +465,11 @@ impl GuiApp {
             self.saved_buffer_version = self.editor_buffer.buffer_version;
             // Enter open-settling: the next frame(s) shape the freshly-visible
             // viewport with the open-burst budget so it completes in one pass
-            // instead of staging across several frames.
-            self.open_settling = true;
+            // instead of staging across several frames. The burst is tied to the
+            // latest committed token AND only fires for a genuine buffer change,
+            // so re-applying the same file (e.g. a status-message refresh) does
+            // not trigger a loading burst.
+            self.open_settling = buffer_changed;
             self.open_burst_frames = 0;
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
@@ -402,7 +480,8 @@ impl GuiApp {
                 // future phase; rope build is now a single fused pass either way.)
                 let load_mode = if self.large_file_mode { "degraded" } else { "full" };
                 eprintln!(
-                    "ZAROXI_OPEN_TRACE: lines={} bytes={} open_buffer_ms={:.2} load_mode={}",
+                    "ZAROXI_OPEN_TRACE: token={} lines={} bytes={} open_buffer_ms={:.2} load_mode={}",
+                    token,
                     body.lines.len(),
                     open_bytes,
                     open_buffer_ms,
@@ -432,17 +511,14 @@ impl GuiApp {
             if self.large_file_mode {
                 if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                     eprintln!(
-                        "ZAROXI_DEBUG_LARGE_FILE: set_work_content SKIPPED bg parse (large_file_mode lines={})",
+                        "ZAROXI_DEBUG_LARGE_FILE: commit_open SKIPPED bg parse (large_file_mode lines={})",
                         self.editor_buffer.line_count(),
                     );
                 }
             } else if let Some(ref mut worker) = self.parse_worker {
                 // Schedule highlighting on the background worker ONLY. The
-                // previous synchronous first-paint highlight ran tree-sitter
-                // parse+query on the main thread here (~400ms for markdown),
-                // blocking the whole file open. The worker computes spans
-                // off-thread; the event loop keeps polling via
-                // `parse_result_pending()` and applies the result in
+                // worker computes spans off-thread; the event loop keeps polling
+                // via `parse_result_pending()` and applies the result in
                 // `poll_parse_results` a frame or two later, so the file opens
                 // immediately (brief plain-text paint until highlights land).
                 let text = self.editor_buffer.to_string();
@@ -451,17 +527,29 @@ impl GuiApp {
                 worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
             }
         }
-        self.work_content = Some(wc);
+        self.committed_active_file = wc.active_file.clone();
+        self.committed_open_token = token;
+        self.visible_loading_state = false;
+        // `work_content` was already set to this same `wc` by `request_open`.
         perf_event(
             "open_document",
             ev_start,
             &format!(
-                "lines={} large_file={} lang={:?}",
+                "token={} lines={} large_file={} lang={:?}",
+                token,
                 self.editor_buffer.line_count(),
                 self.large_file_mode,
                 self.current_language,
             ),
         );
+        if file_open_trace_enabled() {
+            let ttv =
+                self.open_request_at.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
+            eprintln!(
+                "ZAROXI_FILE_OPEN_TRACE: token={} stage=viewport cancelled=0 superseded_by=- time_to_first_viewport_ms={:.2}",
+                token, ttv,
+            );
+        }
     }
 
     /// Check whether a file exceeds large-file thresholds and should
@@ -735,7 +823,7 @@ impl GuiApp {
                             );
                         }
                         if let Some(wc) = content {
-                            self.set_work_content(wc);
+                            self.request_open(wc);
                             self.last_widget_tree_fingerprint = None;
                             self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
@@ -759,7 +847,7 @@ impl GuiApp {
                     } else {
                         return;
                     };
-                    self.set_work_content(wc);
+                    self.request_open(wc);
                     self.last_widget_tree_fingerprint = None;
                     self.request_render();
                 }
@@ -776,7 +864,7 @@ impl GuiApp {
                     } else {
                         return;
                     };
-                    self.set_work_content(wc);
+                    self.request_open(wc);
                     self.last_widget_tree_fingerprint = None;
                     self.request_render();
                 }
@@ -835,7 +923,7 @@ impl GuiApp {
                                     != wc.editor_body.as_ref().map(|b| &b.lines)
                         });
                         if changed {
-                            self.set_work_content(wc.clone());
+                            self.request_open(wc.clone());
                             content_changed = true;
                             self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
@@ -1125,6 +1213,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // A redraw arrived: clear the outstanding-redraw bookkeeping so a
                 // later invalidation can schedule a fresh one.
                 self.frame_scheduler.on_redraw_received();
+
+                // Stage B–E: materialize the newest pending open (if any) before
+                // anything else this frame. Only the latest token commits, so a
+                // rapid explorer switch never loads a superseded file.
+                self.commit_open();
 
                 // Apply any completed background parse result before shaping the
                 // editor content for this frame so fresh highlight spans are

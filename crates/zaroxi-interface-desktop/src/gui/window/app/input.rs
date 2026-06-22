@@ -200,7 +200,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                     None
                 };
                 if let Some(wc) = wc {
-                    app.set_work_content(wc);
+                    app.request_open(wc);
                     app.invalidate(super::InvalidationFlags::content());
                 }
                 Vec::new()

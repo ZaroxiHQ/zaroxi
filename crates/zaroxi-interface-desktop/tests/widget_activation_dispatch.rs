@@ -74,6 +74,13 @@ mod tests {
             resize_pending: false,
             commit_deferred_open: false,
             commit_deferred_resize: false,
+            open_token: 0,
+            committed_open_token: 0,
+            pending_open: None,
+            committed_active_file: None,
+            file_switch_count: 0,
+            visible_loading_state: false,
+            open_request_at: None,
         }
     }
 
