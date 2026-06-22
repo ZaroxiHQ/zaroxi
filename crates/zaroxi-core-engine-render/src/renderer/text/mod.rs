@@ -296,4 +296,20 @@ pub trait TextRenderer: Send + Sync {
     fn perf_gpu_upload_reason(&self) -> &'static str {
         "none"
     }
+
+    /// Lines actually shaped (cache miss) in the most recent `prepare`. Default `0`.
+    fn perf_lines_shaped(&self) -> usize {
+        0
+    }
+
+    /// Lines considered (visible window queued) in the most recent `prepare`.
+    /// Default `0`.
+    fn perf_lines_considered(&self) -> usize {
+        0
+    }
+
+    /// Override the per-frame shaping budget (ms) for upcoming `prepare` calls.
+    /// `Some(ms)` forces that budget (used for the open-completion burst);
+    /// `None` restores the env / default steady-state budget. Default no-op.
+    fn set_shape_budget_ms(&self, _ms: Option<f32>) {}
 }

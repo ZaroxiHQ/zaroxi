@@ -319,6 +319,15 @@ pub struct CosmicTextRenderer {
     last_element_stats: Arc<Mutex<(usize, usize)>>,
     /// `(gpu_upload_bytes, reason)` from the last `prepare`.
     last_gpu_upload: Arc<Mutex<(usize, &'static str)>>,
+    /// Optional caller-set per-frame shaping budget (ms). When `Some`, it
+    /// overrides `ZAROXI_SHAPE_BUDGET_MS` / the default for this frame. The app
+    /// raises this on open (an "open burst") so the freshly-visible viewport
+    /// shapes fully in one pass instead of settling across several frames,
+    /// then clears it to restore the responsive steady-state budget.
+    shape_budget_override: Arc<Mutex<Option<f32>>>,
+    /// `(lines_shaped, lines_considered)` from the last `prepare`, for the
+    /// open-settle trace.
+    last_lines: Arc<Mutex<(usize, usize)>>,
 }
 
 impl CosmicTextRenderer {
@@ -426,6 +435,8 @@ impl CosmicTextRenderer {
             element_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             last_element_stats: Arc::new(Mutex::new((0, 0))),
             last_gpu_upload: Arc::new(Mutex::new((0, "none"))),
+            shape_budget_override: Arc::new(Mutex::new(None)),
+            last_lines: Arc::new(Mutex::new((0, 0))),
         })
     }
 
@@ -808,11 +819,16 @@ impl TextRenderer for CosmicTextRenderer {
         // Staged first paint: cap NEW shaping per frame; defer the rest to the
         // next frame so the editor paints immediately and fills in. Always shape
         // at least one line per frame to guarantee forward progress. Set to a
-        // very large value to disable.
-        let shaping_budget_ms: f32 = std::env::var("ZAROXI_SHAPE_BUDGET_MS")
-            .ok()
-            .and_then(|s| s.parse::<f32>().ok())
-            .unwrap_or(16.0);
+        // very large value to disable. A caller-set override (the open burst)
+        // wins over the env / default so the freshly-opened viewport can shape
+        // fully in one pass.
+        let shaping_budget_ms: f32 =
+            self.shape_budget_override.lock().unwrap().unwrap_or_else(|| {
+                std::env::var("ZAROXI_SHAPE_BUDGET_MS")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok())
+                    .unwrap_or(16.0)
+            });
         let mut pending_lines: usize = 0;
 
         if queued_count == 0 {
@@ -1604,6 +1620,7 @@ impl TextRenderer for CosmicTextRenderer {
         // frame so the deferred lines get shaped).
         *self.last_pending_lines.lock().unwrap() = pending_lines;
         *self.shaping_incomplete.lock().unwrap() = pending_lines > 0;
+        *self.last_lines.lock().unwrap() = (lines_shaped, lines_considered);
         if shape_trace_enabled() {
             let ratio = if lines_considered > 0 {
                 lines_reused as f32 / lines_considered as f32
@@ -1791,6 +1808,18 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn perf_gpu_upload_reason(&self) -> &'static str {
         self.last_gpu_upload.lock().unwrap().1
+    }
+
+    fn perf_lines_shaped(&self) -> usize {
+        self.last_lines.lock().unwrap().0
+    }
+
+    fn perf_lines_considered(&self) -> usize {
+        self.last_lines.lock().unwrap().1
+    }
+
+    fn set_shape_budget_ms(&self, ms: Option<f32>) {
+        *self.shape_budget_override.lock().unwrap() = ms;
     }
 
     fn render_pass<'a>(

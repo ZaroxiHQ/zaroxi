@@ -84,6 +84,12 @@ pub(crate) fn pipeline_trace_enabled() -> bool {
     std::env::var("ZAROXI_PIPELINE_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether `ZAROXI_SETTLE_TRACE=1` is set. Drives the per-frame open-completion
+/// / commit-deferral line. Also implied by `ZAROXI_PERF_TRACE=1`.
+pub(crate) fn settle_trace_enabled() -> bool {
+    std::env::var("ZAROXI_SETTLE_TRACE").as_deref() == Ok("1") || perf_trace_enabled()
+}
+
 /// Emit an event-scoped perf line (no-op unless `ZAROXI_PERF_TRACE=1`).
 /// `detail` is appended verbatim (e.g. `lines=120 bytes=4096`).
 pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
@@ -249,7 +255,34 @@ pub struct GuiApp {
     /// Retained per-element UI-node fingerprints driving `ZAROXI_UI_TRACE`
     /// (which shell elements rebuilt vs. reused, and why) each frame.
     pub ui_node_tracker: ui_nodes::UiNodeTracker,
+    /// True from the moment a file is opened until the freshly-visible editor
+    /// viewport has shaped fully (no deferred lines). While set, the renderer
+    /// runs an "open burst" budget so the viewport completes in one pass
+    /// instead of settling across several frames.
+    pub open_settling: bool,
+    /// Consecutive open-burst frames so far; caps the burst so a pathological
+    /// queue can never wedge the budget permanently raised.
+    pub open_burst_frames: u32,
+    /// True while a window resize / scale change is in flight. Used to defer
+    /// syntax/content commits off the geometry-reset frame.
+    pub resize_pending: bool,
+    /// Set when a parse-result commit was deferred this frame because the open
+    /// viewport was still settling (for `ZAROXI_SETTLE_TRACE`).
+    pub commit_deferred_open: bool,
+    /// Set when a parse-result commit was deferred this frame because a resize
+    /// was in flight (for `ZAROXI_SETTLE_TRACE`).
+    pub commit_deferred_resize: bool,
 }
+
+/// Per-frame shaping budget (ms) used during the open burst. Large enough to
+/// fully shape a freshly-opened viewport (visible window is bounded by viewport
+/// height + overscan) in a single pass, but capped so an unexpected large queue
+/// cannot hang a frame indefinitely.
+const OPEN_BURST_BUDGET_MS: f32 = 250.0;
+
+/// Hard cap on consecutive open-burst frames before reverting to the steady
+/// budget, in case `shaping_pending` never reaches zero (defensive).
+const OPEN_BURST_MAX_FRAMES: u32 = 3;
 
 // ── Large-file thresholds ──
 
@@ -355,6 +388,11 @@ impl GuiApp {
             let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
             // The freshly loaded content is the saved baseline for dirty tracking.
             self.saved_buffer_version = self.editor_buffer.buffer_version;
+            // Enter open-settling: the next frame(s) shape the freshly-visible
+            // viewport with the open-burst budget so it completes in one pass
+            // instead of staging across several frames.
+            self.open_settling = true;
+            self.open_burst_frames = 0;
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
             if perf_trace_enabled() || pipeline_trace_enabled() {
@@ -504,6 +542,23 @@ impl GuiApp {
     /// invalidate the editor caches and request a redraw so the fresh
     /// highlight spans become visible.
     pub(crate) fn poll_parse_results(&mut self) {
+        // Defer applying a fresh highlight commit while the open viewport is
+        // still settling or a resize is in flight, so we never combine a heavy
+        // shaping pass / geometry reset with a full syntax recolor on the same
+        // frame. The worker keeps the result queued (parse_result_pending stays
+        // true), so it is applied on the next stable frame.
+        self.commit_deferred_open = false;
+        self.commit_deferred_resize = false;
+        if self.parse_result_pending() {
+            if self.open_settling {
+                self.commit_deferred_open = true;
+                return;
+            }
+            if self.resize_pending {
+                self.commit_deferred_resize = true;
+                return;
+            }
+        }
         let accepted = if let Some(ref mut worker) = self.parse_worker {
             let current = worker.latest_version();
             let got = match worker.poll_result() {
@@ -930,10 +985,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                     z.update_size(size.width, size.height);
                     debug::gui_debug_fmt!("GuiApp: Resized -> {size:?}, invalidating");
                 }
+                self.resize_pending = true;
                 self.invalidate(InvalidationFlags::resize());
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 debug::gui_debug("GuiApp: ScaleFactorChanged -> invalidating");
+                self.resize_pending = true;
                 self.invalidate(InvalidationFlags::resize());
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -1744,6 +1801,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // renderer borrow so the retained-node tracer can label the
                     // dirty reasons for this frame.
                     let ui_flags = self.frame_scheduler.pending();
+                    // Whether this frame is part of an open burst (shape the
+                    // whole freshly-visible viewport in one pass).
+                    let open_settling = self.open_settling;
 
                     // Create persistent RenderCore on first frame.
                     let core_exists = self.render_core.is_some();
@@ -1769,6 +1829,15 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     if let Some(ref mut core) = self.render_core {
                         let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
+                        // Open burst: while settling a freshly-opened file, lift
+                        // the shaping budget so the whole visible viewport shapes
+                        // in one pass; otherwise use the responsive steady-state
+                        // budget so scroll/edit stay snappy.
+                        core.set_shape_budget_ms(if open_settling {
+                            Some(OPEN_BURST_BUDGET_MS)
+                        } else {
+                            None
+                        });
                         match core.render_to_window(surface_size, &render_layout, &render_blocks) {
                             Ok(perf) => {
                                 self.needs_render = false;
@@ -1860,6 +1929,40 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     editor_visible_lines,
                                     Some(&perf),
                                 );
+
+                                // ── Open-burst settle state ──
+                                // Clear settling once the viewport shaped fully
+                                // (no deferred lines) or the burst cap is hit.
+                                let open_was_settling = open_settling;
+                                if self.open_settling {
+                                    self.open_burst_frames += 1;
+                                    if perf.shaping_pending == 0
+                                        || self.open_burst_frames >= OPEN_BURST_MAX_FRAMES
+                                    {
+                                        self.open_settling = false;
+                                    }
+                                }
+                                // This frame handled any in-flight resize.
+                                let was_resizing = self.resize_pending;
+                                self.resize_pending = false;
+
+                                if settle_trace_enabled() {
+                                    let open_complete =
+                                        open_was_settling && perf.shaping_pending == 0;
+                                    eprintln!(
+                                        "ZAROXI_SETTLE_TRACE: frame={} open_active={} open_viewport_complete={} open_viewport_pending={} open_viewport_shaped={} open_prefetch_dropped={} invalidation_scope={} geometry={} commit_deferred_due_to_open={} commit_deferred_due_to_resize={}",
+                                        frame_id,
+                                        open_was_settling as u8,
+                                        open_complete as u8,
+                                        perf.shaping_pending,
+                                        perf.lines_shaped,
+                                        perf.shaping_pending,
+                                        ui_flags.summary(),
+                                        was_resizing as u8,
+                                        self.commit_deferred_open as u8,
+                                        self.commit_deferred_resize as u8,
+                                    );
+                                }
                                 if !self.first_render_shown {
                                     z.window().set_visible(true);
                                     self.first_render_shown = true;

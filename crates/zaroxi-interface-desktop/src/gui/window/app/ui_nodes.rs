@@ -175,10 +175,14 @@ impl UiNodeTracker {
             }
         }
 
-        // Geometry / style changes invalidate every node regardless of content.
+        // Geometry changes are captured per-node by the rect folded into each
+        // fingerprint, so a resize only marks the nodes whose rect/clip actually
+        // moved as dirty — not the whole shell. Style/theme changes recolor
+        // commands whose colors are not all in the fingerprint, so those still
+        // force every node. The very first frame initializes all nodes.
         let geometry_changed = self.initialized && self.last_size != size;
         let style_changed = self.initialized && self.last_theme_dark != Some(theme_dark);
-        let force_all = !self.initialized || geometry_changed || style_changed;
+        let force_all = !self.initialized || style_changed;
 
         let mut rebuilt: Vec<&str> = Vec::new();
         let mut reused: Vec<&str> = Vec::new();
@@ -219,7 +223,7 @@ impl UiNodeTracker {
         };
 
         eprintln!(
-            "ZAROXI_UI_TRACE: frame={} ui_nodes_total={} ui_nodes_rebuilt={} ui_nodes_reused={} rebuilt=[{}] reused=[{}] dirty_reasons=[{}] editor_content_dirty={} gutter_dirty={} status_bar_dirty={} chrome_dirty={} side_dirty={} ai_dirty={} bottom_dirty={} syntax_commit_lines={} syntax_commit_regions={} text_prepare_reused={} draw_payload_reused={} layout_reused={} gpu_upload_bytes={} gpu_upload_reason={}",
+            "ZAROXI_UI_TRACE: frame={} ui_nodes_total={} ui_nodes_rebuilt={} ui_nodes_reused={} rebuilt=[{}] reused=[{}] dirty_reasons=[{}] geometry_changed={} style_changed={} editor_content_dirty={} gutter_dirty={} status_bar_dirty={} chrome_dirty={} side_dirty={} ai_dirty={} bottom_dirty={} syntax_commit_lines={} syntax_commit_regions={} text_prepare_reused={} draw_payload_reused={} layout_reused={} gpu_upload_bytes={} gpu_upload_reason={}",
             frame_id,
             nodes_total,
             rebuilt.len(),
@@ -227,6 +231,8 @@ impl UiNodeTracker {
             rebuilt.join(","),
             reused.join(","),
             flags.summary(),
+            geometry_changed as u8,
+            style_changed as u8,
             dirty[EL_EDITOR] as u8,
             dirty[EL_GUTTER] as u8,
             dirty[EL_STATUS] as u8,

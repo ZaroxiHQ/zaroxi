@@ -102,6 +102,11 @@ pub fn run_shell_window(
         saved_buffer_version: 0,
         frame_scheduler: super::app::FrameScheduler::new(),
         ui_node_tracker: Default::default(),
+        open_settling: false,
+        open_burst_frames: 0,
+        resize_pending: false,
+        commit_deferred_open: false,
+        commit_deferred_resize: false,
     };
 
     let run_result = event_loop.run_app(&mut app);

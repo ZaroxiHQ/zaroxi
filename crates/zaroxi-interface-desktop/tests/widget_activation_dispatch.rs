@@ -69,6 +69,11 @@ mod tests {
             saved_buffer_version: 0,
             frame_scheduler: FrameScheduler::new(),
             ui_node_tracker: Default::default(),
+            open_settling: false,
+            open_burst_frames: 0,
+            resize_pending: false,
+            commit_deferred_open: false,
+            commit_deferred_resize: false,
         }
     }
 

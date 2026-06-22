@@ -1814,6 +1814,15 @@ impl RenderCore {
     ) -> Option<&(dyn crate::renderer::text::TextRenderer + Send + Sync)> {
         self.text_renderer.as_deref()
     }
+
+    /// Override the text shaping budget (ms) for upcoming frames, or `None` to
+    /// restore the steady-state budget. Used by the app to run an open-burst
+    /// that completes the freshly-visible viewport in one pass.
+    pub fn set_shape_budget_ms(&self, ms: Option<f32>) {
+        if let Some(tr) = self.text_renderer.as_deref() {
+            tr.set_shape_budget_ms(ms);
+        }
+    }
 }
 
 /// Per-frame render-side timing + counters, gated behind `ZAROXI_PERF_TRACE=1`.
@@ -1849,6 +1858,10 @@ pub struct RenderPerf {
     /// Why the instance buffer was (or was not) re-uploaded: `"reused"`,
     /// `"rebuilt"`, `"partial"`, or `"none"`.
     pub gpu_upload_reason: &'static str,
+    /// Lines actually shaped (cache miss) this frame.
+    pub lines_shaped: usize,
+    /// Lines considered (visible window queued) this frame.
+    pub lines_considered: usize,
 }
 
 /// Whether `ZAROXI_PERF_TRACE=1` is set. Cheap env read; only consulted on the
@@ -2493,12 +2506,17 @@ fn render_frame_inner(
                     elements_rebuilt: text_renderer.perf_elements_rebuilt(),
                     gpu_upload_bytes: text_renderer.perf_gpu_upload_bytes(),
                     gpu_upload_reason: text_renderer.perf_gpu_upload_reason(),
+                    lines_shaped: text_renderer.perf_lines_shaped(),
+                    lines_considered: text_renderer.perf_lines_considered(),
                 }
             } else {
-                // Staged first paint needs `shaping_pending` even when perf
-                // tracing is off, so always populate it.
+                // Staged first paint + open-settle trace need shaping_pending /
+                // shaped / considered even when perf tracing is off, so always
+                // populate them.
                 RenderPerf {
                     shaping_pending: text_renderer.perf_pending_lines(),
+                    lines_shaped: text_renderer.perf_lines_shaped(),
+                    lines_considered: text_renderer.perf_lines_considered(),
                     ..RenderPerf::default()
                 }
             };
