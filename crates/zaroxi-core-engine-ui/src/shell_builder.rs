@@ -6,17 +6,17 @@ use crate::layout_constants::{
     BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
     BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
     EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
-    EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET,
-    EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION,
-    PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET,
-    RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H, RAIL_ICON_START_Y,
-    RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD,
-    SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
-    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
-    STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H,
-    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
-    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
-    compute_scrollbar_geometry,
+    EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
+    EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H,
+    EXPLORER_ROW_W_REDUCTION, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
+    PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H,
+    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC,
+    SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR,
+    SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W,
+    STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG,
+    TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET,
+    TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET,
+    TOOLBAR_BTN_W, compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -728,7 +728,7 @@ fn build_explorer_panel_section(
                 fill_color: tokens.panel_header_background.to_array(),
                 text_color: tokens.panel_header_text.to_array(),
             });
-            *y_off += hdr_h + 4.0;
+            *y_off += hdr_h + EXPLORER_HEADER_TO_ROWS_GAP;
         }
     }
 
@@ -744,11 +744,15 @@ fn build_explorer_panel_section(
             // scroll position.
             let scroll_top = content.map(|c| c.explorer_scroll_top).unwrap_or(0);
             let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
+            // Rows begin flush at the top of the explorer content area, matching
+            // the render path (`rail.rs`). The header above (when present) is not
+            // rendered and is non-interactive, so it neither shows nor blocks hits.
+            let mut row_y = layout.left_panel.y + pad;
             for (item_idx, item) in items.iter().enumerate() {
                 if item_idx < scroll_top {
                     continue;
                 }
-                if *y_off + row_h > max_y {
+                if row_y + row_h > max_y {
                     break;
                 }
                 let indent_px = item.depth as f32 * EXPLORER_INDENT_PX;
@@ -756,7 +760,7 @@ fn build_explorer_panel_section(
                     id: WidgetId::list_item(10 + item_idx),
                     rect: Rect::new(
                         sidebar_rect.x + pad + EXPLORER_ROW_TEXT_INSET + indent_px,
-                        *y_off + row_y_inset,
+                        row_y + row_y_inset,
                         (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0),
                         EXPLORER_ROW_VIS_H,
                     ),
@@ -777,7 +781,7 @@ fn build_explorer_panel_section(
                         InteractionState::Normal
                     },
                 });
-                *y_off += row_h;
+                row_y += row_h;
             }
             return;
         }

@@ -13,7 +13,6 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
     };
 
     let panel_items = wc.explorer_panel_items.clone();
-    let panel_title = wc.explorer_panel_title.clone();
     let has_structured_items = panel_items.as_ref().map_or(false, |v| !v.is_empty());
 
     let sidebar_items = wc
@@ -36,7 +35,6 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         sidebar_empty,
         empty_button_label,
         panel_items,
-        panel_title,
         scroll_top: wc.explorer_scroll_top,
     }
 }

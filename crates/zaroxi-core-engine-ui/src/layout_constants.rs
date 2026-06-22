@@ -164,13 +164,17 @@ pub const EXPLORER_CTA_BTN_X_EXTRA: f32 = 10.0;
 pub const EXPLORER_ROW_H: f32 = 22.0;
 /// Visible height of a row's selection/highlight rect (centered in the pitch).
 pub const EXPLORER_ROW_VIS_H: f32 = 18.0;
-/// Left inset from the row's indented origin to the label/highlight start
-/// (reserves space for the disclosure chevron glyph).
-pub const EXPLORER_ROW_TEXT_INSET: f32 = 14.0;
+/// Small structural left inset before the row's disclosure/type icon. The
+/// chevron now lives in the label glyphs, so this is just breathing room, not a
+/// reserved chevron gutter.
+pub const EXPLORER_ROW_TEXT_INSET: f32 = 4.0;
 /// Total horizontal reduction applied to a row's width so labels never collide
 /// with the sidebar scrollbar gutter.
 pub const EXPLORER_ROW_W_REDUCTION: f32 = 20.0;
 pub const EXPLORER_HEADER_H: f32 = 22.0;
+/// Gap between the panel header and the first tree row. Kept at 0 so the tree
+/// begins flush at the top of the explorer content area.
+pub const EXPLORER_HEADER_TO_ROWS_GAP: f32 = 0.0;
 pub const EXPLORER_INDENT_PX: f32 = 14.0;
 pub const EXPLORER_MAX_Y_INSET: f32 = 12.0;
 
@@ -251,14 +255,10 @@ pub fn explorer_cta_button_rect(sidebar_rect: (f32, f32, f32, f32)) -> (f32, f32
 }
 
 /// Vertical offset (relative to the sidebar panel top) of the first explorer
-/// tree row. Mirrors the row-positioning math in the sidebar builders so
-/// scroll-capacity computation stays consistent with the actual layout.
-pub fn explorer_first_row_offset(has_title: bool) -> f32 {
-    let mut y = SIDEBAR_PAD + SEARCH_BAR_H + SEARCH_TO_DIVIDER_GAP + DIVIDER_SPACE;
-    if has_title {
-        y += EXPLORER_HEADER_H + 4.0;
-    }
-    y
+/// tree row. The tree begins flush at the top of the content area (just the
+/// panel's top inset), so capacity computation matches the row builders.
+pub fn explorer_first_row_offset(_has_title: bool) -> f32 {
+    SIDEBAR_PAD
 }
 
 /// Number of explorer rows that fully fit in the sidebar viewport for a given

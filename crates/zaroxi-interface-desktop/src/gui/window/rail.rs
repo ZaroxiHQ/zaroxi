@@ -12,9 +12,8 @@ use zaroxi_core_engine_ui::ExplorerPanelItem;
 use zaroxi_core_engine_ui::chrome::PanelSection;
 
 use crate::gui::window::editor_shell::constants::{
-    DIVIDER_SPACE, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
-    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, SEARCH_BAR_H,
-    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, explorer_cta_button_rect,
+    EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET,
+    EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, SIDEBAR_PAD, explorer_cta_button_rect,
 };
 
 pub struct ExplorerData {
@@ -23,8 +22,6 @@ pub struct ExplorerData {
     pub empty_button_label: Option<String>,
     /// Structured panel items for per-row hit-target alignment (Editor Phase 4).
     pub panel_items: Option<Vec<ExplorerPanelItem>>,
-    /// Panel title used to compute initial y-offset for row positioning.
-    pub panel_title: Option<String>,
     /// First visible explorer row (vertical scroll offset, in rows). Kept in
     /// sync with the widget tree via `ShellWorkContent::explorer_scroll_top`.
     pub scroll_top: usize,
@@ -37,7 +34,6 @@ impl Default for ExplorerData {
             sidebar_empty: true,
             empty_button_label: None,
             panel_items: None,
-            panel_title: None,
             scroll_top: 0,
         }
     }
@@ -131,10 +127,11 @@ impl RailPanel {
             if !items.is_empty() {
                 let pad = SIDEBAR_PAD;
                 let inner_w = rect.w - pad * 2.0;
-                let mut y_off = rect.y + pad + SEARCH_BAR_H + SEARCH_TO_DIVIDER_GAP + DIVIDER_SPACE;
-                if data.panel_title.is_some() {
-                    y_off += EXPLORER_HEADER_H + 4.0;
-                }
+                // Tree begins flush at the top of the explorer content area: only a
+                // small top inset, no search/divider/header band. (The non-rendered
+                // search/header scaffolding in the widget tree is non-interactive and
+                // does not affect hit testing.)
+                let mut y_off = rect.y + pad;
                 let max_y = rect.y + rect.h - EXPLORER_MAX_Y_INSET;
                 let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
 
@@ -155,10 +152,14 @@ impl RailPanel {
                     let row_w = (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0);
                     let row_h_vis = EXPLORER_ROW_VIS_H;
 
+                    // Tree styling: inactive rows have no background at all
+                    // (transparent), so the list reads as a file tree rather than
+                    // a stack of buttons. The active/open row gets a flat,
+                    // square-cornered highlight — calm and integrated, not a pill.
                     let fill = if item.is_active {
                         tokens.rail_item_active.to_array()
                     } else {
-                        tokens.sidebar_file_item.to_array()
+                        [0.0, 0.0, 0.0, 0.0]
                     };
                     let text_c = if item.is_active {
                         tokens.text_primary.to_array()
@@ -179,7 +180,7 @@ impl RailPanel {
                         },
                         header_color: Some(fill),
                         content_color: None,
-                        corner_radius: 2.0,
+                        corner_radius: 0.0,
                         border_color: None,
                         border_width: 0.0,
                         header_only: true,

@@ -36,17 +36,7 @@ impl ExplorerPanelViewModel {
             .cached_explorer_items
             .iter()
             .map(|ev| {
-                let label = if ev.is_dir {
-                    if ev.expanded {
-                        format!("\u{25BC} {}", ev.name)
-                    } else {
-                        format!("\u{25B6} {}", ev.name)
-                    }
-                } else if ev.is_active {
-                    format!("{} *", ev.name)
-                } else {
-                    format!("  {}", ev.name)
-                };
+                let label = super::icons::row_label(ev.is_dir, ev.expanded, &ev.name);
 
                 ExplorerPanelItem {
                     id: ev.id.clone(),

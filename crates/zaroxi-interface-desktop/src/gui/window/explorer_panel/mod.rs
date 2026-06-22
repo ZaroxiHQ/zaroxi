@@ -10,6 +10,7 @@ Responsibilities:
 */
 
 mod actions;
+pub mod icons;
 mod view_model;
 
 pub use actions::ExplorerPanelActions;
