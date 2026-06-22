@@ -128,23 +128,61 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 };
                 let resolved = resolve_idx().unwrap_or(explorer_idx);
 
-                if let Some(ref mut actions) = app.explorer_actions {
-                    if comp.is_explorer_item_dir(resolved) {
-                        return actions.toggle_directory(comp, resolved);
-                    } else {
-                        let service = app.workspace_service.clone()?;
-                        let view = app.workspace_view.clone()?;
-                        let session = app.session_id.clone()?;
-                        return actions.open_file(
-                            comp,
-                            service,
-                            view,
-                            session,
-                            app.workspace_id,
-                            resolved,
-                        );
-                    }
+                if comp.is_explorer_item_dir(resolved) {
+                    return app.explorer_actions.as_mut()?.toggle_directory(comp, resolved);
                 }
+                // ── Phase 8: async file open ──
+                // Instead of `block_on`'ing the disk read on the UI thread (~1 s
+                // for huge files) before `request_open`, resolve the path
+                // cheaply, schedule a tokened background read, and return instant
+                // loading chrome. `GuiApp::poll_read_results` activates the buffer
+                // and calls `request_open` once the read lands. Stale reads (a
+                // newer file clicked) are dropped by read token.
+                let service = app.workspace_service.clone()?;
+                let session = app.session_id.clone()?;
+                let item_id = comp.get_explorer_item_id_at(resolved)?;
+                let path = comp.maybe_explorer.as_ref()?.get_entry_path(&item_id)?;
+                let display_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                app.read_token += 1;
+                let token = app.read_token;
+                // Bump the shared generation synchronously on the click so the
+                // worker can skip a still-queued/just-picked-up stale read.
+                app.read_generation.store(token, std::sync::atomic::Ordering::Relaxed);
+                super::debug::click_trace(&format!(
+                    "ZAROXI_CLICK: async open_file path={}",
+                    path.display()
+                ));
+                comp.set_status_message(format!("Loading: {}", display_name));
+                if app.read_worker.is_none() {
+                    app.read_worker = Some(super::background_read::BackgroundReadWorker::spawn(
+                        app.read_generation.clone(),
+                    ));
+                }
+                if let Some(w) = app.read_worker.as_mut() {
+                    w.schedule_read(super::background_read::ReadJob {
+                        token,
+                        service,
+                        session_id: session,
+                        path: path.clone(),
+                    });
+                }
+                app.read_pending = true;
+                app.read_started_at = Some(std::time::Instant::now());
+                app.last_upstream_open_prep_ms = 0.0;
+                if super::file_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_scheduled read_pending=1 file={}",
+                        token,
+                        path.display(),
+                    );
+                }
+                // Instant loading chrome (status + current content). The new
+                // file's content commits via `poll_read_results` -> `request_open`
+                // when the off-thread read completes.
+                return Some(comp.build_work_content());
             }
             // Rail activation: switch active panel / open command
             match index {

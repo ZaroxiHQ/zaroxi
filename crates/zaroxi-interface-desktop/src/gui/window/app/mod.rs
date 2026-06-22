@@ -30,6 +30,7 @@ and high-level delegation.  Detail lives in:
 mod activation;
 pub(crate) mod background_open;
 pub(crate) mod background_parse;
+pub(crate) mod background_read;
 pub(crate) mod debug;
 mod editor_interaction;
 mod input;
@@ -286,6 +287,11 @@ pub struct GuiApp {
     pub open_token: u64,
     /// Token of the open that was last actually committed (buffer materialized).
     pub committed_open_token: u64,
+    /// True when the next open-settle frame should spend the one-time
+    /// first-screenful budget (shape the visible rows at once), after which it
+    /// drops to the progressive budget for below-the-fold rows. Set when a
+    /// buffer becomes current (sync open or background commit-on-ready).
+    pub open_first_screenful_pending: bool,
     /// Latest requested-but-not-yet-committed work content + its token. Only
     /// the newest is kept: a newer `request_open` supersedes (drops) the
     /// previous pending open before it ever does the heavy buffer load, so
@@ -301,25 +307,78 @@ pub struct GuiApp {
     pub visible_loading_state: bool,
     /// When the latest open was requested, for time-to-viewport accounting.
     pub open_request_at: Option<std::time::Instant>,
+    /// Wall time (ms) the most recent explorer open spent in the *upstream*
+    /// synchronous prep (`open_buffer_by_path` disk read + buffer build) before
+    /// `request_open` was even reached. This is the dominant time-to-first-text
+    /// cost for huge files and is surfaced via `ZAROXI_FILE_OPEN_TRACE`.
+    pub last_upstream_open_prep_ms: f32,
+    /// Background worker that performs the blocking disk read / buffer load off
+    /// the UI thread. Spawned lazily on the first explorer file open.
+    pub read_worker: Option<background_read::BackgroundReadWorker>,
+    /// Monotonic read-request generation (distinct from `open_token`): gates the
+    /// background read so a stale file's read result never activates.
+    pub read_token: u64,
+    /// True while a background read is in flight (no buffer activated yet). Keeps
+    /// the loop polling for the result.
+    pub read_pending: bool,
+    /// When the in-flight background read was scheduled (read-latency trace).
+    pub read_started_at: Option<std::time::Instant>,
+    /// Latest requested read token, shared with the read worker so it can skip
+    /// starting a read that a newer file click already superseded.
+    pub read_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// Background worker that materializes large files' ropes off the UI thread.
     /// Spawned lazily on the first heavy open.
     pub open_worker: Option<background_open::BackgroundOpenWorker>,
-    /// True while a background open job for the winning token is in flight (no
-    /// buffer committed yet). Keeps the redraw loop polling for the result.
+    /// True while a background open (rope build) for the winning token is in
+    /// flight (no buffer committed yet). Keeps the redraw loop polling.
     pub background_open_pending: bool,
     /// When the in-flight background open job was scheduled (commit-latency).
     pub open_worker_started_at: Option<std::time::Instant>,
 }
 
-/// Per-frame shaping budget (ms) used during the open burst. Large enough to
-/// fully shape a freshly-opened viewport (visible window is bounded by viewport
-/// height + overscan) in a single pass, but capped so an unexpected large queue
-/// cannot hang a frame indefinitely.
-const OPEN_BURST_BUDGET_MS: f32 = 250.0;
+/// Phase 6 two-tier open shaping budget.
+///
+/// Phase 5 enforced one strict per-frame budget during the whole open, which —
+/// at a low value — made the visible screenful's *uncached* rows trickle in one
+/// per frame. Phase 6 instead spends a single bounded **first-screenful** budget
+/// on the first post-commit open frame (so the visible rows shape at once), then
+/// drops to a low **progressive** budget for everything below the fold. Neither
+/// tier ever reintroduces a hundreds-of-ms burst.
+const OPEN_FIRST_SCREENFUL_BUDGET_MS_DEFAULT: f32 = 20.0;
+const OPEN_PROGRESSIVE_BUDGET_MS_DEFAULT: f32 = 6.0;
 
-/// Hard cap on consecutive open-burst frames before reverting to the steady
-/// budget, in case `shaping_pending` never reaches zero (defensive).
-const OPEN_BURST_MAX_FRAMES: u32 = 3;
+/// One-time budget (ms) for the first post-commit open frame: large enough to
+/// fully shape the visible screenful's new rows in a single bounded frame.
+/// `ZAROXI_OPEN_FIRST_SCREENFUL_BUDGET_MS`, clamped 4..=40. Deliberately ignores
+/// the legacy `ZAROXI_OPEN_SHAPE_BUDGET_MS` so a pathological `=1` cannot starve
+/// the first screenful.
+pub(crate) fn open_first_screenful_budget_ms() -> f32 {
+    std::env::var("ZAROXI_OPEN_FIRST_SCREENFUL_BUDGET_MS")
+        .ok()
+        .and_then(|s| s.trim().parse::<f32>().ok())
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(4.0, 40.0))
+        .unwrap_or(OPEN_FIRST_SCREENFUL_BUDGET_MS_DEFAULT)
+}
+
+/// Per-frame budget (ms) for progressive below-the-fold / overscan fill after
+/// the first screenful is shown. `ZAROXI_OPEN_PROGRESSIVE_BUDGET_MS` (legacy
+/// `ZAROXI_OPEN_SHAPE_BUDGET_MS`), clamped 1..=16.
+pub(crate) fn open_progressive_budget_ms() -> f32 {
+    std::env::var("ZAROXI_OPEN_PROGRESSIVE_BUDGET_MS")
+        .ok()
+        .or_else(|| std::env::var("ZAROXI_OPEN_SHAPE_BUDGET_MS").ok())
+        .and_then(|s| s.trim().parse::<f32>().ok())
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(1.0, 16.0))
+        .unwrap_or(OPEN_PROGRESSIVE_BUDGET_MS_DEFAULT)
+}
+
+/// Defensive cap on consecutive open-settle frames before force-clearing the
+/// open-settling flag, in case `shaping_pending` never reaches zero. High enough
+/// that a legitimate progressive viewport fill (heavy file shaped a few rows per
+/// frame under the hard cap) completes well within it.
+const OPEN_BURST_MAX_FRAMES: u32 = 600;
 
 // ── Large-file thresholds ──
 
@@ -427,8 +486,8 @@ impl GuiApp {
         if file_open_trace_enabled() {
             let path = wc.active_file.clone().unwrap_or_else(|| "<none>".into());
             eprintln!(
-                "ZAROXI_FILE_OPEN_TRACE: token={} stage=start cancelled=0 superseded_by=- file_switch_count={} pending_open_requests=1 file={}",
-                token, self.file_switch_count, path,
+                "ZAROXI_FILE_OPEN_TRACE: token={} stage=start cancelled=0 superseded_by=- file_switch_count={} pending_open_requests=1 upstream_open_prep_ms={:.2} file={}",
+                token, self.file_switch_count, self.last_upstream_open_prep_ms, path,
             );
         }
         // Stage A instant chrome ack: explorer selection / title / status
@@ -475,7 +534,12 @@ impl GuiApp {
         }
 
         let mut backgrounded = false;
-        if let Some(ref body) = wc.editor_body {
+        // Only (re)materialize the editor buffer when the active file actually
+        // changed. A same-file commit — e.g. the instant "loading" chrome ack
+        // returned by `dispatch_activation` before the off-thread read lands, or
+        // a status-message refresh — must NOT re-populate/re-background the
+        // buffer it already holds; it is a pure chrome update.
+        if buffer_changed && let Some(ref body) = wc.editor_body {
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
             let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
@@ -590,6 +654,9 @@ impl GuiApp {
         // viewport in one burst. Only for a genuine buffer change.
         self.open_settling = buffer_changed;
         self.open_burst_frames = 0;
+        // Arm the one-time first-screenful budget for the first frame after this
+        // commit so the visible rows shape at once rather than trickling.
+        self.open_first_screenful_pending = buffer_changed;
         // Spawn background parse worker for off-thread syntax highlighting.
         if self.parse_worker.is_none() {
             self.parse_worker =
@@ -640,8 +707,14 @@ impl GuiApp {
         }
 
         // Winning token: install the materialized rope (cheap on the UI thread).
+        // Phase 5: this commit must stay cheap — the heavy viewport shaping is
+        // NOT done here; it happens progressively over later frames under the
+        // strict open shape budget.
+        let commit_t = std::time::Instant::now();
         self.editor_buffer.install_rope(result.rope, result.cursor_line, result.cursor_col);
+        let install_rope_ms = commit_t.elapsed().as_secs_f32() * 1000.0;
         self.finalize_buffer_commit(true);
+        let commit_ms = commit_t.elapsed().as_secs_f32() * 1000.0;
         self.committed_open_token = result.token;
         self.background_open_pending = false;
         self.visible_loading_state = false;
@@ -660,11 +733,16 @@ impl GuiApp {
         );
         if file_open_trace_enabled() {
             eprintln!(
-                "ZAROXI_OPEN_WORKER_TRACE: token={} started=1 finished=1 cancelled=0 chunks={} ms={:.2} open_commit_latency_ms={:.2}",
+                "ZAROXI_OPEN_WORKER_TRACE: token={} started=1 finished=1 cancelled=0 chunks={} ms={:.2} worker_build_ms={:.2} upstream_open_prep_ms={:.2} open_commit_latency_ms={:.2} commit_to_first_visible_ms={:.2} open_install_rope_ms={:.3} open_commit_ms={:.3}",
                 result.token,
                 result.chunks,
                 result.build_us as f32 / 1000.0,
+                result.build_us as f32 / 1000.0,
+                self.last_upstream_open_prep_ms,
                 commit_latency_ms,
+                commit_ms,
+                install_rope_ms,
+                commit_ms,
             );
             eprintln!(
                 "ZAROXI_FILE_OPEN_TRACE: token={} stage=viewport cancelled=0 superseded_by=- first_viewport_after_worker_ms={:.2} time_to_first_viewport_ms={:.2}",
@@ -752,6 +830,148 @@ impl GuiApp {
             // rebuilds; clearing keeps the per-line syntax cache consistent.
             self.cached_editor_lines_hash = 0;
             self.line_syntax_cache.clear();
+        }
+    }
+
+    /// Drain background *read* outcomes (Phase 8/10). A `Head` outcome paints
+    /// the first-screenful preview immediately (display only); the `Full`
+    /// outcome activates the registered buffer and feeds it into the existing
+    /// token-gated `request_open` path, replacing the preview. Stale outcomes (a
+    /// newer file was clicked) are dropped so an old file never paints or
+    /// activates.
+    fn poll_read_results(&mut self) {
+        let outcomes = match self.read_worker.as_mut() {
+            Some(w) => w.drain(),
+            None => return,
+        };
+        if outcomes.is_empty() {
+            return;
+        }
+        for outcome in outcomes {
+            let tok = outcome.token();
+            if tok != self.read_token {
+                // Stale: a newer file was clicked. Drop without painting/activating.
+                if file_open_trace_enabled() {
+                    let is_full = matches!(outcome, background_read::ReadOutcome::Full { .. });
+                    let (cancelled, read_ms) = match &outcome {
+                        background_read::ReadOutcome::Full { cancelled, read_ms, .. } => {
+                            (*cancelled as u8, *read_ms)
+                        }
+                        background_read::ReadOutcome::Head { .. } => (0, 0.0),
+                    };
+                    eprintln!(
+                        "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_stale_dropped superseded_by={} is_full={} read_skipped_before_start={} wasted_read_ms={:.2}",
+                        tok, self.read_token, is_full as u8, cancelled, read_ms,
+                    );
+                }
+                if matches!(outcome, background_read::ReadOutcome::Full { .. })
+                    && self.read_worker.as_ref().map(|w| w.latest_token()).unwrap_or(0) <= tok
+                {
+                    self.read_pending = false;
+                }
+                continue;
+            }
+            match outcome {
+                background_read::ReadOutcome::Head { lines, complete, .. } => {
+                    // First-screenful preview: paint the head immediately
+                    // (display only). The `Full` commit replaces it with the
+                    // registered buffer; the visible rows are byte-identical
+                    // (same UTF-8/`'\n'` decode) so the swap doesn't flash.
+                    if self.read_pending && !lines.is_empty() {
+                        let n = lines.len();
+                        self.editor_buffer.populate_from_lines(&lines, 0, 0);
+                        if file_open_trace_enabled() {
+                            let fb_ms = self
+                                .read_started_at
+                                .map(|t| t.elapsed().as_secs_f32() * 1000.0)
+                                .unwrap_or(0.0);
+                            eprintln!(
+                                "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=head_preview first_screenful_rows={} preview_complete={} time_to_first_fallback_text_ms={:.2}",
+                                tok, n, complete as u8, fb_ms,
+                            );
+                        }
+                        self.invalidate(InvalidationFlags::content());
+                    }
+                }
+                background_read::ReadOutcome::Full { buffer_id, read_ms, .. } => {
+                    self.last_upstream_open_prep_ms = read_ms;
+                    let buffer_id = match buffer_id {
+                        Some(b) => b,
+                        None => {
+                            self.read_pending = false;
+                            if file_open_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_failed",
+                                    tok,
+                                );
+                            }
+                            continue;
+                        }
+                    };
+                    // Finalize on the UI thread: activate the (already-read)
+                    // buffer and build the real work content (cheap session
+                    // lookups, no disk read).
+                    let service = match self.workspace_service.clone() {
+                        Some(s) => s,
+                        None => {
+                            self.read_pending = false;
+                            continue;
+                        }
+                    };
+                    let view = match self.workspace_view.clone() {
+                        Some(v) => v,
+                        None => {
+                            self.read_pending = false;
+                            continue;
+                        }
+                    };
+                    let session = match self.session_id.clone() {
+                        Some(s) => s,
+                        None => {
+                            self.read_pending = false;
+                            continue;
+                        }
+                    };
+                    let workspace_id = self.workspace_id;
+                    let wc = {
+                        let comp = match self.composition.as_mut() {
+                            Some(c) => c,
+                            None => {
+                                self.read_pending = false;
+                                continue;
+                            }
+                        };
+                        comp.set_pending_refresh_reason(
+                            zaroxi_application_workspace::workspace_view::RefreshReason::ActiveBufferChanged,
+                        );
+                        let _ = pollster::block_on(
+                            crate::actions::set_active_buffer_and_get_shell_context(
+                                comp,
+                                service,
+                                view,
+                                session,
+                                workspace_id,
+                                buffer_id,
+                            ),
+                        );
+                        comp.build_work_content()
+                    };
+                    self.read_pending = false;
+                    if file_open_trace_enabled() {
+                        let read_to_request_ms = self
+                            .read_started_at
+                            .map(|t| t.elapsed().as_secs_f32() * 1000.0)
+                            .unwrap_or(0.0);
+                        eprintln!(
+                            "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_done read_ms={:.2} read_to_request_ms={:.2}",
+                            tok, read_ms, read_to_request_ms,
+                        );
+                    }
+                    // Feed into the existing token-gated open path (commit ->
+                    // rope worker -> install), replacing the preview.
+                    self.request_open(wc);
+                }
+            }
         }
     }
 
@@ -1144,6 +1364,9 @@ impl winit::application::ApplicationHandler for GuiApp {
         // Commit a completed background-open rope (winning token only); this
         // invalidates the UI so the freshly materialized buffer paints.
         self.poll_open_results();
+        // Commit a completed off-thread read (winning token only); this issues a
+        // `request_open` which invalidates and schedules the next frame.
+        self.poll_read_results();
 
         if self.requested_initial_frame {
             self.invalidate(InvalidationFlags::content());
@@ -1167,6 +1390,7 @@ impl winit::application::ApplicationHandler for GuiApp {
         } else if self.picker_in_flight
             || self.parse_result_pending()
             || self.background_open_pending
+            || self.read_pending
         {
             // Background work is in flight; poll on a relaxed cadence so the
             // result is applied promptly without pinning a CPU core.
@@ -1352,6 +1576,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // A redraw arrived: clear the outstanding-redraw bookkeeping so a
                 // later invalidation can schedule a fresh one.
                 self.frame_scheduler.on_redraw_received();
+
+                // Phase 8: commit a completed off-thread read first — it issues a
+                // `request_open` for the freshly-read file, which `commit_open`
+                // below then materializes this same frame.
+                self.poll_read_results();
 
                 // Stage B–E: materialize the newest pending open (if any) before
                 // anything else this frame. Only the latest token commits, so a
@@ -2035,9 +2264,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // renderer borrow so the retained-node tracer can label the
                     // dirty reasons for this frame.
                     let ui_flags = self.frame_scheduler.pending();
-                    // Whether this frame is part of an open burst (shape the
-                    // whole freshly-visible viewport in one pass).
+                    // Whether this frame is part of an open settle, and whether
+                    // it is the one-time first-screenful frame (full visible-row
+                    // budget) vs. a progressive below-the-fold fill frame.
                     let open_settling = self.open_settling;
+                    let open_first_screenful = self.open_first_screenful_pending;
+                    let open_budget_ms = if open_first_screenful {
+                        open_first_screenful_budget_ms()
+                    } else {
+                        open_progressive_budget_ms()
+                    };
 
                     // Create persistent RenderCore on first frame.
                     let core_exists = self.render_core.is_some();
@@ -2063,12 +2299,14 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     if let Some(ref mut core) = self.render_core {
                         let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
-                        // Open burst: while settling a freshly-opened file, lift
-                        // the shaping budget so the whole visible viewport shapes
-                        // in one pass; otherwise use the responsive steady-state
-                        // budget so scroll/edit stay snappy.
+                        // Phase 6: two-tier open budget. The first post-commit
+                        // open frame gets the (bounded) first-screenful budget so
+                        // the visible rows shape at once; later open frames use
+                        // the low progressive budget for below-the-fold/overscan
+                        // rows. Neither tier is a 250 ms burst. Non-open frames
+                        // keep the steady-state budget.
                         core.set_shape_budget_ms(if open_settling {
-                            Some(OPEN_BURST_BUDGET_MS)
+                            Some(open_budget_ms)
                         } else {
                             None
                         });
@@ -2179,6 +2417,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // This frame handled any in-flight resize.
                                 let was_resizing = self.resize_pending;
                                 self.resize_pending = false;
+                                // The one-time first-screenful frame has now run;
+                                // subsequent open frames use the progressive budget.
+                                if open_first_screenful {
+                                    self.open_first_screenful_pending = false;
+                                }
 
                                 if settle_trace_enabled() {
                                     let open_complete =
@@ -2195,6 +2438,59 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         was_resizing as u8,
                                         self.commit_deferred_open as u8,
                                         self.commit_deferred_resize as u8,
+                                    );
+                                }
+                                // ── Phase 6: open viewport / first-screenful ──
+                                // Per-open-frame view of how much of the VISIBLE
+                                // screenful is shaped. `first_paint_mode=
+                                // screenful_complete` once every visible row has
+                                // glyphs; remaining `progressive_pending` rows are
+                                // below-the-fold/overscan filled at the low budget.
+                                if open_was_settling
+                                    && (settle_trace_enabled() || file_open_trace_enabled())
+                                {
+                                    let total = perf.lines_considered;
+                                    let pending = perf.shaping_pending;
+                                    let ready = total.saturating_sub(pending);
+                                    let screenful_rows = editor_visible_lines.max(1);
+                                    let screenful_ready = ready.min(screenful_rows);
+                                    let complete_visible = ready >= screenful_rows;
+                                    let has_syntax =
+                                        !self.large_file_mode && self.latest_spans.is_some();
+                                    let with_syntax = if has_syntax { screenful_ready } else { 0 };
+                                    let without_syntax =
+                                        screenful_ready.saturating_sub(with_syntax);
+                                    let mode = if complete_visible {
+                                        "screenful_complete"
+                                    } else {
+                                        "partial"
+                                    };
+                                    eprintln!(
+                                        "ZAROXI_OPEN_VIEWPORT_TRACE: token={} open_visible_rows_total={} open_visible_rows_ready={} ready={} open_visible_rows_pending={} pending={} open_first_screenful_rows={} open_first_screenful_ready={} first_screenful_ready={} open_first_screenful_ms={:.2} open_progressive_rows_pending={} progressive_pending={} open_progressive_budget_ms={:.1} open_first_paint_complete_visible={} open_first_paint_with_syntax_rows={} open_first_paint_without_syntax_rows={} open_priority_rows_ready={} open_deferred_shape_rows={} shape_ms={:.2} open_shape_budget_ms={:.1} budget_ms={:.1} open_burst_blocked={} first_paint_mode={} mode={}",
+                                        self.committed_open_token,
+                                        total,
+                                        ready,
+                                        ready,
+                                        pending,
+                                        pending,
+                                        screenful_rows,
+                                        screenful_ready,
+                                        screenful_ready,
+                                        perf.text_shape_ms,
+                                        pending,
+                                        pending,
+                                        open_progressive_budget_ms(),
+                                        complete_visible as u8,
+                                        with_syntax,
+                                        without_syntax,
+                                        screenful_ready,
+                                        pending,
+                                        perf.text_shape_ms,
+                                        open_budget_ms,
+                                        open_budget_ms,
+                                        (pending > 0) as u8,
+                                        mode,
+                                        mode,
                                     );
                                 }
                                 if !self.first_render_shown {
