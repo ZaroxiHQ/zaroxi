@@ -26,6 +26,47 @@ pub mod cosmic;
 pub mod desktop_shim;
 pub use cosmic::CosmicTextRenderer;
 
+/// Stable UI-element class codes used to bucket queued [`TextCommand`]s so the
+/// text renderer can retain a per-element prepared draw payload (glyph instance
+/// samples) and skip re-emitting elements whose content did not change between
+/// frames. These mirror the major shell elements the GUI splits its scene into
+/// (editor text viewport, gutter/line numbers, status bar, chrome/tab bar,
+/// side/auxiliary panels). `OTHER` is the default for untagged commands and is
+/// always treated conservatively (still cached, but as a single catch-all
+/// bucket).
+pub mod element {
+    /// Default bucket for any command not explicitly tagged.
+    pub const OTHER: u32 = 0;
+    /// Editor text content viewport (the document body).
+    pub const EDITOR_CONTENT: u32 = 1;
+    /// Gutter / line-number lane.
+    pub const GUTTER: u32 = 2;
+    /// Status bar.
+    pub const STATUS_BAR: u32 = 3;
+    /// Window chrome: titlebar, tab bar / header, toolbar.
+    pub const CHROME: u32 = 4;
+    /// Side panel / explorer / sidebar.
+    pub const SIDE_PANEL: u32 = 5;
+    /// Right-hand AI / auxiliary pane.
+    pub const AI_PANEL: u32 = 6;
+    /// Bottom panel / terminal pane.
+    pub const BOTTOM_PANEL: u32 = 7;
+
+    /// Human-readable short label for a class code (for tracing).
+    pub fn label(code: u32) -> &'static str {
+        match code {
+            EDITOR_CONTENT => "editor",
+            GUTTER => "gutter",
+            STATUS_BAR => "status",
+            CHROME => "chrome",
+            SIDE_PANEL => "side",
+            AI_PANEL => "ai",
+            BOTTOM_PANEL => "bottom",
+            _ => "other",
+        }
+    }
+}
+
 /// Small in-process command representing text to be rendered.
 ///
 /// The renderer core emits these commands per panel title/content. The native
@@ -49,9 +90,20 @@ pub struct TextCommand {
     /// positioned buffer per colored segment. This keeps syntax colors while
     /// preserving normal continuous editor-text layout.
     pub color_runs: Option<Vec<(String, [f32; 4])>>,
+    /// UI-element class this command belongs to (see [`element`]). Drives the
+    /// per-element retained draw-payload cache in the text renderer so that
+    /// unchanged elements are not re-shaped/re-emitted every frame. Defaults to
+    /// [`element::OTHER`] for commands built without an explicit tag.
+    pub element: u32,
 }
 
 impl TextCommand {
+    /// Tag this command with a UI-element class (builder style). See [`element`].
+    pub fn with_element(mut self, element: u32) -> Self {
+        self.element = element;
+        self
+    }
+
     pub fn new(
         text: impl Into<String>,
         x: f32,
@@ -76,6 +128,7 @@ impl TextCommand {
             clip_h,
             is_title,
             color_runs: None,
+            element: element::OTHER,
         }
     }
 
@@ -134,6 +187,7 @@ impl TextCommand {
             clip_h,
             is_title: false,
             color_runs: Some(runs),
+            element: element::OTHER,
         }
     }
 }
@@ -214,5 +268,32 @@ pub trait TextRenderer: Send + Sync {
     /// caller should request another frame to finish shaping. Default `0`.
     fn perf_pending_lines(&self) -> usize {
         0
+    }
+
+    /// Number of UI-element buckets whose prepared glyph instances were reused
+    /// from the per-element retained draw-payload cache (no re-shaping /
+    /// re-emission) in the most recent `prepare`. Default `0`.
+    fn perf_elements_reused(&self) -> usize {
+        0
+    }
+
+    /// Number of UI-element buckets that had to be re-emitted (cache miss /
+    /// content changed) in the most recent `prepare`. Default `0`.
+    fn perf_elements_rebuilt(&self) -> usize {
+        0
+    }
+
+    /// Bytes written to the GPU text instance buffer in the most recent
+    /// `prepare` (0 when the buffer upload was skipped because nothing changed).
+    /// Default `0`.
+    fn perf_gpu_upload_bytes(&self) -> usize {
+        0
+    }
+
+    /// Short reason describing why the instance buffer was (or was not)
+    /// re-uploaded this frame: `"reused"`, `"rebuilt"`, `"partial"`, or
+    /// `"none"`. Default `"none"`.
+    fn perf_gpu_upload_reason(&self) -> &'static str {
+        "none"
     }
 }

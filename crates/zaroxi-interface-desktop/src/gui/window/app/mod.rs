@@ -34,6 +34,7 @@ mod editor_interaction;
 mod input;
 mod render_schedule;
 mod render_state;
+mod ui_nodes;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -245,6 +246,9 @@ pub struct GuiApp {
     /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
     /// owns the pacing/cadence and outstanding-redraw bookkeeping.
     pub frame_scheduler: FrameScheduler,
+    /// Retained per-element UI-node fingerprints driving `ZAROXI_UI_TRACE`
+    /// (which shell elements rebuilt vs. reused, and why) each frame.
+    pub ui_node_tracker: ui_nodes::UiNodeTracker,
 }
 
 // ── Large-file thresholds ──
@@ -1736,6 +1740,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         );
                     }
 
+                    // Snapshot the pending invalidation reasons before the
+                    // renderer borrow so the retained-node tracer can label the
+                    // dirty reasons for this frame.
+                    let ui_flags = self.frame_scheduler.pending();
+
                     // Create persistent RenderCore on first frame.
                     let core_exists = self.render_core.is_some();
                     if !core_exists {
@@ -1838,6 +1847,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
                                 record_frame_presented();
+                                // Retained per-element UI-node trace: which
+                                // shell elements rebuilt vs. reused this frame,
+                                // cross-referenced with the renderer's own
+                                // per-element draw-payload reuse + GPU upload.
+                                self.ui_node_tracker.record_frame(
+                                    frame_id,
+                                    &render_blocks,
+                                    (sw, sh),
+                                    system_is_dark,
+                                    ui_flags,
+                                    editor_visible_lines,
+                                    Some(&perf),
+                                );
                                 if !self.first_render_shown {
                                     z.window().set_visible(true);
                                     self.first_render_shown = true;

@@ -17,18 +17,29 @@ const DEFAULT_TARGET_FPS: f64 = 120.0;
 
 /// Why the next frame is needed. Multiple reasons are merged into one frame so
 /// a burst of events (e.g. a scroll flood) still produces a single redraw.
+///
+/// These map onto the per-element dirty reasons the retained UI nodes track:
+/// `resize` → geometry dirty, `content` → content dirty, `style` → style/theme
+/// dirty, `syntax` → syntax-highlight dirty, `cursor_selection` → cursor /
+/// selection dirty, `scroll` → scroll-offset dirty. `input` is the generic
+/// editing reason kept for callers that have not yet been split into a more
+/// specific reason.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InvalidationFlags {
     /// Keyboard / editing / caret movement.
     pub input: bool,
-    /// Wheel / trackpad / scrollbar movement.
+    /// Wheel / trackpad / scrollbar movement (scroll-offset dirty).
     pub scroll: bool,
-    /// Window resize or scale-factor change.
+    /// Window resize or scale-factor change (geometry dirty).
     pub resize: bool,
-    /// Work-content / document / panel change.
+    /// Work-content / document / panel change (content dirty).
     pub content: bool,
-    /// Background syntax-highlight result applied.
+    /// Background syntax-highlight result applied (syntax-highlight dirty).
     pub syntax: bool,
+    /// Caret move / selection change with no content edit (cursor/selection dirty).
+    pub cursor_selection: bool,
+    /// Theme / style-token change (style/theme dirty).
+    pub style: bool,
 }
 
 impl InvalidationFlags {
@@ -36,11 +47,11 @@ impl InvalidationFlags {
     pub fn input() -> Self {
         Self { input: true, ..Self::default() }
     }
-    /// Scroll invalidation.
+    /// Scroll invalidation (scroll-offset dirty).
     pub fn scroll() -> Self {
         Self { scroll: true, ..Self::default() }
     }
-    /// Resize / scale-factor invalidation.
+    /// Resize / scale-factor invalidation (geometry dirty).
     pub fn resize() -> Self {
         Self { resize: true, ..Self::default() }
     }
@@ -52,6 +63,14 @@ impl InvalidationFlags {
     pub fn syntax() -> Self {
         Self { syntax: true, ..Self::default() }
     }
+    /// Cursor / selection invalidation (no content edit).
+    pub fn cursor_selection() -> Self {
+        Self { cursor_selection: true, ..Self::default() }
+    }
+    /// Theme / style-token invalidation.
+    pub fn style() -> Self {
+        Self { style: true, ..Self::default() }
+    }
 
     /// Merge another set of reasons into this one.
     pub fn merge(&mut self, other: InvalidationFlags) {
@@ -60,6 +79,8 @@ impl InvalidationFlags {
         self.resize |= other.resize;
         self.content |= other.content;
         self.syntax |= other.syntax;
+        self.cursor_selection |= other.cursor_selection;
+        self.style |= other.style;
     }
 
     /// Compact label of the active reasons, for opt-in frame tracing.
@@ -79,6 +100,12 @@ impl InvalidationFlags {
         }
         if self.syntax {
             parts.push("syntax");
+        }
+        if self.cursor_selection {
+            parts.push("cursor_sel");
+        }
+        if self.style {
+            parts.push("style");
         }
         if parts.is_empty() { "none".to_string() } else { parts.join("+") }
     }
@@ -164,6 +191,11 @@ impl FrameScheduler {
     /// Reasons accumulated for the pending frame (for opt-in tracing).
     pub fn pending_summary(&self) -> String {
         self.pending.summary()
+    }
+
+    /// The merged invalidation reasons accumulated for the pending frame.
+    pub fn pending(&self) -> InvalidationFlags {
+        self.pending
     }
 }
 

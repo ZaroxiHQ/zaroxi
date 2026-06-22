@@ -47,6 +47,14 @@ fn shape_cache_disabled() -> bool {
     std::env::var("ZAROXI_NO_SHAPE_CACHE").as_deref() == Ok("1")
 }
 
+/// Whether the per-element retained draw-payload cache is disabled
+/// (kill-switch). Default enabled; set `ZAROXI_NO_ELEMENT_CACHE=1` to force
+/// every element bucket to re-emit its glyph instances each frame (used to A/B
+/// the cache against visual correctness without a rebuild).
+fn element_cache_disabled() -> bool {
+    std::env::var("ZAROXI_NO_ELEMENT_CACHE").as_deref() == Ok("1")
+}
+
 /// Whether to emit the per-frame `ZAROXI_SHAPE_TRACE` reuse breakdown.
 fn shape_trace_enabled() -> bool {
     matches!(std::env::var("ZAROXI_PIPELINE_TRACE").as_deref(), Ok("1"))
@@ -147,6 +155,64 @@ fn hash_text_commands(cmds: &[TextCommand], vw: u32, vh: u32) -> u64 {
     h
 }
 
+/// Hash one UI-element bucket's commands (referenced in queue order) plus the
+/// viewport. Two frames with the same element hash emit byte-identical glyph
+/// instances for that element, so its previously prepared samples can be reused
+/// without re-shaping. Mirrors the fields hashed by `hash_text_commands` but
+/// scoped to a single element bucket.
+fn hash_element_run(cmds: &[&TextCommand], vw: u32, vh: u32) -> u64 {
+    #[inline]
+    fn mix(h: &mut u64, v: u64) {
+        *h ^= v;
+        *h = h.wrapping_mul(0x100000001b3);
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    mix(&mut h, vw as u64);
+    mix(&mut h, vh as u64);
+    mix(&mut h, cmds.len() as u64);
+    for c in cmds {
+        for &b in c.text.as_bytes() {
+            mix(&mut h, b as u64);
+        }
+        mix(&mut h, c.x.to_bits() as u64);
+        mix(&mut h, c.y.to_bits() as u64);
+        mix(&mut h, c.size.to_bits() as u64);
+        mix(&mut h, c.clip_x.to_bits() as u64);
+        mix(&mut h, c.clip_y.to_bits() as u64);
+        mix(&mut h, c.clip_w.to_bits() as u64);
+        mix(&mut h, c.clip_h.to_bits() as u64);
+        for ch in c.color {
+            mix(&mut h, ch.to_bits() as u64);
+        }
+        mix(&mut h, c.is_title as u64);
+        if let Some(ref runs) = c.color_runs {
+            for (t, col) in runs {
+                mix(&mut h, t.len() as u64);
+                for ch in col {
+                    mix(&mut h, ch.to_bits() as u64);
+                }
+            }
+        }
+    }
+    h
+}
+
+/// Retained per-element prepared draw payload. Stores the glyph instance
+/// samples produced for one UI-element bucket on the frame it was last shaped,
+/// alongside the per-element content hash and the atlas dimensions at shape
+/// time. The samples (which embed atlas uvs) are only valid while the atlas
+/// dimensions are unchanged — the row atlas grows by height-doubling, which
+/// shifts the `v` of existing entries — so reuse is gated on matching dims.
+#[derive(Clone)]
+struct ElementCacheEntry {
+    /// Position/text/color/size hash of this element's commands + viewport.
+    hash: u64,
+    /// Atlas (width, height) captured when these samples were produced.
+    atlas_dims: (u32, u32),
+    /// Prepared glyph instance samples for this element.
+    samples: Vec<InstanceSample>,
+}
+
 /// Atlas metadata used for diagnostics only.
 #[derive(Clone, Debug)]
 struct AtlasMeta {
@@ -169,7 +235,7 @@ struct FrameSummary {
 }
 
 /// Small sampled instance record for logging.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct InstanceSample {
     x: f32,
     y: f32,
@@ -242,6 +308,17 @@ pub struct CosmicTextRenderer {
     /// True while the last frame left shaping work unfinished. Suppresses the
     /// whole-frame shape-skip so the deferred lines actually get shaped.
     shaping_incomplete: Arc<Mutex<bool>>,
+    /// Retained per-element prepared draw payload, keyed by UI-element class
+    /// (see `crate::renderer::text::element`). Lets a frame that changed only
+    /// part of the UI (cursor blink, status clock, selection) reuse the glyph
+    /// instances of every unchanged element instead of re-shaping/re-emitting
+    /// the whole scene.
+    element_cache: Arc<Mutex<std::collections::HashMap<u32, ElementCacheEntry>>>,
+    /// `(elements_reused, elements_rebuilt)` from the last `prepare`, for the
+    /// consolidated per-frame perf line.
+    last_element_stats: Arc<Mutex<(usize, usize)>>,
+    /// `(gpu_upload_bytes, reason)` from the last `prepare`.
+    last_gpu_upload: Arc<Mutex<(usize, &'static str)>>,
 }
 
 impl CosmicTextRenderer {
@@ -346,6 +423,9 @@ impl CosmicTextRenderer {
             line_shape_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
             last_pending_lines: Arc::new(Mutex::new(0)),
             shaping_incomplete: Arc::new(Mutex::new(false)),
+            element_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            last_element_stats: Arc::new(Mutex::new((0, 0))),
+            last_gpu_upload: Arc::new(Mutex::new((0, "none"))),
         })
     }
 
@@ -655,6 +735,19 @@ impl CosmicTextRenderer {
             fallback_used: false,
         }
     }
+
+    /// Store one element bucket's prepared glyph instance samples into the
+    /// retained per-element draw-payload cache, tagged with the content `hash`
+    /// and the current atlas dimensions (used to invalidate on atlas growth).
+    /// Bounds memory by flushing wholesale past a small bucket count.
+    fn store_element_cache(&self, elem: u32, hash: u64, samples: Vec<InstanceSample>) {
+        let dims = self.shared_atlas.dims();
+        let mut ec = self.element_cache.lock().unwrap();
+        if ec.len() > 64 {
+            ec.clear();
+        }
+        ec.insert(elem, ElementCacheEntry { hash, atlas_dims: dims, samples });
+    }
 }
 
 impl TextRenderer for CosmicTextRenderer {
@@ -739,6 +832,9 @@ impl TextRenderer for CosmicTextRenderer {
             *self.last_queue_hash.lock().unwrap() = None;
             *self.last_pending_lines.lock().unwrap() = 0;
             *self.shaping_incomplete.lock().unwrap() = false;
+            *self.last_element_stats.lock().unwrap() = (0, 0);
+            *self.last_gpu_upload.lock().unwrap() = (0, "none");
+            self.element_cache.lock().unwrap().clear();
             return Ok(());
         }
 
@@ -761,6 +857,11 @@ impl TextRenderer for CosmicTextRenderer {
                 let prev_glyphs = self.last_perf.lock().unwrap().2;
                 *self.last_perf.lock().unwrap() = (0.0, 0.0, prev_glyphs);
                 *self.last_pending_lines.lock().unwrap() = 0;
+                // Whole frame identical: every element bucket is reused and no
+                // GPU instance upload is needed (the prior buffer is reused).
+                let cached_buckets = self.element_cache.lock().unwrap().len();
+                *self.last_element_stats.lock().unwrap() = (cached_buckets, 0);
+                *self.last_gpu_upload.lock().unwrap() = (0, "reused");
                 q.clear();
                 return Ok(());
             }
@@ -783,11 +884,87 @@ impl TextRenderer for CosmicTextRenderer {
         // Track maximum pixel scale ratio (onscreen_size / atlas_pixel_size) across samples.
         let mut max_scale_ratio: f32 = 0.0;
 
-        // Iterate queued commands and perform shaping/rasterization.
+        // ── Per-element retained draw-payload cache ──
+        // Group queued commands into UI-element buckets (editor / gutter /
+        // status / chrome / panels). Each bucket whose content + viewport hash
+        // matches a previously fully-shaped bucket (and whose atlas dimensions
+        // are unchanged) reuses its prepared glyph instance samples directly,
+        // skipping cosmic shaping AND the per-glyph atlas lookup/emit loop. Only
+        // the buckets that actually changed this frame are re-shaped. This is
+        // what lets a cursor-blink / status-clock / selection change avoid
+        // re-emitting the entire editor body, and lets a scroll reuse the
+        // (unmoving) chrome/status while only the editor + gutter re-emit.
+        let elem_cache_disabled = element_cache_disabled();
+        let (evw, evh) = *self.viewport.lock().unwrap();
+        let mut element_order: Vec<u32> = Vec::new();
+        let mut element_indices: StdHashMap<u32, Vec<usize>> = StdHashMap::new();
+        for (ci, cmd) in q.iter().enumerate() {
+            let e = cmd.element;
+            if !element_indices.contains_key(&e) {
+                element_order.push(e);
+            }
+            element_indices.entry(e).or_default().push(ci);
+        }
+        let mut element_hashes: StdHashMap<u32, u64> = StdHashMap::new();
+        let mut elements_reused: usize = 0;
+        let mut elements_rebuilt: usize = 0;
+        // Flat list of command indices that still need shaping (reused buckets
+        // excluded), grouped per element so each bucket is contiguous.
+        let mut shape_order: Vec<usize> = Vec::new();
+        for &elem in &element_order {
+            let indices = &element_indices[&elem];
+            let run: Vec<&TextCommand> = indices.iter().map(|&ci| &q[ci]).collect();
+            let run_hash = hash_element_run(&run, evw, evh);
+            element_hashes.insert(elem, run_hash);
+            let live_dims = self.shared_atlas.dims();
+            let reuse = if elem_cache_disabled {
+                None
+            } else {
+                let ec = self.element_cache.lock().unwrap();
+                ec.get(&elem)
+                    .filter(|e| e.hash == run_hash && e.atlas_dims == live_dims)
+                    .map(|e| e.samples.clone())
+            };
+            if let Some(cached) = reuse {
+                for s in &cached {
+                    samples.push(*s);
+                    instances_total += 1;
+                }
+                elements_reused += 1;
+                lines_reused += indices.len();
+                lines_considered += indices.len();
+            } else {
+                elements_rebuilt += 1;
+                shape_order.extend_from_slice(indices);
+            }
+        }
+
+        // Iterate (only the changed) queued commands and perform shaping/rasterization.
         // PERF: time the whole shaping + per-glyph rasterization loop as
         // `text_shape_ms` (CPU-bound). GPU upload below is `text_prepare_ms`.
         let shape_t0 = std::time::Instant::now();
-        for cmd in q.iter() {
+        // Per-element bucket capture: each rebuilt element's commands are
+        // contiguous in `shape_order`; track its sample range and pending
+        // deltas so a fully-shaped bucket can be stored for reuse next frame.
+        let mut cur_elem: Option<u32> = None;
+        let mut bucket_start: usize = samples.len();
+        let mut bucket_pending_before: usize = pending_lines;
+        for &ci in &shape_order {
+            let cmd = &q[ci];
+            // Element boundary: finalize the previous bucket before starting a new one.
+            if cur_elem != Some(cmd.element) {
+                if let Some(pe) = cur_elem
+                    && !elem_cache_disabled
+                    && pending_lines == bucket_pending_before
+                {
+                    let bucket_samples = samples[bucket_start..].to_vec();
+                    let bucket_hash = *element_hashes.get(&pe).unwrap_or(&0);
+                    self.store_element_cache(pe, bucket_hash, bucket_samples);
+                }
+                cur_elem = Some(cmd.element);
+                bucket_start = samples.len();
+                bucket_pending_before = pending_lines;
+            }
             lines_considered += 1;
             // Device pixel scale + physical font size (needed for both the cache
             // key and shaping).
@@ -1409,6 +1586,18 @@ impl TextRenderer for CosmicTextRenderer {
             }
         }
 
+        // Finalize the last element bucket: store it for reuse if it shaped
+        // fully this frame (no lines deferred by the staging budget).
+        if let Some(pe) = cur_elem
+            && !elem_cache_disabled
+            && pending_lines == bucket_pending_before
+        {
+            let bucket_samples = samples[bucket_start..].to_vec();
+            let bucket_hash = *element_hashes.get(&pe).unwrap_or(&0);
+            self.store_element_cache(pe, bucket_hash, bucket_samples);
+        }
+        *self.last_element_stats.lock().unwrap() = (elements_reused, elements_rebuilt);
+
         let shape_ms = shape_t0.elapsed().as_secs_f32() * 1000.0;
         // Record staged-paint state: how many lines were deferred, and whether
         // shaping is incomplete (which suppresses the whole-frame skip next
@@ -1422,7 +1611,7 @@ impl TextRenderer for CosmicTextRenderer {
                 0.0
             };
             eprintln!(
-                "ZAROXI_SHAPE_TRACE: considered={} reused={} shaped={} pending={} reuse_ratio={:.2} cache_size={} evictions={} budget_ms={:.1} shape_ms={:.2}",
+                "ZAROXI_SHAPE_TRACE: considered={} reused={} shaped={} pending={} reuse_ratio={:.2} cache_size={} evictions={} budget_ms={:.1} shape_ms={:.2} elements_reused={} elements_rebuilt={}",
                 lines_considered,
                 lines_reused,
                 lines_shaped,
@@ -1432,6 +1621,8 @@ impl TextRenderer for CosmicTextRenderer {
                 cache_evictions,
                 shaping_budget_ms,
                 shape_ms,
+                elements_reused,
+                elements_rebuilt,
             );
         }
         let prepare_t0 = std::time::Instant::now();
@@ -1533,6 +1724,20 @@ impl TextRenderer for CosmicTextRenderer {
             });
             let mut ib = self.instance_buffer.lock().unwrap();
             *ib = Some(buf);
+            // Record the upload size + a reason classifying how much real work
+            // this frame's payload required. "reused" means every element
+            // bucket came from the retained cache (no shaping); the instance
+            // buffer is still rebuilt from those cached samples but no glyph
+            // work occurred. "rebuilt" means at least one bucket re-shaped.
+            let upload_bytes = insts.len() * std::mem::size_of::<InstanceRaw>();
+            let reason: &'static str = if pending_lines > 0 {
+                "partial"
+            } else if elements_rebuilt == 0 {
+                "reused"
+            } else {
+                "rebuilt"
+            };
+            *self.last_gpu_upload.lock().unwrap() = (upload_bytes, reason);
             if text_debug_enabled() {
                 let cnt = insts.len();
                 let mut guard = self.last_instance_buffer_count.lock().unwrap();
@@ -1541,6 +1746,8 @@ impl TextRenderer for CosmicTextRenderer {
                     *guard = Some(cnt);
                 }
             }
+        } else {
+            *self.last_gpu_upload.lock().unwrap() = (0, "none");
         }
 
         // Concise truthful frame summary (always printed)
@@ -1568,6 +1775,22 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn perf_pending_lines(&self) -> usize {
         *self.last_pending_lines.lock().unwrap()
+    }
+
+    fn perf_elements_reused(&self) -> usize {
+        self.last_element_stats.lock().unwrap().0
+    }
+
+    fn perf_elements_rebuilt(&self) -> usize {
+        self.last_element_stats.lock().unwrap().1
+    }
+
+    fn perf_gpu_upload_bytes(&self) -> usize {
+        self.last_gpu_upload.lock().unwrap().0
+    }
+
+    fn perf_gpu_upload_reason(&self) -> &'static str {
+        self.last_gpu_upload.lock().unwrap().1
     }
 
     fn render_pass<'a>(

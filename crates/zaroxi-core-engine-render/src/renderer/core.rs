@@ -1839,12 +1839,55 @@ pub struct RenderPerf {
     /// paint). >0 means the caller should request another frame to finish.
     /// Populated regardless of `ZAROXI_PERF_TRACE` so staged paint works always.
     pub shaping_pending: usize,
+    /// UI-element buckets whose prepared glyph instances were reused from the
+    /// retained per-element draw-payload cache (no re-shaping) this frame.
+    pub elements_reused: usize,
+    /// UI-element buckets that were re-emitted (content changed) this frame.
+    pub elements_rebuilt: usize,
+    /// Bytes uploaded to the GPU text instance buffer this frame.
+    pub gpu_upload_bytes: usize,
+    /// Why the instance buffer was (or was not) re-uploaded: `"reused"`,
+    /// `"rebuilt"`, `"partial"`, or `"none"`.
+    pub gpu_upload_reason: &'static str,
 }
 
 /// Whether `ZAROXI_PERF_TRACE=1` is set. Cheap env read; only consulted on the
 /// success path so timing overhead is paid solely when tracing is requested.
 fn perf_trace_enabled() -> bool {
     std::env::var("ZAROXI_PERF_TRACE").as_deref() == Ok("1")
+}
+
+/// Map a render block id to the UI-element class used by the text renderer's
+/// per-element retained draw-payload cache. This determines which glyph
+/// instances can be reused independently when only part of the shell changes.
+/// Misclassification only affects cache bucketing (perf), never correctness.
+fn element_for_block(id: &str) -> u32 {
+    use crate::renderer::text::element as el;
+    if id == "editor_content" || id.contains("ContentArea") || id.contains("content_area") {
+        el::EDITOR_CONTENT
+    } else if id.contains("gutter") {
+        el::GUTTER
+    } else if id.contains("status") {
+        el::STATUS_BAR
+    } else if id.contains("ai_panel") || id.starts_with("ai_") {
+        el::AI_PANEL
+    } else if id.contains("explorer") || id.contains("sidebar") || id.contains("side_panel") {
+        el::SIDE_PANEL
+    } else if id.contains("bottom") || id.contains("terminal") {
+        el::BOTTOM_PANEL
+    } else if id == "toolbar"
+        || id.contains("titlebar")
+        || id.contains("title_bar")
+        || id.contains("title-bar")
+        || id.contains("tab")
+        || id.contains("header")
+        || id.contains("rail")
+        || id.contains("chrome")
+    {
+        el::CHROME
+    } else {
+        el::OTHER
+    }
 }
 
 /// Shared frame rendering logic used by both Renderer and RenderCore.
@@ -1944,6 +1987,10 @@ fn render_frame_inner(
             continue;
         }
         let target = block.rect;
+        // UI-element class for this block, applied to every text command it
+        // queues so the text renderer can retain/reuse this element's prepared
+        // glyph instances independently of the rest of the shell.
+        let block_elem = element_for_block(&block.id);
 
         crate::renderer::shapes::queue_panel_quads(
             &mut panel_verts,
@@ -2020,17 +2067,20 @@ fn render_frame_inner(
             }
 
             for run in &runs {
-                text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
-                    &run.text,
-                    run.x,
-                    title_y,
-                    title_color,
-                    DEFAULT_FONT_SIZE,
-                    run.clip_x,
-                    hy,
-                    run.clip_w,
-                    hh,
-                ));
+                text_renderer.queue_text(
+                    crate::renderer::text::TextCommand::new_title(
+                        &run.text,
+                        run.x,
+                        title_y,
+                        title_color,
+                        DEFAULT_FONT_SIZE,
+                        run.clip_x,
+                        hy,
+                        run.clip_w,
+                        hh,
+                    )
+                    .with_element(block_elem),
+                );
             }
         } else {
             if status_render_debug && block.id == "status_bar" {
@@ -2042,17 +2092,20 @@ fn render_frame_inner(
                     block.title
                 );
             }
-            text_renderer.queue_text(crate::renderer::text::TextCommand::new_title(
-                &block.title,
-                title_x,
-                title_y,
-                title_color,
-                DEFAULT_FONT_SIZE,
-                hx,
-                hy,
-                hw,
-                hh,
-            ));
+            text_renderer.queue_text(
+                crate::renderer::text::TextCommand::new_title(
+                    &block.title,
+                    title_x,
+                    title_y,
+                    title_color,
+                    DEFAULT_FONT_SIZE,
+                    hx,
+                    hy,
+                    hw,
+                    hh,
+                )
+                .with_element(block_elem),
+            );
         }
 
         let content = block.content.trim();
@@ -2121,7 +2174,8 @@ fn render_frame_inner(
                                         content_y,
                                         clip_w,
                                         content_h,
-                                    ),
+                                    )
+                                    .with_element(block_elem),
                                 );
                             } else {
                                 line_runs.clear();
@@ -2149,7 +2203,8 @@ fn render_frame_inner(
                                 content_y,
                                 clip_w,
                                 content_h,
-                            ),
+                            )
+                            .with_element(block_elem),
                         );
                     }
                 } else {
@@ -2182,17 +2237,20 @@ fn render_frame_inner(
                             break;
                         }
                         if cursor_y >= content_y {
-                            text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                                line_str,
-                                text_x,
-                                cursor_y,
-                                title_color,
-                                DEFAULT_FONT_SIZE,
-                                clip_x,
-                                content_y,
-                                clip_w,
-                                content_h,
-                            ));
+                            text_renderer.queue_text(
+                                crate::renderer::text::TextCommand::new_body(
+                                    line_str,
+                                    text_x,
+                                    cursor_y,
+                                    title_color,
+                                    DEFAULT_FONT_SIZE,
+                                    clip_x,
+                                    content_y,
+                                    clip_w,
+                                    content_h,
+                                )
+                                .with_element(block_elem),
+                            );
                         }
                         cursor_y += line_h;
                     }
@@ -2431,6 +2489,10 @@ fn render_frame_inner(
                     text_cmd_count,
                     glyph_count: text_renderer.perf_glyph_count(),
                     shaping_pending: text_renderer.perf_pending_lines(),
+                    elements_reused: text_renderer.perf_elements_reused(),
+                    elements_rebuilt: text_renderer.perf_elements_rebuilt(),
+                    gpu_upload_bytes: text_renderer.perf_gpu_upload_bytes(),
+                    gpu_upload_reason: text_renderer.perf_gpu_upload_reason(),
                 }
             } else {
                 // Staged first paint needs `shaping_pending` even when perf

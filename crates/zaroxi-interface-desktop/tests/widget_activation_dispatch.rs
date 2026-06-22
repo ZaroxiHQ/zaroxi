@@ -68,6 +68,7 @@ mod tests {
             parse_worker: None,
             saved_buffer_version: 0,
             frame_scheduler: FrameScheduler::new(),
+            ui_node_tracker: Default::default(),
         }
     }
 
