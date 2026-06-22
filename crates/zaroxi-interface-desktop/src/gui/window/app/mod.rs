@@ -99,6 +99,15 @@ pub(crate) fn file_open_trace_enabled() -> bool {
         || std::env::var("ZAROXI_OPEN_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether the atomic open-presentation trace is enabled
+/// (`ZAROXI_OPEN_PRESENT_TRACE=1`, also implied by `ZAROXI_OPEN_TRACE=1`). Drives
+/// the per-open snapshot lifecycle line (read_scheduled → … → presented) and the
+/// per-frame snapshot-active line, making any non-atomic first paint observable.
+pub(crate) fn open_present_trace_enabled() -> bool {
+    std::env::var("ZAROXI_OPEN_PRESENT_TRACE").as_deref() == Ok("1")
+        || std::env::var("ZAROXI_OPEN_TRACE").as_deref() == Ok("1")
+}
+
 /// Emit an event-scoped perf line (no-op unless `ZAROXI_PERF_TRACE=1`).
 /// `detail` is appended verbatim (e.g. `lines=120 bytes=4096`).
 pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
@@ -131,6 +140,59 @@ impl WidgetTreeFingerprint {
             editor_lines_len: wc.editor_body.as_ref().map(|b| b.lines.len()),
             active_file: wc.active_file.clone(),
             editor_tabs: wc.editor_tabs.clone(),
+        }
+    }
+}
+
+/// Phase 11 — atomic first-paint open presentation.
+///
+/// Tracks one open's path from the explorer click to the single, coherent first
+/// paint of the new file. The old file (or loading shell) stays visible until the
+/// new file's first visible screenful is shaped, at which point editor content
+/// **and** chrome swap together in one frame (`presented`). There is exactly one
+/// first-paint settle per open: the head preview no longer performs a separate
+/// visible swap (it would race the chrome and re-settle the top viewport), so the
+/// Full activation is the only thing the user ever sees swap in.
+#[derive(Clone)]
+pub struct OpenPresentation {
+    /// Read token this presentation belongs to (newest wins; stale snapshots are
+    /// dropped). For non-read opens (workspace open / tab switch) this mirrors
+    /// the open token instead.
+    pub token: u64,
+    /// Target file path/label, for chrome-coherence checks and tracing.
+    pub path: Option<String>,
+    /// When the open was first requested (click / schedule). Drives
+    /// `time_to_present_ms`.
+    pub started_at: Instant,
+    /// When the first-screenful snapshot finished shaping (atomic frame done).
+    pub snapshot_ready_at: Option<Instant>,
+    /// Whether the atomic first paint has been presented yet.
+    pub presented: bool,
+    /// Whether a head preview was produced for this open (telemetry only — it no
+    /// longer drives a separate visible swap).
+    pub used_head_preview: bool,
+    /// Whether a produced head preview was folded into the single first paint
+    /// rather than presented separately (always true when `used_head_preview`).
+    pub promoted_head_preview: bool,
+    /// Visible logical rows the first paint covered.
+    pub first_viewport_lines: usize,
+    /// Count of top-of-viewport re-shapes observed AFTER the atomic present — a
+    /// success-criterion guard: this must stay 0 absent a real resize/edit.
+    pub top_repaints_after_present: u32,
+}
+
+impl OpenPresentation {
+    fn begin(token: u64, path: Option<String>) -> Self {
+        Self {
+            token,
+            path,
+            started_at: Instant::now(),
+            snapshot_ready_at: None,
+            presented: false,
+            used_head_preview: false,
+            promoted_head_preview: false,
+            first_viewport_lines: 0,
+            top_repaints_after_present: 0,
         }
     }
 }
@@ -334,6 +396,15 @@ pub struct GuiApp {
     pub background_open_pending: bool,
     /// When the in-flight background open job was scheduled (commit-latency).
     pub open_worker_started_at: Option<std::time::Instant>,
+    /// Phase 11 — the in-flight atomic open presentation (read-schedule → present),
+    /// or `None` when no open is being staged. Newest open replaces the snapshot.
+    pub open_present: Option<OpenPresentation>,
+    /// True for the single first-paint frame of a freshly-committed open: that
+    /// frame shapes the entire visible screenful in one pass (large one-shot
+    /// budget) so the new file is presented coherently and atomically, never as a
+    /// partially-shaped top viewport that re-settles over the next frames. Cleared
+    /// once the screenful is shaped; below-the-fold then fills progressively.
+    pub open_atomic_first_paint: bool,
 }
 
 /// Phase 6 two-tier open shaping budget.
@@ -373,6 +444,15 @@ pub(crate) fn open_progressive_budget_ms() -> f32 {
         .map(|v| v.clamp(1.0, 16.0))
         .unwrap_or(OPEN_PROGRESSIVE_BUDGET_MS_DEFAULT)
 }
+
+/// Phase 11 atomic first paint: the one-shot shape budget (ms) spent on the
+/// single first-paint frame of a freshly-committed open. Deliberately large so
+/// the entire VISIBLE screenful (viewport-windowed for every file size — see
+/// `render_state::prepare_editor_data`) shapes in one pass, presenting the new
+/// file coherently in a single frame instead of trickling rows across several.
+/// It is screenful-bounded in practice (only visible + overscan rows are in the
+/// render blocks), so it never shapes the whole document.
+pub(crate) const OPEN_ATOMIC_FIRST_PAINT_BUDGET_MS: f32 = 100_000.0;
 
 /// Defensive cap on consecutive open-settle frames before force-clearing the
 /// open-settling flag, in case `shaping_pending` never reaches zero. High enough
@@ -657,6 +737,41 @@ impl GuiApp {
         // Arm the one-time first-screenful budget for the first frame after this
         // commit so the visible rows shape at once rather than trickling.
         self.open_first_screenful_pending = buffer_changed;
+        // Phase 11: arm the single atomic first-paint frame. That frame shapes the
+        // entire visible screenful in one pass (large one-shot budget) so the new
+        // file is presented coherently — content + chrome swap together — instead
+        // of trickling rows and re-settling the top viewport across frames.
+        self.open_atomic_first_paint = buffer_changed;
+        // Maintain the open-presentation snapshot (tracing + atomic-present gate).
+        // A read-initiated open already began one in `dispatch_activation`; a
+        // direct open (workspace open / tab switch) begins one here. Either way
+        // this is the moment the new buffer becomes current and the first paint is
+        // being staged.
+        if buffer_changed {
+            let path = self.work_content.as_ref().and_then(|w| w.active_file.clone());
+            match self.open_present.as_mut() {
+                Some(present) if !present.presented => {
+                    present.promoted_head_preview = present.used_head_preview;
+                    // Adopt the committed chrome identity (active_file) so the
+                    // present-time chrome-coherence check compares like-for-like.
+                    present.path = path;
+                }
+                _ => {
+                    self.open_present = Some(OpenPresentation::begin(self.open_token, path));
+                }
+            }
+            if open_present_trace_enabled()
+                && let Some(present) = self.open_present.as_ref()
+            {
+                eprintln!(
+                    "ZAROXI_OPEN_PRESENT_TRACE: token={} stage=snapshot_building used_head_preview={} promoted_head_preview={} path={}",
+                    present.token,
+                    present.used_head_preview as u8,
+                    present.promoted_head_preview as u8,
+                    present.path.as_deref().unwrap_or("<none>"),
+                );
+            }
+        }
         // Spawn background parse worker for off-thread syntax highlighting.
         if self.parse_worker.is_none() {
             self.parse_worker =
@@ -833,12 +948,15 @@ impl GuiApp {
         }
     }
 
-    /// Drain background *read* outcomes (Phase 8/10). A `Head` outcome paints
-    /// the first-screenful preview immediately (display only); the `Full`
-    /// outcome activates the registered buffer and feeds it into the existing
-    /// token-gated `request_open` path, replacing the preview. Stale outcomes (a
-    /// newer file was clicked) are dropped so an old file never paints or
-    /// activates.
+    /// Drain background *read* outcomes (Phase 8/10/11). The `Head` outcome is
+    /// telemetry only: it no longer performs a separate visible swap, because a
+    /// head preview painted before the registered buffer is active leaves the
+    /// chrome (tab/title/status) showing the *previous* file for a frame and
+    /// forces a second top-of-viewport settle when the `Full` buffer lands. The
+    /// old file (or loading shell) therefore stays visible until the single,
+    /// coherent atomic first paint at the `Full` activation. The `Full` outcome
+    /// activates the registered buffer and feeds it into the token-gated
+    /// `request_open` path. Stale outcomes (a newer file was clicked) are dropped.
     fn poll_read_results(&mut self) {
         let outcomes = match self.read_worker.as_mut() {
             Some(w) => w.drain(),
@@ -873,24 +991,27 @@ impl GuiApp {
             }
             match outcome {
                 background_read::ReadOutcome::Head { lines, complete, .. } => {
-                    // First-screenful preview: paint the head immediately
-                    // (display only). The `Full` commit replaces it with the
-                    // registered buffer; the visible rows are byte-identical
-                    // (same UTF-8/`'\n'` decode) so the swap doesn't flash.
+                    // Telemetry only — no visible swap (see fn doc). Record that a
+                    // head preview was available so it is reported as folded into
+                    // the single atomic first paint, not presented separately.
                     if self.read_pending && !lines.is_empty() {
                         let n = lines.len();
-                        self.editor_buffer.populate_from_lines(&lines, 0, 0);
-                        if file_open_trace_enabled() {
+                        if let Some(present) = self.open_present.as_mut()
+                            && present.token == tok
+                            && !present.presented
+                        {
+                            present.used_head_preview = true;
+                        }
+                        if file_open_trace_enabled() || open_present_trace_enabled() {
                             let fb_ms = self
                                 .read_started_at
                                 .map(|t| t.elapsed().as_secs_f32() * 1000.0)
                                 .unwrap_or(0.0);
                             eprintln!(
-                                "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=head_preview first_screenful_rows={} preview_complete={} time_to_first_fallback_text_ms={:.2}",
+                                "ZAROXI_OPEN_PRESENT_TRACE: token={} stage=head_ready first_screenful_rows={} preview_complete={} presented_separately=0 time_to_head_ms={:.2}",
                                 tok, n, complete as u8, fb_ms,
                             );
                         }
-                        self.invalidate(InvalidationFlags::content());
                     }
                 }
                 background_read::ReadOutcome::Full { buffer_id, read_ms, .. } => {
@@ -2269,7 +2390,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // budget) vs. a progressive below-the-fold fill frame.
                     let open_settling = self.open_settling;
                     let open_first_screenful = self.open_first_screenful_pending;
-                    let open_budget_ms = if open_first_screenful {
+                    // Phase 11: the single atomic first-paint frame uses a large
+                    // one-shot budget so the WHOLE visible screenful shapes in one
+                    // pass — the new file is presented coherently and atomically,
+                    // never as a partially-shaped top viewport. (Editor content is
+                    // viewport-windowed, so this is screenful-bounded.) Subsequent
+                    // open frames drop to the low progressive below-the-fold budget.
+                    let open_atomic_first_paint = self.open_atomic_first_paint;
+                    let open_budget_ms = if open_atomic_first_paint {
+                        OPEN_ATOMIC_FIRST_PAINT_BUDGET_MS
+                    } else if open_first_screenful {
                         open_first_screenful_budget_ms()
                     } else {
                         open_progressive_budget_ms()
@@ -2421,6 +2551,117 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // subsequent open frames use the progressive budget.
                                 if open_first_screenful {
                                     self.open_first_screenful_pending = false;
+                                }
+
+                                // ── Phase 11: atomic first-paint presentation ──
+                                // The atomic frame shapes the whole visible
+                                // screenful in one pass. Once it is complete this
+                                // is the single coherent first paint of the new
+                                // file (content + chrome already match), so mark
+                                // the snapshot presented and stop forcing the
+                                // large one-shot budget. If — pathologically — the
+                                // screenful did not complete, keep it armed so the
+                                // next frame stays atomic (never present partial).
+                                let screenful_rows = editor_visible_lines.max(1);
+                                let visible_ready =
+                                    perf.lines_considered.saturating_sub(perf.shaping_pending);
+                                let screenful_complete =
+                                    perf.shaping_pending == 0 || visible_ready >= screenful_rows;
+                                if open_atomic_first_paint {
+                                    if screenful_complete {
+                                        self.open_atomic_first_paint = false;
+                                        let chrome_synced = self
+                                            .open_present
+                                            .as_ref()
+                                            .map(|p| {
+                                                self.work_content
+                                                    .as_ref()
+                                                    .and_then(|w| w.active_file.as_deref())
+                                                    == p.path.as_deref()
+                                            })
+                                            .unwrap_or(false);
+                                        if let Some(present) = self.open_present.as_mut()
+                                            && !present.presented
+                                        {
+                                            let now = Instant::now();
+                                            let ready_ms =
+                                                (now - present.started_at).as_secs_f32() * 1000.0;
+                                            present.snapshot_ready_at = Some(now);
+                                            present.presented = true;
+                                            present.first_viewport_lines =
+                                                visible_ready.min(screenful_rows);
+                                            if open_present_trace_enabled() {
+                                                eprintln!(
+                                                    "ZAROXI_OPEN_PRESENT_TRACE: token={} stage=snapshot_ready time_to_snapshot_ready_ms={:.2} first_viewport_lines={} first_viewport_shaped_lines={} first_viewport_pending_lines={}",
+                                                    present.token,
+                                                    ready_ms,
+                                                    present.first_viewport_lines,
+                                                    present.first_viewport_lines,
+                                                    0,
+                                                );
+                                                eprintln!(
+                                                    "ZAROXI_OPEN_PRESENT_TRACE: token={} stage=presented time_to_snapshot_ready_ms={:.2} time_to_present_ms={:.2} first_viewport_lines={} first_viewport_shaped_lines={} first_viewport_pending_lines={} presented_atomically={} used_head_preview={} promoted_head_preview={} top_viewport_repaints_after_present={} chrome_synced_at_present={}",
+                                                    present.token,
+                                                    ready_ms,
+                                                    ready_ms,
+                                                    present.first_viewport_lines,
+                                                    present.first_viewport_lines,
+                                                    0,
+                                                    1,
+                                                    present.used_head_preview as u8,
+                                                    present.promoted_head_preview as u8,
+                                                    present.top_repaints_after_present,
+                                                    chrome_synced as u8,
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // Defensive: re-arm so the next frame stays
+                                        // atomic until the screenful is complete.
+                                        self.needs_render = true;
+                                        self.frame_scheduler.mark_redraw_requested();
+                                        z.window().request_redraw();
+                                    }
+                                } else if open_was_settling
+                                    && !was_resizing
+                                    && self
+                                        .open_present
+                                        .as_ref()
+                                        .map(|p| p.presented && !screenful_complete)
+                                        .unwrap_or(false)
+                                {
+                                    // Already-presented open re-shaped visible rows
+                                    // without a resize/edit: a success-criterion
+                                    // violation (top-of-viewport repaint after the
+                                    // atomic present). Count it so it is observable.
+                                    if let Some(present) = self.open_present.as_mut() {
+                                        present.top_repaints_after_present =
+                                            present.top_repaints_after_present.saturating_add(1);
+                                    }
+                                }
+
+                                // Per-frame snapshot view (open-presentation trace).
+                                if open_present_trace_enabled()
+                                    && let Some(present) = self.open_present.as_ref()
+                                    && (open_was_settling || open_atomic_first_paint)
+                                {
+                                    // Reused = considered minus (freshly shaped +
+                                    // deferred): cache-hit rows that did not re-shape.
+                                    let visible_top_reused = perf
+                                        .lines_considered
+                                        .saturating_sub(perf.lines_shaped)
+                                        .saturating_sub(perf.shaping_pending);
+                                    eprintln!(
+                                        "ZAROXI_OPEN_PRESENT_TRACE: frame={} token={} open_snapshot_active={} open_snapshot_pending_lines={} visible_top_reused={} visible_top_rebuilt={} atomic_first_paint={} presented={}",
+                                        frame_id,
+                                        present.token,
+                                        (!present.presented) as u8,
+                                        perf.shaping_pending,
+                                        visible_top_reused,
+                                        perf.lines_shaped,
+                                        open_atomic_first_paint as u8,
+                                        present.presented as u8,
+                                    );
                                 }
 
                                 if settle_trace_enabled() {

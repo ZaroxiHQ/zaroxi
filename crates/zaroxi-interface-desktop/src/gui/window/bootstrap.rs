@@ -124,6 +124,8 @@ pub fn run_shell_window(
         open_worker: None,
         background_open_pending: false,
         open_worker_started_at: None,
+        open_present: None,
+        open_atomic_first_paint: false,
     };
 
     let run_result = event_loop.run_app(&mut app);

@@ -172,9 +172,25 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 app.read_pending = true;
                 app.read_started_at = Some(std::time::Instant::now());
                 app.last_upstream_open_prep_ms = 0.0;
+                // Phase 11: begin the atomic open-presentation snapshot. The old
+                // file / loading shell stays visible until this open's first
+                // screenful is shaped, then content + chrome swap together in one
+                // coherent atomic first paint (see `poll_read_results` /
+                // `finalize_buffer_commit`).
+                app.open_present = Some(super::OpenPresentation::begin(
+                    token,
+                    Some(path.to_string_lossy().to_string()),
+                ));
                 if super::file_open_trace_enabled() {
                     eprintln!(
                         "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_scheduled read_pending=1 file={}",
+                        token,
+                        path.display(),
+                    );
+                }
+                if super::open_present_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_OPEN_PRESENT_TRACE: token={} stage=read_scheduled file={}",
                         token,
                         path.display(),
                     );
