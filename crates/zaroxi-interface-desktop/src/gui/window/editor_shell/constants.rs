@@ -127,6 +127,14 @@ pub const EXPLORER_ROW_VIS_H: f32 = 18.0;
 /// chevron now lives in the label glyphs, so this is just breathing room, not a
 /// reserved chevron gutter.
 pub const EXPLORER_ROW_TEXT_INSET: f32 = 4.0;
+/// Width of the fixed disclosure+icon column (chevron + space + type icon).
+/// The filename is drawn in its own column at `row_x + EXPLORER_GLYPH_COL_W`,
+/// so a double-width Nerd Font icon can never shift the name column.
+pub const EXPLORER_GLYPH_COL_W: f32 = 34.0;
+/// Left inset the renderer applies to a block's title text (mirrors the
+/// hardcoded title pad in `core.rs`). Used to place glyph/name columns at exact
+/// x positions by pre-subtracting it from the block origin.
+pub const EXPLORER_TITLE_PAD: f32 = 8.0;
 /// Total horizontal reduction applied to a row's width so labels never collide
 /// with the sidebar scrollbar gutter.
 pub const EXPLORER_ROW_W_REDUCTION: f32 = 20.0;

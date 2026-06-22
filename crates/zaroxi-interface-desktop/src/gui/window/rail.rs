@@ -12,9 +12,49 @@ use zaroxi_core_engine_ui::ExplorerPanelItem;
 use zaroxi_core_engine_ui::chrome::PanelSection;
 
 use crate::gui::window::editor_shell::constants::{
-    EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET,
-    EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, SIDEBAR_PAD, explorer_cta_button_rect,
+    EXPLORER_GLYPH_COL_W, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
+    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, EXPLORER_TITLE_PAD,
+    SIDEBAR_PAD, explorer_cta_button_rect,
 };
+use crate::gui::window::explorer_panel::icons;
+
+/// Build a transparent (fill-less) text-only row block placed at an exact column.
+/// Used for the explorer glyph and filename columns so each draws independently
+/// of the other's width — keeping the filename column aligned regardless of a
+/// double-width Nerd Font icon.
+fn explorer_text_block(
+    id: String,
+    text: String,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: [f32; 4],
+) -> UiBlock {
+    UiBlock {
+        id,
+        title: text,
+        content: String::new(),
+        visible: true,
+        rect: zaroxi_core_engine_render::Rect { x, y, w, h },
+        header_color: Some([0.0, 0.0, 0.0, 0.0]),
+        content_color: None,
+        corner_radius: 0.0,
+        border_color: None,
+        border_width: 0.0,
+        header_only: true,
+        content_spans: None,
+        cursor_line: None,
+        cursor_col: None,
+        highlight_active_line: false,
+        selection_range: None,
+        text_color: Some(color),
+        clip_rect: None,
+        content_offset_x: 0.0,
+        content_offset_y: 0.0,
+        content_line_offset: None,
+    }
+}
 
 pub struct ExplorerData {
     pub sidebar_sections: Vec<PanelSection>,
@@ -167,9 +207,11 @@ impl RailPanel {
                         tokens.text_secondary.to_array()
                     };
 
+                    // 1. Background / selection / hover block. Carries no text;
+                    //    the hover bridge patches this block's `header_color`.
                     blocks.push(UiBlock {
                         id: format!("explorer_row_{}", item_idx),
-                        title: item.label.clone(),
+                        title: String::new(),
                         content: String::new(),
                         visible: true,
                         rect: zaroxi_core_engine_render::Rect {
@@ -189,12 +231,41 @@ impl RailPanel {
                         cursor_col: None,
                         highlight_active_line: false,
                         selection_range: None,
-                        text_color: Some(text_c),
+                        text_color: None,
                         clip_rect: None,
                         content_offset_x: 0.0,
                         content_offset_y: 0.0,
                         content_line_offset: None,
                     });
+
+                    // 2. Disclosure + type-icon column (fixed width). Drawn at
+                    //    `row_x`; clipped to the glyph column so a wide icon can't
+                    //    bleed into the name column.
+                    let glyph_text = icons::glyph_prefix(item.is_dir, item.expanded, &item.label);
+                    blocks.push(explorer_text_block(
+                        format!("explorer_glyph_{}", item_idx),
+                        glyph_text,
+                        row_x - EXPLORER_TITLE_PAD,
+                        row_y,
+                        EXPLORER_GLYPH_COL_W + EXPLORER_TITLE_PAD,
+                        row_h_vis,
+                        text_c,
+                    ));
+
+                    // 3. Filename column — fixed left edge at `row_x + glyph col`,
+                    //    extending to the row's right edge (clips long names).
+                    let name_text_x = row_x + EXPLORER_GLYPH_COL_W;
+                    let name_x = name_text_x - EXPLORER_TITLE_PAD;
+                    let name_w = (row_x + row_w - name_x).max(4.0);
+                    blocks.push(explorer_text_block(
+                        format!("explorer_name_{}", item_idx),
+                        item.label.clone(),
+                        name_x,
+                        row_y,
+                        name_w,
+                        row_h_vis,
+                        text_c,
+                    ));
                     y_off += row_h;
                 }
                 return SidebarBlocks { blocks, cta_hit_rect };

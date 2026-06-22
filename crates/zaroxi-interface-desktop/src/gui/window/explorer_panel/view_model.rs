@@ -36,11 +36,13 @@ impl ExplorerPanelViewModel {
             .cached_explorer_items
             .iter()
             .map(|ev| {
-                let label = super::icons::row_label(ev.is_dir, ev.expanded, &ev.name);
-
+                // The label is the plain filename. Disclosure chevron and the
+                // per-type icon are composed at render time (see `rail.rs` +
+                // `explorer_panel::icons`) into separate fixed-x columns so a
+                // double-width Nerd Font icon can't misalign the name column.
                 ExplorerPanelItem {
                     id: ev.id.clone(),
-                    label,
+                    label: ev.name.clone(),
                     depth: ev.depth,
                     is_dir: ev.is_dir,
                     expanded: ev.expanded,
