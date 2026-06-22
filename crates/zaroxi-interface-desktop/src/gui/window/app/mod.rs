@@ -127,6 +127,7 @@ pub(crate) fn perf_event(label: &str, start: std::time::Instant, detail: &str) {
 pub struct WidgetTreeFingerprint {
     explorer_empty_button: Option<String>,
     explorer_items_len: Option<usize>,
+    explorer_scroll_top: usize,
     editor_lines_len: Option<usize>,
     active_file: Option<String>,
     editor_tabs: Option<Vec<String>>,
@@ -137,6 +138,7 @@ impl WidgetTreeFingerprint {
         Self {
             explorer_empty_button: wc.explorer_empty_button.clone(),
             explorer_items_len: wc.explorer_panel_items.as_ref().map(|v| v.len()),
+            explorer_scroll_top: wc.explorer_scroll_top,
             editor_lines_len: wc.editor_body.as_ref().map(|b| b.lines.len()),
             active_file: wc.active_file.clone(),
             editor_tabs: wc.editor_tabs.clone(),
@@ -287,6 +289,9 @@ pub struct GuiApp {
     pub editor_viewport: Option<EditorViewport>,
     pub needs_render: bool,
     pub last_explorer_ids: Vec<String>,
+    /// Explorer tree vertical scroll offset, in rows (first visible row).
+    /// Persisted across redraws; clamped each frame against the viewport.
+    pub explorer_scroll_top: usize,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
     pub picker_in_flight: bool,
@@ -1866,6 +1871,33 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let widget_t = std::time::Instant::now();
                     let engine_layout = self.layout_controller.engine_shell_layout();
 
+                    // ── Explorer vertical scroll: clamp & publish offset ──
+                    // Publish BEFORE the fingerprint so a scroll-only change still
+                    // forces a widget-tree rebuild, keeping hit targets aligned
+                    // with the (always-rebuilt) render blocks.
+                    {
+                        let total_items = self
+                            .work_content
+                            .as_ref()
+                            .and_then(|wc| wc.explorer_panel_items.as_ref())
+                            .map(|items| items.len())
+                            .unwrap_or(0);
+                        let has_title = self
+                            .work_content
+                            .as_ref()
+                            .map(|wc| wc.explorer_panel_title.is_some())
+                            .unwrap_or(false);
+                        let visible_rows =
+                            lc::explorer_visible_rows(engine_layout.left_panel.height, has_title);
+                        let max_scroll = total_items.saturating_sub(visible_rows);
+                        if self.explorer_scroll_top > max_scroll {
+                            self.explorer_scroll_top = max_scroll;
+                        }
+                        if let Some(wc) = self.work_content.as_mut() {
+                            wc.explorer_scroll_top = self.explorer_scroll_top;
+                        }
+                    }
+
                     let new_fingerprint = self.work_content.as_ref().map(WidgetTreeFingerprint::of);
                     let content_changed =
                         match (&self.last_widget_tree_fingerprint, &new_fingerprint) {
@@ -2140,7 +2172,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
 
                     let editor_total_lines = self.editor_buffer.line_count();
-                    let line_h = 16.0f32;
 
                     if let Some(ref mut comp) = self.composition {
                         comp.set_editor_viewport_lines(editor_visible_lines);
@@ -2150,9 +2181,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                         shell_regions,
                         zaroxi_core_engine_style::PanelRole::SidePanel,
                     );
+                    let sidebar_has_title = self
+                        .work_content
+                        .as_ref()
+                        .map(|wc| wc.explorer_panel_title.is_some())
+                        .unwrap_or(false);
                     let sidebar_visible = sidebar_region
-                        .map(|r| (r.rect.height as f32 / line_h).max(1.0) as usize)
-                        .unwrap_or(1);
+                        .map(|r| lc::explorer_visible_rows(r.rect.height as f32, sidebar_has_title))
+                        .unwrap_or(1)
+                        .max(1);
+                    let sidebar_items = self
+                        .work_content
+                        .as_ref()
+                        .and_then(|wc| wc.explorer_panel_items.as_ref())
+                        .map(|items| items.len())
+                        .unwrap_or(0);
+                    let sidebar_scroll_offset = {
+                        let max_scroll =
+                            sidebar_items.saturating_sub(sidebar_visible).max(1) as f32;
+                        (self.explorer_scroll_top as f32 / max_scroll).clamp(0.0, 1.0)
+                    };
 
                     let bottom_region = crate::gui::region_dispatch::find_region_by_role(
                         shell_regions,
@@ -2171,11 +2219,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &tokens,
                         editor_total_lines,
                         editor_visible_lines,
-                        0,
+                        sidebar_items,
                         sidebar_visible,
                         0,
                         bottom_visible,
                         editor_scroll_offset,
+                        sidebar_scroll_offset,
                     );
                     render_blocks.extend(scroll_blocks);
                     let block_build_ms = block_t.elapsed().as_secs_f32() * 1000.0;

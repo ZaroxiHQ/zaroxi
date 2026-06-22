@@ -119,7 +119,16 @@ pub const STATUSBAR_BADGE_W: f32 = 48.0;
 
 // ── Explorer tree / panel items ──
 
-pub const EXPLORER_ROW_H: f32 = 18.0;
+/// Vertical pitch between explorer rows (row height incl. spacing).
+pub const EXPLORER_ROW_H: f32 = 22.0;
+/// Visible height of a row's selection/highlight rect (centered in the pitch).
+pub const EXPLORER_ROW_VIS_H: f32 = 18.0;
+/// Left inset from the row's indented origin to the label/highlight start
+/// (reserves space for the disclosure chevron glyph).
+pub const EXPLORER_ROW_TEXT_INSET: f32 = 14.0;
+/// Total horizontal reduction applied to a row's width so labels never collide
+/// with the sidebar scrollbar gutter.
+pub const EXPLORER_ROW_W_REDUCTION: f32 = 20.0;
 pub const EXPLORER_HEADER_H: f32 = 22.0;
 pub const EXPLORER_INDENT_PX: f32 = 14.0;
 pub const EXPLORER_MAX_Y_INSET: f32 = 12.0;

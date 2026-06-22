@@ -75,6 +75,21 @@ pub struct WorkspaceTree {
     pub root: WorkspaceEntry,
 }
 
+/// Standard file-manager ordering for a set of sibling entries:
+/// directories first, then files, each group sorted case-insensitively by name.
+///
+/// Sorting lives in the model/node builder (not at draw time) so that every
+/// displayed tree level inherits the same deterministic ordering. Ties on the
+/// case-insensitive key fall back to the raw name for stability.
+fn sort_workspace_entries(children: &mut [WorkspaceEntry]) {
+    children.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+}
+
 impl WorkspaceTree {
     /// Load a tree from the filesystem, loading only immediate children.
     pub fn load_from_fs(root_path: &PathBuf) -> io::Result<Self> {
@@ -104,6 +119,7 @@ impl WorkspaceTree {
                             children_loaded: false,
                         });
                     }
+                    sort_workspace_entries(&mut children);
                     children_loaded = true;
                 }
             }
@@ -148,6 +164,7 @@ impl WorkspaceTree {
                 }
             })
             .collect();
+        sort_workspace_entries(&mut node.children);
         node.children_loaded = true;
         Ok(())
     }

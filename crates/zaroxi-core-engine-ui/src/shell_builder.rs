@@ -7,15 +7,16 @@ use crate::layout_constants::{
     BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
     EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET,
-    EXPLORER_ROW_H, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
-    PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H,
-    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC,
-    SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR,
-    SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W,
-    STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG,
-    TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET,
-    TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET,
-    TOOLBAR_BTN_W, compute_scrollbar_geometry,
+    EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION,
+    PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET,
+    RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H, RAIL_ICON_START_Y,
+    RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD,
+    SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
+    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
+    STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H,
+    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
+    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
+    compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -737,7 +738,16 @@ fn build_explorer_panel_section(
     let panel_items = content.and_then(|c| c.explorer_panel_items.as_deref());
     if let Some(items) = panel_items {
         if !items.is_empty() {
+            // Vertical scroll: skip the first `scroll_top` rows. The absolute
+            // `item_idx` stays encoded in the widget id so click dispatch and
+            // hover bridging keep resolving to the correct entry regardless of
+            // scroll position.
+            let scroll_top = content.map(|c| c.explorer_scroll_top).unwrap_or(0);
+            let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
             for (item_idx, item) in items.iter().enumerate() {
+                if item_idx < scroll_top {
+                    continue;
+                }
                 if *y_off + row_h > max_y {
                     break;
                 }
@@ -745,10 +755,10 @@ fn build_explorer_panel_section(
                 tree.push(ShellWidget::ListItem {
                     id: WidgetId::list_item(10 + item_idx),
                     rect: Rect::new(
-                        sidebar_rect.x + pad + 14.0 + indent_px,
-                        *y_off + 2.0,
-                        inner_w - 20.0 - indent_px,
-                        14.0,
+                        sidebar_rect.x + pad + EXPLORER_ROW_TEXT_INSET + indent_px,
+                        *y_off + row_y_inset,
+                        (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0),
+                        EXPLORER_ROW_VIS_H,
                     ),
                     label: item.label.clone(),
                     fill_color: if item.is_active {

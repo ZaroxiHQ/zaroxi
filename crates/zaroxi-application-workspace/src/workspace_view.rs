@@ -350,6 +350,7 @@ pub fn build_work_content(
         explorer_panel_title: None,
         explorer_empty_button,
         explorer_empty_message: None,
+        explorer_scroll_top: 0,
         active_file: active_id.clone().map(|b| b.to_string()),
         terminal_tabs,
         ai_panel_content,

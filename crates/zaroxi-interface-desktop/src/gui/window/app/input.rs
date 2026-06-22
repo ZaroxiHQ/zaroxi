@@ -429,12 +429,66 @@ fn request_editor_redraw(app: &mut GuiApp) {
     app.invalidate(super::InvalidationFlags::input());
 }
 
+/// Convert a wheel/trackpad delta into a signed explorer-row scroll step.
+/// Positive = scroll the tree down (toward the bottom, larger offset);
+/// negative = scroll up. A non-zero delta always moves at least one row so
+/// small trackpad nudges still register.
+fn explorer_wheel_rows(delta: &MouseScrollDelta) -> i32 {
+    use crate::gui::window::editor_shell::constants::EXPLORER_ROW_H;
+    let raw_y = match *delta {
+        MouseScrollDelta::LineDelta(_x, y) => y * 3.0,
+        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / (EXPLORER_ROW_H * 0.5),
+    };
+    if raw_y == 0.0 {
+        return 0;
+    }
+    let mag = raw_y.abs().round().max(1.0) as i32;
+    // Wheel-up (positive y) scrolls the tree toward the top (smaller offset).
+    if raw_y > 0.0 { -mag } else { mag }
+}
+
+/// True when the pointer currently sits over the explorer sidebar region.
+fn pointer_over_sidebar(app: &GuiApp) -> bool {
+    let Some((cx, cy)) = app.interaction.cursor_pos_f32() else {
+        return false;
+    };
+    let regions = app.layout_controller.shell_regions();
+    crate::gui::region_dispatch::find_region_by_role(
+        regions,
+        zaroxi_core_engine_style::PanelRole::SidePanel,
+    )
+    .map(|sb| {
+        let sx = sb.rect.x as f32;
+        let sy = sb.rect.y as f32;
+        let sw = sb.rect.width as f32;
+        let sh = sb.rect.height as f32;
+        cx >= sx && cx < sx + sw && cy >= sy && cy < sy + sh
+    })
+    .unwrap_or(false)
+}
+
 /// Apply mouse-wheel delta to composition pending scroll state and trigger
 /// a redraw.  Called from `window_event(MouseWheel)`.
 ///
 /// Deltas are accumulated in logical pixels via `pending_vscroll_px` so that
 /// trackpad events and wheel notches both produce smooth sub-line scrolling.
 pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
+    // When the pointer is over the explorer sidebar, scroll the file tree
+    // instead of the editor. The offset is clamped against the viewport in the
+    // render path; here we only nudge it (saturating at the top).
+    if pointer_over_sidebar(app) {
+        let rows = explorer_wheel_rows(delta);
+        if rows != 0 {
+            if rows > 0 {
+                app.explorer_scroll_top = app.explorer_scroll_top.saturating_add(rows as usize);
+            } else {
+                app.explorer_scroll_top = app.explorer_scroll_top.saturating_sub((-rows) as usize);
+            }
+            app.invalidate(super::InvalidationFlags::scroll());
+        }
+        return;
+    }
+
     let scroll_px: f32 = match *delta {
         MouseScrollDelta::LineDelta(x, y) => {
             if app.shift_held {

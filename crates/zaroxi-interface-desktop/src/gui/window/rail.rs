@@ -12,7 +12,8 @@ use zaroxi_core_engine_ui::ExplorerPanelItem;
 use zaroxi_core_engine_ui::chrome::PanelSection;
 
 use crate::gui::window::editor_shell::constants::{
-    DIVIDER_SPACE, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_ROW_H, SEARCH_BAR_H,
+    DIVIDER_SPACE, EXPLORER_HEADER_H, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
+    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, SEARCH_BAR_H,
     SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, explorer_cta_button_rect,
 };
 
@@ -24,6 +25,9 @@ pub struct ExplorerData {
     pub panel_items: Option<Vec<ExplorerPanelItem>>,
     /// Panel title used to compute initial y-offset for row positioning.
     pub panel_title: Option<String>,
+    /// First visible explorer row (vertical scroll offset, in rows). Kept in
+    /// sync with the widget tree via `ShellWorkContent::explorer_scroll_top`.
+    pub scroll_top: usize,
 }
 
 impl Default for ExplorerData {
@@ -34,6 +38,7 @@ impl Default for ExplorerData {
             empty_button_label: None,
             panel_items: None,
             panel_title: None,
+            scroll_top: 0,
         }
     }
 }
@@ -130,18 +135,25 @@ impl RailPanel {
                 if data.panel_title.is_some() {
                     y_off += EXPLORER_HEADER_H + 4.0;
                 }
-                let max_y = rect.y + rect.h - 12.0;
+                let max_y = rect.y + rect.h - EXPLORER_MAX_Y_INSET;
+                let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
 
                 for (item_idx, item) in items.iter().enumerate() {
+                    // Vertical scroll: skip the first `scroll_top` rows. The
+                    // absolute `item_idx` stays in the block id so it matches the
+                    // widget tree (hit-test / hover bridging).
+                    if item_idx < data.scroll_top {
+                        continue;
+                    }
                     let row_h = EXPLORER_ROW_H;
                     if y_off + row_h > max_y {
                         break;
                     }
                     let indent_px = item.depth as f32 * EXPLORER_INDENT_PX;
-                    let row_x = rect.x + pad + 14.0 + indent_px;
-                    let row_y = y_off + 2.0;
-                    let row_w = (inner_w - 20.0 - indent_px).max(4.0);
-                    let row_h_vis = 14.0_f32;
+                    let row_x = rect.x + pad + EXPLORER_ROW_TEXT_INSET + indent_px;
+                    let row_y = y_off + row_y_inset;
+                    let row_w = (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0);
+                    let row_h_vis = EXPLORER_ROW_VIS_H;
 
                     let fill = if item.is_active {
                         tokens.rail_item_active.to_array()

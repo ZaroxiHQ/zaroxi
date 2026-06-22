@@ -48,6 +48,7 @@ pub fn compute_scrollbar_blocks(
     bottom_lines: usize,
     bottom_visible: usize,
     editor_scroll_offset: f32,
+    sidebar_scroll_offset: f32,
 ) -> Vec<UiBlock> {
     let mut blocks = Vec::new();
 
@@ -146,8 +147,18 @@ pub fn compute_scrollbar_blocks(
             let sw = sidebar.rect.width as f32;
             let sh = sidebar.rect.height as f32;
 
+            // Proportional thumb sized to the visible/total row ratio.
+            let ratio = sidebar_visible as f32 / sidebar_items.max(1) as f32;
+            let spec = ScrollbarSpec {
+                sb_width: SB_SIDEBAR_SPEC.sb_width,
+                inset_right: SB_SIDEBAR_SPEC.inset_right,
+                track_inset_y: SB_SIDEBAR_SPEC.track_inset_y,
+                track_h_reduction: SB_SIDEBAR_SPEC.track_h_reduction,
+                thumb_ratio: ratio.clamp(0.05, 1.0),
+                thumb_min_h: SB_SIDEBAR_SPEC.thumb_min_h,
+            };
             let (sb_x, track_y, sb_w, track_h, thumb_h) =
-                compute_scrollbar_geometry((sx, sy, sw, sh), &SB_SIDEBAR_SPEC, 0.0);
+                compute_scrollbar_geometry((sx, sy, sw, sh), &spec, 0.0);
             let track_rect =
                 zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 
@@ -182,7 +193,7 @@ pub fn compute_scrollbar_blocks(
                 visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: track_rect.x,
-                    y: track_rect.y,
+                    y: track_rect.y + sidebar_scroll_offset * (track_rect.h - thumb_h).max(0.0),
                     w: sb_w,
                     h: thumb_h,
                 },

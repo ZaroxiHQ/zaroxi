@@ -205,3 +205,65 @@ fn explorer_is_dir_and_get_entry_path() -> std::io::Result<()> {
     let _ = fs::remove_dir_all(&tmp);
     Ok(())
 }
+
+/// Directories must sort before files, and within each group entries are
+/// ordered case-insensitively by name. This must hold at every displayed tree
+/// level, not just the root.
+#[test]
+fn explorer_orders_directories_first_alphabetically_at_every_level() -> std::io::Result<()> {
+    let base = env::temp_dir();
+    let uniq = format!(
+        "zaroxi_order_test_{}_{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    );
+    let tmp = base.join(uniq);
+    let root = tmp.join("workspace");
+
+    // Root level: mixed-case directories and files, created out of order.
+    fs::create_dir_all(root.join("Beta"))?;
+    fs::create_dir_all(root.join("gamma_dir"))?;
+    fs::create_dir_all(root.join("alpha"))?;
+    fs::write(root.join("cherry.txt"), "c")?;
+    fs::write(root.join("Apple.txt"), "a")?;
+    fs::write(root.join("banana.txt"), "b")?;
+
+    // Nested level inside "alpha": a directory plus mixed-case files.
+    fs::create_dir_all(root.join("alpha").join("Zeta"))?;
+    fs::write(root.join("alpha").join("inner_b.txt"), "ib")?;
+    fs::write(root.join("alpha").join("Inner_a.txt"), "ia")?;
+
+    let mut explorer = WorkspaceExplorer::new();
+    explorer.load_workspace(&PathBuf::from(&root))?;
+
+    // Root ordering: directories first (alpha, Beta, gamma_dir), then files
+    // (Apple.txt, banana.txt, cherry.txt), all case-insensitive.
+    let items = explorer.visible_items(&HashSet::new(), None);
+    let root_names: Vec<&str> =
+        items.iter().filter(|i| i.depth == 0).map(|i| i.name.as_str()).collect();
+    assert_eq!(
+        root_names,
+        vec!["alpha", "Beta", "gamma_dir", "Apple.txt", "banana.txt", "cherry.txt"],
+        "root entries must be directories-first, case-insensitive alphabetical"
+    );
+
+    // Expand "alpha" and assert the nested level follows the same rule.
+    let alpha_id = items
+        .iter()
+        .find(|i| i.name == "alpha")
+        .map(|i| i.id.clone())
+        .expect("alpha directory should exist");
+    assert!(explorer.toggle_expand(&alpha_id), "alpha should expand");
+
+    let items = explorer.visible_items(&HashSet::new(), None);
+    let nested_names: Vec<&str> =
+        items.iter().filter(|i| i.depth == 1).map(|i| i.name.as_str()).collect();
+    assert_eq!(
+        nested_names,
+        vec!["Zeta", "Inner_a.txt", "inner_b.txt"],
+        "nested entries must follow the same directories-first ordering"
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    Ok(())
+}

@@ -85,6 +85,7 @@ pub fn run_shell_window(
         editor_viewport: None,
         needs_render: true,
         last_explorer_ids: Vec::new(),
+        explorer_scroll_top: 0,
         last_render_size: (0, 0),
         pending_scroll_frac: 0.0,
         picker_in_flight: false,

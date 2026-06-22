@@ -37,5 +37,6 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         empty_button_label,
         panel_items,
         panel_title,
+        scroll_top: wc.explorer_scroll_top,
     }
 }

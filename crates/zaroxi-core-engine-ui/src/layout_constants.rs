@@ -160,7 +160,16 @@ pub const EXPLORER_CTA_BTN_X_EXTRA: f32 = 10.0;
 
 // ── Explorer tree / panel items ──
 
-pub const EXPLORER_ROW_H: f32 = 18.0;
+/// Vertical pitch between explorer rows (row height incl. spacing).
+pub const EXPLORER_ROW_H: f32 = 22.0;
+/// Visible height of a row's selection/highlight rect (centered in the pitch).
+pub const EXPLORER_ROW_VIS_H: f32 = 18.0;
+/// Left inset from the row's indented origin to the label/highlight start
+/// (reserves space for the disclosure chevron glyph).
+pub const EXPLORER_ROW_TEXT_INSET: f32 = 14.0;
+/// Total horizontal reduction applied to a row's width so labels never collide
+/// with the sidebar scrollbar gutter.
+pub const EXPLORER_ROW_W_REDUCTION: f32 = 20.0;
 pub const EXPLORER_HEADER_H: f32 = 22.0;
 pub const EXPLORER_INDENT_PX: f32 = 14.0;
 pub const EXPLORER_MAX_Y_INSET: f32 = 12.0;
@@ -241,7 +250,25 @@ pub fn explorer_cta_button_rect(sidebar_rect: (f32, f32, f32, f32)) -> (f32, f32
     (x, y, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_H)
 }
 
-// ── Helper: compute visible lines from region height ──
+/// Vertical offset (relative to the sidebar panel top) of the first explorer
+/// tree row. Mirrors the row-positioning math in the sidebar builders so
+/// scroll-capacity computation stays consistent with the actual layout.
+pub fn explorer_first_row_offset(has_title: bool) -> f32 {
+    let mut y = SIDEBAR_PAD + SEARCH_BAR_H + SEARCH_TO_DIVIDER_GAP + DIVIDER_SPACE;
+    if has_title {
+        y += EXPLORER_HEADER_H + 4.0;
+    }
+    y
+}
+
+/// Number of explorer rows that fully fit in the sidebar viewport for a given
+/// panel height. Used to clamp the explorer scroll offset and to size the
+/// sidebar scrollbar thumb.
+pub fn explorer_visible_rows(panel_height: f32, has_title: bool) -> usize {
+    let first = explorer_first_row_offset(has_title);
+    let usable = panel_height - EXPLORER_MAX_Y_INSET - first;
+    (usable / EXPLORER_ROW_H).floor().max(0.0) as usize
+}
 
 pub fn visible_lines_from_region(region_h: f32) -> usize {
     let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_Y * 2.0;

@@ -100,6 +100,10 @@ pub struct ShellWorkContent {
     pub explorer_empty_button: Option<String>,
     /// Empty-state message shown when panel is empty without a primary action.
     pub explorer_empty_message: Option<String>,
+    /// First visible explorer row (vertical scroll offset, in rows). Both the
+    /// widget tree (hit targets) and the render blocks read this so scrolling
+    /// stays consistent across the two consumers.
+    pub explorer_scroll_top: usize,
     pub active_file: Option<String>,
     pub terminal_tabs: Option<Vec<String>>,
     /// AI assistant panel content view — built from the current AI projection
@@ -127,6 +131,7 @@ impl ShellWorkContent {
             explorer_panel_title: None,
             explorer_empty_button: None,
             explorer_empty_message: None,
+            explorer_scroll_top: 0,
             active_file,
             terminal_tabs,
             ai_panel_content: None,
