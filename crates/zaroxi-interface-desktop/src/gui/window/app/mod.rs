@@ -28,6 +28,7 @@ and high-level delegation.  Detail lives in:
 */
 
 mod activation;
+pub(crate) mod background_open;
 pub(crate) mod background_parse;
 pub(crate) mod debug;
 mod editor_interaction;
@@ -300,6 +301,14 @@ pub struct GuiApp {
     pub visible_loading_state: bool,
     /// When the latest open was requested, for time-to-viewport accounting.
     pub open_request_at: Option<std::time::Instant>,
+    /// Background worker that materializes large files' ropes off the UI thread.
+    /// Spawned lazily on the first heavy open.
+    pub open_worker: Option<background_open::BackgroundOpenWorker>,
+    /// True while a background open job for the winning token is in flight (no
+    /// buffer committed yet). Keeps the redraw loop polling for the result.
+    pub background_open_pending: bool,
+    /// When the in-flight background open job was scheduled (commit-latency).
+    pub open_worker_started_at: Option<std::time::Instant>,
 }
 
 /// Per-frame shaping budget (ms) used during the open burst. Large enough to
@@ -325,6 +334,14 @@ const LARGE_FILE_BYTE_THRESHOLD: usize = 100_000;
 /// snapshots instead of full-file text.  Above this threshold full-tree-sitter
 /// parsing is too slow to be useful and we degrade to viewport-only plain text.
 pub(crate) const HUGE_FILE_LINE_THRESHOLD: usize = 50_000;
+
+/// At/above this size the rope is materialized on the background open worker
+/// instead of the UI thread, so a heavy open never monopolizes input/render.
+/// Smaller files build in well under a frame and stay fully synchronous (no
+/// placeholder flicker).
+const BACKGROUND_OPEN_LINE_THRESHOLD: usize = HUGE_FILE_LINE_THRESHOLD;
+/// Byte equivalent of the background-open threshold (long-line files).
+const BACKGROUND_OPEN_BYTE_THRESHOLD: usize = 512 * 1024;
 
 impl GuiApp {
     pub fn editor_cursor_line(&self) -> usize {
@@ -457,99 +474,205 @@ impl GuiApp {
             }
         }
 
+        let mut backgrounded = false;
         if let Some(ref body) = wc.editor_body {
-            let open_t = std::time::Instant::now();
-            self.editor_buffer.populate_from_lines(&body.lines, body.cursor_line, body.cursor_col);
-            let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
-            // The freshly loaded content is the saved baseline for dirty tracking.
-            self.saved_buffer_version = self.editor_buffer.buffer_version;
-            // Enter open-settling: the next frame(s) shape the freshly-visible
-            // viewport with the open-burst budget so it completes in one pass
-            // instead of staging across several frames. The burst is tied to the
-            // latest committed token AND only fires for a genuine buffer change,
-            // so re-applying the same file (e.g. a status-message refresh) does
-            // not trigger a loading burst.
-            self.open_settling = buffer_changed;
-            self.open_burst_frames = 0;
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
-            if perf_trace_enabled() || pipeline_trace_enabled() {
-                let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
-                // load_mode: 'degraded' large files render plain + viewport-only;
-                // 'full' files get background syntax. (Streamed/mapped open is a
-                // future phase; rope build is now a single fused pass either way.)
-                let load_mode = if self.large_file_mode { "degraded" } else { "full" };
-                eprintln!(
-                    "ZAROXI_OPEN_TRACE: token={} lines={} bytes={} open_buffer_ms={:.2} load_mode={}",
-                    token,
-                    body.lines.len(),
-                    open_bytes,
-                    open_buffer_ms,
-                    load_mode,
+            let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
+            if Self::should_background_open(&body.lines) {
+                // ── Heavy file: materialize the rope OFF the UI thread ──
+                // The UI thread does only cheap bookkeeping here; the editor keeps
+                // showing the previous content (loading) until the worker's rope
+                // lands in `poll_open_results`. The open burst and committed token
+                // are deferred to that commit-on-ready point.
+                backgrounded = true;
+                if self.open_worker.is_none() {
+                    self.open_worker = Some(background_open::BackgroundOpenWorker::spawn());
+                }
+                if let Some(ref mut w) = self.open_worker {
+                    w.schedule_open(background_open::OpenJob {
+                        token,
+                        lines: body.lines.clone(),
+                        cursor_line: body.cursor_line,
+                        cursor_col: body.cursor_col,
+                    });
+                }
+                self.background_open_pending = true;
+                self.open_worker_started_at = Some(std::time::Instant::now());
+                if perf_trace_enabled() || pipeline_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_OPEN_TRACE: token={} lines={} bytes={} open_buffer_ms=0.00 load_mode=background",
+                        token,
+                        body.lines.len(),
+                        open_bytes,
+                    );
+                }
+                if file_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_OPEN_WORKER_TRACE: token={} started=1 finished=0 cancelled=0 chunks=0 ms=0.00 background_open_pending=1",
+                        token,
+                    );
+                }
+            } else {
+                // ── Small / medium file: synchronous (sub-frame) build ──
+                let open_t = std::time::Instant::now();
+                self.editor_buffer.populate_from_lines(
+                    &body.lines,
+                    body.cursor_line,
+                    body.cursor_col,
                 );
+                let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
+                self.finalize_buffer_commit(buffer_changed);
+                if perf_trace_enabled() || pipeline_trace_enabled() {
+                    // load_mode: 'degraded' large files render plain + viewport-only;
+                    // 'full' files get background syntax.
+                    let load_mode = if self.large_file_mode { "degraded" } else { "full" };
+                    eprintln!(
+                        "ZAROXI_OPEN_TRACE: token={} lines={} bytes={} open_buffer_ms={:.2} load_mode={}",
+                        token,
+                        body.lines.len(),
+                        open_bytes,
+                        open_buffer_ms,
+                        load_mode,
+                    );
+                }
             }
             if self.large_file_mode
                 && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
             {
                 eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={}",
+                    "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={}",
                     body.lines.len(),
                     body.lines.iter().map(|l| l.len()).sum::<usize>(),
+                    backgrounded,
                 );
-            }
-
-            // Spawn background parse worker for off-thread syntax highlighting.
-            if self.parse_worker.is_none() {
-                self.parse_worker = Some(background_parse::BackgroundParseWorker::spawn(
-                    Arc::clone(&self.parser_pool),
-                ));
-            }
-            // Schedule initial background syntax parse.
-            // For large/huge files (>=1000 lines or >=100KB), skip full-document
-            // tree-sitter parsing entirely — viewport-only plain-text fallback
-            // is already active in the render path via `large_file_mode`.
-            if self.large_file_mode {
-                if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "ZAROXI_DEBUG_LARGE_FILE: commit_open SKIPPED bg parse (large_file_mode lines={})",
-                        self.editor_buffer.line_count(),
-                    );
-                }
-            } else if let Some(ref mut worker) = self.parse_worker {
-                // Schedule highlighting on the background worker ONLY. The
-                // worker computes spans off-thread; the event loop keeps polling
-                // via `parse_result_pending()` and applies the result in
-                // `poll_parse_results` a frame or two later, so the file opens
-                // immediately (brief plain-text paint until highlights land).
-                let text = self.editor_buffer.to_string();
-                let version = self.editor_buffer.buffer_version;
-                let language = self.current_language;
-                worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
             }
         }
         self.committed_active_file = wc.active_file.clone();
-        self.committed_open_token = token;
-        self.visible_loading_state = false;
+        if !backgrounded {
+            // Synchronous / no-op commit: this token's buffer is ready now.
+            self.committed_open_token = token;
+            self.visible_loading_state = false;
+            self.background_open_pending = false;
+        }
         // `work_content` was already set to this same `wc` by `request_open`.
+        if !backgrounded {
+            perf_event(
+                "open_document",
+                ev_start,
+                &format!(
+                    "token={} lines={} large_file={} lang={:?}",
+                    token,
+                    self.editor_buffer.line_count(),
+                    self.large_file_mode,
+                    self.current_language,
+                ),
+            );
+            if file_open_trace_enabled() {
+                let ttv =
+                    self.open_request_at.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
+                eprintln!(
+                    "ZAROXI_FILE_OPEN_TRACE: token={} stage=viewport cancelled=0 superseded_by=- time_to_first_viewport_ms={:.2}",
+                    token, ttv,
+                );
+            }
+        }
+    }
+
+    /// Shared finalization after a buffer becomes current (synchronous open or
+    /// background open commit-on-ready): set the saved baseline, arm the open
+    /// burst for a real buffer change, and kick off background syntax for
+    /// non-large files.
+    fn finalize_buffer_commit(&mut self, buffer_changed: bool) {
+        // The freshly loaded content is the saved baseline for dirty tracking.
+        self.saved_buffer_version = self.editor_buffer.buffer_version;
+        // Enter open-settling so the next frame shapes the freshly-visible
+        // viewport in one burst. Only for a genuine buffer change.
+        self.open_settling = buffer_changed;
+        self.open_burst_frames = 0;
+        // Spawn background parse worker for off-thread syntax highlighting.
+        if self.parse_worker.is_none() {
+            self.parse_worker =
+                Some(background_parse::BackgroundParseWorker::spawn(Arc::clone(&self.parser_pool)));
+        }
+        // Large/huge files skip full-document tree-sitter parsing entirely —
+        // viewport-only plain-text fallback is already active via large_file_mode.
+        if self.large_file_mode {
+            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_LARGE_FILE: finalize_buffer_commit SKIPPED bg parse (large_file_mode lines={})",
+                    self.editor_buffer.line_count(),
+                );
+            }
+        } else if let Some(ref mut worker) = self.parse_worker {
+            let text = self.editor_buffer.to_string();
+            let version = self.editor_buffer.buffer_version;
+            let language = self.current_language;
+            worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
+        }
+    }
+
+    /// Commit-on-ready: install a completed background-open rope for the winning
+    /// token. Stale results (a newer open superseded this one) are dropped so no
+    /// old content ever flashes in. No-op when no result is pending.
+    fn poll_open_results(&mut self) {
+        let result = match self.open_worker.as_mut().and_then(|w| w.take_result()) {
+            Some(r) => r,
+            None => return,
+        };
+        if result.token != self.open_token {
+            // Superseded by a newer open: drop without committing.
+            if file_open_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_OPEN_WORKER_TRACE: token={} started=1 finished=1 cancelled=1 chunks={} ms={:.2} stale_open_dropped=1 winning_token={}",
+                    result.token,
+                    result.chunks,
+                    result.build_us as f32 / 1000.0,
+                    self.open_token,
+                );
+            }
+            // If this was the in-flight job we were waiting on and nothing newer
+            // is pending in the worker, clear the pending flag.
+            if self.open_worker.as_ref().map(|w| w.latest_token()).unwrap_or(0) <= result.token {
+                self.background_open_pending = false;
+            }
+            return;
+        }
+
+        // Winning token: install the materialized rope (cheap on the UI thread).
+        self.editor_buffer.install_rope(result.rope, result.cursor_line, result.cursor_col);
+        self.finalize_buffer_commit(true);
+        self.committed_open_token = result.token;
+        self.background_open_pending = false;
+        self.visible_loading_state = false;
+        let commit_latency_ms =
+            self.open_worker_started_at.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
+        let ttv = self.open_request_at.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
         perf_event(
             "open_document",
-            ev_start,
+            self.open_worker_started_at.unwrap_or_else(std::time::Instant::now),
             &format!(
-                "token={} lines={} large_file={} lang={:?}",
-                token,
+                "token={} lines={} large_file={} background=1",
+                result.token,
                 self.editor_buffer.line_count(),
                 self.large_file_mode,
-                self.current_language,
             ),
         );
         if file_open_trace_enabled() {
-            let ttv =
-                self.open_request_at.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
             eprintln!(
-                "ZAROXI_FILE_OPEN_TRACE: token={} stage=viewport cancelled=0 superseded_by=- time_to_first_viewport_ms={:.2}",
-                token, ttv,
+                "ZAROXI_OPEN_WORKER_TRACE: token={} started=1 finished=1 cancelled=0 chunks={} ms={:.2} open_commit_latency_ms={:.2}",
+                result.token,
+                result.chunks,
+                result.build_us as f32 / 1000.0,
+                commit_latency_ms,
+            );
+            eprintln!(
+                "ZAROXI_FILE_OPEN_TRACE: token={} stage=viewport cancelled=0 superseded_by=- first_viewport_after_worker_ms={:.2} time_to_first_viewport_ms={:.2}",
+                result.token, commit_latency_ms, ttv,
             );
         }
+        // Shape the freshly-installed viewport on the next frame.
+        self.invalidate(InvalidationFlags::content());
     }
 
     /// Check whether a file exceeds large-file thresholds and should
@@ -561,6 +684,16 @@ impl GuiApp {
         }
         let byte_count: usize = lines.iter().map(|l| l.len() + 1).sum();
         byte_count > LARGE_FILE_BYTE_THRESHOLD
+    }
+
+    /// Whether this file is heavy enough that its rope should be materialized on
+    /// the background open worker (off the UI thread) rather than synchronously.
+    fn should_background_open(lines: &[String]) -> bool {
+        if lines.len() >= BACKGROUND_OPEN_LINE_THRESHOLD {
+            return true;
+        }
+        let byte_count: usize = lines.iter().map(|l| l.len() + 1).sum();
+        byte_count > BACKGROUND_OPEN_BYTE_THRESHOLD
     }
 
     /// Whether the current file is huge enough that full-document tree-sitter
@@ -1008,6 +1141,9 @@ impl winit::application::ApplicationHandler for GuiApp {
         // Apply any completed background parse result; this may invalidate the
         // UI so freshly parsed highlight spans become visible.
         self.poll_parse_results();
+        // Commit a completed background-open rope (winning token only); this
+        // invalidates the UI so the freshly materialized buffer paints.
+        self.poll_open_results();
 
         if self.requested_initial_frame {
             self.invalidate(InvalidationFlags::content());
@@ -1028,7 +1164,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.frame_scheduler.next_deadline(now),
                 ));
             }
-        } else if self.picker_in_flight || self.parse_result_pending() {
+        } else if self.picker_in_flight
+            || self.parse_result_pending()
+            || self.background_open_pending
+        {
             // Background work is in flight; poll on a relaxed cadence so the
             // result is applied promptly without pinning a CPU core.
             active_loop.set_control_flow(ControlFlow::WaitUntil(now + BACKGROUND_POLL_INTERVAL));
@@ -1218,6 +1357,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // anything else this frame. Only the latest token commits, so a
                 // rapid explorer switch never loads a superseded file.
                 self.commit_open();
+                // Commit a completed background open (winning token only).
+                self.poll_open_results();
 
                 // Apply any completed background parse result before shaping the
                 // editor content for this frame so fresh highlight spans are

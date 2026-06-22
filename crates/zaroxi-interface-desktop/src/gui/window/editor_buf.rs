@@ -516,6 +516,21 @@ impl EditorBufferState {
         self.selection_active = false;
         self.last_edit_line_range = None; // full replacement
     }
+
+    /// Install a pre-built rope (e.g. materialized off-thread by the background
+    /// open worker) as the buffer contents. Performs only the cheap caret/state
+    /// setup on the UI thread; the expensive `Rope::from_lines` pass already ran
+    /// on the worker. Behaviour is otherwise identical to `populate_from_lines`.
+    pub fn install_rope(&mut self, rope: Rope, cursor_line: usize, cursor_col: usize) {
+        self.buffer_version += 1;
+        self.rope = rope;
+        self.caret = self.rope.line_col_to_char_index(cursor_line, cursor_col);
+        let (_, col) = self.rope.char_index_to_line_col(self.caret);
+        self.preferred_column = col;
+        self.selection_anchor = None;
+        self.selection_active = false;
+        self.last_edit_line_range = None; // full replacement
+    }
 }
 
 #[cfg(test)]

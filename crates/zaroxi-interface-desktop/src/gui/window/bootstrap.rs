@@ -114,6 +114,9 @@ pub fn run_shell_window(
         file_switch_count: 0,
         visible_loading_state: false,
         open_request_at: None,
+        open_worker: None,
+        background_open_pending: false,
+        open_worker_started_at: None,
     };
 
     let run_result = event_loop.run_app(&mut app);
