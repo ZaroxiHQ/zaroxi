@@ -53,11 +53,10 @@ impl AiPanel {
         );
         let content = spans.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>().join("");
 
-        let title = data
-            .ai_title
-            .clone()
-            .or_else(|| data.ai_subtitle.clone())
-            .unwrap_or_else(|| "Assistant".to_string());
+        // Avoid repeating the panel's "AI Assistant" header label in the body.
+        // When there is no real session content, leave the body title empty so
+        // the right pane shows a single heading, not a duplicate "Assistant".
+        let title = data.ai_title.clone().or_else(|| data.ai_subtitle.clone()).unwrap_or_default();
 
         UiBlock {
             id: r.id.to_string(),

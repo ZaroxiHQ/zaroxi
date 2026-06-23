@@ -224,6 +224,20 @@ impl ShellFrame {
             ShellRegion { id: "status_bar", name: "status_bar", rect: tr(layout.status_bar_rect) },
         ];
 
+        // Layout-ownership trace: ShellFrame::new runs only when the geometry
+        // changes (init / resize), so this prints each region's id, role, and
+        // rect exactly when the layout is (re)computed.
+        if std::env::var("ZAROXI_LAYOUT_TRACE").as_deref() == Ok("1") {
+            eprintln!("ZAROXI_LAYOUT_TRACE: window={}x{}", size.width, size.height);
+            for r in &regions {
+                let role = crate::gui::region_dispatch::region_role(r.id);
+                eprintln!(
+                    "ZAROXI_LAYOUT_TRACE:   id={:<20} role={:?} rect=(x={} y={} w={} h={})",
+                    r.id, role, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
+                );
+            }
+        }
+
         ShellFrame { size, theme, regions, work_content: None }
     }
 

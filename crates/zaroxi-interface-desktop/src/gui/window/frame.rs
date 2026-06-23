@@ -300,7 +300,24 @@ pub fn compose_blocks(
             PanelRole::ContentArea => {
                 blocks.push(EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data));
             }
-            PanelRole::MinimapLane => blocks.push(EditorPanel::build_minimap_block(r, tokens)),
+            PanelRole::MinimapLane => {
+                let rendered = EditorPanel::build_minimap_block(r, tokens);
+                if std::env::var("ZAROXI_MINIMAP_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_MINIMAP_TRACE: region={} rect=(x={} y={} w={} h={}) rendered={} owner=editor lane={}",
+                        r.id,
+                        r.rect.x,
+                        r.rect.y,
+                        r.rect.width,
+                        r.rect.height,
+                        rendered.is_some(),
+                        if rendered.is_some() { "minimap" } else { "none" },
+                    );
+                }
+                if let Some(block) = rendered {
+                    blocks.push(block);
+                }
+            }
             PanelRole::BottomPanel => blocks.push(EditorPanel::build_bottom_panel_block(
                 r,
                 tokens,

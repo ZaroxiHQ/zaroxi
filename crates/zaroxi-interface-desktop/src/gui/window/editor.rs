@@ -145,14 +145,17 @@ impl EditorPanel {
         }
     }
 
-    pub fn build_minimap_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
-        UiBlock {
-            id: r.id.to_string(),
-            rect: r.into(),
-            header_color: Some(tokens.editor_content_background.adjust_brightness(0.95).to_array()),
-            header_only: true,
-            ..Default::default()
-        }
+    /// Build the minimap lane block, or `None` when there is no minimap content.
+    ///
+    /// The desktop shell minimap has no symbol content of its own — real semantic
+    /// minimap symbols live in the cockpit overlay (`SemanticMinimap`). Rather
+    /// than paint an ambiguous tinted placeholder lane wedged between the editor
+    /// and the AI panel (the source of the "misplaced purple lane" report), the
+    /// shell renders **nothing** here, leaving a clean separation gap. When real
+    /// shell-level minimap content is wired, this returns `Some` aligned to the
+    /// editor content rect so it reads as part of the editor, not the AI pane.
+    pub fn build_minimap_block(_r: &ShellRegion, _tokens: &StyleTokens) -> Option<UiBlock> {
+        None
     }
 
     pub fn build_bottom_panel_block(

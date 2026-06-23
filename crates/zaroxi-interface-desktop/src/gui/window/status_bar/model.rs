@@ -146,6 +146,9 @@ pub struct StatusModel {
     pub diagnostics: Option<DiagnosticCounts>,
     /// Whether an editable file is currently active.
     pub has_file: bool,
+    /// Active document's display name (basename), when a file is open. Drives the
+    /// always-present document-identity segment so the bar is never blank-looking.
+    pub file_name: Option<String>,
 }
 
 impl Default for StatusModel {
@@ -164,6 +167,7 @@ impl Default for StatusModel {
             language: None,
             diagnostics: None,
             has_file: false,
+            file_name: None,
         }
     }
 }
@@ -188,8 +192,16 @@ impl StatusModel {
         // Diagnostics are only surfaced when a provider actually reports some.
         let diagnostics = inputs.diagnostics.filter(|d| d.any());
 
+        // Treat a blank/whitespace workspace name as "no workspace" so the
+        // status bar shows the clean "No Workspace" fallback rather than an
+        // invisible empty segment (a root cause of the bar reading as blank).
+        let workspace =
+            inputs.workspace_name.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string());
+
+        let file_name = inputs.file_label.map(file_basename);
+
         Self {
-            workspace: inputs.workspace_name.map(|s| s.to_string()),
+            workspace,
             document_state,
             modified: has_file && inputs.modified,
             readonly: has_file && inputs.readonly,
@@ -202,8 +214,14 @@ impl StatusModel {
             language,
             diagnostics,
             has_file,
+            file_name,
         }
     }
+}
+
+/// Extract the display basename from an active-file label (path or name).
+fn file_basename(path: &str) -> String {
+    path.rsplit(['/', '\\']).next().filter(|s| !s.is_empty()).unwrap_or(path).to_string()
 }
 
 /// Map an active file path to a short, human-friendly language/file-type label.

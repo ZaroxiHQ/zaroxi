@@ -24,6 +24,11 @@ fn render_debug_enabled() -> bool {
     std::env::var("ZAROXI_STATUS_RENDER_DEBUG").as_deref() == Ok("1")
 }
 
+/// Whether the status composition trace (`ZAROXI_STATUS_TRACE=1`) is enabled.
+fn status_trace_enabled() -> bool {
+    std::env::var("ZAROXI_STATUS_TRACE").as_deref() == Ok("1")
+}
+
 /// Renders the status bar region from a [`StatusModel`].
 pub struct StatusView;
 
@@ -48,8 +53,13 @@ impl StatusView {
 
         let zones = zones(model);
         // Left group → block title (left-aligned). Joined for display; the engine
-        // renders the (header-only) strip's title text.
-        let left_text = zones.left_segments.join("  ");
+        // renders the (header-only) strip's title text. Guaranteed non-empty so
+        // the strip never renders as a visually blank band.
+        let mut left_text = zones.left_segments.join("  ");
+        let used_fallback = left_text.trim().is_empty();
+        if used_fallback {
+            left_text = "No file".to_string();
+        }
 
         // Right group → priority-ordered segments carried in `content_spans`. The
         // renderer right-aligns them and drops the lowest-priority (trailing) ones
@@ -77,6 +87,21 @@ impl StatusView {
             eprintln!(
                 "ZAROXI_STATUS_RENDER_DEBUG[view]: left_title={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
                 left_text, rect.x, rect.y, rect.w, rect.h
+            );
+        }
+
+        if status_trace_enabled() {
+            // Real data = an actual document and/or workspace is reflected, as
+            // opposed to the pure "No file"/"No Workspace" fallback strip.
+            let has_real_data = model.has_file || model.workspace.is_some();
+            eprintln!(
+                "ZAROXI_STATUS_TRACE: real_data={} fallback={} has_file={} workspace={:?} left={:?} right_segments={}",
+                has_real_data,
+                used_fallback,
+                model.has_file,
+                model.workspace,
+                left_text,
+                content_spans.as_ref().map(|s| s.len()).unwrap_or(0),
             );
         }
 
@@ -140,13 +165,34 @@ mod tests {
         }
     }
 
-    /// With no file open the bar stays quiet: workspace state only, no editor
-    /// position or file-format noise.
+    /// With no file open the bar stays quiet but still informative: it shows the
+    /// workspace + document-identity fallbacks (never blank), and no editor
+    /// position or file-format noise on the right.
     #[test]
-    fn no_file_renders_quiet_zones() {
+    fn no_file_renders_informative_fallback_zones() {
         let z = zones(&StatusModel::default());
-        assert_eq!(z.left_segments, vec!["No Workspace".to_string()]);
+        assert_eq!(z.left_segments, vec!["No Workspace".to_string(), "No file".to_string()]);
         assert!(z.right_segments.is_empty(), "no-file bar must not show editor/format fields");
+    }
+
+    /// User-visible guarantee: the status strip is never a visually empty band.
+    /// Even with completely default/empty data the rendered title carries stable
+    /// fallback text.
+    #[test]
+    fn build_block_title_is_never_blank() {
+        let region = crate::gui::ShellRegion {
+            id: "status_bar",
+            name: "status_bar",
+            rect: crate::gui::Rect { x: 0, y: 800, width: 1200, height: 26 },
+        };
+        let tokens = zaroxi_core_engine_style::test_utils::test_tokens_dark();
+        let block = super::StatusView::build_block(&region, &tokens, &StatusModel::default());
+        assert!(!block.title.trim().is_empty(), "status title must never be blank");
+        assert!(
+            block.title.contains("No file") || block.title.contains("No Workspace"),
+            "empty-data status must show a stable fallback; title: {:?}",
+            block.title
+        );
     }
 
     /// The final `UiBlock` carries the LEFT group in `title` (left-aligned slot)
