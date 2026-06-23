@@ -103,7 +103,13 @@ impl Default for ShellLayoutController {
 
 // ── Conversion: EditorShellLayout → ShellRegion[] ──────────────────────
 
-fn build_shell_regions_from_layout(l: &EditorShellLayout) -> Vec<ShellRegion> {
+/// Build the canonical shell region list from a computed layout.
+///
+/// This is the **single source of truth** for shell regions: the live render
+/// loop reads it via [`ShellLayoutController::shell_regions`], and `ShellFrame`
+/// delegates to it too, so there is exactly one region builder (no duplicated
+/// "second shell").
+pub(crate) fn build_shell_regions_from_layout(l: &EditorShellLayout) -> Vec<ShellRegion> {
     let tr = |r: (f32, f32, f32, f32)| Rect {
         x: r.0.max(0.0) as u32,
         y: r.1.max(0.0) as u32,
@@ -111,7 +117,7 @@ fn build_shell_regions_from_layout(l: &EditorShellLayout) -> Vec<ShellRegion> {
         height: r.3.max(0.0) as u32,
     };
 
-    vec![
+    let regions = vec![
         ShellRegion { id: "toolbar", name: "editor_header_toolbar", rect: tr(l.toolbar_rect) },
         ShellRegion { id: "app_rail", name: "app_rail", rect: tr(l.rail_rect) },
         ShellRegion { id: "sidebar", name: "sidebar", rect: tr(l.sidebar_rect) },
@@ -123,7 +129,8 @@ fn build_shell_regions_from_layout(l: &EditorShellLayout) -> Vec<ShellRegion> {
             name: "editor_content",
             rect: tr(l.editor_content_rect),
         },
-        ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: tr(l.minimap_rect) },
+        // No legacy minimap_lane region: the overview/minimap surface is owned by
+        // the cockpit/widget layer (editor-edge), not a dead shell sibling column.
         ShellRegion {
             id: "center_bottom_panel",
             name: "center_bottom_panel",
@@ -145,7 +152,42 @@ fn build_shell_regions_from_layout(l: &EditorShellLayout) -> Vec<ShellRegion> {
             rect: tr(l.assistant_content_rect),
         },
         ShellRegion { id: "status_bar", name: "status_bar", rect: tr(l.status_bar_rect) },
-    ]
+    ];
+
+    // Ownership instrumentation. This builder is the single, canonical region
+    // source (live loop + ShellFrame), and runs on each layout (re)compute, so
+    // it is the authoritative place to make default-vs-fallback ownership explicit.
+    let legacy = crate::gui::window::cockpit::legacy_shell_surfaces();
+    let cockpit_flag = crate::gui::window::cockpit::cockpit_enabled();
+    let status_owner = if legacy { "legacy" } else { "cockpit" };
+    let overview_owner = if legacy { "none" } else { "cockpit" };
+
+    if std::env::var("ZAROXI_LAYOUT_TRACE").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_LAYOUT_TRACE: window={}x{} status_owner={} overview_owner={} legacy_fallback_enabled={} cockpit_flag={} minimap_lane_reserved=false",
+            l.window_size.0 as u32,
+            l.window_size.1 as u32,
+            status_owner,
+            overview_owner,
+            legacy,
+            cockpit_flag,
+        );
+        for r in &regions {
+            let role = crate::gui::region_dispatch::region_role(r.id);
+            eprintln!(
+                "ZAROXI_LAYOUT_TRACE:   id={:<20} role={:?} rect=(x={} y={} w={} h={})",
+                r.id, role, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
+            );
+        }
+    }
+    if std::env::var("ZAROXI_MINIMAP_TRACE").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_MINIMAP_TRACE: overview_owner={} minimap_lane_reserved=false editor_overview_nested={} legacy_fallback_enabled={}",
+            overview_owner, !legacy, legacy,
+        );
+    }
+
+    regions
 }
 
 // ── Conversion: EditorShellLayout → ShellLayout (engine) ───────────────
@@ -253,7 +295,6 @@ mod tests {
         let l = compute_layout(1400.0, 900.0);
         assert!(l.sidebar_rect.2 >= 250.0, "sidebar should be near full at 1400px");
         assert!(l.assistant_rect.2 >= 280.0, "assistant should be near full at 1400px");
-        assert!(l.minimap_rect.2 > 0.0, "minimap should be visible at 1400px");
     }
 
     #[test]

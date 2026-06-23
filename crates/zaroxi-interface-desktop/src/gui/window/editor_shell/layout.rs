@@ -33,7 +33,6 @@ pub struct EditorShellLayout {
     pub breadcrumb_rect: (f32, f32, f32, f32),
     pub gutter_rect: (f32, f32, f32, f32),
     pub editor_content_rect: (f32, f32, f32, f32),
-    pub minimap_rect: (f32, f32, f32, f32),
     pub terminal_rect: (f32, f32, f32, f32),
     pub assistant_rect: (f32, f32, f32, f32),
     pub assistant_header_rect: (f32, f32, f32, f32),
@@ -50,7 +49,6 @@ struct Nodes {
     breadcrumb: NodeId,
     gutter: NodeId,
     editor_content: NodeId,
-    minimap: NodeId,
     terminal: NodeId,
     assistant: NodeId,
     status_bar: NodeId,
@@ -59,9 +57,8 @@ struct Nodes {
 // ── Layout constants (from centralised constants module) ──
 
 use super::constants::{
-    AI_HEADER_H, ASSISTANT_BASIS_W, BREADCRUMB_H, EDITOR_MIN_H, EDITOR_MIN_W, GUTTER_W,
-    MINIMAP_BASIS_W, RAIL_W, SIDEBAR_BASIS_W, STATUS_H, TAB_STRIP_H, TERMINAL_BASIS_H,
-    TERMINAL_MIN_H, TITLEBAR_H,
+    AI_HEADER_H, ASSISTANT_BASIS_W, BREADCRUMB_H, EDITOR_MIN_H, EDITOR_MIN_W, GUTTER_W, RAIL_W,
+    SIDEBAR_BASIS_W, STATUS_H, TAB_STRIP_H, TERMINAL_BASIS_H, TERMINAL_MIN_H, TITLEBAR_H,
 };
 
 /// Build a Taffy tree for the IDE shell layout and compute the final rects.
@@ -149,16 +146,6 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
         )
         .unwrap();
 
-    // ── Minimap (shrinks before editor, basis 60) ──
-    let minimap_style = Style {
-        flex_basis: length(MINIMAP_BASIS_W),
-        min_size: Size { width: length(0.0), height: auto() },
-        max_size: Size { width: length(MINIMAP_BASIS_W), height: auto() },
-        flex_shrink: 2.0,
-        ..Default::default()
-    };
-    let minimap = taffy.new_leaf(minimap_style).unwrap();
-
     // ── Assistant pane (shrinks before editor) ──
     let assistant_style = Style {
         flex_basis: length(ASSISTANT_BASIS_W),
@@ -169,7 +156,10 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     };
     let assistant = taffy.new_leaf(assistant_style).unwrap();
 
-    // ── Main content row: rail | sidebar | editor-col | minimap | assistant ──
+    // ── Main content row: rail | sidebar | editor-col | assistant ──
+    // (No dedicated minimap sibling column: the overview/minimap surface is
+    // owned by the cockpit/widget layer, rendered at the editor edge, so the
+    // assistant abuts the editor column with no reserved dead lane.)
     let main_row = taffy
         .new_with_children(
             Style {
@@ -178,7 +168,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
                 min_size: Size { width: auto(), height: length(80.0) },
                 ..Default::default()
             },
-            &[rail, sidebar, editor_col, minimap, assistant],
+            &[rail, sidebar, editor_col, assistant],
         )
         .unwrap();
 
@@ -214,7 +204,6 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
         breadcrumb,
         gutter,
         editor_content,
-        minimap,
         terminal,
         assistant,
         status_bar: status,
@@ -234,7 +223,6 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     let crumb = pos(nodes.breadcrumb);
     let gut = pos(nodes.gutter);
     let content = pos(nodes.editor_content);
-    let mini = pos(nodes.minimap);
     let term = pos(nodes.terminal);
     let asst = pos(nodes.assistant);
     let stat = pos(nodes.status_bar);
@@ -252,7 +240,6 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
         breadcrumb_rect: crumb,
         gutter_rect: gut,
         editor_content_rect: content,
-        minimap_rect: mini,
         terminal_rect: term,
         assistant_rect: asst,
         assistant_header_rect: asst_header,

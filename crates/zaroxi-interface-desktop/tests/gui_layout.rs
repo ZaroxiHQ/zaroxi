@@ -9,12 +9,13 @@ fn canonical_layout_contains_expected_regions() {
     let lines = shell.render_lines(Some(&comp));
 
     // Check that all required region ids/names appear in the transcript.
+    // Note: no "minimap_lane" — the legacy minimap sibling column was removed;
+    // the overview/minimap is now cockpit/widget-owned at the editor edge.
     let expected = [
         "app_rail",
         "sidebar",
         "editor_header",
         "editor_content",
-        "minimap_lane",
         "bottom_dock",
         "ai_panel_header",
         "ai_panel_content",

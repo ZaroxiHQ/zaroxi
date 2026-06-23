@@ -78,9 +78,29 @@ pub fn cockpit_tokens(theme: ZaroxiTheme, system_is_dark: bool) -> CockpitTokens
     }
 }
 
-/// Whether cockpit scene building is enabled (`ZAROXI_COCKPIT=1`).
+/// Legacy `ZAROXI_COCKPIT` flag. Retained for compatibility/diagnostics only —
+/// it no longer gates the desired UI. The cockpit/widget status + overview
+/// surfaces are now the **default** ownership (see [`cockpit_surfaces_active`]),
+/// so the desired UI appears without any env var.
 pub fn cockpit_enabled() -> bool {
     matches!(std::env::var("ZAROXI_COCKPIT").as_deref(), Ok("1"))
+}
+
+/// Whether the explicit legacy-shell fallback is requested
+/// (`ZAROXI_LEGACY_SHELL_SURFACES=1`). This is the migration safety switch: when
+/// set, the legacy shell status surface owns the bottom bar and the cockpit
+/// overlay surfaces are suppressed. Default (unset) = the new cockpit path.
+pub fn legacy_shell_surfaces() -> bool {
+    matches!(std::env::var("ZAROXI_LEGACY_SHELL_SURFACES").as_deref(), Ok("1"))
+}
+
+/// Whether the cockpit/widget-owned surfaces (status bar + overview/minimap) are
+/// the active owners. This is the **default** — true unless the legacy fallback
+/// is explicitly enabled. It is the single predicate the render loop and the
+/// shell composition use to guarantee mutual exclusivity (exactly one owner per
+/// surface, never both, never none).
+pub fn cockpit_surfaces_active() -> bool {
+    !legacy_shell_surfaces()
 }
 
 /// Build the breadcrumb from live editor state: the file basename plus the

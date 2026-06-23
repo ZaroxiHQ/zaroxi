@@ -2755,11 +2755,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     }
                                 }
                                 // Cockpit overlay (vello widgets): build the
-                                // WidgetTree scene from app state when
-                                // ZAROXI_COCKPIT=1. Putting it on the surface is
-                                // the feature-gated vello_pipeline composite
-                                // step; default frames are byte-identical.
-                                if super::cockpit::cockpit_enabled() {
+                                // WidgetTree scene from app state. This is now the
+                                // DEFAULT status + overview owner — no longer gated
+                                // behind ZAROXI_COCKPIT. It is suppressed only when
+                                // the explicit legacy fallback
+                                // (ZAROXI_LEGACY_SHELL_SURFACES=1) is requested, so
+                                // exactly one owner is active at a time.
+                                if super::cockpit::cockpit_surfaces_active() {
                                     let tokens = super::cockpit::cockpit_tokens(
                                         self.theme_mode,
                                         system_is_dark,

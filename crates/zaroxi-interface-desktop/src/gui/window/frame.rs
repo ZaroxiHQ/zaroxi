@@ -301,22 +301,9 @@ pub fn compose_blocks(
                 blocks.push(EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data));
             }
             PanelRole::MinimapLane => {
-                let rendered = EditorPanel::build_minimap_block(r, tokens);
-                if std::env::var("ZAROXI_MINIMAP_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "ZAROXI_MINIMAP_TRACE: region={} rect=(x={} y={} w={} h={}) rendered={} owner=editor lane={}",
-                        r.id,
-                        r.rect.x,
-                        r.rect.y,
-                        r.rect.width,
-                        r.rect.height,
-                        rendered.is_some(),
-                        if rendered.is_some() { "minimap" } else { "none" },
-                    );
-                }
-                if let Some(block) = rendered {
-                    blocks.push(block);
-                }
+                // No legacy shell minimap surface. The overview/minimap is owned
+                // by the cockpit/widget layer (editor-edge). No shell region maps
+                // to this role anymore; the arm exists only for match exhaustiveness.
             }
             PanelRole::BottomPanel => blocks.push(EditorPanel::build_bottom_panel_block(
                 r,
@@ -329,7 +316,21 @@ pub fn compose_blocks(
                 blocks.push(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
             }
             PanelRole::StatusBar => {
-                blocks.push(StatusView::build_block(r, tokens, &ctx.status_bar_data));
+                // Ownership: the cockpit/widget status bar is the default owner.
+                // The legacy shell status block renders ONLY under the explicit
+                // legacy fallback, so exactly one status surface is ever active
+                // (never both; the cockpit overlay covers the default case).
+                let legacy = super::cockpit::legacy_shell_surfaces();
+                if std::env::var("ZAROXI_STATUS_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_STATUS_TRACE: status_owner={} legacy_fallback_enabled={}",
+                        if legacy { "legacy" } else { "cockpit" },
+                        legacy,
+                    );
+                }
+                if legacy {
+                    blocks.push(StatusView::build_block(r, tokens, &ctx.status_bar_data));
+                }
             }
         };
     }

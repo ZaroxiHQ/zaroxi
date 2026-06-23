@@ -170,73 +170,13 @@ impl ShellFrame {
     pub fn new(size: Size, _resolved_theme: zaroxi_interface_theme::theme::ZaroxiTheme) -> Self {
         let theme = Theme::from_variant(_resolved_theme);
 
+        // Single source of truth: region construction is delegated to the layout
+        // controller's builder, so there is exactly one shell region builder (the
+        // live render loop uses the same function). No duplicate region list here.
         let layout =
             crate::gui::window::editor_shell::compute_layout(size.width as f32, size.height as f32);
-
-        let tr = |r: (f32, f32, f32, f32)| Rect {
-            x: r.0.max(0.0) as u32,
-            y: r.1.max(0.0) as u32,
-            width: r.2.max(0.0) as u32,
-            height: r.3.max(0.0) as u32,
-        };
-
-        let regions = vec![
-            ShellRegion {
-                id: "toolbar",
-                name: "editor_header_toolbar",
-                rect: tr(layout.toolbar_rect),
-            },
-            ShellRegion { id: "app_rail", name: "app_rail", rect: tr(layout.rail_rect) },
-            ShellRegion { id: "sidebar", name: "sidebar", rect: tr(layout.sidebar_rect) },
-            ShellRegion {
-                id: "editor_tabs",
-                name: "editor_tabs",
-                rect: tr(layout.editor_tabs_rect),
-            },
-            ShellRegion { id: "breadcrumb", name: "breadcrumb", rect: tr(layout.breadcrumb_rect) },
-            ShellRegion { id: "gutter_lane", name: "gutter_lane", rect: tr(layout.gutter_rect) },
-            ShellRegion {
-                id: "editor_content",
-                name: "editor_content",
-                rect: tr(layout.editor_content_rect),
-            },
-            ShellRegion { id: "minimap_lane", name: "minimap_lane", rect: tr(layout.minimap_rect) },
-            ShellRegion {
-                id: "center_bottom_panel",
-                name: "center_bottom_panel",
-                rect: tr(layout.terminal_rect),
-            },
-            ShellRegion {
-                id: "bottom_dock",
-                name: "bottom_dock",
-                rect: Rect { x: 0, y: 0, width: 0, height: 0 },
-            },
-            ShellRegion {
-                id: "ai_panel_header",
-                name: "ai_panel_header",
-                rect: tr(layout.assistant_header_rect),
-            },
-            ShellRegion {
-                id: "ai_panel_content",
-                name: "ai_panel_content",
-                rect: tr(layout.assistant_content_rect),
-            },
-            ShellRegion { id: "status_bar", name: "status_bar", rect: tr(layout.status_bar_rect) },
-        ];
-
-        // Layout-ownership trace: ShellFrame::new runs only when the geometry
-        // changes (init / resize), so this prints each region's id, role, and
-        // rect exactly when the layout is (re)computed.
-        if std::env::var("ZAROXI_LAYOUT_TRACE").as_deref() == Ok("1") {
-            eprintln!("ZAROXI_LAYOUT_TRACE: window={}x{}", size.width, size.height);
-            for r in &regions {
-                let role = crate::gui::region_dispatch::region_role(r.id);
-                eprintln!(
-                    "ZAROXI_LAYOUT_TRACE:   id={:<20} role={:?} rect=(x={} y={} w={} h={})",
-                    r.id, role, r.rect.x, r.rect.y, r.rect.width, r.rect.height,
-                );
-            }
-        }
+        let regions =
+            crate::gui::window::editor_shell::controller::build_shell_regions_from_layout(&layout);
 
         ShellFrame { size, theme, regions, work_content: None }
     }
@@ -314,7 +254,6 @@ mod tests {
         let sidebar = find(PanelRole::SidePanel);
         let gutter = find(PanelRole::GutterLane);
         let editor = find(PanelRole::ContentArea);
-        let minimap = find(PanelRole::MinimapLane);
         let ai = find(PanelRole::AuxiliaryPanelContent);
 
         // Check no gaps between adjacent regions in x-order
@@ -328,37 +267,25 @@ mod tests {
             assert_eq!(sidebar.x + sidebar.width, editor.x, "sidebar/editor gap");
         }
 
-        // Minimap sits between editor content and AI panel (or has zero width)
-        if minimap.width > 0 {
-            assert_eq!(editor.x + editor.width, minimap.x, "editor/minimap gap");
-            assert_eq!(minimap.x + minimap.width, ai.x, "minimap/ai gap");
-        } else {
-            assert_eq!(editor.x + editor.width, ai.x, "editor/ai gap");
-        }
+        // No minimap lane: the AI panel abuts the editor content directly, with
+        // no dead reserved column between them.
+        assert_eq!(editor.x + editor.width, ai.x, "editor/ai gap (no dead minimap lane)");
     }
 
-    /// At narrow widths, the minimap shrinks and sidebar contracts.
+    /// The shell exposes no legacy minimap-lane region (overview is cockpit-owned),
+    /// so the AI panel abuts the editor content with no dead reserved lane.
     #[test]
-    fn minimap_hidden_at_narrow_widths() {
-        let shell = ShellFrame::new(
-            Size { width: 700, height: 400 },
-            zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
-        );
-        let minimap =
-            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::MinimapLane).unwrap();
-        assert!(
-            minimap.rect.width <= 60,
-            "minimap should shrink at 700px, got {}",
-            minimap.rect.width
-        );
-
-        let sidebar =
-            shell.regions.iter().find(|r| region_role(r.id) == PanelRole::SidePanel).unwrap();
-        assert!(
-            sidebar.rect.width < 250,
-            "sidebar should shrink at 700px, got {}",
-            sidebar.rect.width
-        );
+    fn no_legacy_minimap_lane_region() {
+        for &(w, h) in &[(1200u32, 800u32), (700, 400)] {
+            let shell = ShellFrame::new(
+                Size { width: w, height: h },
+                zaroxi_interface_theme::theme::ZaroxiTheme::Dark,
+            );
+            assert!(
+                shell.regions.iter().all(|r| region_role(r.id) != PanelRole::MinimapLane),
+                "no shell region should map to the legacy MinimapLane role (at {w}x{h})"
+            );
+        }
     }
 
     /// Sidebar shrinks significantly at very narrow shells.
