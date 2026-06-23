@@ -70,6 +70,7 @@ members = [
   "crates/zaroxi-core-engine-test",
   "crates/zaroxi-core-engine-text",
   "crates/zaroxi-core-engine-ui",
+  "crates/zaroxi-interface-widgets",
   "crates/zaroxi-core-engine-view",
   "crates/zaroxi-core-engine-window",
   "crates/zaroxi-core-event",
@@ -232,6 +233,7 @@ zaroxi-core-engine-render = { path = "crates/zaroxi-core-engine-render" }
 zaroxi-core-engine-render-backend = { path = "crates/zaroxi-core-engine-render-backend" }
 zaroxi-core-engine-window = { path = "crates/zaroxi-core-engine-window" }
 zaroxi-core-engine-ui = { path = "crates/zaroxi-core-engine-ui" }
+zaroxi-interface-widgets = { path = "crates/zaroxi-interface-widgets" }
 zaroxi-core-editor-buffer = { path = "crates/zaroxi-core-editor-buffer" }
 zaroxi-domain-buffer = { path = "crates/zaroxi-domain-buffer" }
 zaroxi-interface-desktop = { path = "crates/zaroxi-interface-desktop" }

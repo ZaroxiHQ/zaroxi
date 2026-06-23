@@ -5198,6 +5198,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zaroxi-interface-widgets"
+version = "0.1.0"
+dependencies = [
+ "zaroxi-interface-theme",
+]
+
+[[package]]
 name = "zaroxi-kernel-async"
 version = "0.1.0"
 

@@ -1,0 +1,13 @@
+[package]
+name = "zaroxi-interface-widgets"
+version = "0.1.0"
+edition = "2024"
+description = "Zaroxi cockpit UI widgets: vello Scene composition, taffy layout, typed themes."
+license = "MIT"
+
+[dependencies]
+# Themes are owned by the theme crate (source of truth); widgets only consume them.
+zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
+
+[features]
+default = []
