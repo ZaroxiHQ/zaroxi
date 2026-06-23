@@ -5,6 +5,7 @@ pub mod panel;
 pub mod ports;
 pub mod service;
 pub mod tasks;
+pub mod trace;
 
 /// Prelude for convenient imports used by outer composition and tests.
 /// Note: do not re-export `mock` here to avoid exposing infra test adapters

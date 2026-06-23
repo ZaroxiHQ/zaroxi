@@ -41,9 +41,58 @@ pub struct AiRequest {
     pub content_snapshot: String,
 }
 
-/// AiClient port: async request/response.
+/// One item in a streamed AI response.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AiStreamItem {
+    /// A streamed token (model output chunk).
+    Token(String),
+    /// End-of-stream marker.
+    Done,
+}
+
+/// AiClient port: async request/response, with an optional streaming variant.
 pub trait AiClient: Send + Sync {
+    /// Non-streaming request: resolves to the full response text.
     fn request(&self, req: AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>>;
+
+    /// Streaming request: drives `req` and pushes [`AiStreamItem`]s into `tx`
+    /// (one or more `Token`s followed by exactly one `Done`).
+    ///
+    /// The default implementation adapts a non-streaming [`AiClient::request`]
+    /// into a stream by tokenizing the full response, so every existing backend
+    /// (including the mock) becomes streamable without changes. Backends with
+    /// native streaming should override this to emit tokens as they arrive.
+    fn request_stream(
+        &self,
+        req: AiRequest,
+        tx: tokio::sync::mpsc::UnboundedSender<AiStreamItem>,
+    ) -> BoxFuture<'static, Result<(), AiError>> {
+        // `request` returns a 'static future (it does not borrow self), so it
+        // can be moved into the spawned/awaited streaming future.
+        let fut = self.request(req);
+        Box::pin(async move {
+            let resp = fut.await?;
+            for token in tokenize_for_stream(&resp.text) {
+                // Ignore send errors: a dropped receiver just cancels streaming.
+                if tx.send(AiStreamItem::Token(token)).is_err() {
+                    return Ok(());
+                }
+            }
+            let _ = tx.send(AiStreamItem::Done);
+            Ok(())
+        })
+    }
+}
+
+/// Split text into coarse "tokens" (whitespace-preserving word chunks) for the
+/// default streaming adapter. Not a real tokenizer — just enough to exercise
+/// the streaming path and produce a meaningful tokens/sec for non-streaming
+/// backends.
+pub fn tokenize_for_stream(text: &str) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    text.split_inclusive(char::is_whitespace).map(|s| s.to_string()).collect()
 }
 
 pub type DynAiClient = Arc<dyn AiClient>;

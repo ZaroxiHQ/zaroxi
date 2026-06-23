@@ -9,6 +9,7 @@ use zaroxi_kernel_types::Id;
 
 /// Re-export port traits used by infra adapters (AiClient trait lives in crate::ports).
 use crate::ports::{AiClient, AiRequest};
+use crate::trace::AiTracer;
 
 /// AI service for handling AI-related operations and holding pending proposals.
 pub struct AiService {
@@ -116,6 +117,106 @@ impl AiService {
         Ok(proposal)
     }
 
+    /// Streaming, instrumented variant of [`Self::request_ai_edit`].
+    ///
+    /// Runs entirely on the tokio runtime (never blocks the render thread) and,
+    /// when a `tracer` is provided, pushes `ZAROXI_AI_TRACE` events
+    /// (prompt-build, request-sent, first-token, stream-complete + tokens/sec)
+    /// into the non-blocking trace channel that the render loop drains per frame.
+    /// The streamed tokens are accumulated into a single proposal, so callers of
+    /// the existing request/accept flow keep working.
+    pub async fn request_ai_edit_streaming(
+        &self,
+        req: AiEditRequest,
+        client: std::sync::Arc<dyn AiClient>,
+        tracer: Option<AiTracer>,
+    ) -> Result<AiEditProposal, anyhow::Error> {
+        use crate::ports::AiStreamItem;
+        use crate::trace::AiTraceEvent;
+        use tokio::time::Instant;
+
+        // ── prompt / context-window build ──
+        let t_prompt = Instant::now();
+        let ai_req = AiRequest {
+            session_id: Id::new(),
+            workspace_id: Id::new(),
+            buffer_id: zaroxi_core_editor_buffer::ports::BufferId(req.buffer_id.clone()),
+            content_snapshot: req.content.clone(),
+        };
+        let prompt_build_ms = t_prompt.elapsed().as_secs_f32() * 1000.0;
+        if let Some(t) = &tracer {
+            t.emit(AiTraceEvent::PromptBuilt { ms: prompt_build_ms });
+        }
+
+        // ── dispatch + stream tokens ──
+        let (tok_tx, mut tok_rx) = tokio::sync::mpsc::unbounded_channel::<AiStreamItem>();
+        let t_sent = Instant::now();
+        if let Some(t) = &tracer {
+            t.emit(AiTraceEvent::RequestSent);
+        }
+        // Drive the producer concurrently so first-token timing is observable
+        // for native-streaming backends.
+        let producer = client.request_stream(ai_req, tok_tx);
+        let producer_handle = tokio::spawn(producer);
+
+        let mut text = String::new();
+        let mut tokens = 0usize;
+        let mut first_token_emitted = false;
+        while let Some(item) = tok_rx.recv().await {
+            match item {
+                AiStreamItem::Token(tok) => {
+                    if !first_token_emitted {
+                        let ms = t_sent.elapsed().as_secs_f32() * 1000.0;
+                        if let Some(t) = &tracer {
+                            t.emit(AiTraceEvent::FirstToken { ms });
+                        }
+                        first_token_emitted = true;
+                    }
+                    tokens += 1;
+                    text.push_str(&tok);
+                }
+                AiStreamItem::Done => break,
+            }
+        }
+
+        // Surface backend / task errors after the stream drains.
+        match producer_handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(anyhow::anyhow!(format!("ai client error: {:?}", e))),
+            Err(e) => return Err(anyhow::anyhow!(format!("ai stream task join error: {:?}", e))),
+        }
+
+        let dur = t_sent.elapsed();
+        if let Some(t) = &tracer {
+            t.emit(AiTraceEvent::StreamComplete {
+                ms: dur.as_secs_f32() * 1000.0,
+                tokens,
+                tokens_per_sec: AiTraceEvent::throughput(tokens, dur),
+            });
+        }
+
+        // ── normalize into a proposal (parity with request_ai_edit) ──
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
+        let id = format!("proposal-{}", now.as_millis());
+        let summary: String = if text.chars().count() > 80 {
+            format!("{}...", text.chars().take(80).collect::<String>())
+        } else {
+            text.clone()
+        };
+        let proposal = AiEditProposal {
+            id,
+            buffer_id: req.buffer_id.clone(),
+            summary,
+            proposal_text: text,
+            state: AiProposalState::Proposed,
+        };
+        {
+            let mut state = self.state.lock().unwrap();
+            state.pending_proposals.push(proposal.clone());
+        }
+        Ok(proposal)
+    }
+
     /// List currently pending proposals (snapshot).
     pub fn list_pending(&self) -> Vec<AiEditProposal> {
         let state = self.state.lock().unwrap();
@@ -157,5 +258,52 @@ impl AiService {
             return Ok(());
         }
         Err(anyhow::anyhow!("proposal not found"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::{AiError, AiResponseDTO, BoxFuture};
+    use crate::trace::AiTraceEvent;
+
+    /// Minimal non-streaming client; the default `request_stream` adapter
+    /// tokenizes its response, exercising the full streaming + trace path.
+    struct CannedClient(&'static str);
+    impl AiClient for CannedClient {
+        fn request(&self, _req: AiRequest) -> BoxFuture<'static, Result<AiResponseDTO, AiError>> {
+            let text = self.0.to_string();
+            Box::pin(async move { Ok(AiResponseDTO { text }) })
+        }
+    }
+
+    #[tokio::test]
+    async fn streaming_accumulates_text_and_emits_trace_events() {
+        let svc = AiService::new();
+        let (tracer, mut rx) = AiTracer::channel();
+        let client: std::sync::Arc<dyn AiClient> =
+            std::sync::Arc::new(CannedClient("hello world from ai"));
+        let req = AiEditRequest {
+            session_id: "sess:1".to_string(),
+            buffer_id: "buf:1".to_string(),
+            content: "fn main() {}".to_string(),
+        };
+
+        let proposal =
+            svc.request_ai_edit_streaming(req, client, Some(tracer)).await.expect("stream ok");
+
+        // Tokens were re-assembled losslessly into the proposal text.
+        assert_eq!(proposal.proposal_text, "hello world from ai");
+        assert_eq!(svc.list_pending().len(), 1);
+
+        let events = rx.drain();
+        assert!(events.iter().any(|e| matches!(e, AiTraceEvent::PromptBuilt { .. })));
+        assert!(events.iter().any(|e| matches!(e, AiTraceEvent::RequestSent)));
+        assert!(events.iter().any(|e| matches!(e, AiTraceEvent::FirstToken { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AiTraceEvent::StreamComplete { tokens, .. } if *tokens > 0))
+        );
     }
 }
