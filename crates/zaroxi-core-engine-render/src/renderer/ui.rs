@@ -63,4 +63,70 @@ pub struct UiBlock {
     pub content_line_offset: Option<usize>,
 }
 
+impl Default for UiBlock {
+    /// A blank, visible block with no fills, text, or editor metadata.
+    ///
+    /// This is the canonical "neutral" block: callers build a concrete widget by
+    /// overriding only the fields they care about via struct-update syntax, e.g.
+    /// `UiBlock { id, rect, header_color: Some(c), ..Default::default() }`.
+    /// Keeping the defaults here means new fields added to `UiBlock` get a sane
+    /// value in one place instead of at every construction site.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            content: String::new(),
+            visible: true,
+            rect: Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 },
+            header_color: None,
+            content_color: None,
+            corner_radius: 0.0,
+            border_color: None,
+            border_width: 0.0,
+            header_only: false,
+            text_color: None,
+            content_spans: None,
+            cursor_line: None,
+            cursor_col: None,
+            highlight_active_line: false,
+            selection_range: None,
+            clip_rect: None,
+            content_offset_x: 0.0,
+            content_offset_y: 0.0,
+            content_line_offset: None,
+        }
+    }
+}
+
 use super::core::Rect;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_block_is_visible_and_empty() {
+        let b = UiBlock::default();
+        assert!(b.visible, "default block must be visible");
+        assert!(b.id.is_empty());
+        assert!(b.header_color.is_none());
+        assert!(b.content_spans.is_none());
+        assert!(!b.header_only);
+        assert_eq!(b.corner_radius, 0.0);
+    }
+
+    #[test]
+    fn struct_update_overrides_only_named_fields() {
+        let b = UiBlock {
+            id: "x".to_string(),
+            header_color: Some([1.0, 0.0, 0.0, 1.0]),
+            header_only: true,
+            ..Default::default()
+        };
+        assert_eq!(b.id, "x");
+        assert_eq!(b.header_color, Some([1.0, 0.0, 0.0, 1.0]));
+        assert!(b.header_only);
+        assert!(b.visible);
+        assert!(b.content_color.is_none());
+    }
+}

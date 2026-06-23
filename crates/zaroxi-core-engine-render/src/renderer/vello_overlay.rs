@@ -189,11 +189,7 @@ impl VelloOverlay {
             height,
             antialiasing_method: AaConfig::Area,
         };
-        if self
-            .renderer
-            .render_to_texture(device, queue, scene, &target.view, &params)
-            .is_err()
-        {
+        if self.renderer.render_to_texture(device, queue, scene, &target.view, &params).is_err() {
             return;
         }
 

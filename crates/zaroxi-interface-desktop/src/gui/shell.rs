@@ -35,6 +35,23 @@ pub struct ShellRegion {
     pub rect: Rect,
 }
 
+/// Convert a shell region's integer layout rect into the renderer's float rect.
+///
+/// Every panel module needs the same `ShellRegion -> render::Rect` cast when
+/// building its `UiBlock`s; centralizing it here removes the repeated
+/// `Rect { x: r.rect.x as f32, .. }` boilerplate and keeps the layout-to-render
+/// coordinate conversion in one place.
+impl From<&ShellRegion> for zaroxi_core_engine_render::Rect {
+    fn from(region: &ShellRegion) -> Self {
+        zaroxi_core_engine_render::Rect {
+            x: region.rect.x as f32,
+            y: region.rect.y as f32,
+            w: region.rect.width as f32,
+            h: region.rect.height as f32,
+        }
+    }
+}
+
 /// Concrete layout constants derived from the DesignTokens system.
 ///
 /// Phase 66: all shell sizing is now driven by the token system instead of

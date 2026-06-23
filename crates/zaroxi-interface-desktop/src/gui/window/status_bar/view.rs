@@ -67,12 +67,7 @@ impl StatusView {
             right_segments.iter().map(|s| (s.clone(), style.primary_text)).collect();
         let content_spans = if right_spans.is_empty() { None } else { Some(right_spans) };
 
-        let rect = Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
+        let rect: Rect = r.into();
 
         if render_debug_enabled() {
             eprintln!(
@@ -88,25 +83,12 @@ impl StatusView {
         UiBlock {
             id: r.id.to_string(),
             title: left_text,
-            content: String::new(),
-            visible: true,
             rect,
             header_color: Some(style.background),
-            content_color: None,
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
             header_only: true,
             content_spans,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
             text_color: Some(style.primary_text),
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 }

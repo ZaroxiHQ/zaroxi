@@ -105,25 +105,11 @@ fn explorer_text_block(
     UiBlock {
         id,
         title: text,
-        content: String::new(),
-        visible: true,
         rect: zaroxi_core_engine_render::Rect { x, y, w, h },
         header_color: Some([0.0, 0.0, 0.0, 0.0]),
-        content_color: None,
-        corner_radius: 0.0,
-        border_color: None,
-        border_width: 0.0,
         header_only: true,
-        content_spans: None,
-        cursor_line: None,
-        cursor_col: None,
-        highlight_active_line: false,
-        selection_range: None,
         text_color: Some(color),
-        clip_rect: None,
-        content_offset_x: 0.0,
-        content_offset_y: 0.0,
-        content_line_offset: None,
+        ..Default::default()
     }
 }
 
@@ -183,35 +169,12 @@ pub struct RailPanel;
 
 impl RailPanel {
     pub fn build_rail_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         UiBlock {
             id: r.id.to_string(),
-            title: String::new(),
-            content: String::new(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.rail_background.to_array()),
             content_color: Some(tokens.rail_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            text_color: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 
@@ -223,36 +186,15 @@ impl RailPanel {
         let mut blocks = Vec::new();
         let mut cta_hit_rect: Option<(f32, f32, f32, f32)> = None;
 
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
+        let rect: zaroxi_core_engine_render::Rect = r.into();
 
         // Background surface block
         blocks.push(UiBlock {
             id: r.id.to_string(),
-            title: String::new(),
-            content: String::new(),
-            visible: true,
             rect,
             header_color: Some(tokens.sidebar_background.to_array()),
             content_color: Some(tokens.sidebar_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
-            text_color: None,
+            ..Default::default()
         });
 
         let pad = SIDEBAR_PAD;
@@ -299,25 +241,14 @@ impl RailPanel {
             blocks.push(UiBlock {
                 id: "explorer_search_box".to_string(),
                 title: display,
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect { x: sb_x, y: sb_y, w: sb_w, h: sb_h },
                 header_color: Some(tokens.sidebar_input.to_array()),
-                content_color: None,
                 corner_radius: 4.0,
                 border_color,
                 border_width,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
                 text_color: Some(text_color),
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
 
             search_hit_rect = Some((sb_x, sb_y, sb_w, sb_h));
@@ -370,9 +301,6 @@ impl RailPanel {
                     //    the hover bridge patches this block's `header_color`.
                     blocks.push(UiBlock {
                         id: format!("explorer_row_{}", item_idx),
-                        title: String::new(),
-                        content: String::new(),
-                        visible: true,
                         rect: zaroxi_core_engine_render::Rect {
                             x: row_x,
                             y: row_y,
@@ -380,21 +308,8 @@ impl RailPanel {
                             h: row_h_vis,
                         },
                         header_color: Some(fill),
-                        content_color: None,
-                        corner_radius: 0.0,
-                        border_color: None,
-                        border_width: 0.0,
                         header_only: true,
-                        content_spans: None,
-                        cursor_line: None,
-                        cursor_col: None,
-                        highlight_active_line: false,
-                        selection_range: None,
-                        text_color: None,
-                        clip_rect: None,
-                        content_offset_x: 0.0,
-                        content_offset_y: 0.0,
-                        content_line_offset: None,
+                        ..Default::default()
                     });
 
                     // 2. Disclosure + type-icon column (fixed width). Drawn at
@@ -476,24 +391,9 @@ impl RailPanel {
             id: format!("{}-content", r.id),
             title: "Explorer".to_string(),
             content,
-            visible: true,
             rect,
-            header_color: None,
-            content_color: None,
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
             content_spans,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
-            text_color: None,
+            ..Default::default()
         });
 
         // CTA button for empty state
@@ -508,24 +408,13 @@ impl RailPanel {
                     id: "explorer_open_workspace_btn".to_string(),
                     title: btn_label.clone(),
                     content: btn_label.clone(),
-                    visible: true,
                     rect: btn_rect,
                     header_color: Some(tokens.accent.to_array()),
                     content_color: Some(tokens.accent.to_array()),
                     corner_radius: 4.0,
-                    border_color: None,
-                    border_width: 0.0,
-                    header_only: false,
                     content_spans: Some(vec![(btn_label.clone(), tokens.text_primary.to_array())]),
-                    cursor_line: None,
-                    cursor_col: None,
-                    highlight_active_line: false,
-                    selection_range: None,
                     text_color: Some(tokens.text_primary.to_array()),
-                    clip_rect: None,
-                    content_offset_x: 0.0,
-                    content_offset_y: 0.0,
-                    content_line_offset: None,
+                    ..Default::default()
                 });
 
                 cta_hit_rect = Some((btn_x, btn_y, btn_w, btn_h));

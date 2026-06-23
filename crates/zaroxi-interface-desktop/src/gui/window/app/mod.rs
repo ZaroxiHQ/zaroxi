@@ -557,12 +557,8 @@ impl GuiApp {
             warm,
             cold,
         );
-        eprintln!(
-            "  latency  : per-event TS / AI / LSP timings stream as ZAROXI_TS_TRACE,"
-        );
-        eprintln!(
-            "             ZAROXI_AI_TRACE, ZAROXI_LSP_TRACE (set ZAROXI_PERF_TRACE=1)"
-        );
+        eprintln!("  latency  : per-event TS / AI / LSP timings stream as ZAROXI_TS_TRACE,");
+        eprintln!("             ZAROXI_AI_TRACE, ZAROXI_LSP_TRACE (set ZAROXI_PERF_TRACE=1)");
         eprintln!("=====================================================================");
     }
 

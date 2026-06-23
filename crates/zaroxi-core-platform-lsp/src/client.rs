@@ -59,7 +59,12 @@ impl LspClient {
         tokio::spawn(reader_loop(reader, pending.clone(), notif_tx));
         tokio::spawn(writer_loop(writer, writer_rx));
 
-        Self { next_id: AtomicU64::new(1), pending, writer_tx, notif_rx: Mutex::new(Some(notif_rx)) }
+        Self {
+            next_id: AtomicU64::new(1),
+            pending,
+            writer_tx,
+            notif_rx: Mutex::new(Some(notif_rx)),
+        }
     }
 
     /// Take the server-notification receiver (e.g. `publishDiagnostics`). Yields
@@ -118,7 +123,8 @@ impl LspClient {
 
         let t_build = Instant::now();
         let (id, rx) = self.register();
-        let msg = json!({"jsonrpc": "2.0", "id": id, "method": method.rpc_method(), "params": params});
+        let msg =
+            json!({"jsonrpc": "2.0", "id": id, "method": method.rpc_method(), "params": params});
         self.writer_tx
             .send(Self::frame(&msg))
             .map_err(|_| LspError("lsp writer task closed".to_string()))?;

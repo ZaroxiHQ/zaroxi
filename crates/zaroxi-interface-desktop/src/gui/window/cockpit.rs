@@ -125,7 +125,11 @@ fn layout_regions(width: f32, height: f32) -> Regions {
     let mut taffy: TaffyTree<()> = TaffyTree::new();
 
     let editor = taffy
-        .new_leaf(Style { flex_grow: 1.0, min_size: Size { width: length(0.0), height: auto() }, ..Default::default() })
+        .new_leaf(Style {
+            flex_grow: 1.0,
+            min_size: Size { width: length(0.0), height: auto() },
+            ..Default::default()
+        })
         .unwrap();
     let prediction_gutter = taffy
         .new_leaf(Style {
@@ -226,7 +230,11 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         Box::new(AiPredictionGutter {
             cells: inputs.prediction_cells.clone(),
             line_height,
-            pulse_line: inputs.prediction_cells.iter().find(|c| c.probability >= 0.8).map(|c| c.line),
+            pulse_line: inputs
+                .prediction_cells
+                .iter()
+                .find(|c| c.probability >= 0.8)
+                .map(|c| c.line),
             phase: inputs.phase,
         }),
         regions.prediction_gutter,

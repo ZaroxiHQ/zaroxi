@@ -12,8 +12,8 @@
 use vello::Scene;
 use vello::kurbo::{Affine, Arc, BezPath, Circle, Line, Point, Rect, RoundedRect, Stroke};
 use vello::peniko::Fill;
-use zaroxi_interface_theme::Color as ThemeColor;
 use zaroxi_interface_theme::CockpitTokens;
+use zaroxi_interface_theme::Color as ThemeColor;
 
 use crate::widget::{
     WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, layout_rect, reduce_motion,
@@ -105,11 +105,8 @@ pub struct SemanticMinimap {
 
 impl SemanticMinimap {
     fn y_of(&self, line: usize, top: f64, height: f64) -> f64 {
-        let frac = if self.total_lines <= 1 {
-            0.0
-        } else {
-            line as f64 / (self.total_lines - 1) as f64
-        };
+        let frac =
+            if self.total_lines <= 1 { 0.0 } else { line as f64 / (self.total_lines - 1) as f64 };
         top + frac * height
     }
 }
@@ -139,9 +136,12 @@ impl ZaroxiWidget for SemanticMinimap {
                     fill(scene, &block, theme.sym_function);
                 }
                 SymbolKind::Type => fill(scene, &diamond(cx, y, 4.0), theme.sym_type),
-                SymbolKind::Import => {
-                    stroke(scene, 1.0, &Line::new((r.x0 + 10.0, y), (r.x1 - 10.0, y)), theme.sym_import)
-                }
+                SymbolKind::Import => stroke(
+                    scene,
+                    1.0,
+                    &Line::new((r.x0 + 10.0, y), (r.x1 - 10.0, y)),
+                    theme.sym_import,
+                ),
             }
         }
 
@@ -213,7 +213,12 @@ impl ZaroxiWidget for LivingDiffLayer {
             } else {
                 fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.diff_removed_bg);
                 let mid = (y0 + y1) * 0.5;
-                stroke(scene, 1.5, &Line::new((r.x0 + 4.0, mid), (r.x1 - 4.0, mid)), theme.diff_removed_strike);
+                stroke(
+                    scene,
+                    1.5,
+                    &Line::new((r.x0 + 4.0, mid), (r.x1 - 4.0, mid)),
+                    theme.diff_removed_strike,
+                );
             }
         }
     }
@@ -307,7 +312,10 @@ impl ZaroxiWidget for ContextCanvas {
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some(format!("Context canvas: {} related files. Click a panel to focus.", self.related.len()))
+        Some(format!(
+            "Context canvas: {} related files. Click a panel to focus.",
+            self.related.len()
+        ))
     }
 }
 
@@ -355,10 +363,15 @@ impl ZaroxiWidget for AiPredictionGutter {
         for cell in &self.cells {
             let y0 = r.y0 + cell.line as f64 * self.line_height;
             let y1 = y0 + self.line_height - 1.0;
-            let heat = lerp_color(theme.ai_prediction_base, theme.ai_prediction_warm, cell.probability);
+            let heat =
+                lerp_color(theme.ai_prediction_base, theme.ai_prediction_warm, cell.probability);
             fill(scene, &Rect::new(r.x0, y0, r.x1, y1), heat);
             if self.pulse_line == Some(cell.line) {
-                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.ai_pulse.with_alpha(0.25 + 0.55 * pulse_a));
+                fill(
+                    scene,
+                    &Rect::new(r.x0, y0, r.x1, y1),
+                    theme.ai_pulse.with_alpha(0.25 + 0.55 * pulse_a),
+                );
             }
         }
     }
@@ -449,11 +462,29 @@ impl ZaroxiWidget for CommandPalette {
             let y = (r.y0 + input_h + i as f64 * self.row_height) as f32 + 6.0;
             if self.rtl {
                 // RTL: label aligned to the right, shortcut hint to the left.
-                out.push(WidgetText::new(item.label.clone(), (r.x1 - pad - 200.0) as f32, y, size, label));
-                out.push(WidgetText::new(item.shortcut.clone(), (r.x0 + pad) as f32, y, size, hint));
+                out.push(WidgetText::new(
+                    item.label.clone(),
+                    (r.x1 - pad - 200.0) as f32,
+                    y,
+                    size,
+                    label,
+                ));
+                out.push(WidgetText::new(
+                    item.shortcut.clone(),
+                    (r.x0 + pad) as f32,
+                    y,
+                    size,
+                    hint,
+                ));
             } else {
                 out.push(WidgetText::new(item.label.clone(), (r.x0 + pad) as f32, y, size, label));
-                out.push(WidgetText::new(item.shortcut.clone(), (r.x1 - pad - 90.0) as f32, y, size, hint));
+                out.push(WidgetText::new(
+                    item.shortcut.clone(),
+                    (r.x1 - pad - 90.0) as f32,
+                    y,
+                    size,
+                    hint,
+                ));
             }
         }
         out
@@ -552,7 +583,13 @@ impl ZaroxiWidget for StatusBar {
         let arc_center = Point::new(r.x1 - 16.0, cy);
         let radius = 7.0;
         // Track + value arc (sweep proportional to usage), starting at top.
-        let track = Arc::new(arc_center, (radius, radius), -std::f64::consts::FRAC_PI_2, std::f64::consts::TAU, 0.0);
+        let track = Arc::new(
+            arc_center,
+            (radius, radius),
+            -std::f64::consts::FRAC_PI_2,
+            std::f64::consts::TAU,
+            0.0,
+        );
         stroke(scene, 2.0, &track, theme.divider);
         let value = Arc::new(
             arc_center,
@@ -651,7 +688,10 @@ mod tests {
 
         let canvas = ContextCanvas {
             center: (300.0, 200.0, 200.0, 120.0),
-            related: vec![RelatedPanel { rect: (40.0, 40.0, 120.0, 80.0), import_site: (300.0, 230.0) }],
+            related: vec![RelatedPanel {
+                rect: (40.0, 40.0, 120.0, 80.0),
+                import_site: (300.0, 230.0),
+            }],
             phase: 0.5,
         };
         assert_eq!(canvas.layer(), WidgetLayer::Palette);
@@ -667,7 +707,9 @@ mod tests {
         gutter.paint(&mut scene, &layout(16.0, 600.0), &theme);
 
         let palette = CommandPalette {
-            results: vec![PaletteItem { label: "افتح ملف".into(), shortcut: "Ctrl+O".into() }],
+            results: vec![PaletteItem {
+                label: "افتح ملف".into(), shortcut: "Ctrl+O".into()
+            }],
             selected: 0,
             rtl: true,
             row_height: 24.0,

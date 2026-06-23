@@ -25,35 +25,14 @@ pub struct AiPanel;
 
 impl AiPanel {
     pub fn build_header_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         UiBlock {
             id: r.id.to_string(),
             title: "AI Assistant".to_string(),
-            content: String::new(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.assistant_panel_header_background.to_array()),
-            content_color: None,
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
             header_only: true,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
             text_color: Some(tokens.text_primary.to_array()),
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 
@@ -62,13 +41,6 @@ impl AiPanel {
         tokens: &StyleTokens,
         data: &AiPanelData,
     ) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         let ai_title_opt = data.ai_title.as_deref();
         let ai_subtitle_opt = data.ai_subtitle.as_deref();
         let ai_body_opt = data.ai_content.as_deref();
@@ -91,24 +63,11 @@ impl AiPanel {
             id: r.id.to_string(),
             title,
             content,
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.assistant_panel_background.to_array()),
             content_color: Some(tokens.assistant_panel_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
             content_spans: Some(spans),
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            text_color: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 }

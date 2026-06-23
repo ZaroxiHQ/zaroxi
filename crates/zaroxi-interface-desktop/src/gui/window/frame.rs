@@ -85,33 +85,15 @@ pub fn compute_scrollbar_blocks(
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_editor".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: track_rect,
                 header_color: Some(tokens.editor_scrollbar_track.to_array()),
-                content_color: None,
                 corner_radius: 3.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
 
             blocks.push(UiBlock {
                 id: "scrollbar_thumb_editor".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: track_rect.x,
                     y: track_rect.y + editor_scroll_offset * (track_rect.h - thumb_h).max(0.0),
@@ -119,21 +101,9 @@ pub fn compute_scrollbar_blocks(
                     h: thumb_h,
                 },
                 header_color: Some(tokens.editor_scrollbar_thumb.to_array()),
-                content_color: None,
                 corner_radius: 2.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
         }
     }
@@ -164,33 +134,15 @@ pub fn compute_scrollbar_blocks(
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_sidebar".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: track_rect,
                 header_color: Some(tokens.sidebar_scrollbar_track.to_array()),
-                content_color: None,
                 corner_radius: 3.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
 
             blocks.push(UiBlock {
                 id: "scrollbar_thumb_sidebar".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: track_rect.x,
                     y: track_rect.y + sidebar_scroll_offset * (track_rect.h - thumb_h).max(0.0),
@@ -198,21 +150,9 @@ pub fn compute_scrollbar_blocks(
                     h: thumb_h,
                 },
                 header_color: Some(tokens.sidebar_scrollbar_thumb.to_array()),
-                content_color: None,
                 corner_radius: 2.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
         }
     }
@@ -233,33 +173,15 @@ pub fn compute_scrollbar_blocks(
 
             blocks.push(UiBlock {
                 id: "scrollbar_track_bottom".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: track_rect,
                 header_color: Some(tokens.bottom_scrollbar_track.to_array()),
-                content_color: None,
                 corner_radius: 3.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
 
             blocks.push(UiBlock {
                 id: "scrollbar_thumb_bottom".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: track_rect.x,
                     y: track_rect.y,
@@ -267,21 +189,9 @@ pub fn compute_scrollbar_blocks(
                     h: thumb_h,
                 },
                 header_color: Some(tokens.bottom_scrollbar_thumb.to_array()),
-                content_color: None,
                 corner_radius: 2.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
         }
     }
@@ -321,9 +231,6 @@ pub fn extract_scrollbar_blocks(
         {
             blocks.push(UiBlock {
                 id: "scrollbar_track".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: thumb_rect.x,
                     y: thumb_rect.y,
@@ -331,27 +238,12 @@ pub fn extract_scrollbar_blocks(
                     h: thumb_rect.height,
                 },
                 header_color: Some(*track_fill),
-                content_color: None,
                 corner_radius: 3.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
             blocks.push(UiBlock {
                 id: "scrollbar_thumb".to_string(),
-                title: String::new(),
-                content: String::new(),
-                visible: true,
                 rect: zaroxi_core_engine_render::Rect {
                     x: thumb_rect.x,
                     y: thumb_rect.y,
@@ -359,21 +251,9 @@ pub fn extract_scrollbar_blocks(
                     h: thumb_rect.height,
                 },
                 header_color: Some(*thumb_fill),
-                content_color: None,
                 corner_radius: 2.0,
-                border_color: None,
-                border_width: 0.0,
                 header_only: true,
-                content_spans: None,
-                cursor_line: None,
-                cursor_col: None,
-                highlight_active_line: false,
-                selection_range: None,
-                text_color: None,
-                clip_rect: None,
-                content_offset_x: 0.0,
-                content_offset_y: 0.0,
-                content_line_offset: None,
+                ..Default::default()
             });
         }
     }

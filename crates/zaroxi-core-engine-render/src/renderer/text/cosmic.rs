@@ -1880,8 +1880,13 @@ impl TextRenderer for CosmicTextRenderer {
         let (aw, ah) = self.shared_atlas.dims();
         let atlas_bytes = aw as u64 * ah as u64;
         // Resident instance buffer: one InstanceRaw per emitted instance.
-        let instances =
-            self.last_frame_summary.lock().unwrap().as_ref().map(|s| s.instances_pushed).unwrap_or(0);
+        let instances = self
+            .last_frame_summary
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| s.instances_pushed)
+            .unwrap_or(0);
         let instance_bytes = instances as u64 * std::mem::size_of::<InstanceRaw>() as u64;
         atlas_bytes + instance_bytes
     }

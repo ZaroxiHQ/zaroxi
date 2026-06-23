@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use vello::Scene;
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::{Color as VColor, Fill};
-use zaroxi_interface_theme::Color as ThemeColor;
 use zaroxi_interface_theme::CockpitTokens;
+use zaroxi_interface_theme::Color as ThemeColor;
 
 /// Compositing layer for a widget. The [`crate::WidgetTree`] paints widgets in
 /// ascending layer order; the `Ord` derive encodes that order:

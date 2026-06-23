@@ -72,10 +72,11 @@ impl BufferActivityTracker {
     /// Register (or update) an open document with its current line count.
     pub fn note_open(&mut self, id: impl Into<String>, line_count: usize) {
         let id = id.into();
-        let entry = self
-            .buffers
-            .entry(id)
-            .or_insert(BufferState { line_count, last_edit_frame: None, visible: false });
+        let entry = self.buffers.entry(id).or_insert(BufferState {
+            line_count,
+            last_edit_frame: None,
+            visible: false,
+        });
         entry.line_count = line_count;
     }
 

@@ -87,12 +87,8 @@ impl VelloLayer {
         self.ensure_target(device, width, height);
         // Disjoint field borrows: `target.view` (shared) + `renderer` (mut).
         let view = &self.target.as_ref().expect("target ensured above").view;
-        let params = RenderParams {
-            base_color,
-            width,
-            height,
-            antialiasing_method: AaConfig::Area,
-        };
+        let params =
+            RenderParams { base_color, width, height, antialiasing_method: AaConfig::Area };
         self.renderer.render_to_texture(device, queue, scene, view, &params)
     }
 

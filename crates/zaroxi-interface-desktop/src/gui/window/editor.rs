@@ -57,38 +57,16 @@ impl EditorPanel {
         tokens: &StyleTokens,
         data: &EditorContentData,
     ) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         let tab_spans =
             zaroxi_core_engine_ui::chrome::format_tab_strip_spans(&data.tab_entries, tokens);
 
         UiBlock {
             id: r.id.to_string(),
-            title: String::new(),
-            content: String::new(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.tab_strip_background.to_array()),
             content_color: Some(tokens.tab_strip_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
             content_spans: Some(tab_spans),
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            text_color: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 
@@ -97,35 +75,14 @@ impl EditorPanel {
         tokens: &StyleTokens,
         data: &EditorContentData,
     ) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         UiBlock {
             id: r.id.to_string(),
             title: data.breadcrumb_label.clone(),
-            content: String::new(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.editor_breadcrumb_background.to_array()),
-            content_color: None,
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
             header_only: true,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
             text_color: Some(tokens.text_muted.to_array()),
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 
@@ -134,13 +91,6 @@ impl EditorPanel {
         tokens: &StyleTokens,
         data: &EditorContentData,
     ) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         // When viewport-windowed, content_line_offset is the absolute
         // line number of the first line in the content String.  The
         // renderer uses this to compute the correct screen position.
@@ -150,24 +100,15 @@ impl EditorPanel {
             id: r.id.to_string(),
             title: data.body_title.clone(),
             content: data.editor_body_text.clone(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.editor_content_background.to_array()),
             content_color: Some(tokens.editor_content_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
             content_spans: data.editor_spans.clone(),
             cursor_line: Some(data.cursor_line),
             cursor_col: Some(data.cursor_col),
             highlight_active_line: true,
-            selection_range: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
             content_line_offset,
-            text_color: None,
+            ..Default::default()
         }
     }
 
@@ -205,35 +146,12 @@ impl EditorPanel {
     }
 
     pub fn build_minimap_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         UiBlock {
             id: r.id.to_string(),
-            title: String::new(),
-            content: String::new(),
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.editor_content_background.adjust_brightness(0.95).to_array()),
-            content_color: None,
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
             header_only: true,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
-            text_color: None,
+            ..Default::default()
         }
     }
 
@@ -242,13 +160,6 @@ impl EditorPanel {
         tokens: &StyleTokens,
         terminal_tabs: Option<&[String]>,
     ) -> UiBlock {
-        let rect = zaroxi_core_engine_render::Rect {
-            x: r.rect.x as f32,
-            y: r.rect.y as f32,
-            w: r.rect.width as f32,
-            h: r.rect.height as f32,
-        };
-
         let title = terminal_tabs
             .filter(|t| !t.is_empty())
             .map(|tabs| tabs.join(" \u{2022} "))
@@ -263,24 +174,10 @@ impl EditorPanel {
             id: r.id.to_string(),
             title,
             content,
-            visible: true,
-            rect,
+            rect: r.into(),
             header_color: Some(tokens.bottom_panel_header_background.to_array()),
             content_color: Some(tokens.bottom_panel_background.to_array()),
-            corner_radius: 0.0,
-            border_color: None,
-            border_width: 0.0,
-            header_only: false,
-            content_spans: None,
-            cursor_line: None,
-            cursor_col: None,
-            highlight_active_line: false,
-            selection_range: None,
-            text_color: None,
-            clip_rect: None,
-            content_offset_x: 0.0,
-            content_offset_y: 0.0,
-            content_line_offset: None,
+            ..Default::default()
         }
     }
 }
