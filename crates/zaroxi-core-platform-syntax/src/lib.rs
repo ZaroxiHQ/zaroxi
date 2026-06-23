@@ -25,6 +25,7 @@ pub mod query_cache;
 pub mod runtime;
 pub mod theme_map;
 pub mod theme_shim;
+pub mod timing;
 
 // Re-export main types for convenience
 pub use dynamic_loader::DynamicGrammarLoader;
@@ -39,6 +40,7 @@ pub use language::LanguageId;
 pub use parser::{ParserPool, SyntaxTree};
 // Note: QueryCache::get returns Option<&'static Query>
 pub use query_cache::QueryCache;
+pub use timing::{TsTiming, ts_trace_enabled};
 
 #[cfg(test)]
 mod tests {

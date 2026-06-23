@@ -182,6 +182,21 @@ impl HighlightEngine {
         Ok(filtered)
     }
 
+    /// [`Self::highlight`] timed: returns `(spans, ts_highlight_ms)` where
+    /// `ts_highlight_ms` is the wall-clock duration of query compilation lookup
+    /// + query execution + span post-processing.
+    pub fn highlight_timed(
+        &self,
+        language: LanguageId,
+        source: &str,
+        tree: &Tree,
+    ) -> Result<(Vec<HighlightSpan>, f32), SyntaxError> {
+        let t0 = std::time::Instant::now();
+        let spans = self.highlight(language, source, tree)?;
+        let highlight_ms = t0.elapsed().as_secs_f32() * 1000.0;
+        Ok((spans, highlight_ms))
+    }
+
     /// Load and compile the highlighting query for a language.
     ///
     /// Returns `None` if the query cannot be loaded or compiled.

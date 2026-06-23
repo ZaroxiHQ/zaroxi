@@ -201,6 +201,19 @@ impl SyntaxTree {
         self.edit(start_byte, old_end_byte, new_end_byte, start_pos, old_end_pos, new_end_pos);
     }
 
+    /// [`Self::apply_edit`] timed: returns `ts_edit_apply_ms` (the wall-clock
+    /// milliseconds spent applying the rope edit + `InputEdit`).
+    pub fn apply_edit_timed(
+        &mut self,
+        start_byte: usize,
+        old_end_byte: usize,
+        new_text: &str,
+    ) -> f32 {
+        let t0 = std::time::Instant::now();
+        self.apply_edit(start_byte, old_end_byte, new_text);
+        t0.elapsed().as_secs_f32() * 1000.0
+    }
+
     /// Reparse the tree incrementally after edits.
     ///
     /// Feeds bytes to Tree-sitter directly from the rope in chunks via
@@ -210,6 +223,16 @@ impl SyntaxTree {
     /// Combined with [`Self::apply_edit`], Tree-sitter re-lexes only the dirty
     /// region using the previously edited tree as a starting point.
     pub fn reparse(&mut self) -> Result<(), SyntaxError> {
+        self.reparse_timed().map(|_| ())
+    }
+
+    /// [`Self::reparse`] timed: returns `(ts_reparse_ms, ts_changed_ranges)`.
+    ///
+    /// `ts_reparse_ms` is the wall-clock duration of the Tree-sitter reparse;
+    /// `ts_changed_ranges` is the number of ranges `Tree::changed_ranges`
+    /// reports between the old and new trees (a large count signals a wide
+    /// invalidation surface and is a per-language optimization target).
+    pub fn reparse_timed(&mut self) -> Result<(f32, usize), SyntaxError> {
         let mut parser = self.pool.acquire(&self.language).ok_or_else(|| {
             SyntaxError::GrammarLoadError(format!(
                 "Failed to acquire parser for language '{}'",
@@ -222,6 +245,7 @@ impl SyntaxTree {
         let rope = &self.text;
         let total_bytes = rope.len_bytes();
         let old_tree = &self.tree;
+        let t0 = std::time::Instant::now();
         let new_tree = parser
             .parse_with_options(
                 &mut |byte: usize, _pos: tree_sitter::Point| -> &[u8] {
@@ -238,11 +262,15 @@ impl SyntaxTree {
                 None,
             )
             .ok_or(SyntaxError::ParseError)?;
+        let reparse_ms = t0.elapsed().as_secs_f32() * 1000.0;
+
+        // Diff the old tree against the new one before replacing it.
+        let changed_ranges = self.tree.changed_ranges(&new_tree).len();
 
         self.pool.release(&self.language, parser);
         self.tree = new_tree;
 
-        Ok(())
+        Ok((reparse_ms, changed_ranges))
     }
 
     /// Get the text as a string.
