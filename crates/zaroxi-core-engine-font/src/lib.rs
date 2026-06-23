@@ -72,32 +72,40 @@ pub fn line_height(font: &Font) -> u32 {
 pub fn load_project_font_bytes() -> Result<Vec<u8>, String> {
     // Try a small deterministic set of candidate locations so tests/CI running
     // from various crate working directories can still find the repository asset.
-    // Search order (most-likely -> fallback):
-    //  1) assets/fonts/... (workspace root when running from repository root)
-    //  2) ../assets/fonts/... (crate/ subdir case)
-    //  3) ../../assets/fonts/... (nested crate case)
-    //  4) If CARGO_MANIFEST_DIR is set, try that dir and its parents.
-    let rel = "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf";
+    //
+    // The "Mono" Nerd Font variant (`...NerdFontMono-Regular.ttf`) renders all
+    // icon glyphs at a single cell width, which keeps the explorer icon column
+    // perfectly aligned. We PREFER it when present and fall back to the standard
+    // variant otherwise — so the swap takes effect the moment the Mono asset is
+    // dropped into `assets/fonts/`, with no code change.
+    let rels = [
+        "assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf",
+        "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf",
+    ];
     let mut tried: Vec<std::path::PathBuf> = Vec::new();
 
-    // Basic candidates relative to current cwd.
-    tried.push(Path::new(rel).to_path_buf());
-    tried.push(Path::new("../").join(rel));
-    tried.push(Path::new("../../").join(rel));
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok();
+    for rel in rels.iter() {
+        // Basic candidates relative to current cwd.
+        tried.push(Path::new(rel).to_path_buf());
+        tried.push(Path::new("../").join(rel));
+        tried.push(Path::new("../../").join(rel));
 
-    // If CARGO_MANIFEST_DIR is available (common in tests/builds), try it and its parents.
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let manifest = Path::new(&manifest_dir);
-        tried.push(manifest.join(rel));
-        tried.push(manifest.join("..").join(rel));
-        tried.push(manifest.join("..").join("..").join(rel));
+        // If CARGO_MANIFEST_DIR is available (common in tests/builds), try it
+        // and its parents.
+        if let Some(ref manifest_dir) = manifest_dir {
+            let manifest = Path::new(manifest_dir);
+            tried.push(manifest.join(rel));
+            tried.push(manifest.join("..").join(rel));
+            tried.push(manifest.join("..").join("..").join(rel));
+        }
     }
 
-    // Try each candidate in order and return the first successful read.
+    // Try each candidate in order (all Mono-variant locations first, then the
+    // standard variant) and return the first successful read.
     for p in tried.iter() {
-        match fs::read(p) {
-            Ok(bytes) => return Ok(bytes),
-            Err(_) => continue,
+        if let Ok(bytes) = fs::read(p) {
+            return Ok(bytes);
         }
     }
 

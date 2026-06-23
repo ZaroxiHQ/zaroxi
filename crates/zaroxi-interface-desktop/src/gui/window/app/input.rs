@@ -46,6 +46,34 @@ fn set_explorer_search(app: &mut GuiApp, query: String) {
         app.work_content = Some(wc);
     }
     app.explorer_scroll_top = 0;
+    // The result set changed: drop the keyboard selection and keep the caret
+    // solid (reset its blink phase) while the user is typing.
+    app.explorer_search_sel = None;
+    app.explorer_caret_blink_epoch = std::time::Instant::now();
+    app.invalidate(super::InvalidationFlags::content());
+}
+
+/// Move the keyboard selection within the filtered explorer list and scroll it
+/// into view. `delta` is +1 (down) or -1 (up).
+fn move_explorer_selection(app: &mut GuiApp, delta: isize) {
+    let len = app.composition.as_ref().map(|c| c.cached_explorer_items.len()).unwrap_or(0);
+    if len == 0 {
+        return;
+    }
+    let next = match app.explorer_search_sel {
+        // First move lands on the top visible row.
+        None => app.explorer_scroll_top.min(len - 1),
+        Some(cur) => (cur as isize + delta).clamp(0, len as isize - 1) as usize,
+    };
+    app.explorer_search_sel = Some(next);
+
+    // Scroll into view using the last-rendered visible row count.
+    let visible = app.explorer_visible_rows.max(1);
+    if next < app.explorer_scroll_top {
+        app.explorer_scroll_top = next;
+    } else if next >= app.explorer_scroll_top + visible {
+        app.explorer_scroll_top = next + 1 - visible;
+    }
     app.invalidate(super::InvalidationFlags::content());
 }
 
@@ -91,10 +119,23 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 app.explorer_search_active = false;
                 set_explorer_search(app, String::new());
             }
+            Key::Named(NamedKey::ArrowDown) => {
+                move_explorer_selection(app, 1);
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                move_explorer_selection(app, -1);
+            }
             Key::Named(NamedKey::Enter) => {
-                // Commit: keep the filter applied but release keyboard focus.
+                // Open/toggle the keyboard-selected row (reusing the normal
+                // activation path), then release focus. The filter persists.
+                let sel = app.explorer_search_sel.take();
                 app.explorer_search_active = false;
-                app.invalidate(super::InvalidationFlags::content());
+                if let Some(idx) = sel {
+                    let id = zaroxi_core_engine_ui::WidgetId::list_item(10 + idx);
+                    app.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(id)]);
+                } else {
+                    app.invalidate(super::InvalidationFlags::content());
+                }
             }
             Key::Named(NamedKey::Backspace) => {
                 let mut q = current_explorer_query(app);

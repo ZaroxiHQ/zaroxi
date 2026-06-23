@@ -61,6 +61,11 @@ static GUI_FRAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// enough that results land promptly.
 const BACKGROUND_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
+/// Half-period of the search-box caret blink. The caret is "on" for this long,
+/// then "off" for this long, while the explorer search box holds focus.
+const CARET_BLINK_INTERVAL_MS: u128 = 530;
+const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(530);
+
 fn render_trace_enabled() -> bool {
     std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
 }
@@ -298,6 +303,15 @@ pub struct GuiApp {
     /// Rendered hit rect of the explorer search box (x, y, w, h), for click-to-
     /// focus. Set each frame from the sidebar render.
     pub explorer_search_rect: Option<(f32, f32, f32, f32)>,
+    /// Keyboard-selected row within the (filtered) explorer list, for arrow-key
+    /// navigation while searching. Absolute index into the visible item set.
+    pub explorer_search_sel: Option<usize>,
+    /// Epoch the search caret blink is phased from (reset on focus / keystroke
+    /// so the caret is solid while typing).
+    pub explorer_caret_blink_epoch: std::time::Instant,
+    /// Explorer rows that fit in the viewport (last render), for scroll-into-view
+    /// during keyboard navigation.
+    pub explorer_visible_rows: usize,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
     pub picker_in_flight: bool,
@@ -1527,6 +1541,12 @@ impl winit::application::ApplicationHandler for GuiApp {
             // Background work is in flight; poll on a relaxed cadence so the
             // result is applied promptly without pinning a CPU core.
             active_loop.set_control_flow(ControlFlow::WaitUntil(now + BACKGROUND_POLL_INTERVAL));
+        } else if self.explorer_search_active {
+            // Search box focused and otherwise idle: blink the caret by waking
+            // at each toggle and arming a repaint. Bounded to the focused state,
+            // so it never affects frame pacing or background polling elsewhere.
+            self.invalidate(InvalidationFlags::content());
+            active_loop.set_control_flow(ControlFlow::WaitUntil(now + CARET_BLINK_INTERVAL));
         } else {
             active_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -1637,6 +1657,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if in_search {
                         if !self.explorer_search_active {
                             self.explorer_search_active = true;
+                            self.explorer_caret_blink_epoch = Instant::now();
+                            self.explorer_search_sel = None;
                             self.invalidate(InvalidationFlags::content());
                         }
                         return;
@@ -1803,6 +1825,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .or_else(|| w.editor_body.as_ref().map(|b| b.title.clone()))
                         .filter(|s| !s.trim().is_empty())
                 });
+
+                // Exact monospace advance, captured before the window borrow so
+                // the explorer presenter can size ellipsis / highlight columns.
+                let mono_advance = self.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
 
                 if let Some(z) = self.maybe_window.as_mut() {
                     let (sw, sh) = z.size();
@@ -2118,8 +2144,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                             editor_data.visible_line_range,
                         );
                     }
-                    let explorer_data =
+                    let mut explorer_data =
                         super::presenters::shape_explorer_content(&self.work_content);
+                    // Exact monospace advance for ellipsis truncation + match-run
+                    // highlight positioning; blink-phased caret; keyboard nav row.
+                    explorer_data.char_advance = mono_advance;
+                    explorer_data.selected_row = self.explorer_search_sel;
+                    explorer_data.search_caret_visible = self.explorer_search_active
+                        && (self.explorer_caret_blink_epoch.elapsed().as_millis()
+                            / CARET_BLINK_INTERVAL_MS)
+                            .is_multiple_of(2);
                     let ai_data = super::presenters::shape_ai_content(&self.work_content);
 
                     let status_inputs = super::status_bar::StatusInputs {
@@ -2216,6 +2250,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .map(|r| lc::explorer_visible_rows(r.rect.height as f32, sidebar_has_title))
                         .unwrap_or(1)
                         .max(1);
+                    self.explorer_visible_rows = sidebar_visible;
                     let sidebar_items = self
                         .work_content
                         .as_ref()

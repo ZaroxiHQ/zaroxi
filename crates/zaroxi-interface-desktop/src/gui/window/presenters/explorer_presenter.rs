@@ -39,5 +39,10 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
         search_query: wc.explorer_search_query.clone(),
         search_active: wc.explorer_search_active,
         has_workspace: wc.explorer_has_workspace,
+        // Advance, keyboard selection, and blink phase are overridden by the
+        // GuiApp render path (which has renderer + UI state); these are defaults.
+        char_advance: 8.0,
+        selected_row: None,
+        search_caret_visible: wc.explorer_search_active,
     }
 }

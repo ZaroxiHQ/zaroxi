@@ -19,6 +19,76 @@ use crate::gui::window::editor_shell::constants::{
 };
 use crate::gui::window::explorer_panel::icons;
 
+/// Push the filename column for one row: truncates with an ellipsis to fit the
+/// column width (using the exact monospace `char_advance`) and, when a search
+/// query is active, highlights the matched substring in `match_color`. Pieces
+/// are positioned by character offset so highlighting stays pixel-aligned.
+#[allow(clippy::too_many_arguments)]
+fn push_name_blocks(
+    blocks: &mut Vec<UiBlock>,
+    idx: usize,
+    name: &str,
+    query: &str,
+    name_text_x: f32,
+    name_w: f32,
+    row_y: f32,
+    row_h: f32,
+    char_advance: f32,
+    base_color: [f32; 4],
+    match_color: [f32; 4],
+) {
+    let adv = if char_advance > 0.5 { char_advance } else { 8.0 };
+    let right_edge = name_text_x + name_w;
+
+    // Ellipsis truncation to the visible column width.
+    let max_chars = (name_w / adv).floor().max(1.0) as usize;
+    let chars: Vec<char> = name.chars().collect();
+    let display: String = if chars.len() > max_chars {
+        let keep = max_chars.saturating_sub(1).max(1);
+        let mut s: String = chars[..keep].iter().collect();
+        s.push('\u{2026}'); // …
+        s
+    } else {
+        name.to_string()
+    };
+
+    // Locate the matched run in the (possibly truncated) display string.
+    let match_range = if query.is_empty() {
+        None
+    } else {
+        display.to_lowercase().find(&query.to_lowercase()).map(|byte_start| {
+            let char_start = display[..byte_start].chars().count();
+            (char_start, query.chars().count())
+        })
+    };
+
+    let mut push_piece = |sub: &str, char_off: usize, color: [f32; 4], piece_id: String| {
+        if sub.is_empty() {
+            return;
+        }
+        let tx = name_text_x + char_off as f32 * adv;
+        let bx = tx - EXPLORER_TITLE_PAD;
+        let bw = (right_edge - bx).max(4.0);
+        blocks.push(explorer_text_block(piece_id, sub.to_string(), bx, row_y, bw, row_h, color));
+    };
+
+    match match_range {
+        Some((start, len)) => {
+            let dchars: Vec<char> = display.chars().collect();
+            let mid_end = (start + len).min(dchars.len());
+            let pre: String = dchars[..start].iter().collect();
+            let mid: String = dchars[start..mid_end].iter().collect();
+            let post: String = dchars[mid_end..].iter().collect();
+            push_piece(&pre, 0, base_color, format!("explorer_name_{}_a", idx));
+            push_piece(&mid, start, match_color, format!("explorer_name_{}_b", idx));
+            push_piece(&post, mid_end, base_color, format!("explorer_name_{}_c", idx));
+        }
+        None => {
+            push_piece(&display, 0, base_color, format!("explorer_name_{}", idx));
+        }
+    }
+}
+
 /// Build a transparent (fill-less) text-only row block placed at an exact column.
 /// Used for the explorer glyph and filename columns so each draws independently
 /// of the other's width — keeping the filename column aligned regardless of a
@@ -73,6 +143,12 @@ pub struct ExplorerData {
     pub search_active: bool,
     /// Whether a workspace is loaded (controls whether the search box renders).
     pub has_workspace: bool,
+    /// Exact monospace glyph advance (px) for ellipsis + match-run positioning.
+    pub char_advance: f32,
+    /// Keyboard-selected row (absolute index) while searching, if any.
+    pub selected_row: Option<usize>,
+    /// Whether the search caret should be drawn this frame (focus + blink phase).
+    pub search_caret_visible: bool,
 }
 
 impl Default for ExplorerData {
@@ -86,6 +162,9 @@ impl Default for ExplorerData {
             search_query: String::new(),
             search_active: false,
             has_workspace: false,
+            char_advance: 8.0,
+            selected_row: None,
+            search_caret_visible: false,
         }
     }
 }
@@ -188,9 +267,9 @@ impl RailPanel {
             let sb_w = inner_w;
             let sb_h = SEARCH_BAR_H;
 
-            // A steady text caret (▏) marks the insertion point while the box
+            // A blinking text caret (▏) marks the insertion point while the box
             // holds keyboard focus.
-            let caret = if data.search_active { "\u{258F}" } else { "" };
+            let caret = if data.search_caret_visible { "\u{258F}" } else { "" };
             let (display, text_color) = if data.search_query.is_empty() {
                 if data.search_active {
                     // Focused but empty: show the caret instead of the placeholder.
@@ -272,14 +351,16 @@ impl RailPanel {
 
                     // Tree styling: inactive rows have no background at all
                     // (transparent), so the list reads as a file tree rather than
-                    // a stack of buttons. The active/open row gets a flat,
-                    // square-cornered highlight — calm and integrated, not a pill.
-                    let fill = if item.is_active {
+                    // a stack of buttons. The active/open row — and the
+                    // keyboard-selected row while searching — get a flat,
+                    // square-cornered highlight (calm and integrated, not a pill).
+                    let is_selected = data.selected_row == Some(item_idx);
+                    let fill = if item.is_active || is_selected {
                         tokens.rail_item_active.to_array()
                     } else {
                         [0.0, 0.0, 0.0, 0.0]
                     };
-                    let text_c = if item.is_active {
+                    let text_c = if item.is_active || is_selected {
                         tokens.text_primary.to_array()
                     } else {
                         tokens.text_secondary.to_array()
@@ -330,20 +411,24 @@ impl RailPanel {
                         text_c,
                     ));
 
-                    // 3. Filename column — fixed left edge at `row_x + glyph col`,
-                    //    extending to the row's right edge (clips long names).
+                    // 3. Filename column — fixed left edge at `row_x + glyph col`.
+                    //    Truncates with an ellipsis and highlights the matched
+                    //    substring while a search query is active.
                     let name_text_x = row_x + EXPLORER_GLYPH_COL_W;
-                    let name_x = name_text_x - EXPLORER_TITLE_PAD;
-                    let name_w = (row_x + row_w - name_x).max(4.0);
-                    blocks.push(explorer_text_block(
-                        format!("explorer_name_{}", item_idx),
-                        item.label.clone(),
-                        name_x,
-                        row_y,
+                    let name_w = (row_x + row_w - name_text_x).max(4.0);
+                    push_name_blocks(
+                        &mut blocks,
+                        item_idx,
+                        &item.label,
+                        &data.search_query,
+                        name_text_x,
                         name_w,
+                        row_y,
                         row_h_vis,
+                        data.char_advance,
                         text_c,
-                    ));
+                        tokens.accent.to_array(),
+                    );
                     y_off += row_h;
                 }
                 return SidebarBlocks { blocks, cta_hit_rect, search_hit_rect };
