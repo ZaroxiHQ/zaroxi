@@ -621,9 +621,20 @@ impl ZaroxiWidget for StatusBar {
             ));
             x += 68.0;
         }
-        // AI context usage "used/total" to the left of the arc.
+        // AI context usage to the left of the arc. With no known context total
+        // (the backend doesn't report one) fall back to the raw token count, or
+        // "AI idle" when there is no active session — never a misleading "/0".
+        let usage = if self.ai_tokens_total == 0 {
+            if self.ai_tokens_used == 0 {
+                "AI idle".to_string()
+            } else {
+                format!("{} tok", self.ai_tokens_used)
+            }
+        } else {
+            format!("{}/{}", self.ai_tokens_used, self.ai_tokens_total)
+        };
         out.push(WidgetText::new(
-            format!("{}/{}", self.ai_tokens_used, self.ai_tokens_total),
+            usage,
             (r.x1 - 96.0) as f32,
             baseline_y,
             size,
@@ -638,12 +649,16 @@ impl ZaroxiWidget for StatusBar {
             LspStatus::Slow => "slow",
             LspStatus::Error => "error",
         };
-        Some(format!(
-            "Status: {}. LSP {state}. AI context {} of {} tokens.",
-            self.breadcrumb.join(" \u{203a} "),
-            self.ai_tokens_used,
-            self.ai_tokens_total
-        ))
+        let ai = if self.ai_tokens_total == 0 {
+            if self.ai_tokens_used == 0 {
+                "AI idle".to_string()
+            } else {
+                format!("AI {} tokens", self.ai_tokens_used)
+            }
+        } else {
+            format!("AI context {} of {} tokens", self.ai_tokens_used, self.ai_tokens_total)
+        };
+        Some(format!("Status: {}. LSP {state}. {ai}.", self.breadcrumb.join(" \u{203a} ")))
     }
 }
 
@@ -734,5 +749,32 @@ mod tests {
         crate::set_reduce_motion(true);
         assert_eq!(pulse(0.3), 1.0);
         crate::set_reduce_motion(false);
+    }
+
+    #[test]
+    fn status_bar_falls_back_cleanly_when_token_total_unknown() {
+        // No session: "AI idle", never a misleading "/0" or "of 0".
+        let idle = StatusBar {
+            breadcrumb: vec!["main.rs".into()],
+            lsp: LspStatus::Healthy,
+            ai_tokens_used: 0,
+            ai_tokens_total: 0,
+            phase: 0.0,
+        };
+        let label = idle.a11y_label().unwrap();
+        assert!(label.contains("AI idle"), "got: {label}");
+        assert!(!label.contains("of 0") && !label.contains("/0"));
+
+        // Tokens streamed but no known context total: show the raw count.
+        let used = StatusBar {
+            breadcrumb: vec!["main.rs".into()],
+            lsp: LspStatus::Healthy,
+            ai_tokens_used: 123,
+            ai_tokens_total: 0,
+            phase: 0.0,
+        };
+        let label = used.a11y_label().unwrap();
+        assert!(label.contains("AI 123 tokens"), "got: {label}");
+        assert!(!label.contains("of 0") && !label.contains("/0"));
     }
 }

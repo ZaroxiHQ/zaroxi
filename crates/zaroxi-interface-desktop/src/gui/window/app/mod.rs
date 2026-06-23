@@ -286,6 +286,10 @@ pub struct GuiApp {
     /// Receiver drained once per frame to flush AI trace events into the
     /// `ZAROXI_PERF_TRACE` stream.
     pub ai_trace_rx: Option<zaroxi_application_ai::trace::AiTraceReceiver>,
+    /// Live AI session state (phase, streamed-token count, latency/throughput)
+    /// folded from the drained AI trace events.  The truthful operational
+    /// surface for the assistant panel and cockpit status — no invented data.
+    pub ai_session: zaroxi_application_ai::view_model::AiSessionState,
     pub on_widget_activated: Option<WidgetActivationHandler>,
     pub composition: Option<DesktopComposition>,
     pub workspace_view: Option<Arc<dyn WorkspaceView>>,
@@ -2220,7 +2224,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                         && (self.explorer_caret_blink_epoch.elapsed().as_millis()
                             / CARET_BLINK_INTERVAL_MS)
                             .is_multiple_of(2);
-                    let ai_data = super::presenters::shape_ai_content(&self.work_content);
+                    let mut ai_data = super::presenters::shape_ai_content(&self.work_content);
+                    // Surface truthful AI session status in the assistant panel.
+                    // Additive only: fills the subtitle when the panel has none
+                    // of its own, so an active/completed request is visible
+                    // without clobbering real content. Idle -> None -> unchanged.
+                    if ai_data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                        if let Some(status) = self.ai_session.status_label() {
+                            ai_data.ai_subtitle = Some(status);
+                        }
+                    }
 
                     let status_inputs = super::status_bar::StatusInputs {
                         file_label: status_file_label.as_deref(),
@@ -2698,7 +2711,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // 1) Drain AI inference traces (non-blocking) into
                                 //    the ZAROXI_AI_TRACE stream.
                                 if let Some(rx) = self.ai_trace_rx.as_mut() {
-                                    rx.drain_to_trace();
+                                    // Fold AI trace events into the live session
+                                    // state (still prints ZAROXI_AI_TRACE lines).
+                                    self.ai_session.drain_from(rx);
                                 }
                                 // 2) Frame-paced memory sample + pressure response.
                                 //    Runs unconditionally (eviction is functional,
@@ -2842,6 +2857,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         // Live git change markers (added/modified/
                                         // removed) for the active file.
                                         diff_hunks: self.cockpit_diff_hunks.clone(),
+                                        // Truthful streamed-token count from the AI
+                                        // session. ai_tokens_total stays 0 (unknown:
+                                        // the backend reports no context-window
+                                        // size) -> the status widget renders a
+                                        // clean fallback rather than an invented total.
+                                        ai_tokens_used: self.ai_session.tokens_streamed as u32,
+                                        // Cursor-centered viewport band + file/line
+                                        // breadcrumb from live editor state.
                                         viewport: super::cockpit::cursor_viewport(
                                             cur_line,
                                             editor_total_lines,
@@ -2851,10 +2874,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             cur_line,
                                             cur_col,
                                         ),
-                                        // The remaining fields (prediction_cells,
-                                        // ai_regions, ai_tokens_*) have no live source in the
-                                        // codebase yet: they need AI edit-prediction + token
-                                        // accounting. Left empty until that subsystem exists.
+                                        // prediction_cells / ai_regions remain empty:
+                                        // there is no edit-prediction subsystem yet.
                                         ..Default::default()
                                     };
                                     let (scene, text) =

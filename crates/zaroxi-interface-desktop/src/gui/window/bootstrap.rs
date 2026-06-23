@@ -77,6 +77,7 @@ pub fn run_shell_window(
         last_mem_sample: None,
         ai_tracer,
         ai_trace_rx: Some(ai_trace_rx),
+        ai_session: zaroxi_application_ai::view_model::AiSessionState::default(),
         on_widget_activated: None,
         composition,
         workspace_view,
