@@ -8,15 +8,16 @@ use crate::layout_constants::{
     EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
     EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H,
-    EXPLORER_ROW_W_REDUCTION, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
-    PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H,
-    RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W, SB_BOTTOM_SPEC, SB_EDITOR_SPEC,
-    SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR,
-    SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W,
-    STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG,
-    TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET,
-    TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET,
-    TOOLBAR_BTN_W, compute_scrollbar_geometry,
+    EXPLORER_ROW_W_REDUCTION, EXPLORER_SEARCH_TO_ROWS_GAP, PANEL_ACTION_V_REDUCTION,
+    PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET, RAIL_BOTTOM_START_OFFSET,
+    RAIL_DIVIDER_INSET, RAIL_ICON_GAP, RAIL_ICON_H, RAIL_ICON_START_Y, RAIL_ICON_W_OFFSET, RAIL_W,
+    SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC,
+    SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
+    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
+    STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H,
+    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
+    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
+    compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -747,7 +748,9 @@ fn build_explorer_panel_section(
             // Rows begin flush at the top of the explorer content area, matching
             // the render path (`rail.rs`). The header above (when present) is not
             // rendered and is non-interactive, so it neither shows nor blocks hits.
-            let mut row_y = layout.left_panel.y + pad;
+            // Rows begin below the rendered search box, matching the render
+            // path (`rail.rs`) so hit targets line up with the visible rows.
+            let mut row_y = layout.left_panel.y + pad + SEARCH_BAR_H + EXPLORER_SEARCH_TO_ROWS_GAP;
             for (item_idx, item) in items.iter().enumerate() {
                 if item_idx < scroll_top {
                     continue;

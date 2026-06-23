@@ -216,6 +216,10 @@ pub struct DesktopComposition {
     pub maybe_explorer: Option<WorkspaceExplorer>,
     /// Cache of visible explorer items for activation dispatch mapping.
     pub(crate) cached_explorer_items: Vec<ExplorerItemView>,
+    /// Active explorer search/filter query (empty = no filter). Drives whether
+    /// `refresh_cached_explorer_items` produces the normal tree or a full-tree
+    /// filtered + auto-expanded view.
+    pub(crate) explorer_search_query: String,
     /// Pending vertical scroll delta in lines. Consumed by refresh_with_service
     /// to call scroll_viewport on the workspace. Negative = scroll up, positive = down.
     pub pending_scroll_lines: isize,
@@ -244,6 +248,7 @@ impl DesktopComposition {
             workspace_root_path: None,
             maybe_explorer: None,
             cached_explorer_items: Vec::new(),
+            explorer_search_query: String::new(),
             pending_scroll_lines: 0,
             pending_vscroll_px: 0.0,
             pending_hscroll_px: 0.0,
@@ -692,14 +697,6 @@ impl DesktopComposition {
     }
 
     pub fn refresh_cached_explorer_items(&mut self) {
-        let explorer = match self.maybe_explorer.as_ref() {
-            Some(e) => e,
-            None => {
-                self.cached_explorer_items.clear();
-                return;
-            }
-        };
-
         let opened_paths: HashSet<String> = self
             .metadata
             .as_ref()
@@ -719,7 +716,30 @@ impl DesktopComposition {
             .and_then(|b| b.path())
             .map(|p| p.to_string_lossy().to_string());
 
-        self.cached_explorer_items = explorer.visible_items(&opened_paths, active_path.as_deref());
+        let query = self.explorer_search_query.clone();
+
+        let explorer = match self.maybe_explorer.as_mut() {
+            Some(e) => e,
+            None => {
+                self.cached_explorer_items.clear();
+                return;
+            }
+        };
+
+        self.cached_explorer_items = if query.trim().is_empty() {
+            explorer.visible_items(&opened_paths, active_path.as_deref())
+        } else {
+            // Full-tree search: reveal matches inside collapsed folders,
+            // auto-expanding their ancestors (see `filtered_visible_items`).
+            explorer.filtered_visible_items(&query, &opened_paths, active_path.as_deref())
+        };
+    }
+
+    /// Set the explorer search query and immediately recompute the visible
+    /// (filtered) item set so the new filter takes effect this frame.
+    pub fn set_explorer_search_query(&mut self, query: String) {
+        self.explorer_search_query = query;
+        self.refresh_cached_explorer_items();
     }
 
     pub fn format_cached_explorer_items(&self) -> Option<Vec<String>> {

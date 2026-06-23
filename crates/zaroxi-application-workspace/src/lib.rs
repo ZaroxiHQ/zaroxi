@@ -90,6 +90,75 @@ fn sort_workspace_entries(children: &mut [WorkspaceEntry]) {
     });
 }
 
+/// Recursively force-load every directory's children so a full-tree search can
+/// see files inside not-yet-expanded folders. Idempotent — already-loaded
+/// directories are skipped.
+fn load_all_children(node: &mut WorkspaceEntry) {
+    if !node.is_dir {
+        return;
+    }
+    let _ = WorkspaceTree::load_children(node);
+    for child in &mut node.children {
+        load_all_children(child);
+    }
+}
+
+/// Depth-first filtered collection for search.
+///
+/// Returns `true` when `node` (or any descendant) matched and was emitted. A
+/// directory is emitted when it matches by name OR has a matching descendant;
+/// it is reported `expanded` only when it has matching descendants (so a folder
+/// that merely matches by name shows collapsed). Ancestor folders of a match
+/// are therefore always present, preserving the path to every match. Ordering
+/// is inherited from the already-sorted tree.
+fn collect_filtered(
+    node: &WorkspaceEntry,
+    depth: usize,
+    query: &str,
+    opened_ids: &HashSet<String>,
+    active_id: Option<&str>,
+    out: &mut Vec<ExplorerItemView>,
+) -> bool {
+    let name_match = node.name.to_lowercase().contains(query);
+
+    if node.is_dir {
+        let mut child_out = Vec::new();
+        let mut any_child = false;
+        for child in &node.children {
+            if collect_filtered(child, depth + 1, query, opened_ids, active_id, &mut child_out) {
+                any_child = true;
+            }
+        }
+        if name_match || any_child {
+            out.push(ExplorerItemView {
+                id: node.id.clone(),
+                name: node.name.clone(),
+                depth,
+                is_dir: true,
+                expanded: any_child,
+                is_open: opened_ids.contains(&node.id),
+                is_active: active_id.is_some_and(|a| a == node.id),
+            });
+            out.append(&mut child_out);
+            return true;
+        }
+        false
+    } else if name_match {
+        out.push(ExplorerItemView {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            depth,
+            is_dir: false,
+            expanded: false,
+            is_open: opened_ids.contains(&node.id),
+            is_active: active_id.is_some_and(|a| a == node.id),
+        });
+        true
+    } else {
+        false
+    }
+}
+
 impl WorkspaceTree {
     /// Load a tree from the filesystem, loading only immediate children.
     pub fn load_from_fs(root_path: &PathBuf) -> io::Result<Self> {
@@ -347,6 +416,39 @@ impl WorkspaceExplorer {
             Some(t) => t.flatten_explorer_items(opened_paths, active_path),
             None => Vec::new(),
         }
+    }
+
+    /// Full-tree filtered view used by explorer search.
+    ///
+    /// Force-loads the entire tree (so files inside collapsed folders are
+    /// searchable), then returns the rows whose name contains `query`
+    /// (case-insensitive) together with every ancestor directory needed to
+    /// reveal them. Ancestors are reported expanded so the flattened result
+    /// auto-reveals matches; directories-first alphabetical ordering is
+    /// inherited from the tree. An empty/whitespace query falls back to the
+    /// normal `visible_items` view. Does not mutate the user's expand state.
+    pub fn filtered_visible_items(
+        &mut self,
+        query: &str,
+        opened_paths: &HashSet<String>,
+        active_path: Option<&str>,
+    ) -> Vec<ExplorerItemView> {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return self.visible_items(opened_paths, active_path);
+        }
+
+        if let Some(t) = self.tree.as_mut() {
+            load_all_children(&mut t.root);
+        }
+
+        let mut out = Vec::new();
+        if let Some(t) = self.tree.as_ref() {
+            for child in &t.root.children {
+                collect_filtered(child, 0, &q, opened_paths, active_path, &mut out);
+            }
+        }
+        out
     }
 
     /// Return the filesystem path for an explorer entry by its id.

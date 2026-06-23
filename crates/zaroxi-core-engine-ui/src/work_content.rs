@@ -104,6 +104,15 @@ pub struct ShellWorkContent {
     /// widget tree (hit targets) and the render blocks read this so scrolling
     /// stays consistent across the two consumers.
     pub explorer_scroll_top: usize,
+    /// Current explorer search/filter query (empty = no filter). Drives the
+    /// filtered `explorer_panel_items` set and the rendered search box text.
+    pub explorer_search_query: String,
+    /// Whether the explorer search box currently holds keyboard focus (drives
+    /// its focus ring / placeholder treatment).
+    pub explorer_search_active: bool,
+    /// Whether a workspace is currently loaded. Drives whether the explorer
+    /// renders its search box (even when a filter yields no matches).
+    pub explorer_has_workspace: bool,
     pub active_file: Option<String>,
     pub terminal_tabs: Option<Vec<String>>,
     /// AI assistant panel content view — built from the current AI projection
@@ -132,6 +141,9 @@ impl ShellWorkContent {
             explorer_empty_button: None,
             explorer_empty_message: None,
             explorer_scroll_top: 0,
+            explorer_search_query: String::new(),
+            explorer_search_active: false,
+            explorer_has_workspace: false,
             active_file,
             terminal_tabs,
             ai_panel_content: None,

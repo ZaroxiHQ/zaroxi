@@ -13,8 +13,9 @@ use zaroxi_core_engine_ui::chrome::PanelSection;
 
 use crate::gui::window::editor_shell::constants::{
     EXPLORER_GLYPH_COL_W, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
-    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION, EXPLORER_TITLE_PAD,
-    SIDEBAR_PAD, explorer_cta_button_rect,
+    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION,
+    EXPLORER_SEARCH_TO_ROWS_GAP, EXPLORER_TITLE_PAD, SEARCH_BAR_H, SIDEBAR_PAD,
+    explorer_cta_button_rect,
 };
 use crate::gui::window::explorer_panel::icons;
 
@@ -65,6 +66,13 @@ pub struct ExplorerData {
     /// First visible explorer row (vertical scroll offset, in rows). Kept in
     /// sync with the widget tree via `ShellWorkContent::explorer_scroll_top`.
     pub scroll_top: usize,
+    /// Current search/filter query (empty = no filter). Rendered in the search
+    /// box at the top of the explorer.
+    pub search_query: String,
+    /// Whether the search box currently holds keyboard focus.
+    pub search_active: bool,
+    /// Whether a workspace is loaded (controls whether the search box renders).
+    pub has_workspace: bool,
 }
 
 impl Default for ExplorerData {
@@ -75,6 +83,9 @@ impl Default for ExplorerData {
             empty_button_label: None,
             panel_items: None,
             scroll_top: 0,
+            search_query: String::new(),
+            search_active: false,
+            has_workspace: false,
         }
     }
 }
@@ -84,6 +95,9 @@ pub struct SidebarBlocks {
     pub blocks: Vec<UiBlock>,
     /// Hit rect for the CTA button, if present (x, y, w, h).
     pub cta_hit_rect: Option<(f32, f32, f32, f32)>,
+    /// Hit rect for the search input box, if rendered (x, y, w, h). Clicking it
+    /// focuses the explorer search for keyboard input.
+    pub search_hit_rect: Option<(f32, f32, f32, f32)>,
 }
 
 pub struct RailPanel;
@@ -162,16 +176,66 @@ impl RailPanel {
             text_color: None,
         });
 
+        let pad = SIDEBAR_PAD;
+        let inner_w = rect.w - pad * 2.0;
+
+        // ── Search box (rendered when a workspace is loaded) ──
+        let mut search_hit_rect: Option<(f32, f32, f32, f32)> = None;
+        let mut content_top = rect.y + pad;
+        if data.has_workspace {
+            let sb_x = rect.x + pad;
+            let sb_y = rect.y + pad;
+            let sb_w = inner_w;
+            let sb_h = SEARCH_BAR_H;
+
+            let (display, text_color) = if data.search_query.is_empty() {
+                (format!(" {}  Search files…", icons::glyph::SEARCH), tokens.text_muted.to_array())
+            } else {
+                (
+                    format!(" {}  {}", icons::glyph::SEARCH, data.search_query),
+                    tokens.text_primary.to_array(),
+                )
+            };
+            // Focus ring (accent border) when the box holds keyboard focus.
+            let (border_color, border_width) = if data.search_active {
+                (Some(tokens.accent.to_array()), 1.0)
+            } else {
+                (None, 0.0)
+            };
+
+            blocks.push(UiBlock {
+                id: "explorer_search_box".to_string(),
+                title: display,
+                content: String::new(),
+                visible: true,
+                rect: zaroxi_core_engine_render::Rect { x: sb_x, y: sb_y, w: sb_w, h: sb_h },
+                header_color: Some(tokens.sidebar_input.to_array()),
+                content_color: None,
+                corner_radius: 4.0,
+                border_color,
+                border_width,
+                header_only: true,
+                content_spans: None,
+                cursor_line: None,
+                cursor_col: None,
+                highlight_active_line: false,
+                selection_range: None,
+                text_color: Some(text_color),
+                clip_rect: None,
+                content_offset_x: 0.0,
+                content_offset_y: 0.0,
+                content_line_offset: None,
+            });
+
+            search_hit_rect = Some((sb_x, sb_y, sb_w, sb_h));
+            content_top = sb_y + sb_h + EXPLORER_SEARCH_TO_ROWS_GAP;
+        }
+
         // ── Per-row blocks (aligned with widget tree hit regions) ──
         if let Some(ref items) = data.panel_items {
             if !items.is_empty() {
-                let pad = SIDEBAR_PAD;
-                let inner_w = rect.w - pad * 2.0;
-                // Tree begins flush at the top of the explorer content area: only a
-                // small top inset, no search/divider/header band. (The non-rendered
-                // search/header scaffolding in the widget tree is non-interactive and
-                // does not affect hit testing.)
-                let mut y_off = rect.y + pad;
+                // Rows start below the rendered search box (see `content_top`).
+                let mut y_off = content_top;
                 let max_y = rect.y + rect.h - EXPLORER_MAX_Y_INSET;
                 let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
 
@@ -268,8 +332,26 @@ impl RailPanel {
                     ));
                     y_off += row_h;
                 }
-                return SidebarBlocks { blocks, cta_hit_rect };
+                return SidebarBlocks { blocks, cta_hit_rect, search_hit_rect };
             }
+        }
+
+        // A workspace is loaded but there are no rows to show (empty folder or a
+        // search that matched nothing). Keep the search box + a quiet hint; do
+        // NOT fall through to the legacy text block (it would overlap the box).
+        if data.has_workspace {
+            if !data.search_query.is_empty() {
+                blocks.push(explorer_text_block(
+                    "explorer_no_matches".to_string(),
+                    "  No matches".to_string(),
+                    rect.x + pad,
+                    content_top,
+                    inner_w,
+                    EXPLORER_ROW_VIS_H,
+                    tokens.text_muted.to_array(),
+                ));
+            }
+            return SidebarBlocks { blocks, cta_hit_rect, search_hit_rect };
         }
 
         // ── Fallback: single text-block rendering (legacy) ──
@@ -351,6 +433,6 @@ impl RailPanel {
             }
         }
 
-        SidebarBlocks { blocks, cta_hit_rect }
+        SidebarBlocks { blocks, cta_hit_rect, search_hit_rect }
     }
 }

@@ -30,6 +30,8 @@ pub mod glyph {
     pub const FOLDER: char = '\u{f07b}';
     /// Open directory — nf-fa-folder_open.
     pub const FOLDER_OPEN: char = '\u{f07c}';
+    /// Magnifying glass for the search box — nf-fa-search.
+    pub const SEARCH: char = '\u{f002}';
 
     // ── Category fallbacks ──
     /// Generic file — nf-fa-file.

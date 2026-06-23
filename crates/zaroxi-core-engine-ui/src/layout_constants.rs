@@ -175,6 +175,8 @@ pub const EXPLORER_HEADER_H: f32 = 22.0;
 /// Gap between the panel header and the first tree row. Kept at 0 so the tree
 /// begins flush at the top of the explorer content area.
 pub const EXPLORER_HEADER_TO_ROWS_GAP: f32 = 0.0;
+/// Vertical gap between the explorer search box and the first tree row.
+pub const EXPLORER_SEARCH_TO_ROWS_GAP: f32 = 8.0;
 pub const EXPLORER_INDENT_PX: f32 = 14.0;
 pub const EXPLORER_MAX_Y_INSET: f32 = 12.0;
 
@@ -255,10 +257,10 @@ pub fn explorer_cta_button_rect(sidebar_rect: (f32, f32, f32, f32)) -> (f32, f32
 }
 
 /// Vertical offset (relative to the sidebar panel top) of the first explorer
-/// tree row. The tree begins flush at the top of the content area (just the
-/// panel's top inset), so capacity computation matches the row builders.
+/// tree row. The rows sit below the rendered search box, so capacity
+/// computation must match the row builders (`rail.rs` / `shell_builder.rs`).
 pub fn explorer_first_row_offset(_has_title: bool) -> f32 {
-    SIDEBAR_PAD
+    SIDEBAR_PAD + SEARCH_BAR_H + EXPLORER_SEARCH_TO_ROWS_GAP
 }
 
 /// Number of explorer rows that fully fit in the sidebar viewport for a given

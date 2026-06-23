@@ -107,6 +107,8 @@ impl DesktopComposition {
         shell_wc.explorer_panel_items = explorer_panel_items;
         shell_wc.explorer_panel_title = explorer_panel_title;
         shell_wc.explorer_empty_message = explorer_empty_message;
+        shell_wc.explorer_search_query = self.explorer_search_query.clone();
+        shell_wc.explorer_has_workspace = self.workspace_root_path.is_some();
 
         shell_wc
     }

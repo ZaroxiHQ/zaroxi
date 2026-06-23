@@ -142,6 +142,8 @@ pub const EXPLORER_HEADER_H: f32 = 22.0;
 /// Gap between the panel header and the first tree row. Kept at 0 so the tree
 /// begins flush at the top of the explorer content area.
 pub const EXPLORER_HEADER_TO_ROWS_GAP: f32 = 0.0;
+/// Vertical gap between the explorer search box and the first tree row.
+pub const EXPLORER_SEARCH_TO_ROWS_GAP: f32 = 8.0;
 pub const EXPLORER_INDENT_PX: f32 = 14.0;
 pub const EXPLORER_MAX_Y_INSET: f32 = 12.0;
 

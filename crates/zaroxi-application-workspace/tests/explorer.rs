@@ -267,3 +267,61 @@ fn explorer_orders_directories_first_alphabetically_at_every_level() -> std::io:
     let _ = fs::remove_dir_all(&tmp);
     Ok(())
 }
+
+/// Full-tree search must reveal matches inside folders that were never
+/// expanded, keeping the ancestor folders visible (and reported expanded) and
+/// excluding non-matching siblings.
+#[test]
+fn explorer_filtered_search_reveals_matches_through_collapsed_ancestors() -> std::io::Result<()> {
+    let base = env::temp_dir();
+    let uniq = format!(
+        "zaroxi_search_test_{}_{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    );
+    let tmp = base.join(uniq);
+    let root = tmp.join("workspace");
+
+    fs::create_dir_all(root.join("src").join("deep"))?;
+    fs::write(root.join("src").join("deep").join("target_file.rs"), "fn t() {}")?;
+    fs::write(root.join("src").join("other.rs"), "x")?;
+    fs::write(root.join("README.md"), "r")?;
+
+    let mut explorer = WorkspaceExplorer::new();
+    explorer.load_workspace(&PathBuf::from(&root))?;
+
+    // Nothing is expanded; a plain visible view shows only the top level.
+    let plain = explorer.visible_items(&HashSet::new(), None);
+    assert!(
+        !plain.iter().any(|i| i.name == "target_file.rs"),
+        "deep file must be hidden before searching"
+    );
+
+    // Searching for the deep file reveals it through its collapsed ancestors.
+    let filtered = explorer.filtered_visible_items("target", &HashSet::new(), None);
+    let names: Vec<&str> = filtered.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["src", "deep", "target_file.rs"],
+        "match plus its ancestor folders must be visible, siblings excluded"
+    );
+
+    // Ancestor folders are reported expanded so the match is reachable.
+    let src = filtered.iter().find(|i| i.name == "src").unwrap();
+    assert!(src.is_dir && src.expanded, "ancestor 'src' should be expanded");
+    let deep = filtered.iter().find(|i| i.name == "deep").unwrap();
+    assert_eq!(deep.depth, 1);
+    let file = filtered.iter().find(|i| i.name == "target_file.rs").unwrap();
+    assert_eq!(file.depth, 2);
+    assert!(!file.is_dir);
+
+    // Clearing the query restores the normal collapsed view.
+    let cleared = explorer.filtered_visible_items("   ", &HashSet::new(), None);
+    assert!(
+        !cleared.iter().any(|i| i.name == "target_file.rs"),
+        "empty query restores the normal view"
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+    Ok(())
+}

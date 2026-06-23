@@ -381,13 +381,17 @@ pub fn extract_scrollbar_blocks(
     blocks
 }
 /// Compose all shell regions into UiBlocks by delegating to panel modules.
+/// An optional UI hit rectangle (x, y, w, h).
+type HitRect = Option<(f32, f32, f32, f32)>;
+
 pub fn compose_blocks(
     regions: &[ShellRegion],
     tokens: &StyleTokens,
     ctx: &ShellBlockContext,
-) -> (Vec<UiBlock>, Option<(f32, f32, f32, f32)>) {
+) -> (Vec<UiBlock>, HitRect, HitRect) {
     let mut blocks: Vec<UiBlock> = Vec::new();
-    let mut explorer_cta_rect: Option<(f32, f32, f32, f32)> = None;
+    let mut explorer_cta_rect: HitRect = None;
+    let mut explorer_search_rect: HitRect = None;
     for r in regions {
         let role = region_role(r.id);
         match role {
@@ -397,6 +401,7 @@ pub fn compose_blocks(
                 let sidebar = RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data);
                 blocks.extend(sidebar.blocks);
                 explorer_cta_rect = sidebar.cta_hit_rect;
+                explorer_search_rect = sidebar.search_hit_rect;
             }
             PanelRole::GutterLane => {
                 blocks.push(EditorPanel::build_gutter_block(
@@ -457,5 +462,5 @@ pub fn compose_blocks(
         }
     }
 
-    (blocks, explorer_cta_rect)
+    (blocks, explorer_cta_rect, explorer_search_rect)
 }

@@ -292,6 +292,12 @@ pub struct GuiApp {
     /// Explorer tree vertical scroll offset, in rows (first visible row).
     /// Persisted across redraws; clamped each frame against the viewport.
     pub explorer_scroll_top: usize,
+    /// Whether the explorer search box currently holds keyboard focus (routes
+    /// typing to the filter query instead of the editor).
+    pub explorer_search_active: bool,
+    /// Rendered hit rect of the explorer search box (x, y, w, h), for click-to-
+    /// focus. Set each frame from the sidebar render.
+    pub explorer_search_rect: Option<(f32, f32, f32, f32)>,
     pub last_render_size: (u32, u32),
     pub pending_scroll_frac: f32,
     pub picker_in_flight: bool,
@@ -1621,6 +1627,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                     y,
                     self.explorer_button_rect
                 );
+                // Explorer search box focus: clicking the box grabs keyboard
+                // focus; clicking anywhere else releases it (the filter itself
+                // persists until cleared with Escape).
+                if let ElementState::Released = state {
+                    let in_search = self.explorer_search_rect.is_some_and(|(sx, sy, sw, sh)| {
+                        x >= sx && x < sx + sw && y >= sy && y < sy + sh
+                    });
+                    if in_search {
+                        if !self.explorer_search_active {
+                            self.explorer_search_active = true;
+                            self.invalidate(InvalidationFlags::content());
+                        }
+                        return;
+                    } else if self.explorer_search_active {
+                        self.explorer_search_active = false;
+                        self.invalidate(InvalidationFlags::content());
+                    }
+                }
                 let actions = match state {
                     ElementState::Pressed => {
                         if let Some(ref mut tree) = self.widget_tree {
@@ -1895,6 +1919,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                         if let Some(wc) = self.work_content.as_mut() {
                             wc.explorer_scroll_top = self.explorer_scroll_top;
+                            wc.explorer_search_active = self.explorer_search_active;
                         }
                     }
 
@@ -2141,9 +2166,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .and_then(|wc| wc.terminal_tabs.clone()),
                     };
 
-                    let (mut render_blocks, explorer_cta_rect) =
+                    let (mut render_blocks, explorer_cta_rect, explorer_search_rect) =
                         super::frame::compose_blocks(shell_regions, &tokens, &ctx);
                     self.explorer_button_rect = explorer_cta_rect;
+                    self.explorer_search_rect = explorer_search_rect;
 
                     if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
                         for block in &render_blocks {

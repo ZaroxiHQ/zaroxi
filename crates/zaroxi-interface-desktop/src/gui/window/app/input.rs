@@ -26,6 +26,29 @@ fn editor_focused(app: &GuiApp) -> bool {
         && !app.picker_in_flight
 }
 
+/// Current explorer search query (from composition; empty when none).
+fn current_explorer_query(app: &GuiApp) -> String {
+    app.composition.as_ref().map(|c| c.explorer_search_query.clone()).unwrap_or_default()
+}
+
+/// Apply a new explorer search query: recompute the (filtered) tree, rebuild
+/// work content, reset scroll to the top, and request a redraw. This is the
+/// single entry point that keeps the filter, rendered list, and widget tree in
+/// agreement.
+fn set_explorer_search(app: &mut GuiApp, query: String) {
+    let new_wc = if let Some(comp) = app.composition.as_mut() {
+        comp.set_explorer_search_query(query);
+        Some(comp.build_work_content())
+    } else {
+        None
+    };
+    if let Some(wc) = new_wc {
+        app.work_content = Some(wc);
+    }
+    app.explorer_scroll_top = 0;
+    app.invalidate(super::InvalidationFlags::content());
+}
+
 /// Translate a pressed keyboard logical key into zero or more `WidgetAction`s
 /// and route editing commands to the rope-backed buffer.
 /// Classify a key press for `ZAROXI_PERF_TRACE` event labelling, but only when
@@ -61,6 +84,41 @@ pub(crate) fn classify_editor_key(app: &GuiApp, logical_key: &Key) -> Option<&'s
 }
 
 pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<WidgetAction> {
+    // ── Explorer search box has keyboard focus: route typing to the filter ──
+    if app.explorer_search_active {
+        match logical_key {
+            Key::Named(NamedKey::Escape) => {
+                app.explorer_search_active = false;
+                set_explorer_search(app, String::new());
+            }
+            Key::Named(NamedKey::Enter) => {
+                // Commit: keep the filter applied but release keyboard focus.
+                app.explorer_search_active = false;
+                app.invalidate(super::InvalidationFlags::content());
+            }
+            Key::Named(NamedKey::Backspace) => {
+                let mut q = current_explorer_query(app);
+                q.pop();
+                set_explorer_search(app, q);
+            }
+            Key::Named(NamedKey::Space) => {
+                let mut q = current_explorer_query(app);
+                q.push(' ');
+                set_explorer_search(app, q);
+            }
+            Key::Character(text) if !app.ctrl_held => {
+                if !text.is_empty() && !text.chars().any(|c| c.is_control()) {
+                    let mut q = current_explorer_query(app);
+                    q.push_str(text.as_str());
+                    set_explorer_search(app, q);
+                }
+            }
+            _ => {}
+        }
+        // Search focus is exclusive: swallow all keys so the editor never sees them.
+        return Vec::new();
+    }
+
     // ── Editor editing commands (only when editor has focus/content) ──
     if editor_focused(app) {
         match logical_key {
@@ -173,6 +231,12 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             }
         }
         Key::Named(NamedKey::Escape) => {
+            // An active filter is the first thing Escape clears, even when the
+            // search box doesn't hold keyboard focus.
+            if !current_explorer_query(app).is_empty() {
+                set_explorer_search(app, String::new());
+                return vec![WidgetAction::StateNeedsRedraw];
+            }
             if let Some(ref mut tree) = app.widget_tree {
                 if let Some(old) = app.interaction.focused_widget_idx {
                     tree.set_state_at(old, zaroxi_core_engine_ui::InteractionState::Normal);
