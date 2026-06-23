@@ -188,11 +188,25 @@ impl RailPanel {
             let sb_w = inner_w;
             let sb_h = SEARCH_BAR_H;
 
+            // A steady text caret (▏) marks the insertion point while the box
+            // holds keyboard focus.
+            let caret = if data.search_active { "\u{258F}" } else { "" };
             let (display, text_color) = if data.search_query.is_empty() {
-                (format!(" {}  Search files…", icons::glyph::SEARCH), tokens.text_muted.to_array())
+                if data.search_active {
+                    // Focused but empty: show the caret instead of the placeholder.
+                    (
+                        format!(" {}  {}", icons::glyph::SEARCH, caret),
+                        tokens.text_primary.to_array(),
+                    )
+                } else {
+                    (
+                        format!(" {}  Search files…", icons::glyph::SEARCH),
+                        tokens.text_muted.to_array(),
+                    )
+                }
             } else {
                 (
-                    format!(" {}  {}", icons::glyph::SEARCH, data.search_query),
+                    format!(" {}  {}{}", icons::glyph::SEARCH, data.search_query, caret),
                     tokens.text_primary.to_array(),
                 )
             };

@@ -324,17 +324,22 @@ impl WorkspaceTree {
 pub struct WorkspaceExplorer {
     pub tree: Option<WorkspaceTree>,
     pub selected: Option<String>,
+    /// Whether the entire tree has already been force-loaded for search. Set on
+    /// the first filtered query so subsequent keystrokes skip the recursive
+    /// load walk (children stay loaded for the session).
+    full_load_done: bool,
 }
 
 impl WorkspaceExplorer {
     pub fn new() -> Self {
-        WorkspaceExplorer { tree: None, selected: None }
+        WorkspaceExplorer { tree: None, selected: None, full_load_done: false }
     }
 
     /// Load a workspace tree rooted at `path`.
     pub fn load_workspace(&mut self, path: &PathBuf) -> io::Result<()> {
         let tree = WorkspaceTree::load_from_fs(path)?;
         self.tree = Some(tree);
+        self.full_load_done = false;
         Ok(())
     }
 
@@ -438,8 +443,13 @@ impl WorkspaceExplorer {
             return self.visible_items(opened_paths, active_path);
         }
 
-        if let Some(t) = self.tree.as_mut() {
-            load_all_children(&mut t.root);
+        // Force-load the whole tree once; later keystrokes reuse the loaded
+        // nodes (no disk I/O, no recursive load walk).
+        if !self.full_load_done {
+            if let Some(t) = self.tree.as_mut() {
+                load_all_children(&mut t.root);
+            }
+            self.full_load_done = true;
         }
 
         let mut out = Vec::new();
