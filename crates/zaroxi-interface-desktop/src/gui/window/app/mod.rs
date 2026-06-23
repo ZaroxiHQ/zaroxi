@@ -2737,12 +2737,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         self.theme_mode,
                                         system_is_dark,
                                     );
+                                    // Live state via disjoint field access (core
+                                    // is mutably borrowed, so avoid &self methods).
+                                    let cur_line = self.editor_buffer.caret_line();
+                                    let cur_col = self.editor_buffer.caret_col();
+                                    let active_file = self.committed_active_file.clone();
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
                                         line_height: 18.0,
                                         total_lines: editor_total_lines,
-                                        viewport: (0.0, 1.0),
+                                        viewport: super::cockpit::cursor_viewport(
+                                            cur_line,
+                                            editor_total_lines,
+                                        ),
+                                        breadcrumb: super::cockpit::breadcrumb(
+                                            active_file.as_deref(),
+                                            cur_line,
+                                            cur_col,
+                                        ),
+                                        // The remaining fields (minimap_symbols, diff_hunks,
+                                        // prediction_cells, ai_regions, ai_tokens_*) have no live
+                                        // source in the codebase yet: they need rope byte-indexing /
+                                        // tree-sitter symbol queries (minimap), a git diff provider
+                                        // (diff), and AI edit-prediction + token accounting (AI). Left
+                                        // empty until those subsystems exist.
                                         ..Default::default()
                                     };
                                     let (scene, text) =

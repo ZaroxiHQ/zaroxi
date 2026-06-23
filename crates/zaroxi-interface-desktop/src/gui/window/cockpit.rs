@@ -80,6 +80,37 @@ pub fn cockpit_enabled() -> bool {
     matches!(std::env::var("ZAROXI_COCKPIT").as_deref(), Ok("1"))
 }
 
+/// Build the breadcrumb from live editor state: the file basename plus the
+/// cursor position. The full symbol path (`mod → fn → expr`) needs tree-sitter
+/// symbol resolution, which the syntax layer does not expose yet, so this is the
+/// honest, cheap subset available today.
+pub fn breadcrumb(active_file: Option<&str>, cursor_line: usize, cursor_col: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(path) = active_file {
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        if !name.is_empty() {
+            out.push(name.to_string());
+        }
+    }
+    out.push(format!("Ln {}", cursor_line + 1));
+    out.push(format!("Col {}", cursor_col + 1));
+    out
+}
+
+/// Best-effort viewport fraction centered on the cursor line.
+///
+/// `EditorViewport` does not expose the first-visible line, so a precise visible
+/// band is not derivable; this approximates one around the cursor so the minimap
+/// thumb tracks editing. A precise band needs first-visible-line plumbing.
+pub fn cursor_viewport(cursor_line: usize, total_lines: usize) -> (f32, f32) {
+    if total_lines <= 1 {
+        return (0.0, 1.0);
+    }
+    let c = cursor_line as f32 / total_lines as f32;
+    let top = (c - 0.05).clamp(0.0, 0.95);
+    (top, (top + 0.15).min(1.0))
+}
+
 /// Region rectangles computed by the taffy pass.
 struct Regions {
     editor: taffy::Layout,
@@ -333,5 +364,24 @@ mod tests {
         // Light theme maps to the light token set.
         let light = cockpit_tokens(ZaroxiTheme::Light, false);
         assert!(!light.is_dark);
+    }
+
+    #[test]
+    fn breadcrumb_uses_basename_and_one_based_cursor() {
+        let b = breadcrumb(Some("/home/u/proj/src/main.rs"), 41, 7);
+        assert_eq!(b, vec!["main.rs".to_string(), "Ln 42".to_string(), "Col 8".to_string()]);
+        // No file -> just cursor.
+        let b = breadcrumb(None, 0, 0);
+        assert_eq!(b, vec!["Ln 1".to_string(), "Col 1".to_string()]);
+    }
+
+    #[test]
+    fn cursor_viewport_is_bounded_and_tracks_cursor() {
+        assert_eq!(cursor_viewport(0, 0), (0.0, 1.0));
+        let (t0, b0) = cursor_viewport(0, 100);
+        assert!(t0 >= 0.0 && b0 <= 1.0 && t0 < b0);
+        let (t_top, _) = cursor_viewport(10, 100);
+        let (t_bot, _) = cursor_viewport(90, 100);
+        assert!(t_bot > t_top, "viewport top tracks cursor downward");
     }
 }
