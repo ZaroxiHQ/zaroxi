@@ -4662,6 +4662,7 @@ dependencies = [
  "log",
  "lru",
  "thiserror 2.0.18",
+ "vello",
  "wgpu",
  "wgpu-types",
  "winit",

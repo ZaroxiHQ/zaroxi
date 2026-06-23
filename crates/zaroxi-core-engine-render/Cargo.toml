@@ -29,6 +29,9 @@ cosmic-text = { workspace = true, optional = true }
 # it is only pulled in with the heavy renderer feature that owns cosmic.rs.
 lru = { version = "0.18", optional = true }
 
+# vello vector renderer for the cockpit overlay composite (gated, additive).
+vello = { workspace = true, optional = true }
+
 # Local workspace crates used by the renderer for app state & theme tokens.
 # Mark them optional so they can be enabled by the `full_renderer` feature.
 
@@ -46,5 +49,6 @@ full_renderer = [
     "bytemuck",
     "wgpu-types",
     "lru",
+    "vello",
 ]
 legacy_cosmic = []

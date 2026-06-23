@@ -7,6 +7,8 @@ mod pipelines;
 mod shapes;
 mod surface;
 mod text;
+#[cfg(feature = "full_renderer")]
+pub mod vello_overlay;
 pub use text::desktop_shim;
 mod text_atlas;
 mod text_pipeline;

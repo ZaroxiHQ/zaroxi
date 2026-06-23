@@ -187,6 +187,10 @@ pub struct RenderCore {
     surface_config: SurfaceConfiguration,
     vertex_buffer: Buffer,
     index_buffer: Buffer,
+    /// Optional vello cockpit overlay (lazily created once a cockpit scene is set).
+    vello_overlay: Option<crate::renderer::vello_overlay::VelloOverlay>,
+    /// Cockpit vello scene to composite on the next frame (set by the host).
+    cockpit_scene: Option<vello::Scene>,
 }
 
 impl<'a> Renderer<'a> {
@@ -1702,6 +1706,8 @@ impl RenderCore {
             surface_config,
             vertex_buffer,
             index_buffer,
+            vello_overlay: None,
+            cockpit_scene: None,
         })
     }
 
@@ -1782,6 +1788,17 @@ impl RenderCore {
             .unwrap()
             .resize_viewport(self.surface_config.width, self.surface_config.height);
 
+        // Lazily create the cockpit vello overlay the first time a scene is set.
+        if self.cockpit_scene.is_some() && self.vello_overlay.is_none() {
+            match crate::renderer::vello_overlay::VelloOverlay::new(
+                &self.device,
+                self.surface_config.format,
+            ) {
+                Ok(o) => self.vello_overlay = Some(o),
+                Err(e) => eprintln!("ZAROXI_COCKPIT: vello overlay init failed: {:?}", e),
+            }
+        }
+
         render_frame_inner(
             &self.device,
             &mut self.queue,
@@ -1795,6 +1812,8 @@ impl RenderCore {
             &self.index_buffer,
             layout,
             render_blocks,
+            self.vello_overlay.as_mut(),
+            self.cockpit_scene.as_ref(),
         )
     }
 
@@ -1822,6 +1841,14 @@ impl RenderCore {
         if let Some(tr) = self.text_renderer.as_deref() {
             tr.set_shape_budget_ms(ms);
         }
+    }
+
+    /// Set the cockpit vello scene to composite on the next frame; `None`
+    /// disables the overlay. The scene is built by the host
+    /// (`zaroxi-interface-widgets`); the renderer only composites it on top of
+    /// the main GUI. Cockpit *text* is drawn by the cosmic-text pass, not vello.
+    pub fn set_cockpit_scene(&mut self, scene: Option<vello::Scene>) {
+        self.cockpit_scene = scene;
     }
 }
 
@@ -1917,6 +1944,8 @@ fn render_frame_inner(
     index_buffer: &Buffer,
     layout: &RenderLayout,
     render_blocks: &[crate::UiBlock],
+    cockpit_overlay: Option<&mut crate::renderer::vello_overlay::VelloOverlay>,
+    cockpit_scene: Option<&vello::Scene>,
 ) -> Result<RenderPerf, RenderError> {
     if config.width == 0 || config.height == 0 {
         return Ok(RenderPerf::default());
@@ -2468,6 +2497,22 @@ fn render_frame_inner(
                         )?;
                     }
                 }
+            }
+
+            // Cockpit vello overlay composite (additive; runs only when the host
+            // set a cockpit scene, i.e. ZAROXI_COCKPIT enabled). Blits the vector
+            // visuals over the main GUI; cockpit text is drawn by the cosmic-text
+            // pass above, never by vello.
+            if let (Some(overlay), Some(scene)) = (cockpit_overlay, cockpit_scene) {
+                overlay.composite(
+                    device,
+                    &*queue,
+                    &mut encoder,
+                    &view,
+                    scene,
+                    config.width,
+                    config.height,
+                );
             }
 
             let gpu_encode_ms =
