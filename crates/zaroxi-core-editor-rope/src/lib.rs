@@ -634,6 +634,121 @@ impl Rope {
     }
 }
 
+/// A compact **byte-offset → line** index for a UTF-8 document.
+///
+/// The [`Rope`] tracks line starts in *character* offsets, but several
+/// subsystems (tree-sitter highlight spans, LSP) speak in **byte** offsets.
+/// `LineIndex` is the low-level mapping that turns those byte offsets — or whole
+/// byte spans — into 0-based line numbers, so structural data (minimap symbols,
+/// navigation) can be placed on the right rows.
+///
+/// `line_starts[i]` is the byte offset at which line `i` begins; `line_starts[0]`
+/// is always `0`, and `line_starts.len()` equals the line count (a document with
+/// no trailing newline still counts its last line). Lookups are `O(log L)` via
+/// binary search; construction is a single `O(n)` pass (or `O(L)` from line
+/// lengths via [`LineIndex::from_lines`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineIndex {
+    line_starts: Vec<usize>,
+    total_bytes: usize,
+}
+
+impl LineIndex {
+    /// Build the index by scanning `text` once for newline (`\n`) bytes.
+    ///
+    /// This is the general path; prefer [`LineIndex::from_lines`] when the
+    /// document is already held as a slice of lines, to avoid materializing the
+    /// joined string.
+    pub fn from_str(text: &str) -> Self {
+        let bytes = text.as_bytes();
+        let mut line_starts = Vec::with_capacity((bytes.len() / 24).max(1) + 1);
+        line_starts.push(0);
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                line_starts.push(i + 1);
+            }
+        }
+        Self { line_starts, total_bytes: bytes.len() }
+    }
+
+    /// Build the index from a slice of lines, assuming they are joined by a
+    /// single `'\n'` separator (the editor's document contract).
+    ///
+    /// This computes line starts as a prefix sum of `line.len() + 1` and never
+    /// rescans a joined buffer, so it is `O(number_of_lines)` rather than
+    /// `O(document_bytes)` — the cheap, large-file-friendly path used after an
+    /// edit or reparse when the line set is already known. The byte offsets it
+    /// produces are identical to `LineIndex::from_str(&lines.join("\n"))`.
+    pub fn from_lines(lines: &[String]) -> Self {
+        if lines.is_empty() {
+            return Self { line_starts: vec![0], total_bytes: 0 };
+        }
+        let mut line_starts = Vec::with_capacity(lines.len());
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                offset += 1; // '\n' separator
+            }
+            line_starts.push(offset);
+            offset += line.len();
+        }
+        Self { line_starts, total_bytes: offset }
+    }
+
+    /// Number of lines covered by the index (always `>= 1`).
+    pub fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+
+    /// Total document length in bytes.
+    pub fn byte_len(&self) -> usize {
+        self.total_bytes
+    }
+
+    /// The raw line-start byte offsets (`line_starts[0] == 0`).
+    ///
+    /// Exposed so downstream consumers (e.g. symbol extraction in another crate)
+    /// can map byte offsets without taking a dependency on this crate's `Rope`.
+    pub fn line_starts(&self) -> &[usize] {
+        &self.line_starts
+    }
+
+    /// Map a **byte** offset to its 0-based line number (`O(log L)`).
+    ///
+    /// Offsets past the end of the document clamp to the last line. A byte that
+    /// falls exactly on a line-start belongs to that line.
+    pub fn byte_to_line(&self, byte: usize) -> usize {
+        byte_to_line(&self.line_starts, byte)
+    }
+
+    /// Map a byte span `[start, end)` to the inclusive line range
+    /// `(first_line, last_line)` it touches.
+    ///
+    /// `end` is treated as exclusive: an empty or zero-width span resolves to the
+    /// single line containing `start`. Useful for placing a highlight/symbol span
+    /// onto the row(s) it occupies.
+    pub fn span_to_lines(&self, start: usize, end: usize) -> (usize, usize) {
+        let first = self.byte_to_line(start);
+        // For an exclusive end, the last touched byte is `end - 1`.
+        let last_byte = end.max(start).saturating_sub(1).max(start);
+        let last = self.byte_to_line(last_byte);
+        (first, last.max(first))
+    }
+
+    /// The byte offset at which line `line` starts, or `None` if out of range.
+    pub fn line_to_byte(&self, line: usize) -> Option<usize> {
+        self.line_starts.get(line).copied()
+    }
+}
+
+/// Shared binary-search core for `byte -> line` over a sorted line-start table.
+fn byte_to_line(line_starts: &[usize], byte: usize) -> usize {
+    match line_starts.binary_search(&byte) {
+        Ok(line) => line,
+        Err(insert) => insert.saturating_sub(1),
+    }
+}
+
 impl fmt::Debug for Rope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Rope")
@@ -930,5 +1045,91 @@ mod tests {
         let r = Rope::new("ab\ncd");
         let idx = r.line_col_to_char_index(5, 50); // overshoot
         assert_eq!(idx, r.char_count());
+    }
+
+    // ── LineIndex (byte → line mapping) ──
+
+    #[test]
+    fn line_index_basic_ascii() {
+        let idx = LineIndex::from_str("ab\ncd\nef");
+        assert_eq!(idx.line_count(), 3);
+        assert_eq!(idx.line_starts(), &[0, 3, 6]);
+        assert_eq!(idx.byte_to_line(0), 0); // 'a'
+        assert_eq!(idx.byte_to_line(2), 0); // '\n' belongs to its line
+        assert_eq!(idx.byte_to_line(3), 1); // 'c'
+        assert_eq!(idx.byte_to_line(6), 2); // 'e'
+        assert_eq!(idx.byte_to_line(7), 2); // 'f'
+        assert_eq!(idx.byte_to_line(999), 2); // clamp past end
+    }
+
+    #[test]
+    fn line_index_multibyte_offsets_are_byte_based() {
+        // "héllo\nwörld": é and ö are 2 bytes each, so line 1 starts at byte 7,
+        // not char 6. Byte-based mapping must use the byte offset.
+        let text = "héllo\nwörld";
+        let idx = LineIndex::from_str(text);
+        assert_eq!(idx.line_count(), 2);
+        let nl = text.find('\n').unwrap(); // byte 6
+        assert_eq!(idx.line_starts(), &[0, nl + 1]);
+        assert_eq!(idx.byte_to_line(nl), 0);
+        assert_eq!(idx.byte_to_line(nl + 1), 1);
+        // 'w' is the first byte of line 1.
+        let w = text.find('w').unwrap();
+        assert_eq!(idx.byte_to_line(w), 1);
+    }
+
+    #[test]
+    fn line_index_from_lines_matches_from_str() {
+        let cases: Vec<Vec<String>> = vec![
+            vec![],
+            vec!["only".into()],
+            vec!["a".into(), "b".into(), "c".into()],
+            vec!["héllo".into(), "wörld".into(), "☃".into()],
+            vec!["x".into(), "".into(), "y".into()],
+            vec!["trailing".into(), "".into()],
+        ];
+        for lines in &cases {
+            let a = LineIndex::from_lines(lines);
+            let b = LineIndex::from_str(&lines.join("\n"));
+            assert_eq!(a, b, "line index mismatch for {lines:?}");
+        }
+    }
+
+    #[test]
+    fn line_index_trailing_newline() {
+        let idx = LineIndex::from_str("hello\n");
+        assert_eq!(idx.line_count(), 2);
+        assert_eq!(idx.line_starts(), &[0, 6]);
+        assert_eq!(idx.byte_to_line(5), 0); // '\n'
+        assert_eq!(idx.byte_to_line(6), 1); // empty trailing line
+    }
+
+    #[test]
+    fn line_index_empty() {
+        let idx = LineIndex::from_str("");
+        assert_eq!(idx.line_count(), 1);
+        assert_eq!(idx.byte_len(), 0);
+        assert_eq!(idx.byte_to_line(0), 0);
+    }
+
+    #[test]
+    fn line_index_span_to_lines() {
+        let idx = LineIndex::from_str("ab\ncd\nef");
+        // Span on a single line.
+        assert_eq!(idx.span_to_lines(0, 2), (0, 0));
+        // Zero-width span resolves to the line containing start.
+        assert_eq!(idx.span_to_lines(4, 4), (1, 1));
+        // Span crossing a newline touches both lines.
+        assert_eq!(idx.span_to_lines(1, 5), (0, 1));
+        // Span across all three lines.
+        assert_eq!(idx.span_to_lines(0, 8), (0, 2));
+    }
+
+    #[test]
+    fn line_index_line_to_byte() {
+        let idx = LineIndex::from_str("ab\ncd");
+        assert_eq!(idx.line_to_byte(0), Some(0));
+        assert_eq!(idx.line_to_byte(1), Some(3));
+        assert_eq!(idx.line_to_byte(2), None);
     }
 }

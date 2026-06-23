@@ -77,6 +77,8 @@ mod tests {
             current_language: zaroxi_core_platform_syntax::language::LanguageId::PlainText,
             latest_spans: None,
             latest_spans_version: 0,
+            cockpit_minimap_symbols: Vec::new(),
+            cockpit_symbols_version: 0,
             parse_worker: None,
             saved_buffer_version: 0,
             frame_scheduler: FrameScheduler::new(),

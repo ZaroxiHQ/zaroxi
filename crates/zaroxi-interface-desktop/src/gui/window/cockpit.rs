@@ -14,11 +14,14 @@
 
 use taffy::prelude::*;
 use vello::Scene;
+use zaroxi_core_editor_rope::LineIndex;
+use zaroxi_core_platform_syntax::SymbolKind as SyntaxSymbolKind;
+use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::ZaroxiTheme;
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
     AiPredictionGutter, CockpitTokens, CommandPalette, LivingDiffLayer, LspStatus, PaletteItem,
-    PredictionCell, SemanticMinimap, StatusBar, WidgetTree,
+    PredictionCell, SemanticMinimap, StatusBar, SymbolKind, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -109,6 +112,33 @@ pub fn cursor_viewport(cursor_line: usize, total_lines: usize) -> (f32, f32) {
     let c = cursor_line as f32 / total_lines as f32;
     let top = (c - 0.05).clamp(0.0, 0.95);
     (top, (top + 0.15).min(1.0))
+}
+
+/// Map a syntax-layer structural [`SyntaxSymbolKind`] to the minimap's
+/// [`SymbolKind`]. Namespaces render as the minimap's "import" hairline glyph.
+fn to_widget_kind(kind: SyntaxSymbolKind) -> SymbolKind {
+    match kind {
+        SyntaxSymbolKind::Function => SymbolKind::Function,
+        SyntaxSymbolKind::Type => SymbolKind::Type,
+        SyntaxSymbolKind::Namespace => SymbolKind::Import,
+    }
+}
+
+/// Extract minimap symbols from full-document highlight `spans`.
+///
+/// Builds a byte→line [`LineIndex`] from `source` (whose byte offsets match the
+/// spans by the editor's document contract), runs the syntax layer's structural
+/// [`extract_symbols`](zaroxi_core_platform_syntax::extract_symbols), and maps
+/// each result onto a [`MinimapSymbol`]. Cost is `O(source_bytes)` for the line
+/// index plus `O(spans)`; callers should recompute only when the spans change.
+pub fn extract_minimap_symbols(spans: &[HighlightSpan], source: &str) -> Vec<MinimapSymbol> {
+    let line_index = LineIndex::from_str(source);
+    let doc_symbols =
+        zaroxi_core_platform_syntax::extract_symbols(spans, source, line_index.line_starts());
+    doc_symbols
+        .into_iter()
+        .map(|s| MinimapSymbol { line: s.line, kind: to_widget_kind(s.kind) })
+        .collect()
 }
 
 /// Region rectangles computed by the taffy pass.
@@ -391,5 +421,25 @@ mod tests {
         let (t_top, _) = cursor_viewport(10, 100);
         let (t_bot, _) = cursor_viewport(90, 100);
         assert!(t_bot > t_top, "viewport top tracks cursor downward");
+    }
+
+    #[test]
+    fn extract_minimap_symbols_maps_kinds_and_lines() {
+        use zaroxi_core_platform_syntax::highlight::{Highlight, HighlightSpan};
+        let source = "fn run() {}\ntype Foo = u8;\nuse std::io;";
+        let fn_at = source.find("run").unwrap();
+        let ty_at = source.find("Foo").unwrap();
+        let ns_at = source.find("std").unwrap();
+        let spans = vec![
+            HighlightSpan { start: fn_at, end: fn_at + 3, highlight: Highlight::Function },
+            HighlightSpan { start: ty_at, end: ty_at + 3, highlight: Highlight::Type },
+            HighlightSpan { start: ns_at, end: ns_at + 3, highlight: Highlight::Namespace },
+        ];
+        let syms = extract_minimap_symbols(&spans, source);
+        assert_eq!(syms.len(), 3);
+        assert_eq!((syms[0].line, syms[0].kind), (0, SymbolKind::Function));
+        assert_eq!((syms[1].line, syms[1].kind), (1, SymbolKind::Type));
+        // Namespace maps to the minimap's import hairline glyph.
+        assert_eq!((syms[2].line, syms[2].kind), (2, SymbolKind::Import));
     }
 }

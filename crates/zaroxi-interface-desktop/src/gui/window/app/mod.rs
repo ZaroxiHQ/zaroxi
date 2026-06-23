@@ -351,6 +351,13 @@ pub struct GuiApp {
     /// Buffer version the `latest_spans` correspond to.  Used to detect when a
     /// fresh parse result has arrived and to avoid re-applying the same result.
     pub latest_spans_version: u64,
+    /// Structural minimap symbols (function/type/import) derived from
+    /// `latest_spans`, consumed by the cockpit's `SemanticMinimap`.  Recomputed
+    /// only when `cockpit_symbols_version` falls behind `latest_spans_version`
+    /// (i.e. after a reparse), so it is not rebuilt on every frame.
+    pub cockpit_minimap_symbols: Vec<zaroxi_interface_widgets::components::MinimapSymbol>,
+    /// `latest_spans_version` the `cockpit_minimap_symbols` were extracted from.
+    pub cockpit_symbols_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
     /// `editor_buffer.buffer_version` captured when the active file was last
@@ -2738,11 +2745,46 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     let cur_line = self.editor_buffer.caret_line();
                                     let cur_col = self.editor_buffer.caret_col();
                                     let active_file = self.committed_active_file.clone();
+                                    // Refresh structural minimap symbols only when
+                                    // a fresh parse result arrived (spans change on
+                                    // reparse, not per frame): incremental
+                                    // invalidation, no per-frame full-file rescan.
+                                    // Disjoint field access keeps this clear of the
+                                    // `core` borrow above.
+                                    if self.latest_spans_version != self.cockpit_symbols_version {
+                                        let symbols = if self.large_file_mode {
+                                            // Large files skip span-based symbols to
+                                            // avoid materializing the whole document.
+                                            Vec::new()
+                                        } else {
+                                            match self.latest_spans.as_ref() {
+                                                Some(spans) if !spans.is_empty() => {
+                                                    let source = self.editor_buffer.to_string();
+                                                    super::cockpit::extract_minimap_symbols(
+                                                        spans, &source,
+                                                    )
+                                                }
+                                                _ => Vec::new(),
+                                            }
+                                        };
+                                        eprintln!(
+                                            "ZAROXI_COCKPIT_SYMBOLS: recomputed n={} spans_version={} large_file={}",
+                                            symbols.len(),
+                                            self.latest_spans_version,
+                                            self.large_file_mode,
+                                        );
+                                        self.cockpit_minimap_symbols = symbols;
+                                        self.cockpit_symbols_version = self.latest_spans_version;
+                                    }
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
                                         line_height: 18.0,
                                         total_lines: editor_total_lines,
+                                        // Live structural symbols (function/type/
+                                        // import) from tree-sitter highlight spans
+                                        // mapped to lines via the rope byte index.
+                                        minimap_symbols: self.cockpit_minimap_symbols.clone(),
                                         viewport: super::cockpit::cursor_viewport(
                                             cur_line,
                                             editor_total_lines,
@@ -2752,11 +2794,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             cur_line,
                                             cur_col,
                                         ),
-                                        // The remaining fields (minimap_symbols, diff_hunks,
+                                        // The remaining fields (diff_hunks,
                                         // prediction_cells, ai_regions, ai_tokens_*) have no live
-                                        // source in the codebase yet: they need rope byte-indexing /
-                                        // tree-sitter symbol queries (minimap), a git diff provider
-                                        // (diff), and AI edit-prediction + token accounting (AI). Left
+                                        // source in the codebase yet: they need a git diff provider
+                                        // (diff) and AI edit-prediction + token accounting (AI). Left
                                         // empty until those subsystems exist.
                                         ..Default::default()
                                     };

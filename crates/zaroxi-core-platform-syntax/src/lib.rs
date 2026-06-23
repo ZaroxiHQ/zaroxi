@@ -23,6 +23,7 @@ pub mod manager;
 pub mod parser;
 pub mod query_cache;
 pub mod runtime;
+pub mod symbols;
 pub mod theme_map;
 pub mod theme_shim;
 pub mod timing;
@@ -40,6 +41,7 @@ pub use language::LanguageId;
 pub use parser::{ParserPool, SyntaxTree};
 // Note: QueryCache::get returns Option<&'static Query>
 pub use query_cache::QueryCache;
+pub use symbols::{DocumentSymbol, SymbolKind, extract_symbols, symbols_trace_enabled};
 pub use timing::{TsTiming, ts_trace_enabled};
 
 #[cfg(test)]
