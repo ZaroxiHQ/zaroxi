@@ -58,6 +58,8 @@ zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
 zaroxi-core-platform-lsp = { path = "../zaroxi-core-platform-lsp", optional = true }
 # Syntax highlighting via tree-sitter for editor text coloring.
 zaroxi-core-platform-syntax = { path = "../zaroxi-core-platform-syntax" }
+# Observability primitives: memory-pressure monitor + multi-buffer activity.
+zaroxi-core-telemetry = { path = "../zaroxi-core-telemetry" }
 
 [dev-dependencies]
 uuid = { workspace = true }

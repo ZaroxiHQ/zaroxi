@@ -19,6 +19,7 @@ mod tests {
     fn make_test_app() -> GuiApp {
         let tokens = test_tokens_dark();
         let layout = ShellLayout::from_window_size(1200, 800);
+        let (ai_tracer, ai_trace_rx) = zaroxi_application_ai::trace::AiTracer::channel();
         GuiApp {
             window_attributes: Default::default(),
             title: "test".into(),
@@ -34,6 +35,11 @@ mod tests {
             theme_mode: ZaroxiTheme::Dark,
             shift_held: false,
             ctrl_held: false,
+            mem_monitor: zaroxi_core_telemetry::MemoryMonitor::from_env(),
+            buffer_tracker: zaroxi_core_telemetry::BufferActivityTracker::new(),
+            last_mem_sample: None,
+            ai_tracer,
+            ai_trace_rx: Some(ai_trace_rx),
             on_widget_activated: None,
             composition: None,
             workspace_view: None,

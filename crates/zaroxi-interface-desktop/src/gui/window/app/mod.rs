@@ -274,6 +274,18 @@ pub struct GuiApp {
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
     pub shift_held: bool,
     pub ctrl_held: bool,
+    /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
+    /// pressure-based shaped-glyph cache eviction.
+    pub mem_monitor: zaroxi_core_telemetry::MemoryMonitor,
+    /// Per-document hot/warm/cold activity tracker (`ZAROXI_BUF_TRACE`).
+    pub buffer_tracker: zaroxi_core_telemetry::BufferActivityTracker,
+    /// Most recent memory sample, surfaced by the Ctrl+Shift+P dashboard.
+    pub last_mem_sample: Option<zaroxi_core_telemetry::MemorySample>,
+    /// Sender handed to async AI tasks for `ZAROXI_AI_TRACE` events.
+    pub ai_tracer: zaroxi_application_ai::trace::AiTracer,
+    /// Receiver drained once per frame to flush AI trace events into the
+    /// `ZAROXI_PERF_TRACE` stream.
+    pub ai_trace_rx: Option<zaroxi_application_ai::trace::AiTraceReceiver>,
     pub on_widget_activated: Option<WidgetActivationHandler>,
     pub composition: Option<DesktopComposition>,
     pub workspace_view: Option<Arc<dyn WorkspaceView>>,
@@ -510,6 +522,48 @@ const BACKGROUND_OPEN_BYTE_THRESHOLD: usize = 512 * 1024;
 impl GuiApp {
     pub fn editor_cursor_line(&self) -> usize {
         self.editor_buffer.caret_line()
+    }
+
+    /// Print a consolidated, human-readable performance dashboard across all
+    /// observability subsystems (memory pressure, multi-buffer activity, cache
+    /// footprint). Bound to Ctrl+Shift+P. The fine-grained per-event TS/AI/LSP
+    /// latency data streams inline as `ZAROXI_*_TRACE` lines; this is the
+    /// at-a-glance snapshot.
+    pub fn dashboard(&self) {
+        let frame = GUI_FRAME_COUNTER.load(Ordering::Relaxed);
+        let rss_now = zaroxi_core_telemetry::read_rss_bytes().unwrap_or(0);
+        eprintln!("==================== ZAROXI PERFORMANCE DASHBOARD ====================");
+        match &self.last_mem_sample {
+            Some(s) => eprintln!(
+                "  memory   : rss={:.1} MB  pressure={}  shape_cache={} KB  gpu={} KB  rope={} KB",
+                s.rss_bytes as f64 / (1024.0 * 1024.0),
+                s.pressure,
+                s.shape_cache_bytes / 1024,
+                s.gpu_bytes / 1024,
+                s.rope_bytes / 1024,
+            ),
+            None => eprintln!(
+                "  memory   : rss={:.1} MB  (no sample yet \u{2014} sample every {} frames)",
+                rss_now as f64 / (1024.0 * 1024.0),
+                zaroxi_core_telemetry::memory::DEFAULT_SAMPLE_FRAMES,
+            ),
+        }
+        let (hot, warm, cold) = self.buffer_tracker.class_counts(frame);
+        eprintln!(
+            "  buffers  : open={} total_lines={} hot={} warm={} cold={}",
+            self.buffer_tracker.open_count(),
+            self.buffer_tracker.total_lines(),
+            hot,
+            warm,
+            cold,
+        );
+        eprintln!(
+            "  latency  : per-event TS / AI / LSP timings stream as ZAROXI_TS_TRACE,"
+        );
+        eprintln!(
+            "             ZAROXI_AI_TRACE, ZAROXI_LSP_TRACE (set ZAROXI_PERF_TRACE=1)"
+        );
+        eprintln!("=====================================================================");
     }
 
     pub fn editor_cursor_col(&self) -> usize {
@@ -2626,6 +2680,52 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         "ZAROXI_RENDER_TRACE: render_result frame={} ok",
                                         frame_id
                                     );
+                                }
+
+                                // ── Observability subsystems (per frame) ──
+                                // 1) Drain AI inference traces (non-blocking) into
+                                //    the ZAROXI_AI_TRACE stream.
+                                if let Some(rx) = self.ai_trace_rx.as_mut() {
+                                    rx.drain_to_trace();
+                                }
+                                // 2) Frame-paced memory sample + pressure response.
+                                //    Runs unconditionally (eviction is functional,
+                                //    not just diagnostic); trace emission self-gates.
+                                if self.mem_monitor.tick() {
+                                    let rss = zaroxi_core_telemetry::read_rss_bytes().unwrap_or(0);
+                                    let pressure = self.mem_monitor.evaluate(rss);
+                                    let (shape_cache_bytes, gpu_bytes) = core
+                                        .text_renderer()
+                                        .map(|tr| (tr.mem_shape_cache_bytes(), tr.mem_gpu_bytes()))
+                                        .unwrap_or((0, 0));
+                                    let rope_bytes = self.editor_buffer.char_count() as u64;
+                                    // Best-effort active-buffer feed (multi-doc
+                                    // feeding is via the tracker API on open/close).
+                                    self.buffer_tracker.note_open("active", editor_total_lines);
+                                    self.buffer_tracker.set_active("active");
+                                    self.buffer_tracker.set_visible(["active"]);
+                                    let sample = zaroxi_core_telemetry::MemorySample {
+                                        rss_bytes: rss,
+                                        shape_cache_bytes,
+                                        rope_bytes,
+                                        gpu_bytes,
+                                        open_docs: self.buffer_tracker.open_count(),
+                                        total_lines: self.buffer_tracker.total_lines(),
+                                        pressure,
+                                    };
+                                    sample.emit();
+                                    self.buffer_tracker.emit(frame_id);
+                                    self.last_mem_sample = Some(sample);
+                                    if let Some(tr) = core.text_renderer() {
+                                        use zaroxi_core_telemetry::MemoryPressureLevel as Pl;
+                                        match pressure {
+                                            Pl::Critical => tr.flush_glyph_cache(),
+                                            Pl::Elevated => {
+                                                tr.evict_shaped_cold(512);
+                                            }
+                                            Pl::Normal => {}
+                                        }
+                                    }
                                 }
                                 record_frame_presented();
                                 // Retained per-element UI-node trace: which

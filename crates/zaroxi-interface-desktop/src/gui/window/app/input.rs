@@ -289,6 +289,11 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             }
         }
         ref key if app.ctrl_held => match key {
+            // Ctrl+Shift+P: print the consolidated performance dashboard.
+            Key::Character(c) if (c == "p" || c == "P") && app.shift_held => {
+                app.dashboard();
+                Vec::new()
+            }
             Key::Character(c) if c == "w" || c == "W" => {
                 let wc = if let Some(comp) = app.composition.as_mut() {
                     let buf_id = comp.latest_metadata().and_then(|m| m.active_buffer.clone());

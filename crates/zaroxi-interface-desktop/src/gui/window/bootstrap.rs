@@ -53,6 +53,10 @@ pub fn run_shell_window(
     let explorer_actions =
         folder_picker.as_ref().map(|fp| ExplorerPanelActions::new(Some(fp.clone())));
 
+    // Non-blocking AI trace channel: the tracer is handed to async AI tasks and
+    // the receiver is drained once per frame by the render loop.
+    let (ai_tracer, ai_trace_rx) = zaroxi_application_ai::trace::AiTracer::channel();
+
     let mut app = super::app::GuiApp {
         window_attributes: window_attributes.clone(),
         title,
@@ -68,6 +72,11 @@ pub fn run_shell_window(
         theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
         shift_held: false,
         ctrl_held: false,
+        mem_monitor: zaroxi_core_telemetry::MemoryMonitor::from_env(),
+        buffer_tracker: zaroxi_core_telemetry::BufferActivityTracker::new(),
+        last_mem_sample: None,
+        ai_tracer,
+        ai_trace_rx: Some(ai_trace_rx),
         on_widget_activated: None,
         composition,
         workspace_view,
