@@ -6,4 +6,8 @@ description = "Git VCS integration adapters."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Dependency-free at runtime: diffing is pure Rust and git access shells out to
+# the system `git` CLI, keeping the crate light and portable.
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -4792,6 +4792,9 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-core-platform-git"
 version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "zaroxi-core-platform-linter"
@@ -5178,6 +5181,7 @@ dependencies = [
  "zaroxi-core-engine-ui",
  "zaroxi-core-engine-view",
  "zaroxi-core-engine-window",
+ "zaroxi-core-platform-git",
  "zaroxi-core-platform-lsp",
  "zaroxi-core-platform-syntax",
  "zaroxi-core-platform-terminal",

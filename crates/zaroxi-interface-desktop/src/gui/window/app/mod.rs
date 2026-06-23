@@ -358,6 +358,15 @@ pub struct GuiApp {
     pub cockpit_minimap_symbols: Vec<zaroxi_interface_widgets::components::MinimapSymbol>,
     /// `latest_spans_version` the `cockpit_minimap_symbols` were extracted from.
     pub cockpit_symbols_version: u64,
+    /// Cached git diff provider (per-file baseline + status cache).  The git
+    /// lookup runs once per file; per-edit diffs reuse the cached baseline.
+    pub git_diff_provider: zaroxi_core_platform_git::GitDiffProvider,
+    /// Per-line change markers for the active file, derived from the git diff,
+    /// consumed by the cockpit's `LivingDiffLayer`.  Recomputed only when
+    /// `cockpit_diff_version` falls behind the editor buffer version.
+    pub cockpit_diff_hunks: Vec<zaroxi_interface_widgets::components::DiffHunk>,
+    /// `editor_buffer.buffer_version` the `cockpit_diff_hunks` were computed for.
+    pub cockpit_diff_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
     /// `editor_buffer.buffer_version` captured when the active file was last
@@ -2776,6 +2785,51 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         self.cockpit_minimap_symbols = symbols;
                                         self.cockpit_symbols_version = self.latest_spans_version;
                                     }
+                                    // Refresh git diff change markers when the
+                                    // buffer version advances (per edit / on open).
+                                    // The provider caches the baseline so git is
+                                    // invoked at most once per file; per-edit cost
+                                    // is the pure in-memory line diff. (An async
+                                    // worker is the eventual home for the first
+                                    // git lookup.)
+                                    if self.editor_buffer.buffer_version
+                                        != self.cockpit_diff_version
+                                    {
+                                        let hunks = if self.large_file_mode {
+                                            Vec::new()
+                                        } else if let Some(path) =
+                                            self.committed_active_file.clone()
+                                        {
+                                            let current = self.editor_buffer.to_string();
+                                            match self
+                                                .git_diff_provider
+                                                .diff_file(std::path::Path::new(&path), &current)
+                                            {
+                                                Some(fd) => fd
+                                                    .changed_lines
+                                                    .iter()
+                                                    .map(|c| {
+                                                        zaroxi_interface_widgets::components::DiffHunk {
+                                                            line: c.line,
+                                                            added: c.added,
+                                                        }
+                                                    })
+                                                    .collect(),
+                                                None => Vec::new(),
+                                            }
+                                        } else {
+                                            Vec::new()
+                                        };
+                                        eprintln!(
+                                            "ZAROXI_COCKPIT_DIFF: hunks={} buffer_version={} large_file={}",
+                                            hunks.len(),
+                                            self.editor_buffer.buffer_version,
+                                            self.large_file_mode,
+                                        );
+                                        self.cockpit_diff_hunks = hunks;
+                                        self.cockpit_diff_version =
+                                            self.editor_buffer.buffer_version;
+                                    }
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
@@ -2785,6 +2839,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         // import) from tree-sitter highlight spans
                                         // mapped to lines via the rope byte index.
                                         minimap_symbols: self.cockpit_minimap_symbols.clone(),
+                                        // Live git change markers (added/modified/
+                                        // removed) for the active file.
+                                        diff_hunks: self.cockpit_diff_hunks.clone(),
                                         viewport: super::cockpit::cursor_viewport(
                                             cur_line,
                                             editor_total_lines,
@@ -2794,11 +2851,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             cur_line,
                                             cur_col,
                                         ),
-                                        // The remaining fields (diff_hunks,
-                                        // prediction_cells, ai_regions, ai_tokens_*) have no live
-                                        // source in the codebase yet: they need a git diff provider
-                                        // (diff) and AI edit-prediction + token accounting (AI). Left
-                                        // empty until those subsystems exist.
+                                        // The remaining fields (prediction_cells,
+                                        // ai_regions, ai_tokens_*) have no live source in the
+                                        // codebase yet: they need AI edit-prediction + token
+                                        // accounting. Left empty until that subsystem exists.
                                         ..Default::default()
                                     };
                                     let (scene, text) =
