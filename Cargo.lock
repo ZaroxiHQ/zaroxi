@@ -5185,6 +5185,7 @@ dependencies = [
  "zaroxi-domain-workspace",
  "zaroxi-interface-app",
  "zaroxi-interface-theme",
+ "zaroxi-interface-widgets",
  "zaroxi-kernel-math",
  "zaroxi-kernel-types",
 ]

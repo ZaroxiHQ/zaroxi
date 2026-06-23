@@ -6,6 +6,8 @@ mod app;
 mod bootstrap;
 #[cfg(feature = "gui_window")]
 mod bottom_panel;
+
+pub mod cockpit;
 #[cfg(feature = "gui_window")]
 mod editor;
 #[cfg(feature = "gui_window")]

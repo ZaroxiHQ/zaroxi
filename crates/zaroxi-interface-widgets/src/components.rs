@@ -447,9 +447,10 @@ impl ZaroxiWidget for CommandPalette {
 // ── Component 6: Status Bar (instrument panel) ──────────────────────────────
 
 /// LSP health for the status indicator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LspStatus {
     /// Healthy (green pulse).
+    #[default]
     Healthy,
     /// Slow / degraded (amber).
     Slow,

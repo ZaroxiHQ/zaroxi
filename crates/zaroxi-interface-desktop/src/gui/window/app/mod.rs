@@ -2727,6 +2727,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         }
                                     }
                                 }
+                                // Cockpit overlay (vello widgets): build the
+                                // WidgetTree scene from app state when
+                                // ZAROXI_COCKPIT=1. Putting it on the surface is
+                                // the feature-gated vello_pipeline composite
+                                // step; default frames are byte-identical.
+                                if super::cockpit::cockpit_enabled() {
+                                    let tokens = super::cockpit::cockpit_tokens(
+                                        self.theme_mode,
+                                        system_is_dark,
+                                    );
+                                    let inputs = super::cockpit::CockpitInputs {
+                                        width: sw as f32,
+                                        height: sh as f32,
+                                        line_height: 18.0,
+                                        total_lines: editor_total_lines,
+                                        viewport: (0.0, 1.0),
+                                        ..Default::default()
+                                    };
+                                    let _scene =
+                                        super::cockpit::paint_cockpit(&inputs, &tokens);
+                                    eprintln!(
+                                        "ZAROXI_COCKPIT: built cockpit scene {}x{} total_lines={}",
+                                        sw, sh, editor_total_lines
+                                    );
+                                }
                                 record_frame_presented();
                                 // Retained per-element UI-node trace: which
                                 // shell elements rebuilt vs. reused this frame,
