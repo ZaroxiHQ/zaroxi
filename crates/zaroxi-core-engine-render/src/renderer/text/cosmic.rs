@@ -74,10 +74,36 @@ struct CachedGlyph {
     color: [f32; 4],
 }
 
-/// Maximum number of distinct logical lines retained in the shape cache before
-/// it is flushed wholesale. The visible window plus recent scroll/edit history
-/// is far smaller; this just bounds memory on pathological churn.
-const SHAPE_CACHE_MAX_LINES: usize = 4096;
+/// Stable, position-independent cache key for one shaped logical line. Two
+/// commands with the same key shape to the same relative glyph layout, so one
+/// can reuse the other's cached glyphs (translated to its own origin). The
+/// renderer pins a single font family, so `font_id` is currently constant but
+/// is kept explicit for forward-compatibility with multi-font shaping.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ShapeKey {
+    line_content_hash: u64,
+    font_id: u32,
+    font_size_px: u16,
+}
+
+/// Default LRU capacity (distinct logical lines). The visible window plus recent
+/// scroll/edit history is far smaller than this; the LRU bounds memory on
+/// pathological churn by evicting only the least-recently-used line — never the
+/// whole cache — so the hot viewport survives scrolling a huge file. Override
+/// with `ZAROXI_SHAPE_CACHE_LINES`.
+const SHAPE_CACHE_DEFAULT_CAP: usize = 2048;
+
+/// Resolve the LRU capacity from `ZAROXI_SHAPE_CACHE_LINES` (clamped to >= 1),
+/// falling back to [`SHAPE_CACHE_DEFAULT_CAP`].
+fn shape_cache_capacity() -> std::num::NonZeroUsize {
+    let n = std::env::var("ZAROXI_SHAPE_CACHE_LINES")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(SHAPE_CACHE_DEFAULT_CAP);
+    // SAFETY-FREE: `n` is guaranteed > 0 by the filter / non-zero default.
+    std::num::NonZeroUsize::new(n).unwrap_or(std::num::NonZeroUsize::MIN)
+}
 
 /// Position-independent hash of a queued command's layout-affecting inputs.
 /// Two commands with the same key shape to the same relative glyph layout, so
@@ -300,7 +326,7 @@ pub struct CosmicTextRenderer {
     /// Per-logical-line shaped-glyph cache (keyed by content/size/color). Lets
     /// scroll/edit reuse unchanged lines and re-emit them at a new vertical
     /// offset without re-running cosmic shaping (the dominant per-frame cost).
-    line_shape_cache: Arc<Mutex<std::collections::HashMap<u64, Vec<CachedGlyph>>>>,
+    line_shape_cache: Arc<Mutex<lru::LruCache<ShapeKey, Vec<CachedGlyph>>>>,
     /// Count of lines deferred by the per-frame shaping budget on the last
     /// `prepare` (staged first paint). >0 means the caller should request
     /// another frame to finish shaping.
@@ -429,7 +455,7 @@ impl CosmicTextRenderer {
             font_family,
             last_perf: Arc::new(Mutex::new((0.0, 0.0, 0))),
             last_queue_hash: Arc::new(Mutex::new(None)),
-            line_shape_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            line_shape_cache: Arc::new(Mutex::new(lru::LruCache::new(shape_cache_capacity()))),
             last_pending_lines: Arc::new(Mutex::new(0)),
             shaping_incomplete: Arc::new(Mutex::new(false)),
             element_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -1013,8 +1039,13 @@ impl TextRenderer for CosmicTextRenderer {
             // glyphs have no atlas entry and are simply skipped on reuse. The
             // atlas is append-only, so a previously-shaped drawable glyph is
             // always present.
-            let line_key = hash_line_command(cmd, font_size_physical, device_scale);
+            let line_key = ShapeKey {
+                line_content_hash: hash_line_command(cmd, font_size_physical, device_scale),
+                font_id: 0, // single pinned family; reserved for multi-font shaping
+                font_size_px: font_size_physical.round().clamp(0.0, u16::MAX as f32) as u16,
+            };
             if !line_cache_disabled {
+                // `LruCache::get` updates recency, so it needs the mutable guard.
                 let cached = self.line_shape_cache.lock().unwrap().get(&line_key).cloned();
                 if let Some(glyphs) = cached {
                     for g in &glyphs {
@@ -1171,11 +1202,14 @@ impl TextRenderer for CosmicTextRenderer {
                     })
                     .collect();
                 let mut cache = self.line_shape_cache.lock().unwrap();
-                if cache.len() >= SHAPE_CACHE_MAX_LINES && !cache.contains_key(&line_key) {
-                    cache_evictions += cache.len();
-                    cache.clear();
+                // LRU: inserting a new key at capacity evicts exactly one cold
+                // (least-recently-used) line, never the whole cache, so the hot
+                // viewport survives scrolling a huge file. `peek` does not touch
+                // recency, so the eviction accounting stays accurate.
+                if cache.len() == cache.cap().get() && cache.peek(&line_key).is_none() {
+                    cache_evictions += 1;
                 }
-                cache.insert(line_key, line_glyphs);
+                cache.put(line_key, line_glyphs);
             }
 
             // Process each physical glyph in-order. Use index-based iteration so we can
