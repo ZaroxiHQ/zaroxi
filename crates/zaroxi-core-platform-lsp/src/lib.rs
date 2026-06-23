@@ -4,7 +4,12 @@
 /// session management, transport handling, capabilities negotiation,
 /// and diagnostics processing.
 pub mod capabilities;
+pub mod client;
 pub mod diagnostics;
 pub mod manager;
 pub mod session;
+pub mod trace;
 pub mod transport;
+
+pub use client::{LspClient, LspError};
+pub use trace::{LspMethod, LspTiming, lsp_slow_threshold_ms, lsp_trace_enabled};

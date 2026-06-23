@@ -6,4 +6,11 @@ description = "Language Server Protocol integration layer."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+lsp-types = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
