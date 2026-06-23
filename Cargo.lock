@@ -5201,6 +5201,8 @@ dependencies = [
 name = "zaroxi-interface-widgets"
 version = "0.1.0"
 dependencies = [
+ "taffy",
+ "vello",
  "zaroxi-interface-theme",
 ]
 

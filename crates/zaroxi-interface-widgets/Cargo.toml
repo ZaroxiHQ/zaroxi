@@ -8,6 +8,9 @@ license = "MIT"
 [dependencies]
 # Themes are owned by the theme crate (source of truth); widgets only consume them.
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
+# GPU vector scene composition + flex/grid layout.
+vello = { workspace = true }
+taffy = { workspace = true }
 
 [features]
 default = []
