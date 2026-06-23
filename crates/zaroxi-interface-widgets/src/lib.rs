@@ -10,8 +10,14 @@
 //! crate sits in the `interface` layer so it may depend on the theme crate
 //! while honouring the `interface -> ... -> core` dependency direction.
 
+pub mod components;
 pub mod tree;
 pub mod widget;
+
+pub use components::{
+    AiPredictionGutter, CommandPalette, ContextCanvas, LivingDiffLayer, LspStatus, PaletteItem,
+    PredictionCell, RelatedPanel, SemanticMinimap, StatusBar, SymbolKind,
+};
 
 pub use tree::{PlacedWidget, WidgetTree};
 pub use widget::{
