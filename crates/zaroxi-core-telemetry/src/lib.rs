@@ -1,8 +1,10 @@
 #![doc = "zaroxi-core-telemetry: low-overhead telemetry primitives for core systems.\n\nThis crate provides tiny, allocation-conscious helpers for emitting metrics and traces from core loops. It intentionally avoids IO and heavy dependencies; adapters to real backends belong to infrastructure-* crates."]
 #![deny(missing_docs)]
 
+pub mod buffer_activity;
 pub mod memory;
 
+pub use buffer_activity::{BufferActivity, BufferActivityTracker};
 pub use memory::{
     MemoryMonitor, MemoryPressureLevel, MemorySample, mem_trace_enabled, read_rss_bytes,
 };
