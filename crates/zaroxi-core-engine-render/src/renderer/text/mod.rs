@@ -312,4 +312,27 @@ pub trait TextRenderer: Send + Sync {
     /// `Some(ms)` forces that budget (used for the open-completion burst);
     /// `None` restores the env / default steady-state budget. Default no-op.
     fn set_shape_budget_ms(&self, _ms: Option<f32>) {}
+
+    /// Estimated resident footprint of the shaped-glyph (line) cache, in bytes.
+    /// Used by the memory-pressure monitor (`ZAROXI_MEM_TRACE`). Default `0`.
+    fn mem_shape_cache_bytes(&self) -> u64 {
+        0
+    }
+
+    /// Estimated resident footprint of the GPU buffers this backend manages
+    /// (glyph atlas + instance buffer), in bytes. Default `0`.
+    fn mem_gpu_bytes(&self) -> u64 {
+        0
+    }
+
+    /// Pressure response (Elevated): evict the coldest shaped-line cache entries
+    /// until at most `target_entries` remain. Returns the number evicted.
+    /// Default no-op returning `0`.
+    fn evict_shaped_cold(&self, _target_entries: usize) -> usize {
+        0
+    }
+
+    /// Pressure response (Critical): emergency flush of the shaped-glyph and
+    /// per-element draw-payload caches. Default no-op.
+    fn flush_glyph_cache(&self) {}
 }

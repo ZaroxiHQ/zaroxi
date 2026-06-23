@@ -1856,6 +1856,53 @@ impl TextRenderer for CosmicTextRenderer {
         *self.shape_budget_override.lock().unwrap() = ms;
     }
 
+    fn mem_shape_cache_bytes(&self) -> u64 {
+        let cache = self.line_shape_cache.lock().unwrap();
+        let key_sz = std::mem::size_of::<ShapeKey>() as u64;
+        let glyph_sz = std::mem::size_of::<CachedGlyph>() as u64;
+        // Per-entry: key + Vec header + heap glyphs. ~16 bytes/node overhead.
+        let mut bytes: u64 = 0;
+        for (_k, glyphs) in cache.iter() {
+            bytes += key_sz + 24 + 16 + glyph_sz * glyphs.len() as u64;
+        }
+        drop(cache);
+        // Add the per-element retained draw-payload cache (samples embed uvs).
+        let sample_sz = std::mem::size_of::<InstanceSample>() as u64;
+        let ec = self.element_cache.lock().unwrap();
+        for entry in ec.values() {
+            bytes += 32 + sample_sz * entry.samples.len() as u64;
+        }
+        bytes
+    }
+
+    fn mem_gpu_bytes(&self) -> u64 {
+        // Glyph atlas is an R8 (1 byte/texel) texture.
+        let (aw, ah) = self.shared_atlas.dims();
+        let atlas_bytes = aw as u64 * ah as u64;
+        // Resident instance buffer: one InstanceRaw per emitted instance.
+        let instances =
+            self.last_frame_summary.lock().unwrap().as_ref().map(|s| s.instances_pushed).unwrap_or(0);
+        let instance_bytes = instances as u64 * std::mem::size_of::<InstanceRaw>() as u64;
+        atlas_bytes + instance_bytes
+    }
+
+    fn evict_shaped_cold(&self, target_entries: usize) -> usize {
+        let mut cache = self.line_shape_cache.lock().unwrap();
+        let mut evicted = 0usize;
+        while cache.len() > target_entries {
+            if cache.pop_lru().is_none() {
+                break;
+            }
+            evicted += 1;
+        }
+        evicted
+    }
+
+    fn flush_glyph_cache(&self) {
+        self.line_shape_cache.lock().unwrap().clear();
+        self.element_cache.lock().unwrap().clear();
+    }
+
     fn render_pass<'a>(
         &self,
         rpass: &mut RenderPass<'a>,
