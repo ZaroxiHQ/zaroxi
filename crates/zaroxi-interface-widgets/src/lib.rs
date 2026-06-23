@@ -21,7 +21,8 @@ pub use components::{
 
 pub use tree::{PlacedWidget, WidgetTree};
 pub use widget::{
-    WidgetLayer, ZaroxiWidget, brush, fill_rect, layout_rect, reduce_motion, set_reduce_motion,
+    WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, fill_rect, layout_rect, reduce_motion,
+    set_reduce_motion,
 };
 
 /// The cockpit theme token set, re-exported from the theme crate (its owner).

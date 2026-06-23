@@ -249,6 +249,32 @@ pub fn paint_cockpit(inputs: &CockpitInputs, tokens: &CockpitTokens) -> Scene {
     scene
 }
 
+/// Convert a widget text run into the render crate's cockpit-text type.
+fn to_render_text(
+    t: zaroxi_interface_widgets::WidgetText,
+) -> zaroxi_core_engine_render::renderer::CockpitText {
+    zaroxi_core_engine_render::renderer::CockpitText {
+        text: t.text,
+        x: t.x,
+        y: t.y,
+        size_px: t.size_px,
+        color: t.color,
+    }
+}
+
+/// Build the cockpit tree once and return both the vello vector scene and the
+/// positioned text runs (the latter drawn by the cosmic-text layer).
+pub fn build_cockpit_frame(
+    inputs: &CockpitInputs,
+    tokens: &CockpitTokens,
+) -> (Scene, Vec<zaroxi_core_engine_render::renderer::CockpitText>) {
+    let tree = build_cockpit(inputs);
+    let mut scene = Scene::new();
+    tree.paint(&mut scene, tokens);
+    let text = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
+    (scene, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

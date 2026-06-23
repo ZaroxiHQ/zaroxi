@@ -68,6 +68,40 @@ pub fn fill_rect(scene: &mut Scene, rect: Rect, color: ThemeColor) {
     scene.fill(Fill::NonZero, Affine::IDENTITY, brush(color), None, &rect);
 }
 
+/// Convert a theme [`ThemeColor`] into an RGBA array (for [`WidgetText`] /
+/// cosmic-text commands).
+#[inline]
+pub fn color_arr(c: ThemeColor) -> [f32; 4] {
+    [c.r, c.g, c.b, c.a]
+}
+
+/// A positioned text run a widget wants drawn by the host's cosmic-text layer.
+///
+/// The vello overlay draws only vector visuals; glyphs are delegated to
+/// cosmic-text (the renderer's authoritative text path). Widgets emit these so
+/// the host can queue them as text commands at the widget's slot coordinates.
+/// `x`/`y` are top-left in the same coordinate space as `paint` (physical px).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WidgetText {
+    /// The string to render (may be Arabic / RTL — cosmic-text shapes BiDi).
+    pub text: String,
+    /// Left edge of the text in physical px.
+    pub x: f32,
+    /// Top edge of the text in physical px.
+    pub y: f32,
+    /// Font size in px.
+    pub size_px: f32,
+    /// RGBA color.
+    pub color: [f32; 4],
+}
+
+impl WidgetText {
+    /// Convenience constructor.
+    pub fn new(text: impl Into<String>, x: f32, y: f32, size_px: f32, color: [f32; 4]) -> Self {
+        Self { text: text.into(), x, y, size_px, color }
+    }
+}
+
 /// A cockpit widget: composes itself into a vello [`Scene`] given its computed
 /// `taffy::Layout` and the active [`CockpitTokens`] theme. This is the single
 /// trait every component implements.
@@ -75,9 +109,18 @@ pub trait ZaroxiWidget {
     /// Compositing layer (drives [`crate::WidgetTree`] paint order).
     fn layer(&self) -> WidgetLayer;
 
-    /// Paint into `scene` within `layout`, reading colors from `theme`.
-    /// Implementations must respect [`reduce_motion`] for any animation.
+    /// Paint the widget's **vector** visuals into `scene` within `layout`,
+    /// reading colors from `theme`. Implementations must respect
+    /// [`reduce_motion`] for any animation. Text is *not* drawn here — see
+    /// [`ZaroxiWidget::text_items`].
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens);
+
+    /// Positioned text runs this widget wants drawn by the cosmic-text layer.
+    /// Default: none. Components with labels override this so the host can queue
+    /// the text at the matching slot coordinates.
+    fn text_items(&self, _layout: &taffy::Layout, _theme: &CockpitTokens) -> Vec<WidgetText> {
+        Vec::new()
+    }
 
     /// Optional screen-reader / accessibility hint describing this widget.
     fn a11y_label(&self) -> Option<String> {

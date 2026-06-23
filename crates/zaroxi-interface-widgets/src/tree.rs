@@ -3,7 +3,7 @@
 use vello::Scene;
 use zaroxi_interface_theme::CockpitTokens;
 
-use crate::widget::{WidgetLayer, ZaroxiWidget};
+use crate::widget::{WidgetLayer, WidgetText, ZaroxiWidget};
 
 /// A widget together with its computed `taffy::Layout` box.
 pub struct PlacedWidget {
@@ -60,6 +60,17 @@ impl WidgetTree {
             let item = &self.items[i];
             item.widget.paint(scene, &item.layout, theme);
         }
+    }
+
+    /// Collect every widget's positioned text runs (for the host to queue into
+    /// the cosmic-text layer). Painted vector visuals and text are decoupled:
+    /// [`WidgetTree::paint`] produces the vello scene; this produces the glyphs.
+    pub fn collect_text(&self, theme: &CockpitTokens) -> Vec<WidgetText> {
+        let mut out = Vec::new();
+        for item in &self.items {
+            out.extend(item.widget.text_items(&item.layout, theme));
+        }
+        out
     }
 }
 

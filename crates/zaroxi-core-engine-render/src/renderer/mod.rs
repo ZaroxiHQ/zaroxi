@@ -18,5 +18,5 @@ mod ui;
 ///
 /// Internal implementation modules are kept private; only the stable, intended
 /// public API is re-exported here.
-pub use core::{PanelColors, Rect, RenderCore, RenderLayout, Renderer};
+pub use core::{CockpitText, PanelColors, Rect, RenderCore, RenderLayout, Renderer};
 pub use ui::UiBlock;

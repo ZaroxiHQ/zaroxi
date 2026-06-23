@@ -15,7 +15,9 @@ use vello::peniko::Fill;
 use zaroxi_interface_theme::Color as ThemeColor;
 use zaroxi_interface_theme::CockpitTokens;
 
-use crate::widget::{WidgetLayer, ZaroxiWidget, brush, layout_rect, reduce_motion};
+use crate::widget::{
+    WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, layout_rect, reduce_motion,
+};
 
 // ── shared helpers ─────────────────────────────────────────────────────────
 
@@ -435,6 +437,28 @@ impl ZaroxiWidget for CommandPalette {
         }
     }
 
+    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+        let r = layout_rect(layout);
+        let pad = 12.0;
+        let input_h = self.row_height + 4.0;
+        let size = 14.0_f32;
+        let label = color_arr(theme.text_primary);
+        let hint = color_arr(theme.text_muted);
+        let mut out = Vec::new();
+        for (i, item) in self.results.iter().enumerate() {
+            let y = (r.y0 + input_h + i as f64 * self.row_height) as f32 + 6.0;
+            if self.rtl {
+                // RTL: label aligned to the right, shortcut hint to the left.
+                out.push(WidgetText::new(item.label.clone(), (r.x1 - pad - 200.0) as f32, y, size, label));
+                out.push(WidgetText::new(item.shortcut.clone(), (r.x0 + pad) as f32, y, size, hint));
+            } else {
+                out.push(WidgetText::new(item.label.clone(), (r.x0 + pad) as f32, y, size, label));
+                out.push(WidgetText::new(item.shortcut.clone(), (r.x1 - pad - 90.0) as f32, y, size, hint));
+            }
+        }
+        out
+    }
+
     fn a11y_label(&self) -> Option<String> {
         Some(format!(
             "Command palette, {} results, row {} selected. Type to filter.",
@@ -538,6 +562,37 @@ impl ZaroxiWidget for StatusBar {
             0.0,
         );
         stroke(scene, 2.0, &value, theme.ai_highlight);
+    }
+
+    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+        let r = layout_rect(layout);
+        let cy = ((r.y0 + r.y1) * 0.5) as f32;
+        let size = 13.0_f32;
+        let baseline_y = cy - size * 0.5;
+        let mut out = Vec::new();
+        let mut x = (r.x0 + 10.0) as f32;
+        for (i, crumb) in self.breadcrumb.iter().enumerate() {
+            if i > 0 {
+                x += 8.0; // chevron separator gap
+            }
+            out.push(WidgetText::new(
+                crumb.clone(),
+                x,
+                baseline_y,
+                size,
+                color_arr(theme.text_secondary),
+            ));
+            x += 68.0;
+        }
+        // AI context usage "used/total" to the left of the arc.
+        out.push(WidgetText::new(
+            format!("{}/{}", self.ai_tokens_used, self.ai_tokens_total),
+            (r.x1 - 96.0) as f32,
+            baseline_y,
+            size,
+            color_arr(theme.text_muted),
+        ));
+        out
     }
 
     fn a11y_label(&self) -> Option<String> {

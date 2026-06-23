@@ -191,6 +191,8 @@ pub struct RenderCore {
     vello_overlay: Option<crate::renderer::vello_overlay::VelloOverlay>,
     /// Cockpit vello scene to composite on the next frame (set by the host).
     cockpit_scene: Option<vello::Scene>,
+    /// Cockpit text runs (drawn by the cosmic-text pass), set by the host.
+    cockpit_text: Vec<CockpitText>,
 }
 
 impl<'a> Renderer<'a> {
@@ -1708,6 +1710,7 @@ impl RenderCore {
             index_buffer,
             vello_overlay: None,
             cockpit_scene: None,
+            cockpit_text: Vec::new(),
         })
     }
 
@@ -1814,6 +1817,7 @@ impl RenderCore {
             render_blocks,
             self.vello_overlay.as_mut(),
             self.cockpit_scene.as_ref(),
+            &self.cockpit_text,
         )
     }
 
@@ -1850,6 +1854,32 @@ impl RenderCore {
     pub fn set_cockpit_scene(&mut self, scene: Option<vello::Scene>) {
         self.cockpit_scene = scene;
     }
+
+    /// Set the cockpit text runs to draw via cosmic-text on the next frame.
+    /// Pass an empty vec to clear. Positions are physical px in surface space.
+    pub fn set_cockpit_text(&mut self, items: Vec<CockpitText>) {
+        self.cockpit_text = items;
+    }
+}
+
+/// A positioned cockpit text run to be drawn by the cosmic-text pass.
+///
+/// The cockpit vello overlay draws only vector visuals; its text is delegated to
+/// the renderer's authoritative cosmic-text path. The host (desktop) supplies
+/// these per frame via [`RenderCore::set_cockpit_text`]; the renderer converts
+/// each into a [`crate::renderer::text::TextCommand`] queued before the text pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CockpitText {
+    /// String to render (BiDi/Arabic shaped by cosmic-text).
+    pub text: String,
+    /// Left edge in physical px.
+    pub x: f32,
+    /// Top edge in physical px.
+    pub y: f32,
+    /// Font size in px.
+    pub size_px: f32,
+    /// RGBA color.
+    pub color: [f32; 4],
 }
 
 /// Per-frame render-side timing + counters, gated behind `ZAROXI_PERF_TRACE=1`.
@@ -1946,6 +1976,7 @@ fn render_frame_inner(
     render_blocks: &[crate::UiBlock],
     cockpit_overlay: Option<&mut crate::renderer::vello_overlay::VelloOverlay>,
     cockpit_scene: Option<&vello::Scene>,
+    cockpit_text: &[CockpitText],
 ) -> Result<RenderPerf, RenderError> {
     if config.width == 0 || config.height == 0 {
         return Ok(RenderPerf::default());
@@ -2454,6 +2485,22 @@ fn render_frame_inner(
             let total_indices_len = indices.len() as u32;
             // Captured before `prepare` (which clears the queue) so it reflects
             // the number of text commands shaped this frame.
+            // Queue cockpit text into the cosmic-text layer so it is shaped and
+            // drawn by the text pass below. The vello overlay supplies vector
+            // visuals; glyphs always come from cosmic-text.
+            for ct in cockpit_text {
+                text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                    &ct.text,
+                    ct.x,
+                    ct.y,
+                    ct.color,
+                    ct.size_px,
+                    0.0,
+                    0.0,
+                    config.width as f32,
+                    config.height as f32,
+                ));
+            }
             let mut text_cmd_count: usize = 0;
             // Wall time spent inside text_renderer.prepare(), subtracted from the
             // encode window so gpu_encode_ms reflects only render-pass recording.

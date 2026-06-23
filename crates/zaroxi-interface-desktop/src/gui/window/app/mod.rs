@@ -2745,15 +2745,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         viewport: (0.0, 1.0),
                                         ..Default::default()
                                     };
-                                    let scene =
-                                        super::cockpit::paint_cockpit(&inputs, &tokens);
-                                    // Hand the scene to RenderCore; it composites
-                                    // the vello overlay onto the swapchain next
-                                    // frame (cockpit text via cosmic-text).
+                                    let (scene, text) =
+                                        super::cockpit::build_cockpit_frame(&inputs, &tokens);
+                                    // Vector visuals via the vello overlay; text
+                                    // via the cosmic-text pass (both applied next
+                                    // frame inside RenderCore).
                                     core.set_cockpit_scene(Some(scene));
+                                    let text_runs = text.len();
+                                    core.set_cockpit_text(text);
                                     eprintln!(
-                                        "ZAROXI_COCKPIT: composited cockpit scene {}x{} total_lines={}",
-                                        sw, sh, editor_total_lines
+                                        "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
+                                        sw, sh, editor_total_lines, text_runs
                                     );
                                 }
                                 record_frame_presented();
