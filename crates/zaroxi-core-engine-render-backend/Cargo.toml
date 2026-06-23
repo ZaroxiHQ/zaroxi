@@ -17,3 +17,9 @@ zaroxi-core-engine-font = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
 zaroxi-core-engine-text = { workspace = true }
 bytemuck = { workspace = true }
+
+[features]
+default = []
+# Opt-in vello rendering layer (renders a vello::Scene into a GPU target
+# texture). Additive: does not alter the existing rect/text path.
+vello_pipeline = []

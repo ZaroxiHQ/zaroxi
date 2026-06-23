@@ -18,6 +18,10 @@ use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt
 use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_window::ZaroxiWindow;
 
+/// Optional vello rendering layer (renders a `vello::Scene` into a GPU target).
+#[cfg(feature = "vello_pipeline")]
+pub mod vello_layer;
+
 static GUI_TEXT_FALLBACK_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// Simple render backend that drives a wgpu surface and presents frames.
