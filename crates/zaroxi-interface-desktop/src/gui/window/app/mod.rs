@@ -2161,7 +2161,18 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.widget_tree = Some(widget_tree);
                     let widget_ms = widget_t.elapsed().as_secs_f32() * 1000.0;
 
+                    // ── Startup trace (first 10 frames) ──────────────────
+                    let startup_trace = std::env::var("ZAROXI_STARTUP_TRACE").as_deref() == Ok("1")
+                        && frame_id < 10;
+                    let _t0 = if startup_trace { Some(std::time::Instant::now()) } else { None };
                     let shell_regions = self.layout_controller.shell_regions();
+                    if startup_trace {
+                        let dt = _t0.unwrap().elapsed().as_secs_f32() * 1000.0;
+                        eprintln!(
+                            "ZAROXI_STARTUP_TRACE: frame={} phase=initial_layout_compute ms={:.2}",
+                            frame_id, dt
+                        );
+                    }
                     debug::click_trace_fmt!(
                         "ZAROXI_DIAG: window={}x{} layout_last={}x{} nregions={}",
                         sw,
@@ -2304,7 +2315,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                         selection: status_selection,
                         diagnostics: status_diagnostics,
                     };
+                    // ── Startup trace: status model ──────────────────────
+                    let _ts = if startup_trace { Some(std::time::Instant::now()) } else { None };
                     let status_data = super::presenters::shape_status_content(&status_inputs);
+                    if let Some(t) = _ts {
+                        eprintln!(
+                            "ZAROXI_STARTUP_TRACE: frame={} phase=status_model_init ms={:.2}",
+                            frame_id,
+                            t.elapsed().as_secs_f32() * 1000.0
+                        );
+                    }
                     // Canonical instrument-panel context + metadata bands (shared
                     // presenter). The cockpit maps these into visual roles; the
                     // legacy fallback bar derives the same facts via `status_zones`.
@@ -2342,8 +2362,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .and_then(|wc| wc.terminal_tabs.clone()),
                     };
 
+                    // ── Startup trace: shell block composition ───────────
+                    let _tc = if startup_trace { Some(std::time::Instant::now()) } else { None };
                     let (mut render_blocks, explorer_cta_rect, explorer_search_rect) =
                         super::frame::compose_blocks(shell_regions, &tokens, &ctx);
+                    if let Some(t) = _tc {
+                        eprintln!(
+                            "ZAROXI_STARTUP_TRACE: frame={} phase=first_frame_shell_build ms={:.2}",
+                            frame_id,
+                            t.elapsed().as_secs_f32() * 1000.0
+                        );
+                    }
                     self.explorer_button_rect = explorer_cta_rect;
                     self.explorer_search_rect = explorer_search_rect;
 
@@ -2824,6 +2853,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // the explicit legacy fallback
                                 // (ZAROXI_LEGACY_SHELL_SURFACES=1) is requested, so
                                 // exactly one owner is active at a time.
+                                // ── Startup trace: cockpit init ──────────
+                                let _tck = if startup_trace {
+                                    Some(std::time::Instant::now())
+                                } else {
+                                    None
+                                };
                                 if super::cockpit::cockpit_surfaces_active() {
                                     let tokens = super::cockpit::cockpit_tokens(
                                         self.theme_mode,
@@ -3015,6 +3050,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     core.set_cockpit_scene(Some(scene));
                                     let text_runs = text.len();
                                     core.set_cockpit_text(text);
+                                    if let Some(t) = _tck {
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",
+                                            frame_id,
+                                            t.elapsed().as_secs_f32() * 1000.0
+                                        );
+                                    }
                                     eprintln!(
                                         "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
                                         sw, sh, editor_total_lines, text_runs

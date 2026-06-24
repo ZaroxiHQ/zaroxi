@@ -10,7 +10,7 @@
 //! frame when [`crate::reduce_motion`] is set.
 
 use vello::Scene;
-use vello::kurbo::{Affine, Arc, BezPath, Circle, Line, Point, Rect, RoundedRect, Stroke};
+use vello::kurbo::{Affine, BezPath, Circle, Line, Point, Rect, RoundedRect, Stroke};
 use vello::peniko::Fill;
 use zaroxi_interface_theme::CockpitTokens;
 use zaroxi_interface_theme::Color as ThemeColor;
@@ -724,13 +724,9 @@ pub struct StatusMetrics {
 // ── Component 6: Status Bar (instrument panel) ──────────────────────────────
 
 /// Reserved width (px) of the right AI band — constant so dormant↔live is jitter-free.
-const AI_BAND_W: f64 = 118.0;
 /// Compact AI band width when space is tight (L4+): just "AI" label + dot.
-const AI_COMPACT_W: f64 = 60.0;
 /// Reserved width (px) of the center health band at full detail.
-const HEALTH_BAND_W: f64 = 124.0;
 /// Collapsed health-band width (px) at the tiniest bucket (a single LSP dot).
-const HEALTH_BAND_MIN_W: f64 = 22.0;
 /// Inner padding (px) inside each band.
 const BAND_PAD: f64 = 12.0;
 /// Uniform label size (px); emphasis is by colour, not size (calm, dense panel).
@@ -760,11 +756,6 @@ fn est_text_width(s: &str, size: f32) -> f64 {
     s.chars().count() as f64 * size as f64 * 0.52
 }
 
-/// Format a token count compactly (`2048` → `2.0k`).
-fn fmt_tokens(n: u32) -> String {
-    if n >= 1000 { format!("{:.1}k", n as f32 / 1000.0) } else { n.to_string() }
-}
-
 /// A planned text run (resolved position + colour).
 struct PText {
     s: String,
@@ -776,9 +767,7 @@ struct PText {
 
 /// A planned vector instrument glyph (drawn by vello, over the text).
 enum PVec {
-    Sep { x: f64, y0: f64, y1: f64 },
     Dot { c: Point, r: f64, color: ThemeColor, pulse: bool },
-    Arc { c: Point, r: f64, frac: f64, track: ThemeColor, value: ThemeColor },
 }
 
 /// The fully laid-out plan for one frame: a single source of truth shared by
@@ -820,163 +809,196 @@ impl StatusBar {
         ordered
     }
 
-    /// Lay a directional sequence of `(text, colour)` runs from `outer_x` toward
-    /// the band's inner edge (left→right for LTR, right→left for RTL).
-    fn lay_sequence(
-        items: &[(String, ThemeColor)],
-        outer_x: f32,
-        y: f32,
-        size: f32,
-        rtl: bool,
-        gap: f32,
-        out: &mut Vec<PText>,
-    ) {
-        let mut x = outer_x;
-        for (s, c) in items {
-            if s.is_empty() {
-                continue;
-            }
-            let w = est_text_width(s, size) as f32;
-            let run_x = if rtl { x - w } else { x };
-            out.push(PText { s: s.clone(), x: run_x, y, size, color: *c });
-            x = if rtl { x - w - gap } else { x + w + gap };
-        }
-    }
-
     /// Build the full per-frame plan (band layout, collapse, vectors + texts).
+    /// Build the full per-frame plan — a conventional status bar with two zones:
+    /// left = file/context text (truncated), right = trailing status cluster
+    /// (right-aligned chips + LSP/AI dots).  No permanent centre band.
     fn plan(&self, r: &Rect, theme: &CockpitTokens) -> StatusPlan {
         let bucket = LayoutBucket::from_width(r.width());
         let level = bucket.collapse_level();
+        let rtl = self.status.rtl;
         let cy = (r.y0 + r.y1) * 0.5;
         let y = (cy - STATUS_SIZE as f64 * 0.5) as f32;
-        let rtl = self.status.rtl;
-
-        // ── 1. Desired band widths (collapsible per level) ───────────────
-        let ai_w = if level >= 4 { AI_COMPACT_W } else { AI_BAND_W };
-        let health_w = if level >= 5 {
-            HEALTH_BAND_MIN_W
-        } else if level >= 3 {
-            HEALTH_BAND_MIN_W + 60.0
-        } else {
-            HEALTH_BAND_W
-        };
-
-        // ── 2. Place bands: AI hugs far edge; health is CENTRED on the full
-        //       strip; context fills remainder.  Collision priority: AI > health
-        //       > context (health shifts toward context when it overlaps AI;
-        //       never paint through another band). ─────────────────────────
-        let total_w = r.width();
-        let slot_center = r.x0 + total_w / 2.0;
-        let band = |x: f64, w: f64| Rect::new(x, r.y0, x + w.max(0.0), r.y1);
-
-        let ai_rect = if !rtl { band(r.x1 - ai_w, ai_w) } else { band(r.x0, ai_w) };
-        let health_rect = band((slot_center - health_w / 2.0).max(r.x0), health_w);
-
-        // Resolve slot ↔ AI overlap.
-        let health_rect = if !rtl {
-            let overlap = (health_rect.x1 - ai_rect.x0).max(0.0);
-            band((health_rect.x0 - overlap).max(r.x0), health_w)
-        } else {
-            let overlap = (ai_rect.x1 - health_rect.x0).max(0.0);
-            let shifted_x0 = (health_rect.x0 + overlap).min(r.x1 - health_w.max(0.0));
-            band(shifted_x0.max(r.x0), health_w)
-        };
-        let health_rect = if !rtl {
-            band(health_rect.x0, (health_rect.width().min(r.x1 - health_rect.x0)).max(0.0))
-        } else {
-            band(health_rect.x0, (health_rect.width().min(health_rect.x1 - r.x0)).max(0.0))
-        };
-
-        let context_rect = if !rtl {
-            band(r.x0, (health_rect.x0 - r.x0).max(0.0))
-        } else {
-            band(health_rect.x1, (r.x1 - health_rect.x1).max(0.0))
-        };
-
-        // ── Layout trace ────────────────────────────────────────────────
-        if std::env::var("ZAROXI_STATUS_LAYOUT_TRACE").as_deref() == Ok("1") {
-            let center_target = r.x0 + total_w / 2.0;
-            let center_actual = health_rect.x0 + health_rect.width() / 2.0;
-            let shift = center_actual - center_target;
-            let overlap_lc = if !rtl {
-                (context_rect.x1 - health_rect.x0).max(0.0)
-            } else {
-                (health_rect.x1 - context_rect.x0).max(0.0)
-            };
-            let overlap_cr = if !rtl {
-                (ai_rect.x0 - health_rect.x1).max(0.0)
-            } else {
-                (health_rect.x0 - ai_rect.x1).max(0.0)
-            };
-            eprintln!(
-                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} context_w={:.0} center_w={:.0} ai_w={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_lc={:.1} overlap_cr={:.1} ai_compact={} health_slim={}",
-                bucket.label(),
-                level,
-                total_w,
-                context_rect.width(),
-                health_rect.width(),
-                ai_rect.width(),
-                center_target,
-                center_actual,
-                shift,
-                overlap_lc,
-                overlap_cr,
-                ai_w <= AI_COMPACT_W + 1.0,
-                health_w <= HEALTH_BAND_MIN_W + 2.0,
-            );
-        }
-
-        let context = context_rect;
-        let health = health_rect;
-        let ai = ai_rect;
+        let _bh = r.height();
 
         let mut texts: Vec<PText> = Vec::new();
         let mut vectors: Vec<PVec> = Vec::new();
 
-        // Inter-band separators (thin, low-contrast).
-        for sx in [health.x0, health.x1] {
-            vectors.push(PVec::Sep { x: sx, y0: r.y0 + 5.0, y1: r.y1 - 5.0 });
-        }
-
-        // ── Context band ──────────────────────────────────────────────────
+        // ── Right zone: trailing status cluster (anchored to right edge) ──
         let ctx = &self.status.context;
-        let bc_sep = if rtl { " ‹ " } else { " › " };
-        let show_ancestors = level < 5 && !ctx.ancestors.is_empty();
+        let meta = self.meta_for_level(level);
+        let h = &self.status.health;
+        let aib = &self.status.ai;
 
-        let mut context_items = 0usize;
-        let mut seq: Vec<(String, ThemeColor)> = Vec::new();
-        if show_ancestors {
-            seq.push((ctx.ancestors.join(bc_sep), theme.text_muted));
-            context_items += 1;
-        }
-        // Leaf carries a leading separator only when ancestors precede it.
-        let leaf = if show_ancestors { format!("{bc_sep}{}", ctx.leaf) } else { ctx.leaf.clone() };
-        if !leaf.trim().is_empty() {
-            seq.push((leaf, theme.text_primary));
-            context_items += 1;
+        // Build the right-side chip list (ordered inner → outer; leftmost drops
+        // first on width collapse).  Every value is a labelled chip.
+        // Right parts in DROP-PRIORITY order (leftmost drops first):
+        //   encoding → eol → indent → language → fps → mem → position
+        // The right edge anchor is always position (highest priority).
+        let mut right_parts: Vec<String> = Vec::new();
+        right_parts.extend(meta.iter().rev().cloned()); // encoding,eol,indent,lang — reversed to get drop order
+        if level < 5 {
+            if let Some(f) = h.fps {
+                right_parts.push(format!("{f} fps"));
+            }
+            if let Some(m) = h.mem_mb {
+                right_parts.push(format!("{m} MB"));
+            }
         }
         if let Some(pos) = &ctx.position {
-            seq.push((pos.clone(), theme.text_muted));
+            right_parts.push(pos.clone());
+        }
+        // Fit to width: drop from the front (lowest-priority/leftmost first).
+        let indicator_w = 34.0;
+        let max_right_w = (r.width() - indicator_w - BAND_PAD * 2.0).max(0.0);
+        let mut right_used = 0usize;
+        let mut right_str = String::new();
+        let mut right_w = 0.0;
+        for ch in right_parts.iter().rev() {
+            // Build right-to-left: new chip to the left of existing string.
+            let trial =
+                if right_str.is_empty() { ch.clone() } else { format!("{ch}  {right_str}") };
+            let tw = est_text_width(&trial, STATUS_SIZE);
+            if tw > max_right_w {
+                break;
+            }
+            right_str = trial;
+            right_w = tw;
+            right_used = right_used.saturating_add(1);
+        }
+        if !right_str.is_empty() {
+            right_w = est_text_width(&right_str, STATUS_SIZE);
+            let rx = if !rtl {
+                (r.x1 - indicator_w - right_w) as f32
+            } else {
+                (r.x0 + indicator_w) as f32
+            };
+            texts.push(PText {
+                s: right_str,
+                x: rx,
+                y,
+                size: STATUS_SIZE,
+                color: theme.text_muted,
+            });
+        }
+        let mut right_items = right_used;
+
+        // LSP health dot + AI mode dot (far right edge, inside the indicator slot).
+        let (lsp_color, lsp_pulse) = match h.lsp {
+            LspStatus::Healthy => (theme.status_healthy, true),
+            LspStatus::Slow => (theme.status_slow, false),
+            LspStatus::Error => (theme.status_error, false),
+        };
+        if !rtl {
+            vectors.push(PVec::Dot {
+                c: Point::new(r.x1 - 6.0, cy),
+                r: 3.0,
+                color: lsp_color,
+                pulse: lsp_pulse,
+            });
+            right_items += 1;
+        } else {
+            vectors.push(PVec::Dot {
+                c: Point::new(r.x0 + 6.0, cy),
+                r: 3.0,
+                color: lsp_color,
+                pulse: lsp_pulse,
+            });
+            right_items += 1;
+        }
+        let mut ai_items = 0usize; // AI dot handled inline
+        {
+            let (ai_color, ai_pulse, ai_r) = match aib.mode {
+                AiMode::Dormant => (theme.text_muted, false, 3.0),
+                AiMode::Live | AiMode::Degraded => {
+                    (theme.ai_highlight, matches!(aib.mode, AiMode::Live), 3.5)
+                }
+            };
+            // Place AI dot left of the LSP dot. Both sit at the far edge.
+            if !rtl {
+                vectors.push(PVec::Dot {
+                    c: Point::new(r.x1 - 18.0, cy),
+                    r: ai_r,
+                    color: ai_color,
+                    pulse: ai_pulse,
+                });
+                ai_items += 1;
+            } else {
+                vectors.push(PVec::Dot {
+                    c: Point::new(r.x0 + 18.0, cy),
+                    r: ai_r,
+                    color: ai_color,
+                    pulse: ai_pulse,
+                });
+                ai_items += 1;
+            }
+        }
+
+        // ── Left zone: file / context breadcrumb ───────────────────────────
+        let bc_sep = if rtl { " ‹ " } else { " › " };
+        let show_ancestors = level < 4 && !ctx.ancestors.is_empty();
+        let mut context_items = 0usize;
+
+        // Safe zone for left text: stop before the right cluster.
+        let left_limit = if !rtl {
+            (r.x1 - indicator_w - right_w - BAND_PAD - 12.0).max(r.x0 + BAND_PAD)
+        } else {
+            (r.x0 + indicator_w + right_w + BAND_PAD + 12.0).min(r.x1 - BAND_PAD)
+        };
+
+        let lx = if !rtl { (r.x0 + BAND_PAD) as f32 } else { (r.x1 - BAND_PAD) as f32 };
+        // Build the full left string, then truncate with ellipsis if needed.
+        let mut left_parts: Vec<String> = Vec::new();
+        if show_ancestors {
+            left_parts.push(ctx.ancestors.join(bc_sep));
             context_items += 1;
         }
-        let meta = self.meta_for_level(level);
-        context_items += meta.len();
-        if !meta.is_empty() {
-            seq.push((meta.join(" · "), theme.text_muted));
+        {
+            let leaf =
+                if show_ancestors { format!("{bc_sep}{}", ctx.leaf) } else { ctx.leaf.clone() };
+            if !leaf.trim().is_empty() {
+                left_parts.push(leaf);
+                context_items += 1;
+            }
+        }
+        let left_raw = left_parts.join("");
+        let mut left_str = left_raw.clone();
+        let avail_left = if !rtl {
+            (left_limit - lx as f64).max(0.0)
+        } else {
+            (lx as f64 - left_limit).max(0.0)
+        };
+        if est_text_width(&left_raw, STATUS_SIZE) > avail_left {
+            // Truncate with ellipsis.
+            let mut n = left_raw.chars().count();
+            while n > 1 {
+                let s: String = left_raw.chars().take(n).chain("\u{2026}".chars()).collect();
+                if est_text_width(&s, STATUS_SIZE) <= avail_left {
+                    left_str = s;
+                    break;
+                }
+                n -= 1;
+            }
+            if n <= 1 {
+                left_str = "\u{2026}".to_string();
+            }
+        }
+        if !left_str.is_empty() {
+            let tx = if rtl { lx - est_text_width(&left_str, STATUS_SIZE) as f32 } else { lx };
+            texts.push(PText {
+                s: left_str,
+                x: tx,
+                y,
+                size: STATUS_SIZE,
+                color: theme.text_primary,
+            });
         }
 
-        // Reserve a compact state-light cluster at the context band's inner edge.
+        // State-light markers between left context and right cluster.
         let markers = &ctx.markers;
-        let marker_slot = markers.len() as f64 * 11.0 + if markers.is_empty() { 0.0 } else { 6.0 };
-        let outer_x =
-            if rtl { (context.x1 - BAND_PAD) as f32 } else { (context.x0 + BAND_PAD) as f32 };
-        Self::lay_sequence(&seq, outer_x, y, STATUS_SIZE, rtl, 8.0, &mut texts);
-
-        // State lights (vector dots) + optional diagnostic count text.
         if !markers.is_empty() {
-            let mut mx = if rtl { context.x0 + 6.0 } else { context.x1 - marker_slot + 6.0 };
-            let mut diag_text: Option<String> = None;
-            let mut diag_color = theme.status_slow;
+            let marker_w = markers.len() as f64 * 11.0 + 8.0;
+            let mut mx = if !rtl { left_limit - marker_w + 4.0 } else { left_limit + 4.0 };
             for m in markers {
                 let (color, pulse) = match m.kind {
                     MarkerKind::Modified => (theme.accent, false),
@@ -986,158 +1008,21 @@ impl StatusBar {
                 };
                 vectors.push(PVec::Dot { c: Point::new(mx, cy), r: 3.0, color, pulse });
                 mx += 11.0;
-                if let Some(n) = m.count {
-                    let tag = match m.kind {
-                        MarkerKind::Error => format!("E{n}"),
-                        MarkerKind::Warning => format!("W{n}"),
-                        _ => continue,
-                    };
-                    diag_color = if matches!(m.kind, MarkerKind::Error) {
-                        theme.status_error
-                    } else {
-                        diag_color
-                    };
-                    diag_text = Some(match diag_text {
-                        Some(prev) => format!("{prev} {tag}"),
-                        None => tag,
-                    });
-                }
-            }
-            if let Some(d) = diag_text {
-                let w = est_text_width(&d, STATUS_SIZE) as f32;
-                let dx = if rtl {
-                    context.x0 as f32 + 6.0 + marker_slot as f32
-                } else {
-                    context.x1 as f32 - w - 6.0
-                };
-                texts.push(PText { s: d, x: dx, y, size: STATUS_SIZE, color: diag_color });
             }
         }
 
-        // ── Health band ───────────────────────────────────────────────────
-        let h = &self.status.health;
-        let (lsp_color, lsp_pulse) = match h.lsp {
-            LspStatus::Healthy => (theme.status_healthy, true),
-            LspStatus::Slow => (theme.status_slow, false),
-            LspStatus::Error => (theme.status_error, false),
-        };
-        let lsp_x = if !rtl { health.x0 + 11.0 } else { health.x1 - 11.0 };
-        vectors.push(PVec::Dot {
-            c: Point::new(lsp_x, cy),
-            r: 3.5,
-            color: lsp_color,
-            pulse: lsp_pulse,
-        });
-        let mut health_items = 1usize;
-        if level < 5 {
-            let mut parts: Vec<String> = Vec::new();
-            if let Some(f) = h.fps {
-                parts.push(format!("{f}"));
-            }
-            if let Some(m) = h.mem_mb {
-                parts.push(format!("{m}MB"));
-            }
-            health_items += parts.len();
-            if !parts.is_empty() {
-                let s = parts.join("  ");
-                let tx = if !rtl {
-                    (lsp_x + 9.0) as f32
-                } else {
-                    (lsp_x - 9.0 - est_text_width(&s, STATUS_SIZE)) as f32
-                };
-                texts.push(PText { s, x: tx, y, size: STATUS_SIZE, color: theme.text_secondary });
-            }
-        }
-
-        // ── AI band ───────────────────────────────────────────────────────
-        let aib = &self.status.ai;
-        // Indicator anchored at the band's outer edge (far side).
-        let ind_x = if !rtl { ai.x1 - 15.0 } else { ai.x0 + 15.0 };
-        let mut ai_items = 1usize; // always at least one presence indicator
-        let ai_text: Option<String> = match aib.mode {
-            AiMode::Dormant => {
-                // Quiet dormant dot only (dim) — no flickering text.
-                vectors.push(PVec::Dot {
-                    c: Point::new(ind_x, cy),
-                    r: 3.0,
-                    color: theme.text_muted,
-                    pulse: false,
-                });
-                None
-            }
-            AiMode::Live if aib.tokens_total > 0 => {
-                let frac = (aib.tokens_used as f64 / aib.tokens_total as f64).clamp(0.0, 1.0);
-                vectors.push(PVec::Arc {
-                    c: Point::new(ind_x, cy),
-                    r: 6.0,
-                    frac,
-                    track: theme.divider,
-                    value: theme.ai_highlight,
-                });
-                let mut parts = vec![format!(
-                    "{}/{}",
-                    fmt_tokens(aib.tokens_used),
-                    fmt_tokens(aib.tokens_total)
-                )];
-                if let Some(ms) = aib.latency_ms {
-                    parts.push(format!("{ms}ms"));
-                }
-                ai_items += parts.len();
-                Some(parts.join("  "))
-            }
-            AiMode::Live | AiMode::Degraded => {
-                // Active or completed without a context total: a compact amber
-                // dot (pulses while a request is live) + a token/latency readout.
-                vectors.push(PVec::Dot {
-                    c: Point::new(ind_x, cy),
-                    r: 3.5,
-                    color: theme.ai_highlight,
-                    pulse: matches!(aib.mode, AiMode::Live),
-                });
-                let mut parts: Vec<String> = Vec::new();
-                if aib.tokens_used > 0 {
-                    parts.push(fmt_tokens(aib.tokens_used));
-                }
-                if let Some(ms) = aib.latency_ms {
-                    parts.push(format!("{ms}ms"));
-                }
-                ai_items += parts.len();
-                if parts.is_empty() { None } else { Some(parts.join("  ")) }
-            }
-        };
-        if let Some(model) = &aib.model {
-            // Optional model chip, inner-most in the AI band.
-            ai_items += 1;
-            let mx = if !rtl {
-                ai.x0 as f32 + BAND_PAD as f32
-            } else {
-                (ai.x1 - BAND_PAD) as f32 - est_text_width(model, STATUS_SIZE) as f32
-            };
-            texts.push(PText {
-                s: model.clone(),
-                x: mx,
-                y,
-                size: STATUS_SIZE,
-                color: theme.text_muted,
-            });
-        }
-        if let Some(t) = ai_text {
-            let w = est_text_width(&t, STATUS_SIZE) as f32;
-            let tx = if !rtl { (ind_x - 11.0) as f32 - w } else { (ind_x + 11.0) as f32 };
-            texts.push(PText { s: t, x: tx, y, size: STATUS_SIZE, color: theme.text_muted });
-        }
-
+        let right_band_w = right_w + indicator_w;
         StatusPlan {
             texts,
             vectors,
             bucket,
             level,
             context_items,
-            health_items,
+            health_items: right_items,
             ai_items,
             ai_mode: aib.mode,
-            center_band_w: health.width(),
-            right_band_w: ai.width(),
+            center_band_w: 0.0,
+            right_band_w,
         }
     }
 
@@ -1175,35 +1060,9 @@ impl ZaroxiWidget for StatusBar {
         let p = pulse(self.phase);
         for v in &plan.vectors {
             match v {
-                PVec::Sep { x, y0, y1 } => {
-                    stroke(
-                        scene,
-                        1.0,
-                        &Line::new((*x, *y0), (*x, *y1)),
-                        theme.divider.with_alpha(0.6),
-                    );
-                }
                 PVec::Dot { c, r: rad, color, pulse: pulsing } => {
                     let a = if *pulsing { 0.45 + 0.55 * p } else { 1.0 };
                     fill(scene, &Circle::new(*c, *rad), color.with_alpha(a));
-                }
-                PVec::Arc { c, r: rad, frac, track, value } => {
-                    let base = Arc::new(
-                        *c,
-                        (*rad, *rad),
-                        -std::f64::consts::FRAC_PI_2,
-                        std::f64::consts::TAU,
-                        0.0,
-                    );
-                    stroke(scene, 2.0, &base, *track);
-                    let val = Arc::new(
-                        *c,
-                        (*rad, *rad),
-                        -std::f64::consts::FRAC_PI_2,
-                        std::f64::consts::TAU * frac,
-                        0.0,
-                    );
-                    stroke(scene, 2.0, &val, *value);
                 }
             }
         }
