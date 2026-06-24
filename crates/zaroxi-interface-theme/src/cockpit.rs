@@ -178,6 +178,22 @@ pub struct CockpitTokens {
     pub cursor: Color,
     /// Drop-shadow color.
     pub shadow: Color,
+
+    // ── Activity rail ──
+    /// Rail strip background.
+    pub rail_bg: Color,
+    /// Default rail item fill (inactive).
+    pub rail_item: Color,
+    /// Active / selected rail item fill.
+    pub rail_item_active: Color,
+    /// Hovered rail item fill.
+    pub rail_item_hover: Color,
+    /// Rail item accent indicator.
+    pub rail_accent: Color,
+    /// Rail icon / label text.
+    pub rail_text: Color,
+    /// Rail muted text (inactive).
+    pub rail_text_muted: Color,
 }
 
 #[inline]
@@ -247,6 +263,13 @@ impl CockpitTokens {
             selection: ca("#6E40C9", 0.30),
             cursor: c("#F59E0B"),
             shadow: ca("#000000", 0.60),
+            rail_bg: c("#0E0E16"),
+            rail_item: ca("#6C6C84", 0.0),
+            rail_item_active: ca("#6E40C9", 0.25),
+            rail_item_hover: ca("#6E40C9", 0.12),
+            rail_accent: c("#6E40C9"),
+            rail_text: c("#E6E6F0"),
+            rail_text_muted: c("#6C6C84"),
         }
     }
 
@@ -301,6 +324,13 @@ impl CockpitTokens {
             selection: ca("#7DCFFF", 0.28),
             cursor: c("#FF79C6"),
             shadow: ca("#000000", 0.55),
+            rail_bg: c("#16171F"),
+            rail_item: ca("#565F89", 0.0),
+            rail_item_active: ca("#7DCFFF", 0.25),
+            rail_item_hover: ca("#7DCFFF", 0.12),
+            rail_accent: c("#7DCFFF"),
+            rail_text: c("#C0CAF5"),
+            rail_text_muted: c("#565F89"),
         }
     }
 
@@ -355,6 +385,13 @@ impl CockpitTokens {
             selection: ca("#539BF5", 0.28),
             cursor: c("#3DDBD9"),
             shadow: ca("#000000", 0.55),
+            rail_bg: c("#0B0F14"),
+            rail_item: ca("#768390", 0.0),
+            rail_item_active: ca("#E6B450", 0.22),
+            rail_item_hover: ca("#E6B450", 0.10),
+            rail_accent: c("#E6B450"),
+            rail_text: c("#E6EDF3"),
+            rail_text_muted: c("#768390"),
         }
     }
 
@@ -409,6 +446,13 @@ impl CockpitTokens {
             selection: ca("#3730A3", 0.18),
             cursor: c("#D97706"),
             shadow: ca("#000000", 0.20),
+            rail_bg: c("#EFEAE2"),
+            rail_item: ca("#9CA3AF", 0.0),
+            rail_item_active: ca("#3730A3", 0.18),
+            rail_item_hover: ca("#3730A3", 0.08),
+            rail_accent: c("#3730A3"),
+            rail_text: c("#1F2328"),
+            rail_text_muted: c("#9CA3AF"),
         }
     }
 }

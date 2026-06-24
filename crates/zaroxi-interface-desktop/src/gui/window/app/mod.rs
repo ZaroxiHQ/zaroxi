@@ -371,6 +371,14 @@ pub struct GuiApp {
     /// Rendered hit rect of the explorer search box (x, y, w, h), for click-to-
     /// focus. Set each frame from the sidebar render.
     pub explorer_search_rect: Option<(f32, f32, f32, f32)>,
+    /// Index of the currently selected activity rail item (0=Explorer, 1=Search,
+    /// 2=Source Ctrl, 3=Debug, 4=Settings, 5=Account). Default 0.
+    pub rail_selected_index: usize,
+    /// Index of the currently hovered activity rail item, or None.
+    pub rail_hovered_index: Option<usize>,
+    /// Hit rects for each rail item, set each frame from the cockpit rail layout.
+    /// `Vec<(rect_x, rect_y, rect_w, rect_h)>` in logical px.
+    pub rail_item_hit_rects: Vec<(f32, f32, f32, f32)>,
     /// Keyboard-selected row within the (filtered) explorer list, for arrow-key
     /// navigation while searching. Absolute index into the visible item set.
     pub explorer_search_sel: Option<usize>,
@@ -1810,6 +1818,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.widget_tree.is_some()
                 );
 
+                // Rail hover detection (cockpit-owned surface, not in shell tree).
+                {
+                    let px = position.x as f32;
+                    let py = position.y as f32;
+                    let mut hit_idx = None;
+                    for (i, &(rx, ry, rw, rh)) in self.rail_item_hit_rects.iter().enumerate() {
+                        if px >= rx && px < rx + rw && py >= ry && py < ry + rh {
+                            hit_idx = Some(i);
+                            break;
+                        }
+                    }
+                    if hit_idx != self.rail_hovered_index {
+                        self.rail_hovered_index = hit_idx;
+                        self.cockpit_status_fingerprint = 0;
+                        self.needs_render = true;
+                    }
+                }
+
                 if let Some(ref mut tree) = self.widget_tree {
                     let actions = self.interaction.on_pointer_moved(
                         tree,
@@ -1852,6 +1878,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                     y,
                     self.explorer_button_rect
                 );
+                // Rail item click (cockpit-owned, separate from shell tree).
+                if let ElementState::Released = state {
+                    let rail_idx = self.rail_hovered_index;
+                    if let Some(idx) = rail_idx {
+                        self.rail_selected_index = idx;
+                        self.cockpit_status_fingerprint = 0;
+                        self.needs_render = true;
+                        let id = zaroxi_core_engine_style::WidgetId::list_item(idx);
+                        self.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(
+                            id,
+                        )]);
+                        return;
+                    }
+                }
                 // Explorer search box focus: clicking the box grabs keyboard
                 // focus; clicking anywhere else releases it (the filter itself
                 // persists until cleared with Escape).
@@ -2354,6 +2394,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                         crate::gui::region_dispatch::find_region_by_role(
                             shell_regions,
                             zaroxi_core_engine_style::PanelRole::StatusBar,
+                        )
+                        .map(|r| {
+                            (
+                                r.rect.x as f32,
+                                r.rect.y as f32,
+                                r.rect.width as f32,
+                                r.rect.height as f32,
+                            )
+                        })
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                    let cockpit_rail_rect: (f32, f32, f32, f32) =
+                        crate::gui::region_dispatch::find_region_by_role(
+                            shell_regions,
+                            zaroxi_core_engine_style::PanelRole::NavigationRail,
                         )
                         .map(|r| {
                             (
@@ -3297,6 +3351,36 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             // status bar uses the real status strip rect.
                                             editor_rect: cockpit_editor_rect,
                                             status_rect: cockpit_status_rect,
+                                            // Activity rail rect from the shell layout
+                                            // (bottom of the left column, cockpit-owned).
+                                            rail_rect: cockpit_rail_rect,
+                                            rail_items: {
+                                                let glyphs: [(u32, &str); 6] = [
+                                                    (0xf07b, "Explorer"),    // nf-fa-folder
+                                                    (0xf002, "Search"),      // nf-fa-search
+                                                    (0xe702, "Source Ctrl"), // nf-dev-git_branch
+                                                    (0xf188, "Debug"),       // nf-fa-bug
+                                                    (0xf013, "Settings"),    // nf-fa-cog
+                                                    (0xf007, "Account"),     // nf-fa-user
+                                                ];
+                                                let sel = self.rail_selected_index;
+                                                let hov = self.rail_hovered_index;
+                                                glyphs
+                                                    .iter()
+                                                    .enumerate()
+                                                    .map(|(idx, &(cp, label))| {
+                                                        zaroxi_interface_widgets::ActivityItem {
+                                                            index: idx,
+                                                            glyph: char::from_u32(cp)
+                                                                .unwrap_or('?'),
+                                                            label: label.into(),
+                                                            selected: idx == sel,
+                                                            hovered: Some(idx) == hov,
+                                                            pressed: false,
+                                                        }
+                                                    })
+                                                    .collect()
+                                            },
                                             line_height: 18.0,
                                             total_lines: editor_total_lines,
                                             // Live structural symbols (function/type/
@@ -3331,6 +3415,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         if text_runs > 0 {
                                             self.cockpit_text_active = true;
                                         }
+                                        // Compute rail item hit rects for interaction.
+                                        // Uses the same layout math as ActivityRail::paint.
+                                        self.rail_item_hit_rects = {
+                                            let h = cockpit_rail_rect.3;
+                                            let icon_sz = (h * 0.7).clamp(16.0, 28.0);
+                                            let gap = 6.0f32;
+                                            let start_x = 10.0f32;
+                                            let cy = cockpit_rail_rect.1 + (h - icon_sz) * 0.5;
+                                            let mut rects = Vec::new();
+                                            let mut x = start_x;
+                                            for _ in 0..6 {
+                                                rects.push((x, cy, icon_sz, icon_sz));
+                                                x += icon_sz + gap;
+                                            }
+                                            rects
+                                        };
                                         if let Some(t) = _tck {
                                             eprintln!(
                                                 "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",

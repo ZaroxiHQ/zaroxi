@@ -258,10 +258,7 @@ mod tests {
 
         // Sidebar anchors to x=0 (rail is below, at the bottom of the left column).
         assert_eq!(sidebar.x, 0, "sidebar should anchor at x=0");
-        assert!(
-            rail.width >= sidebar.width.saturating_sub(2),
-            "rail width should match sidebar"
-        );
+        assert!(rail.width >= sidebar.width.saturating_sub(2), "rail width should match sidebar");
         let expected_rail_y = sidebar.y + sidebar.height;
         assert!(
             rail.y.abs_diff(expected_rail_y) <= 2,

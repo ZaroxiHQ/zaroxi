@@ -9,14 +9,13 @@ use crate::layout_constants::{
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
     EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H,
     EXPLORER_ROW_W_REDUCTION, EXPLORER_SEARCH_TO_ROWS_GAP, PANEL_ACTION_V_REDUCTION,
-    PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET, RAIL_DIVIDER_INSET, RAIL_ICON_GAP,
-    RAIL_ICON_H, RAIL_ICON_START_Y, RAIL_STRIP_H, SB_BOTTOM_SPEC, SB_EDITOR_SPEC,
-    SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR,
-    SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W,
-    STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA, TAB_W_INACTIVE, TAB_Y_HANG,
-    TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET,
-    TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET,
-    TOOLBAR_BTN_W, compute_scrollbar_geometry,
+    PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET, RAIL_STRIP_H, SB_BOTTOM_SPEC,
+    SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM,
+    SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD,
+    STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA,
+    TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H,
+    TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP,
+    TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W, compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -114,7 +113,7 @@ pub fn build_shell_widget_tree(
     }
 
     // ── 3. Activity rail + sidebar (left column) ──
-    // Sidebar fills the top portion; rail strip sits at the bottom.
+    // Sidebar fills the top portion; rail strip sits at the bottom (cockpit-owned).
     let rail_strip_h = RAIL_STRIP_H;
     let sidebar_h = (layout.left_panel.height - rail_strip_h).max(0.0);
     let sidebar_rect =
@@ -125,89 +124,6 @@ pub fn build_shell_widget_tree(
         border_color: None,
         border_width: 0.0,
     });
-
-    // ── 3b. Rail strip (bottom of left column) ──
-    let rail_y = layout.left_panel.y + sidebar_h;
-    let rail_rect = Rect::new(layout.left_panel.x, rail_y, layout.left_panel.width, rail_strip_h);
-    tree.push(ShellWidget::Surface {
-        rect: rail_rect,
-        fill_color: tokens.rail_background.to_array(),
-        border_color: None,
-        border_width: 0.0,
-    });
-
-    // Rail items arranged horizontally within the strip
-    if rail_rect.width > 80.0 && rail_rect.height > 20.0 {
-        let icon_w = RAIL_ICON_H;
-        let icon_h = RAIL_ICON_H;
-        let gap: f32 = RAIL_ICON_GAP;
-        let icon_center_y = rail_rect.y + (rail_rect.height - icon_h) / 2.0;
-        let start_x = rail_rect.x + RAIL_ICON_START_Y;
-        let mut x = start_x;
-        let rail_items: [(usize, &str, bool); 4] = [
-            (0, "Explorer", true),
-            (1, "Search", false),
-            (2, "Source Ctrl", false),
-            (3, "Debug", false),
-        ];
-
-        for (idx, label, active) in rail_items {
-            let icon_rect = Rect::new(x, icon_center_y, icon_w, icon_h);
-            let fill = if active {
-                tokens.rail_item_active.to_array()
-            } else {
-                tokens.rail_item_inactive.to_array()
-            };
-            let accent =
-                if active { Some(tokens.rail_item_active_accent.to_array()) } else { None };
-            let state = if active { InteractionState::Selected } else { InteractionState::Normal };
-
-            tree.push(ShellWidget::ListItem {
-                id: WidgetId::list_item(idx),
-                rect: icon_rect,
-                label: label.into(),
-                fill_color: fill,
-                accent_indicator: accent,
-                state,
-            });
-            x += icon_w + gap;
-
-            if idx == 0 && rail_rect.width > 200.0 {
-                tree.push(ShellWidget::Divider {
-                    rect: Rect::new(
-                        x,
-                        rail_rect.y + RAIL_DIVIDER_INSET,
-                        1.0,
-                        rail_rect.height - RAIL_DIVIDER_INSET * 2.0,
-                    ),
-                    color: tokens.divider_subtle.to_array(),
-                    orientation: DividerOrientation::Vertical,
-                    subtle: true,
-                });
-                x += gap;
-            }
-        }
-
-        // Bottom rail items (settings, account) — right-aligned
-        if rail_rect.width > 240.0 {
-            let bottom_items: [(usize, &str); 2] = [(4, "Settings"), (5, "Account")];
-            let bottom_total_w = bottom_items.len() as f32 * icon_w
-                + (bottom_items.len().saturating_sub(1)) as f32 * gap;
-            let bx = rail_rect.x + rail_rect.width - bottom_total_w - RAIL_ICON_START_Y;
-            let mut bx_pos = bx;
-            for (idx, label) in bottom_items.iter() {
-                tree.push(ShellWidget::ListItem {
-                    id: WidgetId::list_item(*idx),
-                    rect: Rect::new(bx_pos, icon_center_y, icon_w, icon_h),
-                    label: label.to_string(),
-                    fill_color: tokens.rail_item_bottom.to_array(),
-                    accent_indicator: None,
-                    state: InteractionState::Normal,
-                });
-                bx_pos += icon_w + gap;
-            }
-        }
-    }
 
     // ── 4. Sidebar content (fills the left column above the rail) ──
     let sidebar_w = layout.left_panel.width;

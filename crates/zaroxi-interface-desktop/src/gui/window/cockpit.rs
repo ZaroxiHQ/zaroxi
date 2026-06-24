@@ -20,8 +20,9 @@ use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::ZaroxiTheme;
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
-    AiPredictionGutter, CockpitTokens, CommandPalette, InstrumentStatus, LivingDiffLayer,
-    PaletteItem, PredictionCell, SemanticMinimap, StatusBar, SymbolKind, WidgetTree,
+    ActivityItem, ActivityRail, AiPredictionGutter, CockpitTokens, CommandPalette,
+    InstrumentStatus, LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, StatusBar,
+    SymbolKind, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -51,6 +52,12 @@ pub struct CockpitInputs {
     /// Status bar rect `(x, y, w, h)` in logical px from the shell layout. When
     /// zero, the cockpit falls back to a bottom strip spanning the full width.
     pub status_rect: (f32, f32, f32, f32),
+    /// Activity rail rect `(x, y, w, h)` in logical px from the shell layout
+    /// (bottom of the left column, above the status bar). When zero, the rail is
+    /// not rendered.
+    pub rail_rect: (f32, f32, f32, f32),
+    /// Activity rail items in left-to-right order.
+    pub rail_items: Vec<ActivityItem>,
     /// Editor line height in px (for diff/gutter row mapping).
     pub line_height: f32,
     /// Total document line count.
@@ -156,6 +163,7 @@ struct Regions {
     prediction_gutter: taffy::Layout,
     minimap: taffy::Layout,
     status: taffy::Layout,
+    activity_rail: taffy::Layout,
 }
 
 /// Build a window-space `taffy::Layout` from an `(x, y, w, h)` rect.
@@ -204,6 +212,12 @@ fn layout_regions(inputs: &CockpitInputs) -> Regions {
         prediction_gutter: rect_layout(gutter_x, ey, gutter_w, eh),
         minimap: rect_layout(minimap_x, ey, minimap_w, eh),
         status: rect_layout(sx, sy, sw, sh),
+        activity_rail: rect_layout(
+            inputs.rail_rect.0,
+            inputs.rail_rect.1,
+            inputs.rail_rect.2,
+            inputs.rail_rect.3,
+        ),
     }
 }
 
@@ -310,6 +324,17 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
     // Instrument-panel status bar (three bands; built + traced above).
     tree.push(Box::new(status_bar), regions.status);
 
+    // Activity rail (bottom strip of the left column, above the status bar).
+    if !inputs.rail_items.is_empty()
+        && regions.activity_rail.size.width > 0.0
+        && regions.activity_rail.size.height > 0.0
+    {
+        tree.push(
+            Box::new(ActivityRail { items: inputs.rail_items.clone() }),
+            regions.activity_rail,
+        );
+    }
+
     // Command palette overlay (when open).
     if let Some((items, selected, rtl)) = &inputs.palette {
         let palette_layout = centered(&regions.editor, 520.0, 320.0);
@@ -415,6 +440,8 @@ mod tests {
                 true,
             )),
             phase: 0.3,
+            rail_rect: (0.0, 776.0, 0.0, 0.0),
+            rail_items: vec![],
         }
     }
 
@@ -459,7 +486,7 @@ mod tests {
     #[test]
     fn build_places_all_widgets() {
         let tree = build_cockpit(&sample());
-        // 4 base widgets + palette overlay = 5.
+        // 4 base cockpit widgets + palette overlay = 5 (rail is empty in sample).
         assert_eq!(tree.len(), 5);
     }
 

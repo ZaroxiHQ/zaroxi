@@ -26,6 +26,8 @@ pub enum WidgetLayer {
     Minimap,
     /// Instrument-panel status bar.
     StatusBar,
+    /// Activity / navigation rail (icon strip at the bottom of the left column).
+    ActivityRail,
     /// Command palette (when open).
     Palette,
     /// Tooltips / transient overlays.
@@ -171,13 +173,14 @@ mod tests {
 
 impl WidgetLayer {
     /// All layers in paint order.
-    pub const ALL: [WidgetLayer; 8] = [
+    pub const ALL: [WidgetLayer; 9] = [
         WidgetLayer::Background,
         WidgetLayer::Editor,
         WidgetLayer::DiffLayer,
         WidgetLayer::Gutter,
         WidgetLayer::Minimap,
         WidgetLayer::StatusBar,
+        WidgetLayer::ActivityRail,
         WidgetLayer::Palette,
         WidgetLayer::Tooltip,
     ];

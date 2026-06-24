@@ -47,7 +47,7 @@ impl WidgetTree {
     }
 
     /// The canonical paint order (background → … → tooltip).
-    pub fn paint_order() -> [WidgetLayer; 8] {
+    pub fn paint_order() -> [WidgetLayer; 9] {
         WidgetLayer::ALL
     }
 

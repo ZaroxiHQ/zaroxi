@@ -1239,6 +1239,125 @@ impl ZaroxiWidget for StatusBar {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity Rail — icon strip at the bottom of the left column, rendered through
+// cockpit vello + cosmic-text. Each item has an icon glyph (Nerd Font), optional
+// label/tooltip, and per-item selection/hover state.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Descriptor for one rail item (icon + label + state).
+#[derive(Debug, Clone)]
+pub struct ActivityItem {
+    /// Zero-based index (consistent with WidgetId::list_item).
+    pub index: usize,
+    /// Nerd Font glyph character for the icon.
+    pub glyph: char,
+    /// Short label / tooltip text.
+    pub label: String,
+    /// True when this item is the active/selected one.
+    pub selected: bool,
+    /// True when the pointer is hovering this item (applied from outside).
+    pub hovered: bool,
+    /// True when the pointer is pressed on this item (applied from outside).
+    pub pressed: bool,
+}
+
+/// Activity / navigation rail cockpit widget.  Paints the strip background and
+/// per-item highlight rects (vello vector), emits icon glyphs as text runs
+/// (cosmic-text layer).
+pub struct ActivityRail {
+    /// All items in left-to-right order.
+    pub items: Vec<ActivityItem>,
+}
+
+impl ZaroxiWidget for ActivityRail {
+    fn layer(&self) -> WidgetLayer {
+        WidgetLayer::ActivityRail
+    }
+
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+        let rail = layout_rect(layout);
+        let h = rail.height() as f32;
+        let icon_sz = (h * 0.7).clamp(16.0, 28.0);
+        let gap = 6.0f32;
+        let start_x = 10.0f32;
+        let _center_y = rail.y0 as f32 + (h - icon_sz) * 0.5;
+
+        // Rail background
+        fill(scene, &rail, theme.rail_bg);
+
+        // Top hairline divider (separates rail from sidebar above).
+        let hairline = Line::new(Point::new(rail.x0, rail.y0), Point::new(rail.x1, rail.y0));
+        stroke(scene, 1.0, &hairline, theme.divider);
+
+        let mut x = start_x;
+        for item in &self.items {
+            let item_rect = Rect::new(x as f64, rail.y0 + 2.0, (x + icon_sz) as f64, rail.y1 - 2.0);
+
+            if item.selected {
+                let bg =
+                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
+                fill(scene, &bg, theme.rail_item_active);
+                // Accent bar on the left side of the selected item.
+                let accent = Rect::new(
+                    item_rect.x0,
+                    item_rect.y0 + 4.0,
+                    item_rect.x0 + 3.0,
+                    item_rect.y1 - 4.0,
+                );
+                fill(scene, &accent, theme.rail_accent);
+            } else if item.pressed {
+                let bg =
+                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
+                fill(scene, &bg, theme.rail_item_active);
+            } else if item.hovered {
+                let bg =
+                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
+                fill(scene, &bg, theme.rail_item_hover);
+            }
+
+            x += icon_sz + gap;
+        }
+    }
+
+    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+        let h = layout.size.height;
+        let icon_sz = (h * 0.7).clamp(16.0, 28.0);
+        let gap = 6.0f32;
+        let start_x = 10.0f32;
+        let center_y = layout.location.y + (h - icon_sz) * 0.5;
+
+        let mut runs = Vec::new();
+        let mut x = start_x;
+        for item in &self.items {
+            let glyph_str = item.glyph.to_string();
+            let color = if item.selected || item.pressed {
+                color_arr(theme.rail_text)
+            } else {
+                color_arr(theme.rail_text_muted)
+            };
+            runs.push(WidgetText::new(
+                glyph_str,
+                layout.location.x + x,
+                center_y,
+                icon_sz as f32,
+                color,
+            ));
+            x += icon_sz + gap;
+        }
+        runs
+    }
+
+    fn a11y_label(&self) -> Option<String> {
+        let active = self.items.iter().find(|i| i.selected).map(|i| &i.label);
+        Some(format!(
+            "Activity rail — {} items — active: {}",
+            self.items.len(),
+            active.unwrap_or(&"none".into())
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
