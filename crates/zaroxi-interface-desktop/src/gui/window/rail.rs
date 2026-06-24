@@ -168,6 +168,16 @@ pub struct SidebarBlocks {
 pub struct RailPanel;
 
 impl RailPanel {
+    pub fn build_rail_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
+        UiBlock {
+            id: r.id.to_string(),
+            rect: r.into(),
+            header_color: Some(tokens.rail_background.to_array()),
+            content_color: None,
+            ..Default::default()
+        }
+    }
+
     pub fn build_sidebar_block(
         r: &ShellRegion,
         tokens: &StyleTokens,

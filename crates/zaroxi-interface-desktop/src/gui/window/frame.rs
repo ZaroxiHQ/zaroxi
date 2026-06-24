@@ -283,8 +283,11 @@ pub fn compose_blocks(
         match role {
             PanelRole::TopBar => blocks.push(TopBarPanel::build_block(r, tokens)),
             PanelRole::NavigationRail => {
-                // Activity rail is rendered through the cockpit/Vello path.
-                // No shell UiBlock produced — see activity_rail region in cockpit.rs.
+                // Rail background strip via the shell shape pass (rendered
+                // before the text pass so cockpit icon glyphs draw on top).
+                // Rail item highlights + icons are cockpit-owned (ActivityRail
+                // widget in the vello overlay + cosmic-text layers).
+                blocks.push(RailPanel::build_rail_block(r, tokens));
             }
             PanelRole::SidePanel => {
                 let sidebar = RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data);

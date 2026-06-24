@@ -1283,12 +1283,19 @@ impl ZaroxiWidget for ActivityRail {
         let start_x = 10.0f32;
         let _center_y = rail.y0 as f32 + (h - icon_sz) * 0.5;
 
-        // Rail background
-        fill(scene, &rail, theme.rail_bg);
-
         // Top hairline divider (separates rail from sidebar above).
+        // Uses the existing cockpit `divider` token.
         let hairline = Line::new(Point::new(rail.x0, rail.y0), Point::new(rail.x1, rail.y0));
         stroke(scene, 1.0, &hairline, theme.divider);
+
+        // Rail background is drawn by the shell shape pass (UiBlock with
+        // tokens.rail_background), rendered BEFORE the text pass, so cockpit
+        // icon glyphs render on top.  Only item highlight overlays are drawn
+        // here — they are alpha-blended via the vello overlay and won't cover
+        // the text.
+
+        let item_active_fill = theme.accent_soft; // accent @ ~18% alpha
+        let item_hover_fill = theme.accent.with_alpha((theme.accent_soft.a * 0.5).clamp(0.0, 1.0));
 
         let mut x = start_x;
         for item in &self.items {
@@ -1297,23 +1304,23 @@ impl ZaroxiWidget for ActivityRail {
             if item.selected {
                 let bg =
                     RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
-                fill(scene, &bg, theme.rail_item_active);
-                // Accent bar on the left side of the selected item.
+                fill(scene, &bg, item_active_fill);
+                // Accent bar on the top side of the selected item.
                 let accent = Rect::new(
-                    item_rect.x0,
-                    item_rect.y0 + 4.0,
-                    item_rect.x0 + 3.0,
-                    item_rect.y1 - 4.0,
+                    item_rect.x0 + 4.0,
+                    item_rect.y0,
+                    item_rect.x1 - 4.0,
+                    item_rect.y0 + 3.0,
                 );
-                fill(scene, &accent, theme.rail_accent);
+                fill(scene, &accent, theme.accent);
             } else if item.pressed {
                 let bg =
                     RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
-                fill(scene, &bg, theme.rail_item_active);
+                fill(scene, &bg, item_active_fill);
             } else if item.hovered {
                 let bg =
                     RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
-                fill(scene, &bg, theme.rail_item_hover);
+                fill(scene, &bg, item_hover_fill);
             }
 
             x += icon_sz + gap;
@@ -1332,9 +1339,9 @@ impl ZaroxiWidget for ActivityRail {
         for item in &self.items {
             let glyph_str = item.glyph.to_string();
             let color = if item.selected || item.pressed {
-                color_arr(theme.rail_text)
+                color_arr(theme.text_primary)
             } else {
-                color_arr(theme.rail_text_muted)
+                color_arr(theme.text_muted)
             };
             runs.push(WidgetText::new(
                 glyph_str,

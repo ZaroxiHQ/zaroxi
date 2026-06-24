@@ -329,6 +329,23 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         && regions.activity_rail.size.width > 0.0
         && regions.activity_rail.size.height > 0.0
     {
+        if std::env::var("ZAROXI_RAIL_TRACE").as_deref() == Ok("1") {
+            let glyphs: Vec<String> =
+                inputs.rail_items.iter().map(|i| format!("U+{:04X}", i.glyph as u32)).collect();
+            let sel = inputs.rail_items.iter().find(|i| i.selected).map(|i| i.index);
+            let hov = inputs.rail_items.iter().position(|i| i.hovered);
+            eprintln!(
+                "ZAROXI_RAIL_TRACE: item_count={} glyphs=[{}] selected={:?} hovered={:?} rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
+                inputs.rail_items.len(),
+                glyphs.join(","),
+                sel,
+                hov,
+                regions.activity_rail.location.x,
+                regions.activity_rail.location.y,
+                regions.activity_rail.size.width,
+                regions.activity_rail.size.height,
+            );
+        }
         tree.push(
             Box::new(ActivityRail { items: inputs.rail_items.clone() }),
             regions.activity_rail,

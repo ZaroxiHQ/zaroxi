@@ -3442,6 +3442,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
                                             sw, sh, editor_total_lines, text_runs
                                         );
+                                        // One-time rail theme trace: prove the widget
+                                        // uses theme-crate tokens, not custom colors.
+                                        if std::env::var("ZAROXI_RAIL_TRACE").as_deref() == Ok("1")
+                                            && self.rail_item_hit_rects.is_empty()
+                                        {
+                                            eprintln!(
+                                                "ZAROXI_RAIL_TRACE: theme_tokens rail_bg=minimap_bg accent={:?} accent_soft={:?} text_primary={:?} text_muted={:?} divider={:?}",
+                                                tokens.accent,
+                                                tokens.accent_soft,
+                                                tokens.text_primary,
+                                                tokens.text_muted,
+                                                tokens.divider,
+                                            );
+                                        }
                                     } // end unchanged-skip else
                                 }
 
