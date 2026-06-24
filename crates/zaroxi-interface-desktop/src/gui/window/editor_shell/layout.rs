@@ -77,7 +77,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     let tab_strip = taffy.new_leaf(tab_strip_style).unwrap();
     let breadcrumb = taffy.new_leaf(breadcrumb_style).unwrap();
 
-    // ── Rail (bottom strip within the left column, fixed height) ──
+    // ── Rail (fixed height, at the bottom of the left column) ──
     let rail_style = Style {
         size: Size { width: auto(), height: length(RAIL_STRIP_H) },
         flex_shrink: 0.0,
@@ -85,7 +85,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     };
     let rail = taffy.new_leaf(rail_style).unwrap();
 
-    // ── Sidebar (fills remaining space above the rail in the left column) ──
+    // ── Sidebar (fills remaining space above the rail) ──
     let sidebar_style = Style {
         flex_grow: 1.0,
         min_size: Size { width: auto(), height: length(0.0) },
@@ -93,7 +93,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     };
     let sidebar = taffy.new_leaf(sidebar_style).unwrap();
 
-    // ── Left column: sidebar on top, rail strip at the bottom ──
+    // ── Left column: sidebar on top, rail at bottom ──
     let left_column = taffy
         .new_with_children(
             Style {

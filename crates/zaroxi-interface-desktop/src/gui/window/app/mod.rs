@@ -3156,6 +3156,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     super::cockpit::cockpit_surfaces_active()
                                 };
                                 if do_cockpit {
+                                    // Capture StyleTokens-derived rail colors before
+                                    // the cockpit block shadows `tokens` (StyleTokens)
+                                    // with CockpitTokens.
+                                    let rail_style_colors = (
+                                        tokens.rail_background.to_array(),
+                                        tokens.rail_item_active.to_array(),
+                                        tokens.rail_item_active_accent.to_array(),
+                                        tokens.text_primary.to_array(),
+                                        tokens.text_muted.to_array(),
+                                        tokens.divider_subtle.to_array(),
+                                    );
                                     let tokens = super::cockpit::cockpit_tokens(
                                         self.theme_mode,
                                         system_is_dark,
@@ -3381,6 +3392,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                     })
                                                     .collect()
                                             },
+                                            rail_bg_color: rail_style_colors.0,
+                                            rail_item_active: rail_style_colors.1,
+                                            rail_accent_color: rail_style_colors.2,
+                                            rail_text_active: rail_style_colors.3,
+                                            rail_text_muted: rail_style_colors.4,
+                                            rail_divider_color: rail_style_colors.5,
                                             line_height: 18.0,
                                             total_lines: editor_total_lines,
                                             // Live structural symbols (function/type/
@@ -3416,18 +3433,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             self.cockpit_text_active = true;
                                         }
                                         // Compute rail item hit rects for interaction.
-                                        // Uses the same layout math as ActivityRail::paint.
+                                        // Horizontal layout: each item occupies an equal-width slot.
                                         self.rail_item_hit_rects = {
-                                            let h = cockpit_rail_rect.3;
-                                            let icon_sz = (h * 0.7).clamp(16.0, 28.0);
-                                            let gap = 6.0f32;
-                                            let start_x = 10.0f32;
-                                            let cy = cockpit_rail_rect.1 + (h - icon_sz) * 0.5;
+                                            let rx = cockpit_rail_rect.0;
+                                            let ry = cockpit_rail_rect.1;
+                                            let rw = cockpit_rail_rect.2;
+                                            let rh = cockpit_rail_rect.3;
+                                            let count = 6usize;
+                                            let slot_w =
+                                                if count > 0 { rw / count as f32 } else { 0.0 };
                                             let mut rects = Vec::new();
-                                            let mut x = start_x;
-                                            for _ in 0..6 {
-                                                rects.push((x, cy, icon_sz, icon_sz));
-                                                x += icon_sz + gap;
+                                            for i in 0..count {
+                                                let sx = rx + i as f32 * slot_w;
+                                                rects.push((sx, ry, slot_w, rh));
                                             }
                                             rects
                                         };

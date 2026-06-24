@@ -113,7 +113,10 @@ pub fn build_shell_widget_tree(
     }
 
     // ── 3. Activity rail + sidebar (left column) ──
-    // Sidebar fills the top portion; rail strip sits at the bottom (cockpit-owned).
+    // Rail sits at the bottom of the left column, between the sidebar content
+    // and the status bar.  Background via shell shape pass (before text pass so
+    // cockpit icon glyphs render on top).  Rail icons + highlights are cockpit-
+    // rendered (vello + cosmic-text layers).
     let rail_strip_h = RAIL_STRIP_H;
     let sidebar_h = (layout.left_panel.height - rail_strip_h).max(0.0);
     let sidebar_rect =
@@ -127,7 +130,7 @@ pub fn build_shell_widget_tree(
 
     // ── 4. Sidebar content (fills the left column above the rail) ──
     let sidebar_w = layout.left_panel.width;
-    if sidebar_w > 0.0 && sidebar_h > 0.0 {
+    if sidebar_w > 0.0 {
         let sx = 0.0;
         let sidebar_rect = Rect::new(sx, layout.left_panel.y, sidebar_w, sidebar_h);
 
@@ -154,7 +157,7 @@ pub fn build_shell_widget_tree(
         });
         y_off += DIVIDER_SPACE;
 
-        // Explorer panel — built from structured panel items when available.
+        // Explorer panel
         build_explorer_panel_section(
             &mut tree,
             content,

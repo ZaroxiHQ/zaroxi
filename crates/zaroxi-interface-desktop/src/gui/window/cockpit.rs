@@ -58,6 +58,14 @@ pub struct CockpitInputs {
     pub rail_rect: (f32, f32, f32, f32),
     /// Activity rail items in left-to-right order.
     pub rail_items: Vec<ActivityItem>,
+    /// Style-token-derived colors for the rail (from StyleTokens, not
+    /// CockpitTokens, so the rail matches main IDE chrome).
+    pub rail_bg_color: [f32; 4],
+    pub rail_item_active: [f32; 4],
+    pub rail_accent_color: [f32; 4],
+    pub rail_text_active: [f32; 4],
+    pub rail_text_muted: [f32; 4],
+    pub rail_divider_color: [f32; 4],
     /// Editor line height in px (for diff/gutter row mapping).
     pub line_height: f32,
     /// Total document line count.
@@ -347,7 +355,15 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
             );
         }
         tree.push(
-            Box::new(ActivityRail { items: inputs.rail_items.clone() }),
+            Box::new(ActivityRail {
+                items: inputs.rail_items.clone(),
+                bg_color: inputs.rail_bg_color,
+                item_active: inputs.rail_item_active,
+                accent_color: inputs.rail_accent_color,
+                text_active: inputs.rail_text_active,
+                text_muted: inputs.rail_text_muted,
+                divider_color: inputs.rail_divider_color,
+            }),
             regions.activity_rail,
         );
     }
@@ -459,6 +475,12 @@ mod tests {
             phase: 0.3,
             rail_rect: (0.0, 776.0, 0.0, 0.0),
             rail_items: vec![],
+            rail_bg_color: [0.0; 4],
+            rail_item_active: [0.0; 4],
+            rail_accent_color: [0.0; 4],
+            rail_text_active: [0.0; 4],
+            rail_text_muted: [0.0; 4],
+            rail_divider_color: [0.0; 4],
         }
     }
 
