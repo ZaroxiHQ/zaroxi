@@ -249,7 +249,7 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
             zaroxi_interface_widgets::AiMode::Degraded => "degraded",
         };
         eprintln!(
-            "ZAROXI_STATUS_TRACE: status_owner=cockpit status_model_source=shared bg_owner=shell_shape_pass status_rect=(x={:.0} y={:.0} w={:.0} h={:.0}) layout_bucket={} collapse_level={} context_items_visible={} right_items_visible={} ai_items_visible={} ai_mode={} right_cluster_w={:.0} status_draw_items={} status_text_runs={} status_vector_items={}",
+            "ZAROXI_STATUS_TRACE: status_owner=cockpit status_model_source=shared bg_owner=shell_shape_pass status_rect=(x={:.0} y={:.0} w={:.0} h={:.0}) layout_bucket={} collapse_level={} context_items_visible={} center_items_visible={} right_items_visible={} ai_items_visible={} ai_mode={} right_cluster_w={:.0} status_draw_items={} status_text_runs={} status_vector_items={}",
             s.location.x,
             s.location.y,
             s.size.width,
@@ -258,6 +258,7 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
             m.level,
             m.context_items,
             m.health_items,
+            m.right_items,
             m.ai_items,
             ai_mode,
             m.right_band_w,

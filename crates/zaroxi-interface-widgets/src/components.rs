@@ -502,7 +502,7 @@ impl ZaroxiWidget for CommandPalette {
 // ── Component 6: Status Bar (instrument panel) ──────────────────────────────
 
 /// LSP health for the status indicator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LspStatus {
     /// Healthy (green pulse).
     #[default]
@@ -530,7 +530,7 @@ pub enum LspStatus {
 // overlay drawn ON TOP of text, so they live only in reserved, text-free slots.
 
 /// AI band operating mode (drives the right band's appearance + stability).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AiMode {
     /// No live session / no backend telemetry — a single quiet dim dot. The AI
     /// band keeps its reserved width so toggling dormant↔live never jitters the
@@ -697,27 +697,17 @@ impl LayoutBucket {
 /// Stable, traceable metrics about a laid-out status bar (proves no churn).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StatusMetrics {
-    /// Width bucket.
     pub bucket: LayoutBucket,
-    /// Collapse level.
     pub level: u8,
-    /// Visible context-band items (ancestors + leaf + markers + position + meta).
     pub context_items: usize,
-    /// Visible health-band items.
     pub health_items: usize,
-    /// Visible AI-band items.
     pub ai_items: usize,
-    /// AI mode.
+    pub right_items: usize,
     pub ai_mode: AiMode,
-    /// Reserved center (health) band width.
     pub center_band_w: f32,
-    /// Reserved right (AI) band width.
     pub right_band_w: f32,
-    /// Total draw items (text runs + vector items).
     pub draw_items: usize,
-    /// Text runs emitted.
     pub text_runs: usize,
-    /// Vector items emitted.
     pub vector_items: usize,
 }
 
@@ -729,7 +719,7 @@ pub struct StatusMetrics {
 /// Collapsed health-band width (px) at the tiniest bucket (a single LSP dot).
 /// Inner padding (px) inside each band.
 const BAND_PAD: f64 = 12.0;
-const RIGHT_TRAILING_PAD: f64 = 14.0;
+const RIGHT_TRAILING_PAD: f64 = 24.0;
 // ═════════════════════════════════════════════════════════════════════════
 const STATUS_SIZE: f32 = 12.0;
 
@@ -753,8 +743,10 @@ pub struct StatusBar {
 }
 
 /// Rough monospace-ish text width estimate (px) for explicit-x glyph placement.
+/// Uses a 0.65 multiplier (conservative for mixed-case at 12px) so the right
+/// zone never overruns its estimated bounds and gets clipped.
 fn est_text_width(s: &str, size: f32) -> f64 {
-    s.chars().count() as f64 * size as f64 * 0.52
+    s.chars().count() as f64 * size as f64 * 0.65
 }
 
 /// A planned text run (resolved position + colour).
@@ -782,6 +774,7 @@ struct StatusPlan {
     context_items: usize,
     health_items: usize,
     ai_items: usize,
+    right_items: usize,
     ai_mode: AiMode,
     center_band_w: f64,
     right_band_w: f64,
@@ -848,9 +841,11 @@ impl StatusBar {
         let mut right_parts: Vec<String> = Vec::new();
         // meta is [language, indent, eol, encoding]; reverse for drop-order.
         right_parts.extend(meta.iter().rev().cloned());
+        let right_items_total_before_pos = right_parts.len();
         if let Some(pos) = &ctx.position {
             right_parts.push(pos.clone());
         }
+        let right_items_total = right_parts.len();
         // Fit to width from the right edge: drop leftmost (index 0) first.
         // RIGHT_TRAILING_PAD reserves space so the rightmost chip never
         // touches or clips against the window edge.
@@ -858,16 +853,31 @@ impl StatusBar {
         let mut right_str = String::new();
         let mut right_w = 0.0;
         let mut right_used = 0usize;
+        // Build the full joined string first to know intrinsic width.
+        let right_full = right_parts.iter().rev().cloned().collect::<Vec<_>>().join("  ");
+        let right_intrinsic_w =
+            if right_full.is_empty() { 0.0 } else { est_text_width(&right_full, STATUS_SIZE) };
+        let mut clip_reason = "";
         for ch in right_parts.iter().rev() {
             let trial =
                 if right_str.is_empty() { ch.clone() } else { format!("{ch}  {right_str}") };
             let tw = est_text_width(&trial, STATUS_SIZE);
             if tw > right_max_w {
+                if right_used == 0 {
+                    clip_reason = "first_item_too_wide";
+                } else {
+                    clip_reason = "items_overflow";
+                }
                 break;
             }
             right_str = trial;
             right_w = tw;
             right_used += 1;
+        }
+        if right_used == 0 && right_parts.is_empty() {
+            clip_reason = "no_items";
+        } else if right_used == right_parts.len() {
+            clip_reason = "all_fit";
         }
         let right_items = right_used;
         let right_zone_w = right_w;
@@ -1104,7 +1114,7 @@ impl StatusBar {
             };
             let right_clip_px = (right_zone_w - right_max_w).max(0.0);
             eprintln!(
-                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} left_zone_w={:.0} center_zone_w={:.0} right_zone_w={:.0} right_cluster_w_measured={:.0} right_cluster_w_painted={:.0} right_cluster_trailing_pad={:.0} right_cluster_clip_px={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_left_center={:.1} overlap_center_right={:.1} center_mode={} right_items_visible={} center_items_visible={} breadcrumb_truncated={}",
+                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} left_zone_w={:.0} center_zone_w={:.0} right_zone_w={:.0} right_cluster_w_measured={:.0} right_cluster_w_painted={:.0} right_cluster_trailing_pad={:.0} right_cluster_clip_px={:.0} right_items_total={} right_items_after_collapse={} right_items_after_measurement={} right_cluster_intrinsic_w={:.0} right_cluster_reserved_w={:.0} right_cluster_final_w={:.0} right_cluster_anchor_x={:.0} right_cluster_clip_reason={} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_left_center={:.1} overlap_center_right={:.1} center_mode={} right_items_visible={} center_items_visible={} breadcrumb_truncated={}",
                 bucket.label(),
                 level,
                 total_w,
@@ -1115,6 +1125,14 @@ impl StatusBar {
                 right_w,
                 trailing_pad,
                 right_clip_px,
+                right_items_total,
+                right_items_total_before_pos,
+                right_items,
+                right_intrinsic_w,
+                right_max_w,
+                right_w,
+                right_start_x,
+                clip_reason,
                 center_target,
                 ct,
                 shift,
@@ -1137,6 +1155,7 @@ impl StatusBar {
             context_items,
             health_items: center_items,
             ai_items,
+            right_items,
             ai_mode: aib.mode,
             center_band_w: center_x1 - center_x0,
             right_band_w,
@@ -1151,6 +1170,7 @@ impl StatusBar {
             context_items: p.context_items,
             health_items: p.health_items,
             ai_items: p.ai_items,
+            right_items: p.right_items,
             ai_mode: p.ai_mode,
             center_band_w: p.center_band_w as f32,
             right_band_w: p.right_band_w as f32,

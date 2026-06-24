@@ -82,6 +82,7 @@ mod tests {
             startup_second_layout_reason: None,
             cockpit_retained_bytes: 0,
             editor_retained_bytes: 0,
+            cockpit_status_fingerprint: 0,
             line_syntax_cache: std::collections::HashMap::new(),
             cached_line_hashes: Vec::new(),
             large_file_mode: false,

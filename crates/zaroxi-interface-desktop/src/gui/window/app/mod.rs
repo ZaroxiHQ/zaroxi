@@ -232,6 +232,30 @@ fn current_fps_estimate() -> Option<u32> {
     if fps >= 1.0 { Some(fps.round() as u32) } else { None }
 }
 
+/// Cheap 64-bit fingerprint of an `InstrumentStatus` + window geometry.
+/// Used to skip cockpit rebuilds when nothing material changed.
+fn instrument_status_fingerprint(
+    s: &zaroxi_interface_widgets::InstrumentStatus,
+    size: (u32, u32),
+    symbols_version: u64,
+    diff_version: u64,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.context.leaf.hash(&mut h);
+    s.context.position.hash(&mut h);
+    s.health.fps.hash(&mut h);
+    s.health.mem_mb.hash(&mut h);
+    s.health.lsp.hash(&mut h);
+    s.ai.mode.hash(&mut h);
+    s.ai.tokens_used.hash(&mut h);
+    s.rtl.hash(&mut h);
+    size.hash(&mut h);
+    symbols_version.hash(&mut h);
+    diff_version.hash(&mut h);
+    h.finish()
+}
+
 fn record_frame_presented() {
     if std::env::var("ZAROXI_FPS_TRACE").as_deref() != Ok("1") {
         return;
@@ -394,6 +418,10 @@ pub struct GuiApp {
     /// Approximate retained bytes in editor-side state (spans cache, syntax
     /// line cache, rope head). Estimated from key allocations.
     pub editor_retained_bytes: usize,
+    /// Fingerprint of the last built cockpit `InstrumentStatus`. When unchanged
+    /// across frames (same context, health, AI, RTL), cockpit rebuild is skipped
+    /// to avoid ~1ms+ vello scene construction per idle frame.
+    pub cockpit_status_fingerprint: u64,
     /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
     /// Avoids recomputing spans for lines whose content didn't change.
     pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
@@ -769,6 +797,16 @@ impl GuiApp {
             if let Some(ref mut worker) = self.parse_worker {
                 worker.clear_result();
             }
+            // Trim retained editor caches on file switch to bound RSS.
+            self.line_syntax_cache.clear();
+            self.cached_line_hashes.clear();
+            self.editor_retained_bytes = 0;
+            // Reset per-file cockpit state.
+            self.cockpit_minimap_symbols.clear();
+            self.cockpit_symbols_version = 0;
+            self.cockpit_diff_hunks.clear();
+            self.cockpit_diff_version = 0;
+            self.cockpit_retained_bytes = 0;
         }
 
         let mut backgrounded = false;
@@ -2886,6 +2924,25 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
 
+                                // ── Startup sub-phase breakdown ─────────────
+                                if startup_trace {
+                                    eprintln!(
+                                        "ZAROXI_STARTUP_TRACE: frame={} phase=render_breakdown layout_ms={:.2} syntax_ms={:.2} text_shape_ms={:.2} text_prepare_ms={:.2} gpu_encode_ms={:.2} gpu_submit_present_ms={:.2} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} commit_open_ms={:.2} poll_parse_results_ms={:.2}",
+                                        frame_id,
+                                        layout_ms,
+                                        syntax_ms,
+                                        perf.text_shape_ms,
+                                        perf.text_prepare_ms,
+                                        perf.gpu_encode_ms,
+                                        perf.gpu_submit_present_ms,
+                                        widget_ms,
+                                        block_build_ms,
+                                        enrich_ms,
+                                        commit_open_ms,
+                                        poll_parse_results_ms,
+                                    );
+                                }
+
                                 // ── Observability subsystems (per frame) ──
                                 // 1) Drain AI inference traces (non-blocking) into
                                 //    the ZAROXI_AI_TRACE stream.
@@ -3132,61 +3189,93 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             rtl: status_rtl,
                                         };
 
-                                    let inputs = super::cockpit::CockpitInputs {
-                                        width: sw as f32,
-                                        height: sh as f32,
-                                        // Editor + status bounds from the shell
-                                        // layout: the overview/minimap nests at the
-                                        // editor's right edge (editor-owned), and the
-                                        // status bar uses the real status strip rect.
-                                        editor_rect: cockpit_editor_rect,
-                                        status_rect: cockpit_status_rect,
-                                        line_height: 18.0,
-                                        total_lines: editor_total_lines,
-                                        // Live structural symbols (function/type/
-                                        // import) from tree-sitter highlight spans
-                                        // mapped to lines via the rope byte index.
-                                        minimap_symbols: self.cockpit_minimap_symbols.clone(),
-                                        // Live git change markers (added/modified/
-                                        // removed) for the active file.
-                                        diff_hunks: self.cockpit_diff_hunks.clone(),
-                                        // Cursor-centered viewport band for the
-                                        // minimap thumb, from live editor state.
-                                        viewport: super::cockpit::cursor_viewport(
-                                            cur_line,
-                                            editor_total_lines,
-                                        ),
-                                        // Typed instrument-panel status model (the
-                                        // three bands), built from the shared context
-                                        // presenter + runtime health/AI telemetry.
-                                        status: instrument_status,
-                                        // prediction_cells / ai_regions remain empty:
-                                        // there is no edit-prediction subsystem yet.
-                                        ..Default::default()
-                                    };
-                                    let (scene, text) =
-                                        super::cockpit::build_cockpit_frame(&inputs, &tokens);
-                                    // Vector visuals via the vello overlay; text
-                                    // via the cosmic-text pass (both applied next
-                                    // frame inside RenderCore).
-                                    core.set_cockpit_scene(Some(scene));
-                                    let text_runs = text.len();
-                                    core.set_cockpit_text(text);
-                                    if text_runs > 0 {
-                                        self.cockpit_text_active = true;
-                                    }
-                                    if let Some(t) = _tck {
-                                        eprintln!(
-                                            "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",
-                                            frame_id,
-                                            t.elapsed().as_secs_f32() * 1000.0
-                                        );
-                                    }
-                                    eprintln!(
-                                        "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
-                                        sw, sh, editor_total_lines, text_runs
+                                    // Cheap fingerprint: skip cockpit rebuild when
+                                    // nothing material changed (same status model,
+                                    // same window size, same symbol/diff versions).
+                                    let fp = instrument_status_fingerprint(
+                                        &instrument_status,
+                                        (sw, sh),
+                                        self.cockpit_symbols_version,
+                                        self.cockpit_diff_version,
                                     );
+                                    let fp_match = self.cockpit_text_active
+                                        && fp == self.cockpit_status_fingerprint;
+                                    self.cockpit_status_fingerprint = fp;
+                                    if fp_match {
+                                        // Keep the existing cockpit scene + text
+                                        // (already set on the render core from the
+                                        // previous frame — no new set needed).
+                                        if let Some(t) = _tck {
+                                            eprintln!(
+                                                "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init_skipped (unchanged) ms={:.2}",
+                                                frame_id,
+                                                t.elapsed().as_secs_f32() * 1000.0
+                                            );
+                                        }
+                                        // Still track retained size.
+                                        let cockpit_bytes_est =
+                                            self.cockpit_minimap_symbols.len().saturating_mul(64)
+                                                + self.cockpit_diff_hunks.len().saturating_mul(32)
+                                                + 1024;
+                                        self.cockpit_retained_bytes = cockpit_bytes_est;
+                                    } else {
+                                        let inputs = super::cockpit::CockpitInputs {
+                                            width: sw as f32,
+                                            height: sh as f32,
+                                            // Editor + status bounds from the shell
+                                            // layout: the overview/minimap nests at the
+                                            // editor's right edge (editor-owned), and the
+                                            // status bar uses the real status strip rect.
+                                            editor_rect: cockpit_editor_rect,
+                                            status_rect: cockpit_status_rect,
+                                            line_height: 18.0,
+                                            total_lines: editor_total_lines,
+                                            // Live structural symbols (function/type/
+                                            // import) from tree-sitter highlight spans
+                                            // mapped to lines via the rope byte index.
+                                            minimap_symbols: self.cockpit_minimap_symbols.clone(),
+                                            // Live git change markers (added/modified/
+                                            // removed) for the active file.
+                                            diff_hunks: self.cockpit_diff_hunks.clone(),
+                                            // Cursor-centered viewport band for the
+                                            // minimap thumb, from live editor state.
+                                            viewport: super::cockpit::cursor_viewport(
+                                                cur_line,
+                                                editor_total_lines,
+                                            ),
+                                            // Typed instrument-panel status model (the
+                                            // three bands), built from the shared context
+                                            // presenter + runtime health/AI telemetry.
+                                            status: instrument_status,
+                                            // prediction_cells / ai_regions remain empty:
+                                            // there is no edit-prediction subsystem yet.
+                                            ..Default::default()
+                                        };
+                                        let (scene, text) =
+                                            super::cockpit::build_cockpit_frame(&inputs, &tokens);
+                                        // Vector visuals via the vello overlay; text
+                                        // via the cosmic-text pass (both applied next
+                                        // frame inside RenderCore).
+                                        core.set_cockpit_scene(Some(scene));
+                                        let text_runs = text.len();
+                                        core.set_cockpit_text(text);
+                                        if text_runs > 0 {
+                                            self.cockpit_text_active = true;
+                                        }
+                                        if let Some(t) = _tck {
+                                            eprintln!(
+                                                "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",
+                                                frame_id,
+                                                t.elapsed().as_secs_f32() * 1000.0
+                                            );
+                                        }
+                                        eprintln!(
+                                            "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
+                                            sw, sh, editor_total_lines, text_runs
+                                        );
+                                    } // end unchanged-skip else
                                 }
+
                                 record_frame_presented();
                                 // Retained per-element UI-node trace: which
                                 // shell elements rebuilt vs. reused this frame,
