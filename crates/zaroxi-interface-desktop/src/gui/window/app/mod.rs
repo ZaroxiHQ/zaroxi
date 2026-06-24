@@ -395,11 +395,14 @@ pub struct GuiApp {
     pub last_widget_tree_size: (u32, u32),
     pub last_widget_tree_fingerprint: Option<WidgetTreeFingerprint>,
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
-    /// Defer cockpit overlay until after the first stable shell paint.
-    pub cockpit_deferred: bool,
     /// Set to `true` once the cockpit has produced its first text run, so the
     /// shell path stops emitting breadcrumb text (avoiding duplication).
     pub cockpit_text_active: bool,
+    /// True after at least one render pass completed with a cockpit text run
+    /// active, so the compositor has presented a frame containing cockpit
+    /// content.  Gated on so the window stays hidden until cockpit is actually
+    /// visible, preventing a shell-only → shell+cockpit startup flash.
+    pub cockpit_rendered_once: bool,
     /// Timestamp of the most recent file open, for status-model latency
     /// probes. When status traces are active, the latency from this timestamp
     /// to the next status model construction is reported as
@@ -2939,10 +2942,178 @@ impl winit::application::ApplicationHandler for GuiApp {
                         } else {
                             None
                         });
+                        // ── Cockpit build BEFORE render pass ────────────
+                        // Built here so the cockpit scene is available
+                        // for this frame's render pass, not next frame's.
+                        {
+                            let cur_line = self.editor_buffer.caret_line();
+                            let do_cockpit = super::cockpit::cockpit_surfaces_active();
+                            if do_cockpit {
+                                let rail_style_colors = (
+                                    tokens.rail_background.to_array(),
+                                    tokens.rail_item_active.to_array(),
+                                    tokens.rail_item_active_accent.to_array(),
+                                    tokens.text_primary.to_array(),
+                                    tokens.text_muted.to_array(),
+                                    tokens.divider_subtle.to_array(),
+                                );
+                                let cockpit_tokens =
+                                    super::cockpit::cockpit_tokens(self.theme_mode, system_is_dark);
+                                let ai_band = {
+                                    use zaroxi_application_ai::view_model::AiPhase;
+                                    let used = self.ai_session.tokens_streamed as u32;
+                                    let mode = match self.ai_session.phase {
+                                        AiPhase::Idle => zaroxi_interface_widgets::AiMode::Dormant,
+                                        AiPhase::PromptBuilding
+                                        | AiPhase::Requesting
+                                        | AiPhase::Streaming => {
+                                            zaroxi_interface_widgets::AiMode::Live
+                                        }
+                                        AiPhase::Complete => {
+                                            if used > 0 {
+                                                zaroxi_interface_widgets::AiMode::Degraded
+                                            } else {
+                                                zaroxi_interface_widgets::AiMode::Dormant
+                                            }
+                                        }
+                                    };
+                                    zaroxi_interface_widgets::AiBand {
+                                        mode,
+                                        tokens_used: used,
+                                        tokens_total: 0,
+                                        model: None,
+                                        latency_ms: self
+                                            .ai_session
+                                            .first_token_ms
+                                            .map(|ms| ms.round() as u32),
+                                    }
+                                };
+                                let health_band = zaroxi_interface_widgets::HealthBand {
+                                    fps: current_fps_estimate(),
+                                    mem_mb: self
+                                        .last_mem_sample
+                                        .as_ref()
+                                        .map(|s| (s.rss_bytes / (1024 * 1024)) as u32),
+                                    lsp: zaroxi_interface_widgets::LspStatus::Healthy,
+                                };
+                                let status_rtl = cockpit_context.leaf.chars().any(|c| {
+                                    matches!(c, '\u{0590}'..='\u{08FF}' | '\u{FB1D}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}')
+                                });
+                                let instrument_status =
+                                    zaroxi_interface_widgets::InstrumentStatus {
+                                        context: cockpit_context.clone(),
+                                        meta: cockpit_meta.clone(),
+                                        health: health_band,
+                                        ai: ai_band,
+                                        rtl: status_rtl,
+                                    };
+                                let fp = instrument_status_fingerprint(
+                                    &instrument_status,
+                                    (sw, sh),
+                                    self.cockpit_symbols_version,
+                                    self.cockpit_diff_version,
+                                );
+                                let skip = self.cockpit_text_active
+                                    && fp == self.cockpit_status_fingerprint;
+                                self.cockpit_status_fingerprint = fp;
+                                if !skip {
+                                    let inputs = super::cockpit::CockpitInputs {
+                                        width: sw as f32,
+                                        height: sh as f32,
+                                        editor_rect: cockpit_editor_rect,
+                                        status_rect: cockpit_status_rect,
+                                        rail_rect: cockpit_rail_rect,
+                                        rail_items: {
+                                            let glyphs: [(u32, &str); 6] = [
+                                                (0xf07b, "Explorer"),
+                                                (0xf002, "Search"),
+                                                (0xe702, "Source Ctrl"),
+                                                (0xf188, "Debug"),
+                                                (0xf013, "Settings"),
+                                                (0xf007, "Account"),
+                                            ];
+                                            let sel = self.rail_selected_index;
+                                            let hov = self.rail_hovered_index;
+                                            glyphs
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(idx, &(cp, label))| {
+                                                    zaroxi_interface_widgets::ActivityItem {
+                                                        index: idx,
+                                                        glyph: char::from_u32(cp).unwrap_or('?'),
+                                                        label: label.into(),
+                                                        selected: idx == sel,
+                                                        hovered: Some(idx) == hov,
+                                                        pressed: false,
+                                                    }
+                                                })
+                                                .collect()
+                                        },
+                                        rail_bg_color: rail_style_colors.0,
+                                        rail_item_active: rail_style_colors.1,
+                                        rail_accent_color: rail_style_colors.2,
+                                        rail_text_active: rail_style_colors.3,
+                                        rail_text_muted: rail_style_colors.4,
+                                        rail_divider_color: rail_style_colors.5,
+                                        line_height: 18.0,
+                                        total_lines: editor_total_lines,
+                                        minimap_symbols: self.cockpit_minimap_symbols.clone(),
+                                        diff_hunks: self.cockpit_diff_hunks.clone(),
+                                        viewport: super::cockpit::cursor_viewport(
+                                            cur_line,
+                                            editor_total_lines,
+                                        ),
+                                        status: instrument_status,
+                                        ..Default::default()
+                                    };
+                                    let (scene, text) = super::cockpit::build_cockpit_frame(
+                                        &inputs,
+                                        &cockpit_tokens,
+                                    );
+                                    core.set_cockpit_scene(Some(scene));
+                                    let text_runs = text.len();
+                                    core.set_cockpit_text(text);
+                                    if text_runs > 0 {
+                                        self.cockpit_text_active = true;
+                                    }
+                                    self.rail_item_hit_rects = {
+                                        let rx = cockpit_rail_rect.0;
+                                        let ry = cockpit_rail_rect.1;
+                                        let rw = cockpit_rail_rect.2;
+                                        let rh = cockpit_rail_rect.3;
+                                        let count = 6usize;
+                                        let slot_w =
+                                            if count > 0 { rw / count as f32 } else { 0.0 };
+                                        let mut rects = Vec::new();
+                                        for i in 0..count {
+                                            let sx = rx + i as f32 * slot_w;
+                                            rects.push((sx, ry, slot_w, rh));
+                                        }
+                                        rects
+                                    };
+                                }
+                                let cockpit_bytes_est =
+                                    self.cockpit_minimap_symbols.len().saturating_mul(64)
+                                        + self.cockpit_diff_hunks.len().saturating_mul(32)
+                                        + 1024;
+                                self.cockpit_retained_bytes = cockpit_bytes_est;
+                            }
+                        }
+                        // ── end cockpit build ───────────────────────────
+
                         match core.render_to_window(surface_size, &render_layout, &render_blocks) {
                             Ok(perf) => {
                                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                 self.needs_render = false;
+                                if self.cockpit_text_active && !self.cockpit_rendered_once {
+                                    self.cockpit_rendered_once = true;
+                                    if startup_trace {
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_first_rendered",
+                                            frame_id
+                                        );
+                                    }
+                                }
                                 self.frame_scheduler.on_frame_presented(Instant::now());
                                 // Staged first paint: the renderer budgeted its
                                 // shaping and deferred some lines. Re-arm a redraw
@@ -3134,27 +3305,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // the explicit legacy fallback
                                 // (ZAROXI_LEGACY_SHELL_SURFACES=1) is requested, so
                                 // exactly one owner is active at a time.
-                                // ── Startup trace: cockpit init ──────────
-                                let _tck = if startup_trace {
-                                    Some(std::time::Instant::now())
-                                } else {
-                                    None
-                                };
-                                // Defer cockpit until the second frame with a
-                                // rendering core so the first visible paint is a
-                                // stable lightweight shell, not a heavy overlay.
-                                let do_cockpit = if self.cockpit_deferred {
-                                    self.cockpit_deferred = false;
-                                    if startup_trace {
-                                        eprintln!(
-                                            "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_deferred_on_first_paint",
-                                            frame_id
-                                        );
-                                    }
-                                    false
-                                } else {
-                                    super::cockpit::cockpit_surfaces_active()
-                                };
+                                let do_cockpit = super::cockpit::cockpit_surfaces_active();
                                 if do_cockpit {
                                     // Capture StyleTokens-derived rail colors before
                                     // the cockpit block shadows `tokens` (StyleTokens)
@@ -3336,17 +3487,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         && fp == self.cockpit_status_fingerprint;
                                     self.cockpit_status_fingerprint = fp;
                                     if fp_match {
-                                        // Keep the existing cockpit scene + text
-                                        // (already set on the render core from the
-                                        // previous frame — no new set needed).
-                                        if let Some(t) = _tck {
-                                            eprintln!(
-                                                "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init_skipped (unchanged) ms={:.2}",
-                                                frame_id,
-                                                t.elapsed().as_secs_f32() * 1000.0
-                                            );
-                                        }
-                                        // Still track retained size.
+                                        // Cockpit unchanged — already built pre-render.
                                         let cockpit_bytes_est =
                                             self.cockpit_minimap_symbols.len().saturating_mul(64)
                                                 + self.cockpit_diff_hunks.len().saturating_mul(32)
@@ -3449,13 +3590,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             }
                                             rects
                                         };
-                                        if let Some(t) = _tck {
-                                            eprintln!(
-                                                "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",
-                                                frame_id,
-                                                t.elapsed().as_secs_f32() * 1000.0
-                                            );
-                                        }
+                                        // Cockpit built pre-render; the trace was
+                                        // emitted there.
                                         eprintln!(
                                             "ZAROXI_COCKPIT: cockpit frame {}x{} lines={} text_runs={}",
                                             sw, sh, editor_total_lines, text_runs
@@ -3721,7 +3857,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 }
                                 if !self.first_render_shown {
                                     let legacy = super::cockpit::legacy_shell_surfaces();
-                                    let cockpit_ready = self.cockpit_text_active;
+                                    let cockpit_ready = self.cockpit_rendered_once;
                                     let geometry_stable = !self.resize_pending;
                                     let ready_to_show =
                                         (cockpit_ready || legacy) && geometry_stable;
