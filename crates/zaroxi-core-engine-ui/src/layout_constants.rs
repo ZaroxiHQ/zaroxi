@@ -12,6 +12,7 @@ updates every consumer that imports from this module.
 pub const TITLEBAR_H: f32 = 32.0;
 pub const STATUS_H: f32 = 26.0;
 pub const RAIL_W: f32 = 44.0;
+pub const RAIL_STRIP_H: f32 = 40.0;
 
 // ── Toolbar window control buttons ──
 

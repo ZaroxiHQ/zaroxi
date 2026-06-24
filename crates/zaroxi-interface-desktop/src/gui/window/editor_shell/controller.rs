@@ -203,10 +203,10 @@ fn build_engine_shell_layout(l: &EditorShellLayout) -> zaroxi_core_engine_ui::Sh
     };
 
     let left_panel_r = Rect {
-        x: l.rail_rect.0,
-        y: l.rail_rect.1,
-        width: l.rail_rect.2 + l.sidebar_rect.2,
-        height: l.rail_rect.3,
+        x: l.sidebar_rect.0,
+        y: l.sidebar_rect.1,
+        width: l.sidebar_rect.2.max(l.rail_rect.2),
+        height: l.sidebar_rect.3 + l.rail_rect.3,
     };
 
     let right_panel_r = Rect {
@@ -308,9 +308,9 @@ mod tests {
         for w in [400u32, 500, 700, 900, 1200] {
             let l = compute_layout(w as f32, 400.0);
             assert!(
-                l.rail_rect.2 >= 40.0,
-                "rail w={} should stay >= 40 at width {}",
-                l.rail_rect.2,
+                l.rail_rect.3 >= 38.0,
+                "rail h={} should stay >= 38 at width {}",
+                l.rail_rect.3,
                 w
             );
         }

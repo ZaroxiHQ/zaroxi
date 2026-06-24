@@ -256,9 +256,21 @@ mod tests {
         let editor = find(PanelRole::ContentArea);
         let ai = find(PanelRole::AuxiliaryPanelContent);
 
-        // Check no gaps between adjacent regions in x-order
-        assert_eq!(rail.x + rail.width, sidebar.x, "rail/sidebar gap");
+        // Sidebar anchors to x=0 (rail is below, at the bottom of the left column).
+        assert_eq!(sidebar.x, 0, "sidebar should anchor at x=0");
+        assert!(
+            rail.width >= sidebar.width.saturating_sub(2),
+            "rail width should match sidebar"
+        );
+        let expected_rail_y = sidebar.y + sidebar.height;
+        assert!(
+            rail.y.abs_diff(expected_rail_y) <= 2,
+            "rail y={} should abut sidebar bottom y+height={}",
+            rail.y,
+            expected_rail_y
+        );
 
+        // Check no gaps between adjacent regions in x-order
         // Tabs/breadcrumb abuts sidebar; gutter fills the gap below header level
         if gutter.width > 0 {
             assert_eq!(sidebar.x + sidebar.width, gutter.x, "sidebar/gutter gap");

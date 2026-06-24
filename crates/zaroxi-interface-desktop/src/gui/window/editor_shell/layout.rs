@@ -57,8 +57,9 @@ struct Nodes {
 // ── Layout constants (from centralised constants module) ──
 
 use super::constants::{
-    AI_HEADER_H, ASSISTANT_BASIS_W, BREADCRUMB_H, EDITOR_MIN_H, EDITOR_MIN_W, GUTTER_W, RAIL_W,
-    SIDEBAR_BASIS_W, STATUS_H, TAB_STRIP_H, TERMINAL_BASIS_H, TERMINAL_MIN_H, TITLEBAR_H,
+    AI_HEADER_H, ASSISTANT_BASIS_W, BREADCRUMB_H, EDITOR_MIN_H, EDITOR_MIN_W, GUTTER_W,
+    RAIL_STRIP_H, SIDEBAR_BASIS_W, STATUS_H, TAB_STRIP_H, TERMINAL_BASIS_H, TERMINAL_MIN_H,
+    TITLEBAR_H,
 };
 
 /// Build a Taffy tree for the IDE shell layout and compute the final rects.
@@ -76,23 +77,36 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     let tab_strip = taffy.new_leaf(tab_strip_style).unwrap();
     let breadcrumb = taffy.new_leaf(breadcrumb_style).unwrap();
 
-    // ── Rail (fixed width, full column height via parent alignment) ──
+    // ── Rail (bottom strip within the left column, fixed height) ──
     let rail_style = Style {
-        size: Size { width: length(RAIL_W), height: auto() },
+        size: Size { width: auto(), height: length(RAIL_STRIP_H) },
         flex_shrink: 0.0,
         ..Default::default()
     };
     let rail = taffy.new_leaf(rail_style).unwrap();
 
-    // ── Sidebar (shrinks before editor, basis 280, min 0) ──
+    // ── Sidebar (fills remaining space above the rail in the left column) ──
     let sidebar_style = Style {
-        flex_basis: length(SIDEBAR_BASIS_W),
-        min_size: Size { width: length(0.0), height: auto() },
-        max_size: Size { width: length(SIDEBAR_BASIS_W), height: auto() },
-        flex_shrink: 3.0,
+        flex_grow: 1.0,
+        min_size: Size { width: auto(), height: length(0.0) },
         ..Default::default()
     };
     let sidebar = taffy.new_leaf(sidebar_style).unwrap();
+
+    // ── Left column: sidebar on top, rail strip at the bottom ──
+    let left_column = taffy
+        .new_with_children(
+            Style {
+                flex_basis: length(SIDEBAR_BASIS_W),
+                min_size: Size { width: length(0.0), height: auto() },
+                max_size: Size { width: length(SIDEBAR_BASIS_W), height: auto() },
+                flex_shrink: 3.0,
+                flex_direction: FlexDirection::Column,
+                ..Default::default()
+            },
+            &[sidebar, rail],
+        )
+        .unwrap();
 
     // ── Gutter (fixed width, collapsible via min 0) ──
     let gutter_style = Style {
@@ -156,10 +170,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     };
     let assistant = taffy.new_leaf(assistant_style).unwrap();
 
-    // ── Main content row: rail | sidebar | editor-col | assistant ──
-    // (No dedicated minimap sibling column: the overview/minimap surface is
-    // owned by the cockpit/widget layer, rendered at the editor edge, so the
-    // assistant abuts the editor column with no reserved dead lane.)
+    // ── Main content row: left_column | editor-col | assistant ──
     let main_row = taffy
         .new_with_children(
             Style {
@@ -168,7 +179,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
                 min_size: Size { width: auto(), height: length(80.0) },
                 ..Default::default()
             },
-            &[rail, sidebar, editor_col, assistant],
+            &[left_column, editor_col, assistant],
         )
         .unwrap();
 
