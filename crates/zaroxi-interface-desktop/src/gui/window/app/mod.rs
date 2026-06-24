@@ -363,6 +363,8 @@ pub struct GuiApp {
     pub last_widget_tree_size: (u32, u32),
     pub last_widget_tree_fingerprint: Option<WidgetTreeFingerprint>,
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
+    /// Defer cockpit overlay until after the first stable shell paint.
+    pub cockpit_deferred: bool,
     /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
     /// Avoids recomputing spans for lines whose content didn't change.
     pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
@@ -2859,7 +2861,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 } else {
                                     None
                                 };
-                                if super::cockpit::cockpit_surfaces_active() {
+                                // Defer cockpit until the second frame with a
+                                // rendering core so the first visible paint is a
+                                // stable lightweight shell, not a heavy overlay.
+                                let do_cockpit = if self.cockpit_deferred {
+                                    self.cockpit_deferred = false;
+                                    if startup_trace {
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_deferred_on_first_paint",
+                                            frame_id
+                                        );
+                                    }
+                                    false
+                                } else {
+                                    super::cockpit::cockpit_surfaces_active()
+                                };
+                                if do_cockpit {
                                     let tokens = super::cockpit::cockpit_tokens(
                                         self.theme_mode,
                                         system_is_dark,

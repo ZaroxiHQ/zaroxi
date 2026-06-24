@@ -108,6 +108,7 @@ pub fn run_shell_window(
         last_widget_tree_size: (0, 0),
         last_widget_tree_fingerprint: None,
         render_core: None,
+        cockpit_deferred: true,
         line_syntax_cache: std::collections::HashMap::new(),
         cached_line_hashes: Vec::new(),
         large_file_mode: false,
