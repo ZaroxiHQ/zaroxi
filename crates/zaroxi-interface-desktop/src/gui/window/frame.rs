@@ -330,6 +330,13 @@ pub fn compose_blocks(
                 }
                 if legacy {
                     blocks.push(StatusView::build_block(r, tokens, &ctx.status_bar_data));
+                } else {
+                    // Cockpit owns the status TEXT (drawn by the cosmic-text pass).
+                    // Draw only the elevated strip background here, in the shell
+                    // shape pass that runs BEFORE the text pass, so the cockpit
+                    // status text lands on top of it (the vello overlay composite
+                    // runs after text, so the strip background cannot live there).
+                    blocks.push(StatusView::build_background_block(r, tokens));
                 }
             }
         };

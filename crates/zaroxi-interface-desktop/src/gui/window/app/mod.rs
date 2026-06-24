@@ -204,6 +204,34 @@ impl OpenPresentation {
     }
 }
 
+/// Lightweight always-on inter-frame FPS estimate (EMA) for the cockpit health
+/// band. Call exactly once per rendered frame; returns `None` on the warm-up
+/// frame. Independent of the `ZAROXI_FPS_TRACE` diagnostic tracker.
+fn current_fps_estimate() -> Option<u32> {
+    use std::sync::Mutex;
+    static TRACKER: Mutex<Option<(Instant, f32)>> = Mutex::new(None);
+    let now = Instant::now();
+    let mut guard = TRACKER.lock().ok()?;
+    let fps = match guard.take() {
+        Some((last, ema)) => {
+            let dt = (now - last).as_secs_f32();
+            let next = if dt > 0.0 {
+                let inst = 1.0 / dt;
+                if ema <= 0.0 { inst } else { ema * 0.9 + inst * 0.1 }
+            } else {
+                ema
+            };
+            *guard = Some((now, next));
+            next
+        }
+        None => {
+            *guard = Some((now, 0.0));
+            0.0
+        }
+    };
+    if fps >= 1.0 { Some(fps.round() as u32) } else { None }
+}
+
 fn record_frame_presented() {
     if std::env::var("ZAROXI_FPS_TRACE").as_deref() != Ok("1") {
         return;
@@ -2168,6 +2196,35 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let editor_visible_lines = editor_region
                         .map(|r| lc::visible_lines_from_region(r.rect.height as f32))
                         .unwrap_or(1);
+
+                    // Editor + status rects (owned Copy tuples) for the cockpit
+                    // overview/status anchoring further down. Captured here while
+                    // `shell_regions` is borrowed so the cockpit block needs no
+                    // further borrow of the layout controller.
+                    let cockpit_editor_rect: (f32, f32, f32, f32) = editor_region
+                        .map(|r| {
+                            (
+                                r.rect.x as f32,
+                                r.rect.y as f32,
+                                r.rect.width as f32,
+                                r.rect.height as f32,
+                            )
+                        })
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                    let cockpit_status_rect: (f32, f32, f32, f32) =
+                        crate::gui::region_dispatch::find_region_by_role(
+                            shell_regions,
+                            zaroxi_core_engine_style::PanelRole::StatusBar,
+                        )
+                        .map(|r| {
+                            (
+                                r.rect.x as f32,
+                                r.rect.y as f32,
+                                r.rect.width as f32,
+                                r.rect.height as f32,
+                            )
+                        })
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
                     let visible_line_range: Option<(usize, usize)> =
                         self.composition.as_ref().and_then(|comp| comp.metadata.as_ref()).map(
                             |meta| {
@@ -2248,6 +2305,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                         diagnostics: status_diagnostics,
                     };
                     let status_data = super::presenters::shape_status_content(&status_inputs);
+                    // Canonical instrument-panel context + metadata bands (shared
+                    // presenter). The cockpit maps these into visual roles; the
+                    // legacy fallback bar derives the same facts via `status_zones`.
+                    // Derived here before `status_data` is moved into the block ctx.
+                    let (cockpit_context, cockpit_meta) =
+                        super::status_bar::instrument_context(&status_data);
                     let syntax_ms = syntax_t.elapsed().as_secs_f32() * 1000.0;
 
                     if std::env::var("ZAROXI_STATUS_DEBUG").as_deref() == Ok("1") {
@@ -2769,8 +2832,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     // Live state via disjoint field access (core
                                     // is mutably borrowed, so avoid &self methods).
                                     let cur_line = self.editor_buffer.caret_line();
-                                    let cur_col = self.editor_buffer.caret_col();
-                                    let active_file = self.committed_active_file.clone();
                                     // Refresh structural minimap symbols only when
                                     // a fresh parse result arrived (spans change on
                                     // reparse, not per frame): incremental
@@ -2847,9 +2908,82 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         self.cockpit_diff_version =
                                             self.editor_buffer.buffer_version;
                                     }
+                                    // ── Typed instrument-panel status model ──
+                                    // Context + metadata come from the shared
+                                    // presenter (`cockpit_context`/`cockpit_meta`);
+                                    // health + AI bands are runtime telemetry.
+                                    let ai_band = {
+                                        use zaroxi_application_ai::view_model::AiPhase;
+                                        let used = self.ai_session.tokens_streamed as u32;
+                                        let mode = match self.ai_session.phase {
+                                            AiPhase::Idle => {
+                                                zaroxi_interface_widgets::AiMode::Dormant
+                                            }
+                                            AiPhase::PromptBuilding
+                                            | AiPhase::Requesting
+                                            | AiPhase::Streaming => {
+                                                zaroxi_interface_widgets::AiMode::Live
+                                            }
+                                            AiPhase::Complete => {
+                                                if used > 0 {
+                                                    zaroxi_interface_widgets::AiMode::Degraded
+                                                } else {
+                                                    zaroxi_interface_widgets::AiMode::Dormant
+                                                }
+                                            }
+                                        };
+                                        zaroxi_interface_widgets::AiBand {
+                                            mode,
+                                            tokens_used: used,
+                                            // No backend context-window total / model
+                                            // name yet -> stays unknown, so the band
+                                            // shows a truthful dot/readout, never an
+                                            // invented arc or flickering "AI idle".
+                                            tokens_total: 0,
+                                            model: None,
+                                            latency_ms: self
+                                                .ai_session
+                                                .first_token_ms
+                                                .map(|ms| ms.round() as u32),
+                                        }
+                                    };
+                                    let health_band = zaroxi_interface_widgets::HealthBand {
+                                        fps: current_fps_estimate(),
+                                        mem_mb: self
+                                            .last_mem_sample
+                                            .as_ref()
+                                            .map(|s| (s.rss_bytes / (1024 * 1024)) as u32),
+                                        // No live LSP-health telemetry yet -> a steady
+                                        // "healthy" dot (stable, no churn).
+                                        lsp: zaroxi_interface_widgets::LspStatus::Healthy,
+                                    };
+                                    // RTL readiness: detect a right-to-left script in
+                                    // the context leaf (file/symbol) so the band order
+                                    // + alignment mirror for Arabic/Hebrew.
+                                    let status_rtl = cockpit_context.leaf.chars().any(|c| {
+                                        matches!(c,
+                                            '\u{0590}'..='\u{08FF}'
+                                            | '\u{FB1D}'..='\u{FDFF}'
+                                            | '\u{FE70}'..='\u{FEFF}')
+                                    });
+                                    let instrument_status =
+                                        zaroxi_interface_widgets::InstrumentStatus {
+                                            context: cockpit_context.clone(),
+                                            meta: cockpit_meta.clone(),
+                                            health: health_band,
+                                            ai: ai_band,
+                                            rtl: status_rtl,
+                                        };
+
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
+                                        // Editor + status bounds from the shell
+                                        // layout: the overview/minimap nests at the
+                                        // editor's right edge (editor-owned), and the
+                                        // status bar uses the real status strip rect.
+                                        editor_rect: cockpit_editor_rect,
+                                        status_rect: cockpit_status_rect,
                                         line_height: 18.0,
                                         total_lines: editor_total_lines,
                                         // Live structural symbols (function/type/
@@ -2859,23 +2993,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         // Live git change markers (added/modified/
                                         // removed) for the active file.
                                         diff_hunks: self.cockpit_diff_hunks.clone(),
-                                        // Truthful streamed-token count from the AI
-                                        // session. ai_tokens_total stays 0 (unknown:
-                                        // the backend reports no context-window
-                                        // size) -> the status widget renders a
-                                        // clean fallback rather than an invented total.
-                                        ai_tokens_used: self.ai_session.tokens_streamed as u32,
-                                        // Cursor-centered viewport band + file/line
-                                        // breadcrumb from live editor state.
+                                        // Cursor-centered viewport band for the
+                                        // minimap thumb, from live editor state.
                                         viewport: super::cockpit::cursor_viewport(
                                             cur_line,
                                             editor_total_lines,
                                         ),
-                                        breadcrumb: super::cockpit::breadcrumb(
-                                            active_file.as_deref(),
-                                            cur_line,
-                                            cur_col,
-                                        ),
+                                        // Typed instrument-panel status model (the
+                                        // three bands), built from the shared context
+                                        // presenter + runtime health/AI telemetry.
+                                        status: instrument_status,
                                         // prediction_cells / ai_regions remain empty:
                                         // there is no edit-prediction subsystem yet.
                                         ..Default::default()

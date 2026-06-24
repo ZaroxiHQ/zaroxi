@@ -16,7 +16,9 @@ use zaroxi_core_engine_render::{Rect, UiBlock};
 use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_ui::chrome::StatusBarZones;
 
-use super::model::StatusModel;
+use zaroxi_interface_widgets::{ContextBand, MarkerKind, MetaChips, StatusMarker};
+
+use super::model::{DocumentState, StatusModel};
 use super::panels::{diagnostics, document_state, editor_position, file_format, workspace};
 use super::style::StatusStyle;
 
@@ -32,26 +34,121 @@ fn status_trace_enabled() -> bool {
 /// Renders the status bar region from a [`StatusModel`].
 pub struct StatusView;
 
-/// Assemble the left/right zones from the panels. Left = primary/global state
-/// (workspace, document state, diagnostics); right = contextual file/editor
-/// state (position + selection, indent, encoding, line endings, language).
-fn zones(model: &StatusModel) -> StatusBarZones {
+/// Assemble the canonical left/right status zones from the shared [`StatusModel`].
+///
+/// This is the **single source of truth** for status content semantics. Both
+/// renderers consume it: the legacy shell [`StatusView::build_block`] (only under
+/// the explicit legacy fallback) and the default cockpit/widget `StatusBar`
+/// (via the desktop cockpit input assembly). Having one presenter guarantees the
+/// two renderers show identical details — the cockpit bar is no longer a poorer
+/// subset.
+///
+/// Left = primary/global state (workspace, document state, diagnostics).
+/// Right = contextual file/editor state (position + selection, then the
+/// glanceable language, then the remaining format fields). The language is
+/// rotated ahead of the lower-priority format fields so a narrow bar drops
+/// encoding/EOL/indent before it drops the language.
+pub fn status_zones(model: &StatusModel) -> StatusBarZones {
     let mut left_segments = workspace::segments(model);
     left_segments.extend(document_state::segments(model));
     left_segments.extend(diagnostics::segments(model));
 
     let mut right_segments = editor_position::segments(model);
-    right_segments.extend(file_format::segments(model));
+    let mut fmt = file_format::segments(model);
+    if !fmt.is_empty() {
+        // file_format yields [indent, encoding, EOL, language]; move language
+        // ahead of the lower-priority format fields.
+        fmt.rotate_right(1);
+    }
+    right_segments.extend(fmt);
 
     StatusBarZones { left_segments, right_segments }
 }
 
+/// Map the shared [`StatusModel`] into the cockpit instrument-panel's typed
+/// context + metadata bands. This is the canonical, shared presenter for the
+/// cockpit's left band — it derives the same facts the legacy [`status_zones`]
+/// does, just shaped into visual roles (breadcrumb leaf vs. ancestors, compact
+/// state markers, collapsible metadata chips) instead of flat strings.
+///
+/// Symbol-path resolution (file → mod → fn → expr) needs cursor→symbol mapping
+/// the syntax layer does not expose yet, so today the leaf is the file name and
+/// the workspace is the sole ancestor; this is the honest best-available context
+/// and degrades to file-only when no workspace is open.
+pub fn instrument_context(model: &StatusModel) -> (ContextBand, MetaChips) {
+    let mut ancestors = Vec::new();
+    if let Some(ws) = &model.workspace {
+        ancestors.push(ws.clone());
+    }
+    let leaf = model.file_name.clone().unwrap_or_else(|| "No file".to_string());
+    let position = if model.has_file {
+        Some(format!("Ln {}, Col {}", model.line + 1, model.column + 1))
+    } else {
+        None
+    };
+
+    let mut markers = Vec::new();
+    if model.modified {
+        markers.push(StatusMarker { kind: MarkerKind::Modified, count: None });
+    }
+    if model.document_state == DocumentState::Parsing {
+        markers.push(StatusMarker { kind: MarkerKind::Parsing, count: None });
+    }
+    if let Some(d) = &model.diagnostics {
+        if d.errors > 0 {
+            markers.push(StatusMarker { kind: MarkerKind::Error, count: Some(d.errors) });
+        }
+        if d.warnings > 0 {
+            markers.push(StatusMarker { kind: MarkerKind::Warning, count: Some(d.warnings) });
+        }
+    }
+
+    let context = ContextBand { ancestors, leaf, position, markers };
+
+    // Collapsible metadata chips (only meaningful with a file open).
+    let meta = if model.has_file {
+        MetaChips {
+            language: model.language.clone(),
+            indent: Some(model.indent.label()),
+            eol: Some(model.line_ending.label().to_string()),
+            encoding: Some(model.encoding.to_string()),
+        }
+    } else {
+        MetaChips::default()
+    };
+
+    (context, meta)
+}
+
 impl StatusView {
+    /// Build a **background-only** status strip block (no text).
+    ///
+    /// Used when the cockpit/widget layer owns the status bar (the default): the
+    /// cockpit draws the segment *text* via the cosmic-text pass, but that pass
+    /// runs before the vello overlay composite, so the strip's elevated
+    /// background cannot live in the cockpit vector scene (it would paint over
+    /// the text). Instead the shell shape pass draws this background strip
+    /// *under* the text. This is purely a fill — all status content still comes
+    /// from the shared [`status_zones`] presenter, never duplicated here.
+    pub fn build_background_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
+        let style = StatusStyle::from_tokens(tokens);
+        UiBlock {
+            id: r.id.to_string(),
+            title: String::new(),
+            rect: r.into(),
+            header_color: Some(style.background),
+            header_only: true,
+            text_color: Some(style.primary_text),
+            ..Default::default()
+        }
+    }
+
     /// Build the status bar `UiBlock` for its shell region.
     pub fn build_block(r: &ShellRegion, tokens: &StyleTokens, model: &StatusModel) -> UiBlock {
         let style = StatusStyle::from_tokens(tokens);
 
-        let zones = zones(model);
+        // Single canonical content source (shared with the cockpit renderer).
+        let zones = status_zones(model);
         // Left group → block title (left-aligned). Joined for display; the engine
         // renders the (header-only) strip's title text. Guaranteed non-empty so
         // the strip never renders as a visually blank band.
@@ -63,16 +160,8 @@ impl StatusView {
 
         // Right group → priority-ordered segments carried in `content_spans`. The
         // renderer right-aligns them and drops the lowest-priority (trailing) ones
-        // first when the strip is narrow. Order: position/selection, then the
-        // glanceable language, then the remaining format fields.
-        let mut right_segments = editor_position::segments(model);
-        let mut fmt = file_format::segments(model);
-        if !fmt.is_empty() {
-            // file_format yields [indent, encoding, EOL, language]; move language
-            // ahead of the lower-priority format fields.
-            fmt.rotate_right(1);
-        }
-        right_segments.extend(fmt);
+        // first when the strip is narrow.
+        let right_segments = zones.right_segments;
         let right_spans: Vec<(String, [f32; 4])> =
             right_segments.iter().map(|s| (s.clone(), style.primary_text)).collect();
         let content_spans = if right_spans.is_empty() { None } else { Some(right_spans) };
@@ -121,7 +210,7 @@ impl StatusView {
 #[cfg(test)]
 mod tests {
     use super::super::model::{DiagnosticCounts, SelectionInfo, StatusInputs, StatusModel};
-    use super::zones;
+    use super::status_zones;
 
     fn rich_model() -> StatusModel {
         StatusModel::from_inputs(&StatusInputs {
@@ -142,7 +231,7 @@ mod tests {
     /// must actually contain the live fields when a file is open.
     #[test]
     fn open_file_renders_rich_visible_zones() {
-        let z = zones(&rich_model());
+        let z = status_zones(&rich_model());
         assert!(!z.left_segments.is_empty(), "left zone must render");
         assert!(!z.right_segments.is_empty(), "right zone must render");
 
@@ -170,7 +259,7 @@ mod tests {
     /// position or file-format noise on the right.
     #[test]
     fn no_file_renders_informative_fallback_zones() {
-        let z = zones(&StatusModel::default());
+        let z = status_zones(&StatusModel::default());
         assert_eq!(z.left_segments, vec!["No Workspace".to_string(), "No file".to_string()]);
         assert!(z.right_segments.is_empty(), "no-file bar must not show editor/format fields");
     }

@@ -9,10 +9,10 @@
 //! those pixels on the window surface is the separate, feature-gated
 //! `vello_pipeline` composite step (see `zaroxi-core-engine-render-backend`),
 //! which requires on-device validation against this workspace's wgpu. The frame
-//! loop builds this scene only when `ZAROXI_COCKPIT=1`, so default rendering is
-//! unchanged.
+//! loop builds this scene by **default** (see [`cockpit_surfaces_active`]); the
+//! status bar + overview/minimap are cockpit-owned unless the explicit legacy
+//! fallback (`ZAROXI_LEGACY_SHELL_SURFACES=1`) is requested.
 
-use taffy::prelude::*;
 use vello::Scene;
 use zaroxi_core_editor_rope::LineIndex;
 use zaroxi_core_platform_syntax::SymbolKind as SyntaxSymbolKind;
@@ -20,8 +20,8 @@ use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::ZaroxiTheme;
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
-    AiPredictionGutter, CockpitTokens, CommandPalette, LivingDiffLayer, LspStatus, PaletteItem,
-    PredictionCell, SemanticMinimap, StatusBar, SymbolKind, WidgetTree,
+    AiPredictionGutter, CockpitTokens, CommandPalette, InstrumentStatus, LivingDiffLayer,
+    PaletteItem, PredictionCell, SemanticMinimap, StatusBar, SymbolKind, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -41,6 +41,16 @@ pub struct CockpitInputs {
     pub width: f32,
     /// Surface height in logical px.
     pub height: f32,
+    /// Editor content rect `(x, y, w, h)` in logical px — the authoritative
+    /// editor surface bounds from the shell layout. The overview/minimap and AI
+    /// prediction gutter are anchored to **this** rect's right edge so they read
+    /// as editor-owned surfaces, not detached chrome floating at the window edge.
+    /// When zero (no layout supplied), the cockpit falls back to full-surface
+    /// placement.
+    pub editor_rect: (f32, f32, f32, f32),
+    /// Status bar rect `(x, y, w, h)` in logical px from the shell layout. When
+    /// zero, the cockpit falls back to a bottom strip spanning the full width.
+    pub status_rect: (f32, f32, f32, f32),
     /// Editor line height in px (for diff/gutter row mapping).
     pub line_height: f32,
     /// Total document line count.
@@ -55,14 +65,10 @@ pub struct CockpitInputs {
     pub diff_hunks: Vec<DiffHunk>,
     /// AI prediction heat cells.
     pub prediction_cells: Vec<PredictionCell>,
-    /// Symbol-path breadcrumb (file → mod → fn → expr).
-    pub breadcrumb: Vec<String>,
-    /// LSP health.
-    pub lsp: LspStatus,
-    /// AI context tokens used / available.
-    pub ai_tokens_used: u32,
-    /// AI context tokens available.
-    pub ai_tokens_total: u32,
+    /// The typed instrument-panel status model (context / health / AI bands).
+    /// Built from the shared canonical status presenter plus runtime health/AI
+    /// telemetry, then mapped into visual roles by the `StatusBar` widget.
+    pub status: InstrumentStatus,
     /// Command palette: `Some((items, selected, rtl))` when open.
     pub palette: Option<(Vec<PaletteItem>, usize, bool)>,
     /// Animation phase in `[0,1)` (advanced by the host clock).
@@ -101,23 +107,6 @@ pub fn legacy_shell_surfaces() -> bool {
 /// surface, never both, never none).
 pub fn cockpit_surfaces_active() -> bool {
     !legacy_shell_surfaces()
-}
-
-/// Build the breadcrumb from live editor state: the file basename plus the
-/// cursor position. The full symbol path (`mod → fn → expr`) needs tree-sitter
-/// symbol resolution, which the syntax layer does not expose yet, so this is the
-/// honest, cheap subset available today.
-pub fn breadcrumb(active_file: Option<&str>, cursor_line: usize, cursor_col: usize) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(path) = active_file {
-        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-        if !name.is_empty() {
-            out.push(name.to_string());
-        }
-    }
-    out.push(format!("Ln {}", cursor_line + 1));
-    out.push(format!("Col {}", cursor_col + 1));
-    out
 }
 
 /// Best-effort viewport fraction centered on the cursor line.
@@ -169,81 +158,52 @@ struct Regions {
     status: taffy::Layout,
 }
 
-/// Lay out the cockpit regions with taffy:
-/// `column[ row[ editor(grow) | prediction_gutter(16) | minimap(84) ] | status(24) ]`.
-fn layout_regions(width: f32, height: f32) -> Regions {
-    let mut taffy: TaffyTree<()> = TaffyTree::new();
-
-    let editor = taffy
-        .new_leaf(Style {
-            flex_grow: 1.0,
-            min_size: Size { width: length(0.0), height: auto() },
-            ..Default::default()
-        })
-        .unwrap();
-    let prediction_gutter = taffy
-        .new_leaf(Style {
-            size: Size { width: length(PREDICTION_GUTTER_W), height: auto() },
-            flex_shrink: 0.0,
-            ..Default::default()
-        })
-        .unwrap();
-    let minimap = taffy
-        .new_leaf(Style {
-            size: Size { width: length(MINIMAP_W), height: auto() },
-            flex_shrink: 0.0,
-            ..Default::default()
-        })
-        .unwrap();
-    let body = taffy
-        .new_with_children(
-            Style { flex_grow: 1.0, flex_direction: FlexDirection::Row, ..Default::default() },
-            &[editor, prediction_gutter, minimap],
-        )
-        .unwrap();
-    let status = taffy
-        .new_leaf(Style {
-            size: Size { width: auto(), height: length(STATUS_H) },
-            flex_shrink: 0.0,
-            ..Default::default()
-        })
-        .unwrap();
-    let root = taffy
-        .new_with_children(
-            Style {
-                flex_direction: FlexDirection::Column,
-                size: Size { width: length(width), height: length(height) },
-                ..Default::default()
-            },
-            &[body, status],
-        )
-        .unwrap();
-
-    taffy
-        .compute_layout(
-            root,
-            Size {
-                width: AvailableSpace::Definite(width),
-                height: AvailableSpace::Definite(height),
-            },
-        )
-        .unwrap();
-
-    // Body is offset within root; leaf locations are relative to their parent,
-    // so add the body offset to its children to get window-space rects.
-    let body_l = *taffy.layout(body).unwrap();
-    let mut editor_l = *taffy.layout(editor).unwrap();
-    let mut pred_l = *taffy.layout(prediction_gutter).unwrap();
-    let mut mini_l = *taffy.layout(minimap).unwrap();
-    for l in [&mut editor_l, &mut pred_l, &mut mini_l] {
-        l.location.x += body_l.location.x;
-        l.location.y += body_l.location.y;
+/// Build a window-space `taffy::Layout` from an `(x, y, w, h)` rect.
+fn rect_layout(x: f32, y: f32, w: f32, h: f32) -> taffy::Layout {
+    taffy::Layout {
+        location: taffy::geometry::Point { x, y },
+        size: taffy::geometry::Size { width: w.max(0.0), height: h.max(0.0) },
+        ..Default::default()
     }
+}
+
+/// Lay out the cockpit overview regions, **anchored to the editor surface**.
+///
+/// The diff layer spans the editor content rect; the AI prediction gutter and
+/// the semantic minimap are nested at the editor's right edge (so they belong to
+/// the editor pane, not the global window/AI-panel chrome); the status bar uses
+/// the shell's real status rect. When no editor/status rects are supplied
+/// ([`CockpitInputs::editor_rect`] is zero — e.g. tests, or a host without a
+/// shell layout), it falls back to full-surface placement so the scene is still
+/// valid.
+fn layout_regions(inputs: &CockpitInputs) -> Regions {
+    let has_editor = inputs.editor_rect.2 > 0.0 && inputs.editor_rect.3 > 0.0;
+    let (ex, ey, ew, eh) = if has_editor {
+        inputs.editor_rect
+    } else {
+        // Fallback: editor occupies the surface above a bottom status strip.
+        (0.0, 0.0, inputs.width, (inputs.height - STATUS_H).max(0.0))
+    };
+    let (sx, sy, sw, sh) = if inputs.status_rect.2 > 0.0 && inputs.status_rect.3 > 0.0 {
+        inputs.status_rect
+    } else {
+        (0.0, (inputs.height - STATUS_H).max(0.0), inputs.width, STATUS_H)
+    };
+
+    // Minimap hugs the editor's right edge; the prediction gutter sits just
+    // inside it. Both are clamped to the editor width so a narrow editor never
+    // pushes them outside the pane.
+    let minimap_w = MINIMAP_W.min(ew);
+    let minimap_x = ex + (ew - minimap_w).max(0.0);
+    let gutter_w = PREDICTION_GUTTER_W.min((ew - minimap_w).max(0.0));
+    let gutter_x = (minimap_x - gutter_w).max(ex);
+
     Regions {
-        editor: editor_l,
-        prediction_gutter: pred_l,
-        minimap: mini_l,
-        status: *taffy.layout(status).unwrap(),
+        // Diff layer spans the full editor content rect (hunks map to lines).
+        editor: rect_layout(ex, ey, ew, eh),
+        prediction_gutter: rect_layout(gutter_x, ey, gutter_w, eh),
+        minimap: rect_layout(minimap_x, ey, minimap_w, eh),
+        status: rect_layout(sx, sy, sw, sh),
     }
 }
 
@@ -260,8 +220,54 @@ fn centered(host: &taffy::Layout, w: f32, h: f32) -> taffy::Layout {
 
 /// Compose the cockpit [`WidgetTree`] from a frame snapshot.
 pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
-    let regions = layout_regions(inputs.width, inputs.height);
+    let regions = layout_regions(inputs);
     let line_height = if inputs.line_height > 0.0 { inputs.line_height as f64 } else { 18.0 };
+
+    // The instrument-panel status bar widget (built once; traced, then placed).
+    let status_bar = StatusBar { status: inputs.status.clone(), phase: inputs.phase };
+
+    // Overview anchor instrumentation: prove the overview/minimap is editor-owned
+    // (nested at the editor's right edge) rather than detached global/AI chrome.
+    if std::env::var("ZAROXI_MINIMAP_TRACE").as_deref() == Ok("1") {
+        let m = &regions.minimap;
+        let editor_nested = inputs.editor_rect.2 > 0.0 && inputs.editor_rect.3 > 0.0;
+        let anchor = if editor_nested { "editor_edge" } else { "global_overlay" };
+        eprintln!(
+            "ZAROXI_MINIMAP_TRACE: overview_owner=cockpit overview_anchor={} overview_bounds=(x={:.0} y={:.0} w={:.0} h={:.0}) editor_overview_nested={}",
+            anchor, m.location.x, m.location.y, m.size.width, m.size.height, editor_nested,
+        );
+    }
+    if std::env::var("ZAROXI_STATUS_TRACE").as_deref() == Ok("1") {
+        // Instrument-panel layout-stability proof. Metrics are theme-independent
+        // (counts/buckets/widths), so a default token set is fine here.
+        let s = &regions.status;
+        let status_rect = zaroxi_interface_widgets::layout_rect(&regions.status);
+        let m = status_bar.metrics(status_rect, &CockpitTokens::void());
+        let ai_mode = match m.ai_mode {
+            zaroxi_interface_widgets::AiMode::Dormant => "dormant",
+            zaroxi_interface_widgets::AiMode::Live => "live",
+            zaroxi_interface_widgets::AiMode::Degraded => "degraded",
+        };
+        eprintln!(
+            "ZAROXI_STATUS_TRACE: status_owner=cockpit status_variant=instrument_panel status_model_source=shared bg_owner=shell_shape_pass status_rect=(x={:.0} y={:.0} w={:.0} h={:.0}) layout_bucket={} collapse_level={} context_items_visible={} health_items_visible={} ai_items_visible={} ai_mode={} center_band_w={:.0} right_band_w={:.0} status_draw_items={} status_text_runs={} status_vector_items={}",
+            s.location.x,
+            s.location.y,
+            s.size.width,
+            s.size.height,
+            m.bucket.label(),
+            m.level,
+            m.context_items,
+            m.health_items,
+            m.ai_items,
+            ai_mode,
+            m.center_band_w,
+            m.right_band_w,
+            m.draw_items,
+            m.text_runs,
+            m.vector_items,
+        );
+    }
+
     let mut tree = WidgetTree::new();
 
     // Inline AI diff overlay (above editor text, below cursor).
@@ -301,17 +307,8 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         regions.minimap,
     );
 
-    // Instrument-panel status bar.
-    tree.push(
-        Box::new(StatusBar {
-            breadcrumb: inputs.breadcrumb.clone(),
-            lsp: inputs.lsp,
-            ai_tokens_used: inputs.ai_tokens_used,
-            ai_tokens_total: inputs.ai_tokens_total,
-            phase: inputs.phase,
-        }),
-        regions.status,
-    );
+    // Instrument-panel status bar (three bands; built + traced above).
+    tree.push(Box::new(status_bar), regions.status);
 
     // Command palette overlay (when open).
     if let Some((items, selected, rtl)) = &inputs.palette {
@@ -367,12 +364,18 @@ pub fn build_cockpit_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zaroxi_interface_widgets::SymbolKind;
+    use zaroxi_interface_widgets::{
+        AiBand, AiMode, ContextBand, HealthBand, LspStatus, MetaChips, SymbolKind,
+    };
 
     fn sample() -> CockpitInputs {
         CockpitInputs {
             width: 1200.0,
             height: 800.0,
+            // Editor content rect from a representative shell layout: the overview
+            // should anchor to this rect's right edge, not the window edge.
+            editor_rect: (300.0, 60.0, 600.0, 700.0),
+            status_rect: (0.0, 776.0, 1200.0, 24.0),
             line_height: 18.0,
             total_lines: 320,
             minimap_symbols: vec![
@@ -383,10 +386,29 @@ mod tests {
             viewport: (0.1, 0.25),
             diff_hunks: vec![DiffHunk { line: 2, added: true }],
             prediction_cells: vec![PredictionCell { line: 3, probability: 0.9 }],
-            breadcrumb: vec!["main.rs".into(), "run".into()],
-            lsp: LspStatus::Healthy,
-            ai_tokens_used: 2048,
-            ai_tokens_total: 8192,
+            status: InstrumentStatus {
+                context: ContextBand {
+                    ancestors: vec!["zaroxi".into()],
+                    leaf: "main.rs".into(),
+                    position: Some("Ln 1, Col 1".into()),
+                    markers: vec![],
+                },
+                meta: MetaChips {
+                    language: Some("Rust".into()),
+                    indent: Some("Spaces 4".into()),
+                    eol: Some("LF".into()),
+                    encoding: Some("UTF-8".into()),
+                },
+                health: HealthBand { fps: Some(60), mem_mb: Some(128), lsp: LspStatus::Healthy },
+                ai: AiBand {
+                    mode: AiMode::Live,
+                    tokens_used: 2048,
+                    tokens_total: 8192,
+                    model: None,
+                    latency_ms: Some(12),
+                },
+                rtl: false,
+            },
             palette: Some((
                 vec![PaletteItem { label: "افتح ملف".into(), shortcut: "Ctrl+O".into() }],
                 0,
@@ -397,15 +419,41 @@ mod tests {
     }
 
     #[test]
-    fn regions_are_within_surface_and_sized() {
-        let r = layout_regions(1200.0, 800.0);
+    fn fallback_regions_are_within_surface_and_sized() {
+        // No editor/status rect supplied -> full-surface fallback placement.
+        let r =
+            layout_regions(&CockpitInputs { width: 1200.0, height: 800.0, ..Default::default() });
         assert!((r.status.size.height - STATUS_H).abs() < 0.5);
         assert!((r.minimap.size.width - MINIMAP_W).abs() < 0.5);
         assert!((r.prediction_gutter.size.width - PREDICTION_GUTTER_W).abs() < 0.5);
-        // Editor takes the remaining width.
+        // Editor (diff host) spans the surface above the status strip.
         assert!(r.editor.size.width > 800.0);
         // Status bar sits at the bottom.
         assert!(r.status.location.y >= r.editor.size.height - 1.0);
+    }
+
+    #[test]
+    fn overview_is_anchored_to_the_editor_edge() {
+        // Given an editor content rect, the minimap/gutter must nest at the
+        // editor's right edge (editor-owned), NOT at the window's far right.
+        let inputs = sample();
+        let (ex, ey, ew, eh) = inputs.editor_rect;
+        let r = layout_regions(&inputs);
+
+        // Minimap right edge aligns with the editor's right edge.
+        let minimap_right = r.minimap.location.x + r.minimap.size.width;
+        assert!((minimap_right - (ex + ew)).abs() < 0.5, "minimap must hug the editor right edge");
+        // ...and it sits well inside the window (the window is 1200 wide but the
+        // editor ends at 900), proving it is not floating at the window edge.
+        assert!(minimap_right < inputs.width - 100.0, "overview must not float at the window edge");
+        // Prediction gutter is just left of the minimap, inside the editor.
+        assert!(r.prediction_gutter.location.x >= ex);
+        assert!(r.prediction_gutter.location.x < r.minimap.location.x);
+        // Regions span the editor vertical bounds.
+        assert!((r.minimap.location.y - ey).abs() < 0.5);
+        assert!((r.minimap.size.height - eh).abs() < 0.5);
+        // Status bar uses the real status rect.
+        assert!((r.status.location.y - inputs.status_rect.1).abs() < 0.5);
     }
 
     #[test]
@@ -422,15 +470,6 @@ mod tests {
         // Light theme maps to the light token set.
         let light = cockpit_tokens(ZaroxiTheme::Light, false);
         assert!(!light.is_dark);
-    }
-
-    #[test]
-    fn breadcrumb_uses_basename_and_one_based_cursor() {
-        let b = breadcrumb(Some("/home/u/proj/src/main.rs"), 41, 7);
-        assert_eq!(b, vec!["main.rs".to_string(), "Ln 42".to_string(), "Col 8".to_string()]);
-        // No file -> just cursor.
-        let b = breadcrumb(None, 0, 0);
-        assert_eq!(b, vec!["Ln 1".to_string(), "Col 1".to_string()]);
     }
 
     #[test]

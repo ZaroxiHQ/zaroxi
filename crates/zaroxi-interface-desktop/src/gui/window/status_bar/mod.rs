@@ -20,4 +20,4 @@ mod style;
 mod view;
 
 pub use model::{DiagnosticCounts, SelectionInfo, StatusInputs, StatusModel};
-pub use view::StatusView;
+pub use view::{StatusView, instrument_context};

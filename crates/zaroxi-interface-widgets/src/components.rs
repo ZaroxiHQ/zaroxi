@@ -513,28 +513,587 @@ pub enum LspStatus {
     Error,
 }
 
-/// Component 6 — the live instrument-panel status bar.
-///
-/// **Vello:** left breadcrumb slots + separators; center LSP dot (pulsing when
-/// healthy) with FPS/mem slots; right AI-context **arc** (used/total sweep) +
-/// model + latency slots.
-/// **Layout (taffy):** full-width bar, three flex regions (start/center/end).
-/// **Tokens:** `bg_elevated`, `divider`, `status_healthy/slow/error`, `accent`,
-/// `ai_highlight`, `text_secondary`.
-/// **Animation:** healthy LSP dot pulses (≈1000ms); the AI arc morphs its sweep
-/// toward the target fraction. Static under reduce-motion.
-/// **A11y:** "Status: <breadcrumb>. LSP <state>. AI context U of T tokens."
-pub struct StatusBar {
-    /// Symbol-path breadcrumb (file → mod → fn → expr).
-    pub breadcrumb: Vec<String>,
-    /// LSP health.
+// ── Instrument-panel status model ───────────────────────────────────────────
+//
+// The status bar is a three-band cockpit instrument panel, NOT a flat utility
+// strip. It consumes a typed model (below) so the renderer can map canonical
+// status content into distinct visual roles with strict priority/collapse rules.
+//
+// Bands (logical, leading→trailing; mirrored under RTL):
+//   • Context (elastic) — breadcrumb (decreasing emphasis) + compact state
+//     markers + caret position + collapsible metadata chips.
+//   • Health (reserved) — fps / mem text + an LSP health dot (instrument chip).
+//   • AI (reserved)     — a dormant dot, an active dot+readout, or a usage arc.
+//
+// Render split: the elevated strip background is the shell shape pass; labels are
+// cosmic-text (BiDi-safe); vector accents (dots/arc/separators) are the vello
+// overlay drawn ON TOP of text, so they live only in reserved, text-free slots.
+
+/// AI band operating mode (drives the right band's appearance + stability).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiMode {
+    /// No live session / no backend telemetry — a single quiet dim dot. The AI
+    /// band keeps its reserved width so toggling dormant↔live never jitters the
+    /// layout, and there is no flickering "AI idle" text.
+    #[default]
+    Dormant,
+    /// A request is active, or completed with a known context-window total (arc).
+    Live,
+    /// Activity exists but the context-window total is unknown (no misleading
+    /// arc): a compact active dot + token/latency readout instead.
+    Degraded,
+}
+
+/// Compact context-band state marker (a status light, never prose).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerKind {
+    /// Unsaved edits.
+    Modified,
+    /// Background parse in flight (pulses).
+    Parsing,
+    /// Error diagnostics present.
+    Error,
+    /// Warning diagnostics present.
+    Warning,
+}
+
+/// One context-band marker, optionally carrying a count (diagnostics).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatusMarker {
+    /// Marker kind.
+    pub kind: MarkerKind,
+    /// Optional count (e.g. number of errors), shown as a tiny number.
+    pub count: Option<u32>,
+}
+
+/// Left "context" band: a breadcrumb with decreasing emphasis + markers.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContextBand {
+    /// Lower-emphasis breadcrumb ancestors (workspace → module …), outer→inner.
+    pub ancestors: Vec<String>,
+    /// High-emphasis leaf: current symbol, else file name, else "No file".
+    pub leaf: String,
+    /// Caret position label ("Ln L, Col C"); kept whenever a file is open.
+    pub position: Option<String>,
+    /// Compact state markers (modified / parsing / diagnostics).
+    pub markers: Vec<StatusMarker>,
+}
+
+/// Collapsible low-priority file metadata chips (drop first when narrow).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetaChips {
+    /// Language / file-type (highest meta priority).
+    pub language: Option<String>,
+    /// Indent style.
+    pub indent: Option<String>,
+    /// Line-ending convention.
+    pub eol: Option<String>,
+    /// Text encoding (lowest meta priority; dropped first).
+    pub encoding: Option<String>,
+}
+
+/// Center "health" band: a compact instrument cluster.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HealthBand {
+    /// Frames-per-second, when a perf source is available.
+    pub fps: Option<u32>,
+    /// Resident memory (MB), when a sample is available.
+    pub mem_mb: Option<u32>,
+    /// Language-service health.
     pub lsp: LspStatus,
-    /// AI tokens used / available.
-    pub ai_tokens_used: u32,
-    /// AI tokens available.
-    pub ai_tokens_total: u32,
+}
+
+/// Right "AI" band.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AiBand {
+    /// Operating mode (dormant / live / degraded).
+    pub mode: AiMode,
+    /// Tokens used in the current/last session.
+    pub tokens_used: u32,
+    /// Context-window total, or `0` when unknown (no backend telemetry).
+    pub tokens_total: u32,
+    /// Model chip, when the backend reports a model name.
+    pub model: Option<String>,
+    /// Last-inference latency (ms), when observed.
+    pub latency_ms: Option<u32>,
+}
+
+/// The full typed instrument-panel status model (replaces flat left/right text).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InstrumentStatus {
+    /// Left context band.
+    pub context: ContextBand,
+    /// Collapsible metadata chips.
+    pub meta: MetaChips,
+    /// Center health band.
+    pub health: HealthBand,
+    /// Right AI band.
+    pub ai: AiBand,
+    /// Right-to-left layout (mirrors band order + text alignment).
+    pub rtl: bool,
+}
+
+/// Width buckets give layout **hysteresis**: small resizes within a bucket do not
+/// churn the visible segment set. Each bucket maps to a fixed collapse level, so
+/// the same width always yields the same visible items (no per-frame flicker).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutBucket {
+    /// ≥ 1100px — everything.
+    XWide,
+    /// ≥ 900px — drop encoding.
+    Wide,
+    /// ≥ 720px — drop EOL.
+    Mid,
+    /// ≥ 560px — drop indent.
+    Compact,
+    /// ≥ 420px — drop language.
+    Narrow,
+    /// < 420px — collapse ancestors + reduce health to a single dot.
+    Tiny,
+}
+
+impl LayoutBucket {
+    fn from_width(w: f64) -> Self {
+        if w >= 1100.0 {
+            Self::XWide
+        } else if w >= 900.0 {
+            Self::Wide
+        } else if w >= 720.0 {
+            Self::Mid
+        } else if w >= 560.0 {
+            Self::Compact
+        } else if w >= 420.0 {
+            Self::Narrow
+        } else {
+            Self::Tiny
+        }
+    }
+
+    /// Collapse level `0..=5` (0 = full detail).
+    pub fn collapse_level(self) -> u8 {
+        match self {
+            Self::XWide => 0,
+            Self::Wide => 1,
+            Self::Mid => 2,
+            Self::Compact => 3,
+            Self::Narrow => 4,
+            Self::Tiny => 5,
+        }
+    }
+
+    /// Short label for tracing.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::XWide => "xwide",
+            Self::Wide => "wide",
+            Self::Mid => "mid",
+            Self::Compact => "compact",
+            Self::Narrow => "narrow",
+            Self::Tiny => "tiny",
+        }
+    }
+}
+
+/// Stable, traceable metrics about a laid-out status bar (proves no churn).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StatusMetrics {
+    /// Width bucket.
+    pub bucket: LayoutBucket,
+    /// Collapse level.
+    pub level: u8,
+    /// Visible context-band items (ancestors + leaf + markers + position + meta).
+    pub context_items: usize,
+    /// Visible health-band items.
+    pub health_items: usize,
+    /// Visible AI-band items.
+    pub ai_items: usize,
+    /// AI mode.
+    pub ai_mode: AiMode,
+    /// Reserved center (health) band width.
+    pub center_band_w: f32,
+    /// Reserved right (AI) band width.
+    pub right_band_w: f32,
+    /// Total draw items (text runs + vector items).
+    pub draw_items: usize,
+    /// Text runs emitted.
+    pub text_runs: usize,
+    /// Vector items emitted.
+    pub vector_items: usize,
+}
+
+// ── Component 6: Status Bar (instrument panel) ──────────────────────────────
+
+/// Reserved width (px) of the right AI band — constant so dormant↔live is jitter-free.
+const AI_BAND_W: f64 = 118.0;
+/// Reserved width (px) of the center health band at full detail.
+const HEALTH_BAND_W: f64 = 124.0;
+/// Collapsed health-band width (px) at the tiniest bucket (a single LSP dot).
+const HEALTH_BAND_MIN_W: f64 = 22.0;
+/// Inner padding (px) inside each band.
+const BAND_PAD: f64 = 12.0;
+/// Uniform label size (px); emphasis is by colour, not size (calm, dense panel).
+const STATUS_SIZE: f32 = 12.0;
+
+/// Component 6 — the live instrument-panel status bar (three bands).
+///
+/// **Vello (over text, reserved slots only):** thin inter-band separators, an
+/// LSP health dot, the AI indicator (dim dot / active dot / usage arc), and
+/// compact context-band state lights.
+/// **Cosmic-text (under vello, BiDi-safe):** breadcrumb (muted ancestors →
+/// primary leaf), position, metadata chips, health readout, AI readout.
+/// **Tokens:** `divider`, `text_primary/secondary/muted`, `accent`,
+/// `status_healthy/slow/error`, `ai_highlight`.
+/// **Stability:** width buckets fix the visible set; the AI/health bands have
+/// reserved widths; absent telemetry collapses to a quiet indicator, never to
+/// flickering text.
+pub struct StatusBar {
+    /// The typed instrument model.
+    pub status: InstrumentStatus,
     /// Animation phase in `[0,1)`.
     pub phase: f32,
+}
+
+/// Rough monospace-ish text width estimate (px) for explicit-x glyph placement.
+fn est_text_width(s: &str, size: f32) -> f64 {
+    s.chars().count() as f64 * size as f64 * 0.52
+}
+
+/// Format a token count compactly (`2048` → `2.0k`).
+fn fmt_tokens(n: u32) -> String {
+    if n >= 1000 { format!("{:.1}k", n as f32 / 1000.0) } else { n.to_string() }
+}
+
+/// A planned text run (resolved position + colour).
+struct PText {
+    s: String,
+    x: f32,
+    y: f32,
+    size: f32,
+    color: ThemeColor,
+}
+
+/// A planned vector instrument glyph (drawn by vello, over the text).
+enum PVec {
+    Sep { x: f64, y0: f64, y1: f64 },
+    Dot { c: Point, r: f64, color: ThemeColor, pulse: bool },
+    Arc { c: Point, r: f64, frac: f64, track: ThemeColor, value: ThemeColor },
+}
+
+/// The fully laid-out plan for one frame: a single source of truth shared by
+/// `paint` (vectors), `text_items` (texts), and `metrics` (counts), so the three
+/// never drift.
+struct StatusPlan {
+    texts: Vec<PText>,
+    vectors: Vec<PVec>,
+    bucket: LayoutBucket,
+    level: u8,
+    context_items: usize,
+    health_items: usize,
+    ai_items: usize,
+    ai_mode: AiMode,
+    center_band_w: f64,
+    right_band_w: f64,
+}
+
+impl StatusBar {
+    /// Visible metadata chips for `level`, highest-priority first (trailing items
+    /// drop first): language → indent → EOL → encoding. Deterministic per bucket.
+    fn meta_for_level(&self, level: u8) -> Vec<String> {
+        let mut ordered = Vec::new();
+        if let Some(x) = &self.status.meta.language {
+            ordered.push(x.clone());
+        }
+        if let Some(x) = &self.status.meta.indent {
+            ordered.push(x.clone());
+        }
+        if let Some(x) = &self.status.meta.eol {
+            ordered.push(x.clone());
+        }
+        if let Some(x) = &self.status.meta.encoding {
+            ordered.push(x.clone());
+        }
+        // keep = 4 - level (language survives to level 3, all gone at level >= 4).
+        let keep = 4usize.saturating_sub(level as usize).min(ordered.len());
+        ordered.truncate(keep);
+        ordered
+    }
+
+    /// Lay a directional sequence of `(text, colour)` runs from `outer_x` toward
+    /// the band's inner edge (left→right for LTR, right→left for RTL).
+    fn lay_sequence(
+        items: &[(String, ThemeColor)],
+        outer_x: f32,
+        y: f32,
+        size: f32,
+        rtl: bool,
+        gap: f32,
+        out: &mut Vec<PText>,
+    ) {
+        let mut x = outer_x;
+        for (s, c) in items {
+            if s.is_empty() {
+                continue;
+            }
+            let w = est_text_width(s, size) as f32;
+            let run_x = if rtl { x - w } else { x };
+            out.push(PText { s: s.clone(), x: run_x, y, size, color: *c });
+            x = if rtl { x - w - gap } else { x + w + gap };
+        }
+    }
+
+    /// Build the full per-frame plan (band layout, collapse, vectors + texts).
+    fn plan(&self, r: &Rect, theme: &CockpitTokens) -> StatusPlan {
+        let bucket = LayoutBucket::from_width(r.width());
+        let level = bucket.collapse_level();
+        let cy = (r.y0 + r.y1) * 0.5;
+        let y = (cy - STATUS_SIZE as f64 * 0.5) as f32;
+        let rtl = self.status.rtl;
+
+        let health_w = if level >= 5 { HEALTH_BAND_MIN_W } else { HEALTH_BAND_W };
+        let ai_w = AI_BAND_W;
+
+        // Physical band rects (context elastic). RTL mirrors the band order.
+        let band = |x: f64, w: f64| Rect::new(x, r.y0, x + w.max(0.0), r.y1);
+        let (context, health, ai) = if !rtl {
+            let ai_rect = band(r.x1 - ai_w, ai_w);
+            let health_rect = band(ai_rect.x0 - health_w, health_w);
+            let context_rect = band(r.x0, (health_rect.x0 - r.x0).max(0.0));
+            (context_rect, health_rect, ai_rect)
+        } else {
+            let ai_rect = band(r.x0, ai_w);
+            let health_rect = band(ai_rect.x1, health_w);
+            let context_rect = band(health_rect.x1, (r.x1 - health_rect.x1).max(0.0));
+            (context_rect, health_rect, ai_rect)
+        };
+
+        let mut texts: Vec<PText> = Vec::new();
+        let mut vectors: Vec<PVec> = Vec::new();
+
+        // Inter-band separators (thin, low-contrast).
+        for sx in [health.x0, health.x1] {
+            vectors.push(PVec::Sep { x: sx, y0: r.y0 + 5.0, y1: r.y1 - 5.0 });
+        }
+
+        // ── Context band ──────────────────────────────────────────────────
+        let ctx = &self.status.context;
+        let bc_sep = if rtl { " ‹ " } else { " › " };
+        let show_ancestors = level < 5 && !ctx.ancestors.is_empty();
+
+        let mut context_items = 0usize;
+        let mut seq: Vec<(String, ThemeColor)> = Vec::new();
+        if show_ancestors {
+            seq.push((ctx.ancestors.join(bc_sep), theme.text_muted));
+            context_items += 1;
+        }
+        // Leaf carries a leading separator only when ancestors precede it.
+        let leaf = if show_ancestors { format!("{bc_sep}{}", ctx.leaf) } else { ctx.leaf.clone() };
+        if !leaf.trim().is_empty() {
+            seq.push((leaf, theme.text_primary));
+            context_items += 1;
+        }
+        if let Some(pos) = &ctx.position {
+            seq.push((pos.clone(), theme.text_muted));
+            context_items += 1;
+        }
+        let meta = self.meta_for_level(level);
+        context_items += meta.len();
+        if !meta.is_empty() {
+            seq.push((meta.join(" · "), theme.text_muted));
+        }
+
+        // Reserve a compact state-light cluster at the context band's inner edge.
+        let markers = &ctx.markers;
+        let marker_slot = markers.len() as f64 * 11.0 + if markers.is_empty() { 0.0 } else { 6.0 };
+        let outer_x =
+            if rtl { (context.x1 - BAND_PAD) as f32 } else { (context.x0 + BAND_PAD) as f32 };
+        Self::lay_sequence(&seq, outer_x, y, STATUS_SIZE, rtl, 8.0, &mut texts);
+
+        // State lights (vector dots) + optional diagnostic count text.
+        if !markers.is_empty() {
+            let mut mx = if rtl { context.x0 + 6.0 } else { context.x1 - marker_slot + 6.0 };
+            let mut diag_text: Option<String> = None;
+            let mut diag_color = theme.status_slow;
+            for m in markers {
+                let (color, pulse) = match m.kind {
+                    MarkerKind::Modified => (theme.accent, false),
+                    MarkerKind::Parsing => (theme.ai_highlight, true),
+                    MarkerKind::Error => (theme.status_error, false),
+                    MarkerKind::Warning => (theme.status_slow, false),
+                };
+                vectors.push(PVec::Dot { c: Point::new(mx, cy), r: 3.0, color, pulse });
+                mx += 11.0;
+                if let Some(n) = m.count {
+                    let tag = match m.kind {
+                        MarkerKind::Error => format!("E{n}"),
+                        MarkerKind::Warning => format!("W{n}"),
+                        _ => continue,
+                    };
+                    diag_color = if matches!(m.kind, MarkerKind::Error) {
+                        theme.status_error
+                    } else {
+                        diag_color
+                    };
+                    diag_text = Some(match diag_text {
+                        Some(prev) => format!("{prev} {tag}"),
+                        None => tag,
+                    });
+                }
+            }
+            if let Some(d) = diag_text {
+                let w = est_text_width(&d, STATUS_SIZE) as f32;
+                let dx = if rtl {
+                    context.x0 as f32 + 6.0 + marker_slot as f32
+                } else {
+                    context.x1 as f32 - w - 6.0
+                };
+                texts.push(PText { s: d, x: dx, y, size: STATUS_SIZE, color: diag_color });
+            }
+        }
+
+        // ── Health band ───────────────────────────────────────────────────
+        let h = &self.status.health;
+        let (lsp_color, lsp_pulse) = match h.lsp {
+            LspStatus::Healthy => (theme.status_healthy, true),
+            LspStatus::Slow => (theme.status_slow, false),
+            LspStatus::Error => (theme.status_error, false),
+        };
+        let lsp_x = if !rtl { health.x0 + 11.0 } else { health.x1 - 11.0 };
+        vectors.push(PVec::Dot {
+            c: Point::new(lsp_x, cy),
+            r: 3.5,
+            color: lsp_color,
+            pulse: lsp_pulse,
+        });
+        let mut health_items = 1usize;
+        if level < 5 {
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(f) = h.fps {
+                parts.push(format!("{f}"));
+            }
+            if let Some(m) = h.mem_mb {
+                parts.push(format!("{m}MB"));
+            }
+            health_items += parts.len();
+            if !parts.is_empty() {
+                let s = parts.join("  ");
+                let tx = if !rtl {
+                    (lsp_x + 9.0) as f32
+                } else {
+                    (lsp_x - 9.0 - est_text_width(&s, STATUS_SIZE)) as f32
+                };
+                texts.push(PText { s, x: tx, y, size: STATUS_SIZE, color: theme.text_secondary });
+            }
+        }
+
+        // ── AI band ───────────────────────────────────────────────────────
+        let aib = &self.status.ai;
+        // Indicator anchored at the band's outer edge (far side).
+        let ind_x = if !rtl { ai.x1 - 15.0 } else { ai.x0 + 15.0 };
+        let mut ai_items = 1usize; // always at least one presence indicator
+        let ai_text: Option<String> = match aib.mode {
+            AiMode::Dormant => {
+                // Quiet dormant dot only (dim) — no flickering text.
+                vectors.push(PVec::Dot {
+                    c: Point::new(ind_x, cy),
+                    r: 3.0,
+                    color: theme.text_muted,
+                    pulse: false,
+                });
+                None
+            }
+            AiMode::Live if aib.tokens_total > 0 => {
+                let frac = (aib.tokens_used as f64 / aib.tokens_total as f64).clamp(0.0, 1.0);
+                vectors.push(PVec::Arc {
+                    c: Point::new(ind_x, cy),
+                    r: 6.0,
+                    frac,
+                    track: theme.divider,
+                    value: theme.ai_highlight,
+                });
+                let mut parts = vec![format!(
+                    "{}/{}",
+                    fmt_tokens(aib.tokens_used),
+                    fmt_tokens(aib.tokens_total)
+                )];
+                if let Some(ms) = aib.latency_ms {
+                    parts.push(format!("{ms}ms"));
+                }
+                ai_items += parts.len();
+                Some(parts.join("  "))
+            }
+            AiMode::Live | AiMode::Degraded => {
+                // Active or completed without a context total: a compact amber
+                // dot (pulses while a request is live) + a token/latency readout.
+                vectors.push(PVec::Dot {
+                    c: Point::new(ind_x, cy),
+                    r: 3.5,
+                    color: theme.ai_highlight,
+                    pulse: matches!(aib.mode, AiMode::Live),
+                });
+                let mut parts: Vec<String> = Vec::new();
+                if aib.tokens_used > 0 {
+                    parts.push(fmt_tokens(aib.tokens_used));
+                }
+                if let Some(ms) = aib.latency_ms {
+                    parts.push(format!("{ms}ms"));
+                }
+                ai_items += parts.len();
+                if parts.is_empty() { None } else { Some(parts.join("  ")) }
+            }
+        };
+        if let Some(model) = &aib.model {
+            // Optional model chip, inner-most in the AI band.
+            ai_items += 1;
+            let mx = if !rtl {
+                ai.x0 as f32 + BAND_PAD as f32
+            } else {
+                (ai.x1 - BAND_PAD) as f32 - est_text_width(model, STATUS_SIZE) as f32
+            };
+            texts.push(PText {
+                s: model.clone(),
+                x: mx,
+                y,
+                size: STATUS_SIZE,
+                color: theme.text_muted,
+            });
+        }
+        if let Some(t) = ai_text {
+            let w = est_text_width(&t, STATUS_SIZE) as f32;
+            let tx = if !rtl { (ind_x - 11.0) as f32 - w } else { (ind_x + 11.0) as f32 };
+            texts.push(PText { s: t, x: tx, y, size: STATUS_SIZE, color: theme.text_muted });
+        }
+
+        StatusPlan {
+            texts,
+            vectors,
+            bucket,
+            level,
+            context_items,
+            health_items,
+            ai_items,
+            ai_mode: aib.mode,
+            center_band_w: health.width(),
+            right_band_w: ai.width(),
+        }
+    }
+
+    /// Traceable, stable metrics for the current width (proves no segment churn).
+    pub fn metrics(&self, status_rect: Rect, theme: &CockpitTokens) -> StatusMetrics {
+        let p = self.plan(&status_rect, theme);
+        StatusMetrics {
+            bucket: p.bucket,
+            level: p.level,
+            context_items: p.context_items,
+            health_items: p.health_items,
+            ai_items: p.ai_items,
+            ai_mode: p.ai_mode,
+            center_band_w: p.center_band_w as f32,
+            right_band_w: p.right_band_w as f32,
+            draw_items: p.texts.len() + p.vectors.len(),
+            text_runs: p.texts.len(),
+            vector_items: p.vectors.len(),
+        }
+    }
 }
 
 impl ZaroxiWidget for StatusBar {
@@ -544,121 +1103,80 @@ impl ZaroxiWidget for StatusBar {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
         let r = layout_rect(layout);
-        fill(scene, &r, theme.bg_elevated);
+        // Top hairline divides the strip from the editor (the elevated strip
+        // fill itself is the shell shape pass, drawn under the cosmic-text).
         stroke(scene, 1.0, &Line::new((r.x0, r.y0), (r.x1, r.y0)), theme.divider);
 
-        let cy = (r.y0 + r.y1) * 0.5;
-
-        // Left: breadcrumb slots with chevron separators.
-        let mut x = r.x0 + 10.0;
-        for (i, _crumb) in self.breadcrumb.iter().enumerate() {
-            if i > 0 {
-                let mut chev = BezPath::new();
-                chev.move_to((x, cy - 3.0));
-                chev.line_to((x + 3.0, cy));
-                chev.line_to((x, cy + 3.0));
-                stroke(scene, 1.0, &chev, theme.text_muted);
-                x += 8.0;
+        let plan = self.plan(&r, theme);
+        let p = pulse(self.phase);
+        for v in &plan.vectors {
+            match v {
+                PVec::Sep { x, y0, y1 } => {
+                    stroke(
+                        scene,
+                        1.0,
+                        &Line::new((*x, *y0), (*x, *y1)),
+                        theme.divider.with_alpha(0.6),
+                    );
+                }
+                PVec::Dot { c, r: rad, color, pulse: pulsing } => {
+                    let a = if *pulsing { 0.45 + 0.55 * p } else { 1.0 };
+                    fill(scene, &Circle::new(*c, *rad), color.with_alpha(a));
+                }
+                PVec::Arc { c, r: rad, frac, track, value } => {
+                    let base = Arc::new(
+                        *c,
+                        (*rad, *rad),
+                        -std::f64::consts::FRAC_PI_2,
+                        std::f64::consts::TAU,
+                        0.0,
+                    );
+                    stroke(scene, 2.0, &base, *track);
+                    let val = Arc::new(
+                        *c,
+                        (*rad, *rad),
+                        -std::f64::consts::FRAC_PI_2,
+                        std::f64::consts::TAU * frac,
+                        0.0,
+                    );
+                    stroke(scene, 2.0, &val, *value);
+                }
             }
-            fill(scene, &Rect::new(x, cy - 4.0, x + 60.0, cy + 4.0), theme.surface);
-            x += 68.0;
         }
-
-        // Center: LSP health dot (pulses when healthy).
-        let (dot_color, animate) = match self.lsp {
-            LspStatus::Healthy => (theme.status_healthy, true),
-            LspStatus::Slow => (theme.status_slow, false),
-            LspStatus::Error => (theme.status_error, false),
-        };
-        let a = if animate { 0.4 + 0.6 * pulse(self.phase) } else { 1.0 };
-        let center_x = (r.x0 + r.x1) * 0.5;
-        fill(scene, &Circle::new(Point::new(center_x, cy), 4.0), dot_color.with_alpha(a));
-
-        // Right: AI context usage arc.
-        let frac = if self.ai_tokens_total == 0 {
-            0.0
-        } else {
-            (self.ai_tokens_used as f64 / self.ai_tokens_total as f64).clamp(0.0, 1.0)
-        };
-        let arc_center = Point::new(r.x1 - 16.0, cy);
-        let radius = 7.0;
-        // Track + value arc (sweep proportional to usage), starting at top.
-        let track = Arc::new(
-            arc_center,
-            (radius, radius),
-            -std::f64::consts::FRAC_PI_2,
-            std::f64::consts::TAU,
-            0.0,
-        );
-        stroke(scene, 2.0, &track, theme.divider);
-        let value = Arc::new(
-            arc_center,
-            (radius, radius),
-            -std::f64::consts::FRAC_PI_2,
-            std::f64::consts::TAU * frac,
-            0.0,
-        );
-        stroke(scene, 2.0, &value, theme.ai_highlight);
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
         let r = layout_rect(layout);
-        let cy = ((r.y0 + r.y1) * 0.5) as f32;
-        let size = 13.0_f32;
-        let baseline_y = cy - size * 0.5;
-        let mut out = Vec::new();
-        let mut x = (r.x0 + 10.0) as f32;
-        for (i, crumb) in self.breadcrumb.iter().enumerate() {
-            if i > 0 {
-                x += 8.0; // chevron separator gap
-            }
-            out.push(WidgetText::new(
-                crumb.clone(),
-                x,
-                baseline_y,
-                size,
-                color_arr(theme.text_secondary),
-            ));
-            x += 68.0;
-        }
-        // AI context usage to the left of the arc. With no known context total
-        // (the backend doesn't report one) fall back to the raw token count, or
-        // "AI idle" when there is no active session — never a misleading "/0".
-        let usage = if self.ai_tokens_total == 0 {
-            if self.ai_tokens_used == 0 {
-                "AI idle".to_string()
-            } else {
-                format!("{} tok", self.ai_tokens_used)
-            }
-        } else {
-            format!("{}/{}", self.ai_tokens_used, self.ai_tokens_total)
-        };
-        out.push(WidgetText::new(
-            usage,
-            (r.x1 - 96.0) as f32,
-            baseline_y,
-            size,
-            color_arr(theme.text_muted),
-        ));
-        out
+        self.plan(&r, theme)
+            .texts
+            .into_iter()
+            .map(|t| WidgetText::new(t.s, t.x, t.y, t.size, color_arr(t.color)))
+            .collect()
     }
 
     fn a11y_label(&self) -> Option<String> {
-        let state = match self.lsp {
+        let ctx = &self.status.context;
+        let crumbs = {
+            let mut c = ctx.ancestors.clone();
+            c.push(ctx.leaf.clone());
+            c.join(" › ")
+        };
+        let lsp = match self.status.health.lsp {
             LspStatus::Healthy => "healthy",
             LspStatus::Slow => "slow",
             LspStatus::Error => "error",
         };
-        let ai = if self.ai_tokens_total == 0 {
-            if self.ai_tokens_used == 0 {
-                "AI idle".to_string()
-            } else {
-                format!("AI {} tokens", self.ai_tokens_used)
-            }
-        } else {
-            format!("AI context {} of {} tokens", self.ai_tokens_used, self.ai_tokens_total)
+        let ai = match self.status.ai.mode {
+            AiMode::Dormant => "AI dormant".to_string(),
+            AiMode::Live if self.status.ai.tokens_total > 0 => format!(
+                "AI context {} of {} tokens",
+                self.status.ai.tokens_used, self.status.ai.tokens_total
+            ),
+            AiMode::Live => format!("AI active, {} tokens", self.status.ai.tokens_used),
+            AiMode::Degraded => format!("AI {} tokens", self.status.ai.tokens_used),
         };
-        Some(format!("Status: {}. LSP {state}. {ai}.", self.breadcrumb.join(" \u{203a} ")))
+        let pos = ctx.position.as_deref().unwrap_or("");
+        Some(format!("Status: {crumbs} {pos}. LSP {lsp}. {ai}."))
     }
 }
 
@@ -671,6 +1189,37 @@ mod tests {
         l.location = taffy::geometry::Point { x: 0.0, y: 0.0 };
         l.size = taffy::geometry::Size { width: w, height: h };
         l
+    }
+
+    fn status_rect(w: f64) -> Rect {
+        Rect::new(0.0, 0.0, w, 26.0)
+    }
+
+    /// A fully-populated instrument model (live AI with a known total).
+    fn full_instrument() -> InstrumentStatus {
+        InstrumentStatus {
+            context: ContextBand {
+                ancestors: vec!["zaroxi".into()],
+                leaf: "main.rs".into(),
+                position: Some("Ln 1, Col 1".into()),
+                markers: vec![StatusMarker { kind: MarkerKind::Modified, count: None }],
+            },
+            meta: MetaChips {
+                language: Some("Rust".into()),
+                indent: Some("Spaces 4".into()),
+                eol: Some("LF".into()),
+                encoding: Some("UTF-8".into()),
+            },
+            health: HealthBand { fps: Some(60), mem_mb: Some(128), lsp: LspStatus::Healthy },
+            ai: AiBand {
+                mode: AiMode::Live,
+                tokens_used: 4096,
+                tokens_total: 8192,
+                model: None,
+                latency_ms: Some(12),
+            },
+            rtl: false,
+        }
     }
 
     #[test]
@@ -732,16 +1281,13 @@ mod tests {
         assert_eq!(palette.layer(), WidgetLayer::Palette);
         palette.paint(&mut scene, &layout(420.0, 300.0), &theme);
 
-        let status = StatusBar {
-            breadcrumb: vec!["main.rs".into(), "app".into(), "run".into()],
-            lsp: LspStatus::Healthy,
-            ai_tokens_used: 4096,
-            ai_tokens_total: 8192,
-            phase: 0.3,
-        };
+        let status = StatusBar { status: full_instrument(), phase: 0.3 };
         assert_eq!(status.layer(), WidgetLayer::StatusBar);
         status.paint(&mut scene, &layout(800.0, 24.0), &theme);
-        assert!(status.a11y_label().unwrap().contains("LSP healthy"));
+        let label = status.a11y_label().unwrap();
+        assert!(label.contains("LSP healthy"));
+        // Context is spoken (workspace ancestor + file leaf).
+        assert!(label.contains("zaroxi") && label.contains("main.rs"));
     }
 
     #[test]
@@ -752,29 +1298,109 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_falls_back_cleanly_when_token_total_unknown() {
-        // No session: "AI idle", never a misleading "/0" or "of 0".
+    fn ai_band_is_dormant_quietly_and_degrades_without_a_total() {
+        let theme = CockpitTokens::void();
+
+        // No session: dormant — a single quiet dim dot, no flickering text,
+        // never a misleading "/0". The AI band still reserves its width.
         let idle = StatusBar {
-            breadcrumb: vec!["main.rs".into()],
-            lsp: LspStatus::Healthy,
-            ai_tokens_used: 0,
-            ai_tokens_total: 0,
+            status: InstrumentStatus {
+                context: ContextBand { leaf: "main.rs".into(), ..Default::default() },
+                ai: AiBand { mode: AiMode::Dormant, ..Default::default() },
+                ..Default::default()
+            },
             phase: 0.0,
         };
         let label = idle.a11y_label().unwrap();
-        assert!(label.contains("AI idle"), "got: {label}");
+        assert!(label.contains("AI dormant"), "got: {label}");
         assert!(!label.contains("of 0") && !label.contains("/0"));
+        // Dormant emits exactly one AI vector (the dim dot) and no AI text.
+        let m = idle.metrics(status_rect(1000.0), &theme);
+        assert_eq!(m.ai_mode, AiMode::Dormant);
+        assert_eq!(m.ai_items, 1);
 
-        // Tokens streamed but no known context total: show the raw count.
+        // Activity without a known context total: degraded — raw count, no "/0".
         let used = StatusBar {
-            breadcrumb: vec!["main.rs".into()],
-            lsp: LspStatus::Healthy,
-            ai_tokens_used: 123,
-            ai_tokens_total: 0,
+            status: InstrumentStatus {
+                context: ContextBand { leaf: "main.rs".into(), ..Default::default() },
+                ai: AiBand { mode: AiMode::Degraded, tokens_used: 123, ..Default::default() },
+                ..Default::default()
+            },
             phase: 0.0,
         };
         let label = used.a11y_label().unwrap();
         assert!(label.contains("AI 123 tokens"), "got: {label}");
         assert!(!label.contains("of 0") && !label.contains("/0"));
+    }
+
+    fn agents_instrument() -> InstrumentStatus {
+        InstrumentStatus {
+            context: ContextBand {
+                ancestors: vec!["zaroxi".into()],
+                leaf: "AGENTS.md".into(),
+                position: Some("Ln 2, Col 1".into()),
+                markers: vec![],
+            },
+            meta: MetaChips {
+                language: Some("Markdown".into()),
+                indent: Some("Spaces 2".into()),
+                eol: Some("LF".into()),
+                encoding: Some("UTF-8".into()),
+            },
+            health: HealthBand { fps: Some(60), mem_mb: Some(96), lsp: LspStatus::Healthy },
+            ai: AiBand { mode: AiMode::Dormant, ..Default::default() },
+            rtl: false,
+        }
+    }
+
+    /// The typed model must turn into actual visible text runs (the blank-bar
+    /// regression), and a narrow bar must elide low-priority detail — keeping the
+    /// essentials (file leaf + Ln/Col) — rather than vanish.
+    #[test]
+    fn status_segments_produce_visible_text_runs_and_elide_gracefully() {
+        let theme = CockpitTokens::void();
+        let status = StatusBar { status: agents_instrument(), phase: 0.0 };
+
+        // Wide: full content is emitted as visible runs.
+        let wide = status.text_items(&layout(1200.0, 26.0), &theme);
+        assert!(!wide.is_empty(), "status must emit text runs");
+        let joined: String = wide.iter().map(|t| t.text.clone()).collect::<Vec<_>>().join(" ");
+        for expected in ["zaroxi", "AGENTS.md", "Ln 2, Col 1", "Markdown", "UTF-8", "LF"] {
+            assert!(joined.contains(expected), "wide status missing {expected:?}; got {joined:?}");
+        }
+
+        // Narrow (Tiny bucket): essentials remain (file leaf + position), but the
+        // lowest-priority metadata (encoding/EOL) is elided — intentional, not a
+        // vanishing bar.
+        let narrow = status.text_items(&layout(240.0, 26.0), &theme);
+        let joined: String = narrow.iter().map(|t| t.text.clone()).collect::<Vec<_>>().join(" ");
+        assert!(joined.contains("AGENTS.md"), "narrow must keep file leaf; got {joined:?}");
+        assert!(joined.contains("Ln 2, Col 1"), "narrow must keep position; got {joined:?}");
+        assert!(!joined.contains("UTF-8"), "narrow must drop encoding; got {joined:?}");
+        assert!(!joined.contains("LF"), "narrow must drop EOL; got {joined:?}");
+    }
+
+    /// Layout stability: identical width bucket ⇒ identical visible-item set
+    /// (hysteresis, no per-resize churn); narrower bucket only ever simplifies.
+    #[test]
+    fn metrics_are_stable_within_a_bucket_and_simplify_when_narrow() {
+        let theme = CockpitTokens::void();
+        let status = StatusBar { status: full_instrument(), phase: 0.0 };
+
+        // Two widths in the same (Wide) bucket → identical metrics.
+        let a = status.metrics(status_rect(1000.0), &theme);
+        let b = status.metrics(status_rect(1080.0), &theme);
+        assert_eq!(a.bucket, b.bucket);
+        assert_eq!(a.text_runs, b.text_runs, "text-run count must not churn within a bucket");
+        assert_eq!(a.context_items, b.context_items);
+        assert_eq!(a.draw_items, b.draw_items);
+
+        // A narrower bucket simplifies (never adds items).
+        let narrow = status.metrics(status_rect(500.0), &theme);
+        assert!(narrow.level >= a.level, "narrower must collapse at least as much");
+        assert!(narrow.context_items <= a.context_items, "narrower must not add context items");
+
+        // Reserved bands keep stable widths across buckets (no jitter).
+        assert_eq!(a.right_band_w, narrow.right_band_w, "AI band width is reserved/constant");
     }
 }
