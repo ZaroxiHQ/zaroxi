@@ -813,100 +813,173 @@ impl StatusBar {
     /// Build the full per-frame plan — a conventional status bar with two zones:
     /// left = file/context text (truncated), right = trailing status cluster
     /// (right-aligned chips + LSP/AI dots).  No permanent centre band.
+    /// Build the full per-frame plan — a conventional three-zone status bar:
+    ///   left   = breadcrumb / context only (truncated first),
+    ///   center = slim health strip (LSP/AI dots, optional FPS/MEM, truly centred),
+    ///   right  = durable editor metadata (Ln/Col, language, indent, EOL, encoding).
+    /// Collision priority: right > center > left.
     fn plan(&self, r: &Rect, theme: &CockpitTokens) -> StatusPlan {
         let bucket = LayoutBucket::from_width(r.width());
         let level = bucket.collapse_level();
         let rtl = self.status.rtl;
         let cy = (r.y0 + r.y1) * 0.5;
         let y = (cy - STATUS_SIZE as f64 * 0.5) as f32;
-        let _bh = r.height();
+        let total_w = r.width();
+
+        let ctx = &self.status.context;
+        let h = &self.status.health;
+        let aib = &self.status.ai;
 
         let mut texts: Vec<PText> = Vec::new();
         let mut vectors: Vec<PVec> = Vec::new();
 
-        // ── Right zone: trailing status cluster (anchored to right edge) ──
-        let ctx = &self.status.context;
-        let meta = self.meta_for_level(level);
-        let h = &self.status.health;
-        let aib = &self.status.ai;
+        // ── Helper: lay a string at x, tracking x position ──────────────
+        let place = |x: f64, s: String, color: ThemeColor, texts: &mut Vec<PText>| -> f64 {
+            let w = est_text_width(&s, STATUS_SIZE);
+            texts.push(PText { s, x: x as f32, y, size: STATUS_SIZE, color });
+            w
+        };
 
-        // Build the right-side chip list (ordered inner → outer; leftmost drops
-        // first on width collapse).  Every value is a labelled chip.
-        // Right parts in DROP-PRIORITY order (leftmost drops first):
-        //   encoding → eol → indent → language → fps → mem → position
-        // The right edge anchor is always position (highest priority).
+        // ── 1. RIGHT ZONE (highest priority, far-right anchored) ────────
+        // Build in drop-order: encoding → eol → indent → language → position.
+        // (Position is the last/highest-priority — never dropped.)
+        let meta = self.meta_for_level(level);
         let mut right_parts: Vec<String> = Vec::new();
-        right_parts.extend(meta.iter().rev().cloned()); // encoding,eol,indent,lang — reversed to get drop order
-        if level < 5 {
-            if let Some(f) = h.fps {
-                right_parts.push(format!("{f} fps"));
-            }
-            if let Some(m) = h.mem_mb {
-                right_parts.push(format!("{m} MB"));
-            }
-        }
+        // meta is [language, indent, eol, encoding]; reverse for drop-order.
+        right_parts.extend(meta.iter().rev().cloned());
         if let Some(pos) = &ctx.position {
             right_parts.push(pos.clone());
         }
-        // Fit to width: drop from the front (lowest-priority/leftmost first).
-        let indicator_w = 34.0;
-        let max_right_w = (r.width() - indicator_w - BAND_PAD * 2.0).max(0.0);
-        let mut right_used = 0usize;
+        // Fit to width from the right edge: drop leftmost (index 0) first.
+        let right_max_w = (total_w - BAND_PAD * 2.0).max(0.0);
         let mut right_str = String::new();
         let mut right_w = 0.0;
+        let mut right_used = 0usize;
         for ch in right_parts.iter().rev() {
-            // Build right-to-left: new chip to the left of existing string.
             let trial =
                 if right_str.is_empty() { ch.clone() } else { format!("{ch}  {right_str}") };
             let tw = est_text_width(&trial, STATUS_SIZE);
-            if tw > max_right_w {
+            if tw > right_max_w {
                 break;
             }
             right_str = trial;
             right_w = tw;
-            right_used = right_used.saturating_add(1);
+            right_used += 1;
         }
+        let right_items = right_used;
+        // Anchor to the far right.
+        let right_zone_w = right_w;
+        let (right_start_x, right_end_x) = if !rtl {
+            let sx = r.x1 - BAND_PAD - right_w;
+            (sx, r.x1)
+        } else {
+            let sx = r.x0 + BAND_PAD;
+            (r.x0, sx + right_w)
+        };
         if !right_str.is_empty() {
-            right_w = est_text_width(&right_str, STATUS_SIZE);
-            let rx = if !rtl {
-                (r.x1 - indicator_w - right_w) as f32
-            } else {
-                (r.x0 + indicator_w) as f32
-            };
-            texts.push(PText {
-                s: right_str,
-                x: rx,
-                y,
-                size: STATUS_SIZE,
-                color: theme.text_muted,
-            });
+            place(
+                if !rtl { right_start_x } else { r.x0 + BAND_PAD },
+                right_str,
+                theme.text_muted,
+                &mut texts,
+            );
         }
-        let mut right_items = right_used;
 
-        // LSP health dot + AI mode dot (far right edge, inside the indicator slot).
+        // ── 2. CENTER ZONE (second priority, truly centred on full bar) ─
+        let mut center_items = 0usize;
+        // Center chips in drop-priority order (left side drops first):
+        //   MEM → FPS. LSP dot → AI dot (always kept).
+        // Levels: XWide/Wide (L0-L1) → full (LSP+AI+FPS+MEM),
+        //         Mid (L2)           → LSP+AI+FPS,
+        //         Compact (L3)       → LSP+AI+compact FPS,
+        //         Narrow/Tiny (L4-L5)→ LSP dot + AI dot only.
+        let center_full = level <= 1;
+        let center_mid = level <= 2;
+        let center_compact = level <= 3;
+        let mut center_parts: Vec<String> = Vec::new();
+        // Reversed iterator so leftmost drops first.
+        if center_full {
+            if let Some(m) = h.mem_mb {
+                center_parts.push(format!("{m} MB"));
+            }
+        }
+        if center_full || center_mid || center_compact {
+            // Compact FPS at levels > 2: just the number, no "fps" text.
+            let fps_label = if let Some(f) = h.fps {
+                if center_full || center_mid { format!("{f} fps") } else { format!("{f}") }
+            } else {
+                String::new()
+            };
+            if !fps_label.is_empty() {
+                center_parts.push(fps_label);
+            }
+        }
+        // Determine desired center zone width from the contents.
+        let center_joined = center_parts.join("  ");
+        let center_text_w = if center_joined.is_empty() {
+            0.0
+        } else {
+            est_text_width(&center_joined, STATUS_SIZE)
+        };
+        // Dots (LSP + AI) need ~10px each + gap = ~26px total.
+        let dots_w = 26.0;
+        let desired_center_w = center_text_w
+            + dots_w
+            + (if center_text_w > 0.0 && center_parts.len() > 0 { 8.0 } else { 0.0 });
+
+        // Place center: target centre x of the full bar.
+        let center_target = r.x0 + total_w / 2.0;
+        let mut center_x0 = center_target - desired_center_w / 2.0;
+        let mut center_x1 = center_target + desired_center_w / 2.0;
+
+        // Collision resolution: if center overlaps right, shift left (up to a limit).
+        let max_center_shift = total_w * 0.15; // don't drift too far
+        if !rtl {
+            let right_safe = right_start_x - BAND_PAD;
+            if center_x1 > right_safe {
+                let overlap = center_x1 - right_safe;
+                let shift = overlap.min(max_center_shift);
+                center_x0 -= shift;
+                center_x1 -= shift;
+            }
+        } else {
+            let right_safe = right_end_x + BAND_PAD;
+            if center_x0 < right_safe {
+                let overlap = right_safe - center_x0;
+                let shift = overlap.min(max_center_shift);
+                center_x0 += shift;
+                center_x1 += shift;
+            }
+        }
+        // Clamp to screen edges.
+        center_x0 = center_x0.max(r.x0);
+        center_x1 = center_x1.min(r.x1);
+
+        // Emit center zone: text chips + LSP dot + AI dot.
+        if center_text_w > 0.0 && !center_parts.is_empty() {
+            // Center the text within the dot-zone.
+            let text_start = if !rtl { center_x0 } else { center_x0 + dots_w };
+            let cx = if !rtl { text_start + dots_w + 4.0 } else { text_start };
+            place(cx, center_joined, theme.text_secondary, &mut texts);
+            center_items += center_parts.len();
+        }
+        // LSP dot.
         let (lsp_color, lsp_pulse) = match h.lsp {
             LspStatus::Healthy => (theme.status_healthy, true),
             LspStatus::Slow => (theme.status_slow, false),
             LspStatus::Error => (theme.status_error, false),
         };
-        if !rtl {
+        {
+            let dx = if !rtl { center_x0 + 8.0 } else { center_x1 - 8.0 };
             vectors.push(PVec::Dot {
-                c: Point::new(r.x1 - 6.0, cy),
+                c: Point::new(dx, cy),
                 r: 3.0,
                 color: lsp_color,
                 pulse: lsp_pulse,
             });
-            right_items += 1;
-        } else {
-            vectors.push(PVec::Dot {
-                c: Point::new(r.x0 + 6.0, cy),
-                r: 3.0,
-                color: lsp_color,
-                pulse: lsp_pulse,
-            });
-            right_items += 1;
+            center_items += 1;
         }
-        let mut ai_items = 0usize; // AI dot handled inline
+        // AI dot.
         {
             let (ai_color, ai_pulse, ai_r) = match aib.mode {
                 AiMode::Dormant => (theme.text_muted, false, 3.0),
@@ -914,41 +987,30 @@ impl StatusBar {
                     (theme.ai_highlight, matches!(aib.mode, AiMode::Live), 3.5)
                 }
             };
-            // Place AI dot left of the LSP dot. Both sit at the far edge.
-            if !rtl {
-                vectors.push(PVec::Dot {
-                    c: Point::new(r.x1 - 18.0, cy),
-                    r: ai_r,
-                    color: ai_color,
-                    pulse: ai_pulse,
-                });
-                ai_items += 1;
-            } else {
-                vectors.push(PVec::Dot {
-                    c: Point::new(r.x0 + 18.0, cy),
-                    r: ai_r,
-                    color: ai_color,
-                    pulse: ai_pulse,
-                });
-                ai_items += 1;
-            }
+            let dx = if !rtl { center_x0 + 20.0 } else { center_x1 - 20.0 };
+            vectors.push(PVec::Dot {
+                c: Point::new(dx, cy),
+                r: ai_r,
+                color: ai_color,
+                pulse: ai_pulse,
+            });
+            center_items += 1;
         }
-
-        // ── Left zone: file / context breadcrumb ───────────────────────────
-        let bc_sep = if rtl { " ‹ " } else { " › " };
-        let show_ancestors = level < 4 && !ctx.ancestors.is_empty();
-        let mut context_items = 0usize;
-
-        // Safe zone for left text: stop before the right cluster.
-        let left_limit = if !rtl {
-            (r.x1 - indicator_w - right_w - BAND_PAD - 12.0).max(r.x0 + BAND_PAD)
+        let center_mode = if center_full {
+            "full"
+        } else if center_mid {
+            "mid"
+        } else if center_compact {
+            "compact"
         } else {
-            (r.x0 + indicator_w + right_w + BAND_PAD + 12.0).min(r.x1 - BAND_PAD)
+            "dots"
         };
 
-        let lx = if !rtl { (r.x0 + BAND_PAD) as f32 } else { (r.x1 - BAND_PAD) as f32 };
-        // Build the full left string, then truncate with ellipsis if needed.
+        // ── 3. LEFT ZONE (lowest priority, truncated first) ─────────────
+        let bc_sep = if rtl { " ‹ " } else { " › " };
+        let show_ancestors = level < 4 && !ctx.ancestors.is_empty();
         let mut left_parts: Vec<String> = Vec::new();
+        let mut context_items = 0usize;
         if show_ancestors {
             left_parts.push(ctx.ancestors.join(bc_sep));
             context_items += 1;
@@ -963,28 +1025,36 @@ impl StatusBar {
         }
         let left_raw = left_parts.join("");
         let mut left_str = left_raw.clone();
-        let avail_left = if !rtl {
-            (left_limit - lx as f64).max(0.0)
+        let mut breadcrumb_truncated = false;
+        // Available space: from left edge to centre zone start.
+        let left_available = if !rtl {
+            (center_x0 - r.x0 - BAND_PAD).max(0.0)
         } else {
-            (lx as f64 - left_limit).max(0.0)
+            (r.x1 - center_x1 - BAND_PAD).max(0.0)
         };
-        if est_text_width(&left_raw, STATUS_SIZE) > avail_left {
-            // Truncate with ellipsis.
-            let mut n = left_raw.chars().count();
-            while n > 1 {
-                let s: String = left_raw.chars().take(n).chain("\u{2026}".chars()).collect();
-                if est_text_width(&s, STATUS_SIZE) <= avail_left {
-                    left_str = s;
-                    break;
-                }
-                n -= 1;
-            }
-            if n <= 1 {
-                left_str = "\u{2026}".to_string();
-            }
-        }
         if !left_str.is_empty() {
-            let tx = if rtl { lx - est_text_width(&left_str, STATUS_SIZE) as f32 } else { lx };
+            let left_w = est_text_width(&left_str, STATUS_SIZE);
+            if left_w > left_available {
+                // Truncate with ellipsis.
+                breadcrumb_truncated = true;
+                let mut n = left_raw.chars().count();
+                while n > 1 {
+                    let s: String = left_raw.chars().take(n).chain("\u{2026}".chars()).collect();
+                    if est_text_width(&s, STATUS_SIZE) <= left_available {
+                        left_str = s;
+                        break;
+                    }
+                    n -= 1;
+                }
+                if n <= 1 {
+                    left_str = "\u{2026}".to_string();
+                }
+            }
+            let tx = if !rtl {
+                (r.x0 + BAND_PAD) as f32
+            } else {
+                (r.x1 - BAND_PAD - est_text_width(&left_str, STATUS_SIZE)) as f32
+            };
             texts.push(PText {
                 s: left_str,
                 x: tx,
@@ -994,11 +1064,16 @@ impl StatusBar {
             });
         }
 
-        // State-light markers between left context and right cluster.
+        // State-light markers in the gap between left and centre.
         let markers = &ctx.markers;
         if !markers.is_empty() {
             let marker_w = markers.len() as f64 * 11.0 + 8.0;
-            let mut mx = if !rtl { left_limit - marker_w + 4.0 } else { left_limit + 4.0 };
+            let gap_center = if !rtl {
+                (center_x0 + r.x0 + BAND_PAD) / 2.0
+            } else {
+                (center_x1 + r.x1 - BAND_PAD) / 2.0
+            };
+            let mut mx = gap_center - marker_w / 2.0;
             for m in markers {
                 let (color, pulse) = match m.kind {
                     MarkerKind::Modified => (theme.accent, false),
@@ -1011,22 +1086,56 @@ impl StatusBar {
             }
         }
 
-        let right_band_w = right_w + indicator_w;
+        // ── Layout trace ────────────────────────────────────────────────
+        if std::env::var("ZAROXI_STATUS_LAYOUT_TRACE").as_deref() == Ok("1") {
+            let ct = center_x0 + (center_x1 - center_x0) / 2.0;
+            let shift = ct - center_target;
+            let overlap_lc = if !rtl {
+                (r.x0 + left_available + BAND_PAD - center_x0).max(0.0)
+            } else {
+                (center_x1 - (r.x1 - left_available - BAND_PAD)).max(0.0)
+            };
+            let overlap_cr = if !rtl {
+                (center_x1 - right_start_x).max(0.0)
+            } else {
+                (right_end_x - center_x0).max(0.0)
+            };
+            eprintln!(
+                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} left_zone_w={:.0} center_zone_w={:.0} right_zone_w={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_left_center={:.1} overlap_center_right={:.1} center_mode={} right_items_visible={} center_items_visible={} breadcrumb_truncated={}",
+                bucket.label(),
+                level,
+                total_w,
+                left_available,
+                center_x1 - center_x0,
+                right_zone_w,
+                center_target,
+                ct,
+                shift,
+                overlap_lc,
+                overlap_cr,
+                center_mode,
+                right_items,
+                center_items,
+                breadcrumb_truncated,
+            );
+        }
+
+        let ai_items = 1usize; // AI dot always emitted
+        let right_band_w = right_zone_w;
         StatusPlan {
             texts,
             vectors,
             bucket,
             level,
             context_items,
-            health_items: right_items,
+            health_items: center_items,
             ai_items,
             ai_mode: aib.mode,
-            center_band_w: 0.0,
+            center_band_w: center_x1 - center_x0,
             right_band_w,
         }
     }
 
-    /// Traceable, stable metrics for the current width (proves no segment churn).
     pub fn metrics(&self, status_rect: Rect, theme: &CockpitTokens) -> StatusMetrics {
         let p = self.plan(&status_rect, theme);
         StatusMetrics {
