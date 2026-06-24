@@ -365,6 +365,35 @@ pub struct GuiApp {
     pub render_core: Option<zaroxi_core_engine_render::renderer::core::RenderCore>,
     /// Defer cockpit overlay until after the first stable shell paint.
     pub cockpit_deferred: bool,
+    /// Set to `true` once the cockpit has produced its first text run, so the
+    /// shell path stops emitting breadcrumb text (avoiding duplication).
+    pub cockpit_text_active: bool,
+    /// Timestamp of the most recent file open, for status-model latency
+    /// probes. When status traces are active, the latency from this timestamp
+    /// to the next status model construction is reported as
+    /// `status_model_latency_ms_from_open`.
+    pub last_open_started_at: Option<std::time::Instant>,
+    /// Timestamp of the most recent editor focus change (tab switch / file
+    /// focus), for `status_model_latency_ms_from_focus_change`.
+    pub last_focus_change_at: Option<std::time::Instant>,
+    /// Monotonically-incrementing generation counter for status model
+    /// constructions, useful for correlating status trace events to source
+    /// events (open, focus, frame).
+    pub status_model_generation: u64,
+    /// Whether the first stable shell has been painted. Set after the first
+    /// `render_to_window` call returns without a cockpit overlay.
+    pub startup_first_paint_done: bool,
+    /// Timestamp of the first shell paint, for latency probes.
+    pub startup_first_paint_at: Option<std::time::Instant>,
+    /// Reason string for the second layout re-run (if any), set by the
+    /// layout controller before the first resize-invalidated frame.
+    pub startup_second_layout_reason: Option<String>,
+    /// Approximate retained bytes in cockpit instrumentation (symbols, diff
+    /// hunks, widget tree allocations).  Updated each frame the cockpit runs.
+    pub cockpit_retained_bytes: usize,
+    /// Approximate retained bytes in editor-side state (spans cache, syntax
+    /// line cache, rope head). Estimated from key allocations.
+    pub editor_retained_bytes: usize,
     /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
     /// Avoids recomputing spans for lines whose content didn't change.
     pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
@@ -714,6 +743,10 @@ impl GuiApp {
             Some(p) => p,
             None => return,
         };
+        // Record for status-model latency probes.
+        let now = std::time::Instant::now();
+        self.last_open_started_at = Some(now);
+        self.last_focus_change_at = Some(now);
         let ev_start = std::time::Instant::now();
         // ── Phase 1 language detection (single source of truth) ──
         // The active file path determines the language used by the background
@@ -1857,14 +1890,28 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // Stage B–E: materialize the newest pending open (if any) before
                 // anything else this frame. Only the latest token commits, so a
                 // rapid explorer switch never loads a superseded file.
+                let _t_commit = if perf_on || pipeline_trace_enabled() {
+                    Some(std::time::Instant::now())
+                } else {
+                    None
+                };
                 self.commit_open();
+                let commit_open_ms =
+                    _t_commit.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
                 // Commit a completed background open (winning token only).
                 self.poll_open_results();
 
                 // Apply any completed background parse result before shaping the
                 // editor content for this frame so fresh highlight spans are
                 // used immediately (may invalidate the UI).
+                let _t_parse = if perf_on || pipeline_trace_enabled() {
+                    Some(std::time::Instant::now())
+                } else {
+                    None
+                };
                 self.poll_parse_results();
+                let poll_parse_results_ms =
+                    _t_parse.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
 
                 if frame_trace_enabled() {
                     eprintln!(
@@ -2273,6 +2320,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                         Some(self.editor_buffer.rope()),
                         self.editor_buffer.buffer_version,
                     );
+                    // Estimate retained editor bytes for memory trace.
+                    self.editor_retained_bytes = self
+                        .line_syntax_cache
+                        .iter()
+                        .map(|(_, v)| v.iter().map(|(s, _)| s.len()).sum::<usize>())
+                        .sum::<usize>()
+                        + self.cached_line_hashes.len() * 8
+                        + self.latest_spans.as_ref().map(|s| s.len() * 32).unwrap_or(0);
 
                     if debug_large {
                         let content_lines = editor_data.editor_body_text.lines().count();
@@ -2320,12 +2375,36 @@ impl winit::application::ApplicationHandler for GuiApp {
                     // ── Startup trace: status model ──────────────────────
                     let _ts = if startup_trace { Some(std::time::Instant::now()) } else { None };
                     let status_data = super::presenters::shape_status_content(&status_inputs);
+                    self.status_model_generation += 1;
                     if let Some(t) = _ts {
                         eprintln!(
                             "ZAROXI_STARTUP_TRACE: frame={} phase=status_model_init ms={:.2}",
                             frame_id,
                             t.elapsed().as_secs_f32() * 1000.0
                         );
+                    }
+                    if std::env::var("ZAROXI_STATUS_TRACE").as_deref() == Ok("1") {
+                        let sm_gen = self.status_model_generation;
+                        let from_open = self
+                            .last_open_started_at
+                            .map(|t| (std::time::Instant::now() - t).as_secs_f32() * 1000.0);
+                        let from_focus = self
+                            .last_focus_change_at
+                            .map(|t| (std::time::Instant::now() - t).as_secs_f32() * 1000.0);
+                        eprintln!(
+                            "ZAROXI_STATUS_TRACE: status_model_generation={} status_model_latency_ms_from_open={:.1} status_model_latency_ms_from_focus_change={:.1}",
+                            sm_gen,
+                            from_open.unwrap_or(-1.0),
+                            from_focus.unwrap_or(-1.0),
+                        );
+                        // Clear the timestamps so they're not reported again
+                        // until the next open / focus change.
+                        if from_open.is_some() {
+                            self.last_open_started_at = None;
+                        }
+                        if from_focus.is_some() {
+                            self.last_focus_change_at = None;
+                        }
                     }
                     // Canonical instrument-panel context + metadata bands (shared
                     // presenter). The cockpit maps these into visual roles; the
@@ -2362,6 +2441,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .work_content
                             .as_ref()
                             .and_then(|wc| wc.terminal_tabs.clone()),
+                        cockpit_text_active: self.cockpit_text_active,
                     };
 
                     // ── Startup trace: shell block composition ───────────
@@ -2725,6 +2805,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         });
                         match core.render_to_window(surface_size, &render_layout, &render_blocks) {
                             Ok(perf) => {
+                                let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                 self.needs_render = false;
                                 self.frame_scheduler.on_frame_presented(Instant::now());
                                 // Staged first paint: the renderer budgeted its
@@ -2737,7 +2818,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     z.window().request_redraw();
                                 }
                                 if perf_on {
-                                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                     // app_update = everything on the CPU app path
                                     // not separately attributed to layout/syntax
                                     // or the render-side phases.
@@ -2768,7 +2848,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
                                 if pipeline_trace_enabled() {
-                                    let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                     let app_update_ms = (total_ms
                                         - layout_ms
                                         - syntax_ms
@@ -2780,17 +2859,23 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     // Residual app_update not attributed to the
                                     // instrumented sub-phases (status gather, poll,
                                     // scroll-sync, region copy). Should be ~0.
-                                    let misc_ms =
-                                        (app_update_ms - widget_ms - block_build_ms - enrich_ms)
-                                            .max(0.0);
+                                    let misc_ms = (app_update_ms
+                                        - widget_ms
+                                        - block_build_ms
+                                        - enrich_ms
+                                        - commit_open_ms
+                                        - poll_parse_results_ms)
+                                        .max(0.0);
                                     eprintln!(
-                                        "ZAROXI_PIPELINE_TRACE: frame={} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} content_prep_ms={:.2} layout_ms={:.2} misc_ms={:.2}",
+                                        "ZAROXI_PIPELINE_TRACE: frame={} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} content_prep_ms={:.2} layout_ms={:.2} commit_open_ms={:.2} poll_parse_results_ms={:.2} misc_ms={:.2}",
                                         frame_id,
                                         widget_ms,
                                         block_build_ms,
                                         enrich_ms,
                                         syntax_ms,
                                         layout_ms,
+                                        commit_open_ms,
+                                        poll_parse_results_ms,
                                         misc_ms,
                                     );
                                 }
@@ -2837,6 +2922,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     sample.emit();
                                     self.buffer_tracker.emit(frame_id);
                                     self.last_mem_sample = Some(sample);
+                                    // ── Memory trace ──────────────────────
+                                    if std::env::var("ZAROXI_MEM_TRACE").as_deref() == Ok("1") {
+                                        let shape_bytes = shape_cache_bytes as usize;
+                                        eprintln!(
+                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={}",
+                                            frame_id,
+                                            rss as f64 / (1024.0 * 1024.0),
+                                            shape_bytes / 1024,
+                                            gpu_bytes as usize / 1024,
+                                            self.cockpit_retained_bytes / 1024,
+                                            self.editor_retained_bytes / 1024,
+                                            rope_bytes as usize / 1024,
+                                        );
+                                    }
                                     if let Some(tr) = core.text_renderer() {
                                         use zaroxi_core_telemetry::MemoryPressureLevel as Pl;
                                         match pressure {
@@ -2881,6 +2980,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         self.theme_mode,
                                         system_is_dark,
                                     );
+                                    // Track retained cockpit size (symbols, hunks).
+                                    let cockpit_bytes_est =
+                                        self.cockpit_minimap_symbols.len().saturating_mul(64)
+                                            + self.cockpit_diff_hunks.len().saturating_mul(32)
+                                            + 1024;
+                                    self.cockpit_retained_bytes = cockpit_bytes_est;
                                     // Live state via disjoint field access (core
                                     // is mutably borrowed, so avoid &self methods).
                                     let cur_line = self.editor_buffer.caret_line();
@@ -3067,6 +3172,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     core.set_cockpit_scene(Some(scene));
                                     let text_runs = text.len();
                                     core.set_cockpit_text(text);
+                                    if text_runs > 0 {
+                                        self.cockpit_text_active = true;
+                                    }
                                     if let Some(t) = _tck {
                                         eprintln!(
                                             "ZAROXI_STARTUP_TRACE: frame={} phase=cockpit_init ms={:.2}",
@@ -3113,6 +3221,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // subsequent open frames use the progressive budget.
                                 if open_first_screenful {
                                     self.open_first_screenful_pending = false;
+                                }
+
+                                // ── Startup: first-paint probe ─────────────
+                                if !self.startup_first_paint_done {
+                                    self.startup_first_paint_done = true;
+                                    self.startup_first_paint_at = Some(std::time::Instant::now());
+                                    if startup_trace {
+                                        let postpaint_ms =
+                                            frame_start.elapsed().as_secs_f32() * 1000.0 - total_ms;
+                                        let first_paint_ms =
+                                            frame_start.elapsed().as_secs_f32() * 1000.0;
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=first_paint total_ms={:.2} postpaint_misc_ms={:.2}",
+                                            frame_id,
+                                            first_paint_ms,
+                                            postpaint_ms.max(0.0),
+                                        );
+                                    }
+                                } else if startup_trace && frame_id == 1 {
+                                    if let Some(reason) = &self.startup_second_layout_reason {
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=second_layout reason={}",
+                                            frame_id, reason,
+                                        );
+                                    }
                                 }
 
                                 // ── Phase 11: atomic first-paint presentation ──

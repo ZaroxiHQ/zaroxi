@@ -143,6 +143,30 @@ impl StatusView {
         }
     }
 
+    /// Build a background strip with immediate breadcrumb text.
+    ///
+    /// Used during the first few frames before the cockpit overlay has produced
+    /// its own status text, so the status bar is never visually blank while
+    /// waiting for the 1-frame cockpit pipeline. Once cockpit text is active
+    /// this call should not be used (to avoid duplicated text).
+    pub fn build_background_with_breadcrumb(
+        r: &ShellRegion,
+        tokens: &StyleTokens,
+        model: &StatusModel,
+    ) -> UiBlock {
+        let style = StatusStyle::from_tokens(tokens);
+        let breadcrumb = model.file_name.clone().unwrap_or_else(|| "No file".to_string());
+        UiBlock {
+            id: r.id.to_string(),
+            title: breadcrumb,
+            rect: r.into(),
+            header_color: Some(style.background),
+            header_only: true,
+            text_color: Some(style.primary_text),
+            ..Default::default()
+        }
+    }
+
     /// Build the status bar `UiBlock` for its shell region.
     pub fn build_block(r: &ShellRegion, tokens: &StyleTokens, model: &StatusModel) -> UiBlock {
         let style = StatusStyle::from_tokens(tokens);

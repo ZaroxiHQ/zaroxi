@@ -31,6 +31,12 @@ pub struct ShellBlockContext {
     pub status_bar_data: StatusModel,
     pub ai_data: AiPanelData,
     pub terminal_tabs: Option<Vec<String>>,
+    /// When `true`, the cockpit overlay is actively producing status text
+    /// and the shell path should emit only the background strip (no
+    /// breadcrumb) to avoid duplicated text.  False during startup and the
+    /// first few frames before the cockpit pipeline has produced its first
+    /// text run.
+    pub cockpit_text_active: bool,
 }
 
 /// Compute scrollbar UiBlocks directly from ShellFrame regions.
@@ -330,13 +336,23 @@ pub fn compose_blocks(
                 }
                 if legacy {
                     blocks.push(StatusView::build_block(r, tokens, &ctx.status_bar_data));
-                } else {
+                } else if ctx.cockpit_text_active {
                     // Cockpit owns the status TEXT (drawn by the cosmic-text pass).
                     // Draw only the elevated strip background here, in the shell
                     // shape pass that runs BEFORE the text pass, so the cockpit
                     // status text lands on top of it (the vello overlay composite
                     // runs after text, so the strip background cannot live there).
                     blocks.push(StatusView::build_background_block(r, tokens));
+                } else {
+                    // Cockpit text is not yet active (startup / first few frames).
+                    // Emit the breadcrumb immediately so the status bar is never
+                    // blank while the cockpit pipeline initialises. Once the
+                    // cockpit begins producing text we switch to background-only.
+                    blocks.push(StatusView::build_background_with_breadcrumb(
+                        r,
+                        tokens,
+                        &ctx.status_bar_data,
+                    ));
                 }
             }
         };

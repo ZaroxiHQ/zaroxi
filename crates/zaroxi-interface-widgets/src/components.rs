@@ -729,7 +729,8 @@ pub struct StatusMetrics {
 /// Collapsed health-band width (px) at the tiniest bucket (a single LSP dot).
 /// Inner padding (px) inside each band.
 const BAND_PAD: f64 = 12.0;
-/// Uniform label size (px); emphasis is by colour, not size (calm, dense panel).
+const RIGHT_TRAILING_PAD: f64 = 14.0;
+// ═════════════════════════════════════════════════════════════════════════
 const STATUS_SIZE: f32 = 12.0;
 
 /// Component 6 — the live instrument-panel status bar (three bands).
@@ -851,7 +852,9 @@ impl StatusBar {
             right_parts.push(pos.clone());
         }
         // Fit to width from the right edge: drop leftmost (index 0) first.
-        let right_max_w = (total_w - BAND_PAD * 2.0).max(0.0);
+        // RIGHT_TRAILING_PAD reserves space so the rightmost chip never
+        // touches or clips against the window edge.
+        let right_max_w = (total_w - BAND_PAD - RIGHT_TRAILING_PAD).max(0.0);
         let mut right_str = String::new();
         let mut right_w = 0.0;
         let mut right_used = 0usize;
@@ -867,18 +870,17 @@ impl StatusBar {
             right_used += 1;
         }
         let right_items = right_used;
-        // Anchor to the far right.
         let right_zone_w = right_w;
-        let (right_start_x, right_end_x) = if !rtl {
-            let sx = r.x1 - BAND_PAD - right_w;
-            (sx, r.x1)
+        let (right_start_x, right_end_x, trailing_pad) = if !rtl {
+            let sx = r.x1 - RIGHT_TRAILING_PAD - right_w;
+            (sx, r.x1 - RIGHT_TRAILING_PAD, RIGHT_TRAILING_PAD)
         } else {
-            let sx = r.x0 + BAND_PAD;
-            (r.x0, sx + right_w)
+            let sx = r.x0 + RIGHT_TRAILING_PAD;
+            (r.x0 + RIGHT_TRAILING_PAD, sx + right_w, RIGHT_TRAILING_PAD)
         };
         if !right_str.is_empty() {
             place(
-                if !rtl { right_start_x } else { r.x0 + BAND_PAD },
+                if !rtl { right_start_x } else { r.x0 + RIGHT_TRAILING_PAD },
                 right_str,
                 theme.text_muted,
                 &mut texts,
@@ -1100,14 +1102,19 @@ impl StatusBar {
             } else {
                 (right_end_x - center_x0).max(0.0)
             };
+            let right_clip_px = (right_zone_w - right_max_w).max(0.0);
             eprintln!(
-                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} left_zone_w={:.0} center_zone_w={:.0} right_zone_w={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_left_center={:.1} overlap_center_right={:.1} center_mode={} right_items_visible={} center_items_visible={} breadcrumb_truncated={}",
+                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} left_zone_w={:.0} center_zone_w={:.0} right_zone_w={:.0} right_cluster_w_measured={:.0} right_cluster_w_painted={:.0} right_cluster_trailing_pad={:.0} right_cluster_clip_px={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_left_center={:.1} overlap_center_right={:.1} center_mode={} right_items_visible={} center_items_visible={} breadcrumb_truncated={}",
                 bucket.label(),
                 level,
                 total_w,
                 left_available,
                 center_x1 - center_x0,
                 right_zone_w,
+                right_zone_w,
+                right_w,
+                trailing_pad,
+                right_clip_px,
                 center_target,
                 ct,
                 shift,
