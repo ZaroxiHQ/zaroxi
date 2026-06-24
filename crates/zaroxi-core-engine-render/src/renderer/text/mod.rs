@@ -325,6 +325,12 @@ pub trait TextRenderer: Send + Sync {
         0
     }
 
+    /// Current number of entries in the shaped-glyph (line) cache.
+    /// Used for memory trace visibility. Default `0`.
+    fn shape_cache_entries(&self) -> usize {
+        0
+    }
+
     /// Pressure response (Elevated): evict the coldest shaped-line cache entries
     /// until at most `target_entries` remain. Returns the number evicted.
     /// Default no-op returning `0`.

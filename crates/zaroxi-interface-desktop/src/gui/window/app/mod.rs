@@ -549,6 +549,26 @@ pub struct GuiApp {
     /// partially-shaped top viewport that re-settles over the next frames. Cleared
     /// once the screenful is shaped; below-the-fold then fills progressively.
     pub open_atomic_first_paint: bool,
+    /// Initial window geometry recorded on the first Resized event (or first
+    /// render frame if no resize occurred).  Used to detect whether the
+    /// compositor negotiated a different size than what was requested.
+    pub startup_geometry_initial: Option<(u32, u32)>,
+    /// Window geometry recorded when the window was first made visible —
+    /// the "final" settled geometry for the first visible paint.
+    pub startup_geometry_final: Option<(u32, u32)>,
+    /// Human-readable reason the window geometry changed between initial and final
+    /// (e.g. "compositor_resize", "no_change").
+    pub startup_geometry_changed_reason: Option<String>,
+    /// True once the first visible frame uses the final stable layout (no pending
+    /// resize, cockpit active).
+    pub startup_first_visible_layout_stable: bool,
+    /// True after the one-time post-settle cache trim has run (eviction of cold
+    /// shape-cache entries + line-syntax-cache prune).
+    pub startup_settle_trimmed: bool,
+    /// Monotonic version counter for the text instance buffer, incremented each
+    /// time the persistent buffer is reallocated (growth). Used by the renderer
+    /// to detect stale buffers from across-frame resizes.
+    pub text_instance_buffer_version: u64,
 }
 
 /// Phase 6 two-tier open shaping budget.
@@ -807,6 +827,13 @@ impl GuiApp {
             self.cockpit_diff_hunks.clear();
             self.cockpit_diff_version = 0;
             self.cockpit_retained_bytes = 0;
+            // Evict cold shape-cache entries so the new file's glyphs
+            // don't compete with stale entries from the previous file.
+            if let Some(ref core) = self.render_core {
+                if let Some(tr) = core.text_renderer() {
+                    tr.evict_shaped_cold(512);
+                }
+            }
         }
 
         let mut backgrounded = false;
@@ -1759,6 +1786,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                     z.update_size(size.width, size.height);
                     debug::gui_debug_fmt!("GuiApp: Resized -> {size:?}, invalidating");
                 }
+                if self.startup_geometry_initial.is_none() {
+                    self.startup_geometry_initial = Some((size.width, size.height));
+                    self.startup_geometry_changed_reason =
+                        Some("compositor_resize_before_first_paint".into());
+                } else {
+                    self.startup_geometry_final = Some((size.width, size.height));
+                }
                 self.resize_pending = true;
                 self.invalidate(InvalidationFlags::resize());
             }
@@ -2025,6 +2059,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                             );
                         }
                         return;
+                    }
+
+                    if self.startup_geometry_initial.is_none() {
+                        self.startup_geometry_initial = Some((sw, sh));
+                        if self.startup_geometry_changed_reason.is_none() {
+                            self.startup_geometry_changed_reason = Some("no_change".into());
+                        }
                     }
 
                     // Notify compositor before rendering this frame.
@@ -2808,7 +2849,9 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                     // Create persistent RenderCore on first frame.
                     let core_exists = self.render_core.is_some();
+                    let mut render_core_create_ms: f32 = 0.0;
                     if !core_exists {
+                        let _t_core = std::time::Instant::now();
                         let window_arc = z.window_arc();
                         let surface_size = winit::dpi::PhysicalSize::new(sw, sh);
                         match pollster::block_on(
@@ -2819,6 +2862,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                             ),
                         ) {
                             Ok(core) => {
+                                render_core_create_ms = _t_core.elapsed().as_secs_f32() * 1000.0;
                                 self.render_core = Some(core);
                             }
                             Err(e) => {
@@ -2926,8 +2970,23 @@ impl winit::application::ApplicationHandler for GuiApp {
 
                                 // ── Startup sub-phase breakdown ─────────────
                                 if startup_trace {
+                                    let app_update_ms = (total_ms
+                                        - layout_ms
+                                        - syntax_ms
+                                        - perf.text_shape_ms
+                                        - perf.text_prepare_ms
+                                        - perf.gpu_encode_ms
+                                        - perf.gpu_submit_present_ms)
+                                        .max(0.0);
+                                    let misc_ms = (app_update_ms
+                                        - widget_ms
+                                        - block_build_ms
+                                        - enrich_ms
+                                        - commit_open_ms
+                                        - poll_parse_results_ms)
+                                        .max(0.0);
                                     eprintln!(
-                                        "ZAROXI_STARTUP_TRACE: frame={} phase=render_breakdown layout_ms={:.2} syntax_ms={:.2} text_shape_ms={:.2} text_prepare_ms={:.2} gpu_encode_ms={:.2} gpu_submit_present_ms={:.2} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} commit_open_ms={:.2} poll_parse_results_ms={:.2}",
+                                        "ZAROXI_STARTUP_TRACE: frame={} phase=render_breakdown layout_ms={:.2} syntax_ms={:.2} text_shape_ms={:.2} text_prepare_ms={:.2} gpu_encode_ms={:.2} gpu_submit_present_ms={:.2} widget_ms={:.2} block_build_ms={:.2} enrich_ms={:.2} commit_open_ms={:.2} poll_parse_results_ms={:.2} render_core_create_ms={:.2} gpu_upload_bytes={} elements_reused={} elements_rebuilt={} misc_ms={:.2}",
                                         frame_id,
                                         layout_ms,
                                         syntax_ms,
@@ -2940,6 +2999,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         enrich_ms,
                                         commit_open_ms,
                                         poll_parse_results_ms,
+                                        render_core_create_ms,
+                                        perf.gpu_upload_bytes,
+                                        perf.elements_reused,
+                                        perf.elements_rebuilt,
+                                        misc_ms,
                                     );
                                 }
 
@@ -2982,11 +3046,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     // ── Memory trace ──────────────────────
                                     if std::env::var("ZAROXI_MEM_TRACE").as_deref() == Ok("1") {
                                         let shape_bytes = shape_cache_bytes as usize;
+                                        let shape_entries = core
+                                            .text_renderer()
+                                            .map(|tr| tr.shape_cache_entries())
+                                            .unwrap_or(0);
                                         eprintln!(
-                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={}",
+                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} shape_cache_entries={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={}",
                                             frame_id,
                                             rss as f64 / (1024.0 * 1024.0),
                                             shape_bytes / 1024,
+                                            shape_entries,
                                             gpu_bytes as usize / 1024,
                                             self.cockpit_retained_bytes / 1024,
                                             self.editor_retained_bytes / 1024,
@@ -3519,9 +3588,102 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     );
                                 }
                                 if !self.first_render_shown {
-                                    z.window().set_visible(true);
-                                    self.first_render_shown = true;
-                                    eprintln!("GuiApp: first full-renderer frame; window visible");
+                                    let legacy = super::cockpit::legacy_shell_surfaces();
+                                    let cockpit_ready = self.cockpit_text_active;
+                                    let geometry_stable = !self.resize_pending;
+                                    let ready_to_show =
+                                        (cockpit_ready || legacy) && geometry_stable;
+                                    if ready_to_show {
+                                        z.window().set_visible(true);
+                                        self.first_render_shown = true;
+                                        self.startup_geometry_final = Some((sw, sh));
+                                        self.startup_first_visible_layout_stable = true;
+                                        if startup_trace {
+                                            eprintln!(
+                                                "ZAROXI_STARTUP_TRACE: frame={} phase=first_visible_layout_stable initial_geom={:?} final_geom={:?} changed_reason={} cockpit_ready={} legacy={} geometry_stable={}",
+                                                frame_id,
+                                                self.startup_geometry_initial,
+                                                self.startup_geometry_final,
+                                                self.startup_geometry_changed_reason
+                                                    .as_deref()
+                                                    .unwrap_or("none"),
+                                                cockpit_ready,
+                                                legacy,
+                                                geometry_stable,
+                                            );
+                                        }
+                                        eprintln!(
+                                            "GuiApp: first full-renderer frame; window visible (cockpit_ready={} legacy={} geom_stable={})",
+                                            cockpit_ready, legacy, geometry_stable,
+                                        );
+                                        // ── Post-settle cache trim ─────────
+                                        if !self.startup_settle_trimmed {
+                                            self.startup_settle_trimmed = true;
+                                            if let Some(ref core) = self.render_core {
+                                                if let Some(tr) = core.text_renderer() {
+                                                    let before_entries = tr.mem_shape_cache_bytes();
+                                                    tr.evict_shaped_cold(256);
+                                                    let after_entries = tr.mem_shape_cache_bytes();
+                                                    if std::env::var("ZAROXI_MEM_TRACE").as_deref()
+                                                        == Ok("1")
+                                                    {
+                                                        eprintln!(
+                                                            "ZAROXI_MEM_TRACE: frame={} phase=post_settle_trim shape_cache_before_kb={} shape_cache_after_kb={}",
+                                                            frame_id,
+                                                            before_entries as usize / 1024,
+                                                            after_entries as usize / 1024,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            let before_syntax = self.editor_retained_bytes;
+                                            let visible_start = self
+                                                .composition
+                                                .as_ref()
+                                                .and_then(|c| c.metadata.as_ref())
+                                                .map(|m| m.editor_scroll_top_line)
+                                                .unwrap_or(0);
+                                            let visible_end =
+                                                visible_start + editor_visible_lines + 40;
+                                            self.line_syntax_cache.retain(|&(line, _), _| {
+                                                line >= visible_start && line < visible_end
+                                            });
+                                            self.cached_line_hashes.truncate(visible_end);
+                                            self.editor_retained_bytes = self
+                                                .line_syntax_cache
+                                                .iter()
+                                                .map(|(_, v)| {
+                                                    v.iter().map(|(s, _)| s.len()).sum::<usize>()
+                                                })
+                                                .sum::<usize>()
+                                                + self.cached_line_hashes.len() * 8
+                                                + self
+                                                    .latest_spans
+                                                    .as_ref()
+                                                    .map(|s| s.len() * 32)
+                                                    .unwrap_or(0);
+                                            if std::env::var("ZAROXI_MEM_TRACE").as_deref()
+                                                == Ok("1")
+                                            {
+                                                eprintln!(
+                                                    "ZAROXI_MEM_TRACE: frame={} phase=post_settle_trim syntax_before_kb={} syntax_after_kb={} cached_hashes={}",
+                                                    frame_id,
+                                                    before_syntax / 1024,
+                                                    self.editor_retained_bytes / 1024,
+                                                    self.cached_line_hashes.len(),
+                                                );
+                                            }
+                                        }
+                                    } else if startup_trace {
+                                        eprintln!(
+                                            "ZAROXI_STARTUP_TRACE: frame={} phase=first_visible_deferred cockpit_ready={} legacy={} geometry_stable={} resize_pending={}",
+                                            frame_id,
+                                            cockpit_ready,
+                                            legacy,
+                                            geometry_stable,
+                                            self.resize_pending,
+                                        );
+                                    }
                                 }
                             }
                             Err(e) => {

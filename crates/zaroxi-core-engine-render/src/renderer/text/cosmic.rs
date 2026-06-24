@@ -354,6 +354,10 @@ pub struct CosmicTextRenderer {
     /// `(lines_shaped, lines_considered)` from the last `prepare`, for the
     /// open-settle trace.
     last_lines: Arc<Mutex<(usize, usize)>>,
+    /// Capacity (in InstanceRaw count) of the persisted instance buffer, so we
+    /// can reuse it with `write_buffer` instead of allocating a new GPU buffer
+    /// every frame when the instance count is unchanged or smaller.
+    instance_buffer_capacity: Arc<Mutex<usize>>,
 }
 
 impl CosmicTextRenderer {
@@ -463,6 +467,7 @@ impl CosmicTextRenderer {
             last_gpu_upload: Arc::new(Mutex::new((0, "none"))),
             shape_budget_override: Arc::new(Mutex::new(None)),
             last_lines: Arc::new(Mutex::new((0, 0))),
+            instance_buffer_capacity: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -1768,13 +1773,30 @@ impl TextRenderer for CosmicTextRenderer {
                 };
                 insts.push(ir);
             }
-            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("text_instance_buffer"),
-                contents: bytemuck::cast_slice(&insts),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-            let mut ib = self.instance_buffer.lock().unwrap();
-            *ib = Some(buf);
+            let buf = {
+                let required = insts.len();
+                let mut cap = self.instance_buffer_capacity.lock().unwrap();
+                let mut ib = self.instance_buffer.lock().unwrap();
+                if *cap < required {
+                    let new_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("text_instance_buffer"),
+                        size: (required * std::mem::size_of::<InstanceRaw>()) as u64,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    *cap = required;
+                    *ib = Some(new_buf);
+                }
+                if let Some(ref buf) = *ib {
+                    queue.write_buffer(buf, 0, bytemuck::cast_slice(&insts));
+                }
+                // Return a clone of the Arc handle for the caller (theib lock
+                // must be released before the persistent buffer is used later).
+                None::<wgpu::Buffer>
+            };
+            // Register the instance buffer for the render pass — it's already
+            // stored in self.instance_buffer from the write above. No-op drop.
+            drop(buf);
             // Record the upload size + a reason classifying how much real work
             // this frame's payload required. "reused" means every element
             // bucket came from the retained cache (no shaping); the instance
@@ -1889,6 +1911,10 @@ impl TextRenderer for CosmicTextRenderer {
             .unwrap_or(0);
         let instance_bytes = instances as u64 * std::mem::size_of::<InstanceRaw>() as u64;
         atlas_bytes + instance_bytes
+    }
+
+    fn shape_cache_entries(&self) -> usize {
+        self.line_shape_cache.lock().unwrap().len()
     }
 
     fn evict_shaped_cold(&self, target_entries: usize) -> usize {

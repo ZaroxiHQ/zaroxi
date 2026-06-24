@@ -122,6 +122,12 @@ mod tests {
             open_worker_started_at: None,
             open_present: None,
             open_atomic_first_paint: false,
+            startup_geometry_initial: None,
+            startup_geometry_final: None,
+            startup_geometry_changed_reason: None,
+            startup_first_visible_layout_stable: false,
+            startup_settle_trimmed: false,
+            text_instance_buffer_version: 0,
         }
     }
 
