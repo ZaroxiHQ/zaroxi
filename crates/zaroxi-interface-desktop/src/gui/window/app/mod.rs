@@ -372,8 +372,11 @@ pub struct GuiApp {
     /// focus. Set each frame from the sidebar render.
     pub explorer_search_rect: Option<(f32, f32, f32, f32)>,
     /// Index of the currently selected activity rail item (0=Explorer, 1=Search,
-    /// 2=Source Ctrl, 3=Debug, 4=Settings, 5=Account). Default 0.
+    /// 2=Source Ctrl, 3=Debug, 4=Extensions, 5=Settings, 6=Account). Default 0.
     pub rail_selected_index: usize,
+    /// Same as rail_selected_index; tracks the active panel destination for
+    /// Settings / Extensions overlay panels.
+    pub panel_destination: usize,
     /// Index of the currently hovered activity rail item, or None.
     pub rail_hovered_index: Option<usize>,
     /// Hit rects for each rail item, set each frame from the cockpit rail layout.
@@ -777,7 +780,7 @@ impl GuiApp {
             wc.active_file.as_deref() != self.committed_active_file.as_deref();
         self.open_request_at = Some(std::time::Instant::now());
         if file_open_trace_enabled() {
-            let path = wc.active_file.clone().unwrap_or_else(|| "<none>".into());
+            let path = wc.active_file.clone().unwrap_or_else(|| "<none>".to_string());
             eprintln!(
                 "ZAROXI_FILE_OPEN_TRACE: token={} stage=start cancelled=0 superseded_by=- file_switch_count={} pending_open_requests=1 upstream_open_prep_ms={:.2} file={}",
                 token, self.file_switch_count, self.last_upstream_open_prep_ms, path,
@@ -1800,7 +1803,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 if self.startup_geometry_initial.is_none() {
                     self.startup_geometry_initial = Some((size.width, size.height));
                     self.startup_geometry_changed_reason =
-                        Some("compositor_resize_before_first_paint".into());
+                        Some("compositor_resize_before_first_paint".to_string());
                 } else {
                     self.startup_geometry_final = Some((size.width, size.height));
                 }
@@ -2107,7 +2110,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if self.startup_geometry_initial.is_none() {
                         self.startup_geometry_initial = Some((sw, sh));
                         if self.startup_geometry_changed_reason.is_none() {
-                            self.startup_geometry_changed_reason = Some("no_change".into());
+                            self.startup_geometry_changed_reason = Some("no_change".to_string());
                         }
                     }
 
@@ -3024,11 +3027,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         status_rect: cockpit_status_rect,
                                         rail_rect: cockpit_rail_rect,
                                         rail_items: {
-                                            let glyphs: [(u32, &str); 6] = [
+                                            let glyphs: [(u32, &str); 7] = [
                                                 (0xf07b, "Explorer"),
                                                 (0xf002, "Search"),
                                                 (0xe702, "Source Ctrl"),
                                                 (0xf188, "Debug"),
+                                                (0xf12e, "Extensions"),
                                                 (0xf013, "Settings"),
                                                 (0xf007, "Account"),
                                             ];
@@ -3041,7 +3045,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                     zaroxi_interface_widgets::ActivityItem {
                                                         index: idx,
                                                         glyph: char::from_u32(cp).unwrap_or('?'),
-                                                        label: label.into(),
+                                                        label: label.to_string(),
                                                         selected: idx == sel,
                                                         hovered: Some(idx) == hov,
                                                         pressed: false,
@@ -3064,6 +3068,64 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             editor_total_lines,
                                         ),
                                         status: instrument_status,
+                                        settings_panel: if self.rail_selected_index == 5 {
+                                            let mode_name = format!("{:?}", self.theme_mode);
+                                            use zaroxi_interface_widgets::{
+                                                SettingsRow, SettingsRowKind, SettingsSection,
+                                            };
+                                            Some((
+                                                vec![
+                                                    SettingsSection {
+                                                        label: "General".to_string(),
+                                                        items: vec![SettingsRow {
+                                                            label: "Theme".to_string(),
+                                                            description: "Color theme for the IDE"
+                                                                .to_string(),
+                                                            kind: SettingsRowKind::Label {
+                                                                value: mode_name,
+                                                            },
+                                                        }],
+                                                    },
+                                                    SettingsSection {
+                                                        label: "Appearance".to_string(),
+                                                        items: vec![SettingsRow {
+                                                            label: "Font Size".to_string(),
+                                                            description: "Default editor font size"
+                                                                .to_string(),
+                                                            kind: SettingsRowKind::Label {
+                                                                value: "13 px".to_string(),
+                                                            },
+                                                        }],
+                                                    },
+                                                    SettingsSection {
+                                                        label: "Editor".to_string(),
+                                                        items: vec![SettingsRow {
+                                                            label: "Tab Size".to_string(),
+                                                            description: "Spaces per tab"
+                                                                .to_string(),
+                                                            kind: SettingsRowKind::Label {
+                                                                value: "4".to_string(),
+                                                            },
+                                                        }],
+                                                    },
+                                                    SettingsSection {
+                                                        label: "Keybindings".to_string(),
+                                                        items: vec![SettingsRow {
+                                                            label: "Scheme".to_string(),
+                                                            description: "Keyboard shortcut scheme"
+                                                                .to_string(),
+                                                            kind: SettingsRowKind::Label {
+                                                                value: "Default".to_string(),
+                                                            },
+                                                        }],
+                                                    },
+                                                ],
+                                                0,
+                                            ))
+                                        } else {
+                                            None
+                                        },
+                                        extensions_panel: self.rail_selected_index == 4,
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(
@@ -3081,7 +3143,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         let ry = cockpit_rail_rect.1;
                                         let rw = cockpit_rail_rect.2;
                                         let rh = cockpit_rail_rect.3;
-                                        let count = 6usize;
+                                        let count = 7usize;
                                         let slot_w =
                                             if count > 0 { rw / count as f32 } else { 0.0 };
                                         let mut rects = Vec::new();
@@ -3507,13 +3569,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             // (bottom of the left column, cockpit-owned).
                                             rail_rect: cockpit_rail_rect,
                                             rail_items: {
-                                                let glyphs: [(u32, &str); 6] = [
-                                                    (0xf07b, "Explorer"),    // nf-fa-folder
-                                                    (0xf002, "Search"),      // nf-fa-search
-                                                    (0xe702, "Source Ctrl"), // nf-dev-git_branch
-                                                    (0xf188, "Debug"),       // nf-fa-bug
-                                                    (0xf013, "Settings"),    // nf-fa-cog
-                                                    (0xf007, "Account"),     // nf-fa-user
+                                                let glyphs: [(u32, &str); 7] = [
+                                                    (0xf07b, "Explorer"),
+                                                    (0xf002, "Search"),
+                                                    (0xe702, "Source Ctrl"),
+                                                    (0xf188, "Debug"),
+                                                    (0xf12e, "Extensions"),
+                                                    (0xf013, "Settings"),
+                                                    (0xf007, "Account"),
                                                 ];
                                                 let sel = self.rail_selected_index;
                                                 let hov = self.rail_hovered_index;
@@ -3525,7 +3588,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                             index: idx,
                                                             glyph: char::from_u32(cp)
                                                                 .unwrap_or('?'),
-                                                            label: label.into(),
+                                                            label: label.to_string(),
                                                             selected: idx == sel,
                                                             hovered: Some(idx) == hov,
                                                             pressed: false,
@@ -3580,7 +3643,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             let ry = cockpit_rail_rect.1;
                                             let rw = cockpit_rail_rect.2;
                                             let rh = cockpit_rail_rect.3;
-                                            let count = 6usize;
+                                            let count = 7usize;
                                             let slot_w =
                                                 if count > 0 { rw / count as f32 } else { 0.0 };
                                             let mut rects = Vec::new();

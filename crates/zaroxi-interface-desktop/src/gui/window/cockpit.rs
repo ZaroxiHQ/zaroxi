@@ -86,6 +86,10 @@ pub struct CockpitInputs {
     pub status: InstrumentStatus,
     /// Command palette: `Some((items, selected, rtl))` when open.
     pub palette: Option<(Vec<PaletteItem>, usize, bool)>,
+    /// Settings panel: `Some(sections, selected_section)` when open.
+    pub settings_panel: Option<(Vec<zaroxi_interface_widgets::SettingsSection>, usize)>,
+    /// Extensions panel: `true` when open.
+    pub extensions_panel: bool,
     /// Animation phase in `[0,1)` (advanced by the host clock).
     pub phase: f32,
 }
@@ -382,6 +386,25 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         );
     }
 
+    // Settings panel overlay (when open).
+    if let Some((sections, selected_section)) = &inputs.settings_panel {
+        let settings_layout = centered(&regions.editor, 680.0, 460.0);
+        tree.push(
+            Box::new(zaroxi_interface_widgets::SettingsPanel {
+                opened: true,
+                sections: sections.clone(),
+                selected_section: *selected_section,
+            }),
+            settings_layout,
+        );
+    }
+
+    // Extensions panel overlay (when open).
+    if inputs.extensions_panel {
+        let ext_layout = centered(&regions.editor, 640.0, 400.0);
+        tree.push(Box::new(zaroxi_interface_widgets::ExtensionsPanel { opened: true }), ext_layout);
+    }
+
     tree
 }
 
@@ -468,10 +491,12 @@ mod tests {
                 rtl: false,
             },
             palette: Some((
-                vec![PaletteItem { label: "افتح ملف".into(), shortcut: "Ctrl+O".into() }],
+                vec![PaletteItem { label: "افتح ملف".to_string(), shortcut: "Ctrl+O".to_string() }],
                 0,
                 true,
             )),
+            settings_panel: None,
+            extensions_panel: false,
             phase: 0.3,
             rail_rect: (0.0, 776.0, 0.0, 0.0),
             rail_items: vec![],
