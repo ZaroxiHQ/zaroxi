@@ -725,6 +725,8 @@ pub struct StatusMetrics {
 
 /// Reserved width (px) of the right AI band — constant so dormant↔live is jitter-free.
 const AI_BAND_W: f64 = 118.0;
+/// Compact AI band width when space is tight (L4+): just "AI" label + dot.
+const AI_COMPACT_W: f64 = 60.0;
 /// Reserved width (px) of the center health band at full detail.
 const HEALTH_BAND_W: f64 = 124.0;
 /// Collapsed health-band width (px) at the tiniest bucket (a single LSP dot).
@@ -849,22 +851,84 @@ impl StatusBar {
         let y = (cy - STATUS_SIZE as f64 * 0.5) as f32;
         let rtl = self.status.rtl;
 
-        let health_w = if level >= 5 { HEALTH_BAND_MIN_W } else { HEALTH_BAND_W };
-        let ai_w = AI_BAND_W;
-
-        // Physical band rects (context elastic). RTL mirrors the band order.
-        let band = |x: f64, w: f64| Rect::new(x, r.y0, x + w.max(0.0), r.y1);
-        let (context, health, ai) = if !rtl {
-            let ai_rect = band(r.x1 - ai_w, ai_w);
-            let health_rect = band(ai_rect.x0 - health_w, health_w);
-            let context_rect = band(r.x0, (health_rect.x0 - r.x0).max(0.0));
-            (context_rect, health_rect, ai_rect)
+        // ── 1. Desired band widths (collapsible per level) ───────────────
+        let ai_w = if level >= 4 { AI_COMPACT_W } else { AI_BAND_W };
+        let health_w = if level >= 5 {
+            HEALTH_BAND_MIN_W
+        } else if level >= 3 {
+            HEALTH_BAND_MIN_W + 60.0
         } else {
-            let ai_rect = band(r.x0, ai_w);
-            let health_rect = band(ai_rect.x1, health_w);
-            let context_rect = band(health_rect.x1, (r.x1 - health_rect.x1).max(0.0));
-            (context_rect, health_rect, ai_rect)
+            HEALTH_BAND_W
         };
+
+        // ── 2. Place bands: AI hugs far edge; health is CENTRED on the full
+        //       strip; context fills remainder.  Collision priority: AI > health
+        //       > context (health shifts toward context when it overlaps AI;
+        //       never paint through another band). ─────────────────────────
+        let total_w = r.width();
+        let slot_center = r.x0 + total_w / 2.0;
+        let band = |x: f64, w: f64| Rect::new(x, r.y0, x + w.max(0.0), r.y1);
+
+        let ai_rect = if !rtl { band(r.x1 - ai_w, ai_w) } else { band(r.x0, ai_w) };
+        let health_rect = band((slot_center - health_w / 2.0).max(r.x0), health_w);
+
+        // Resolve slot ↔ AI overlap.
+        let health_rect = if !rtl {
+            let overlap = (health_rect.x1 - ai_rect.x0).max(0.0);
+            band((health_rect.x0 - overlap).max(r.x0), health_w)
+        } else {
+            let overlap = (ai_rect.x1 - health_rect.x0).max(0.0);
+            let shifted_x0 = (health_rect.x0 + overlap).min(r.x1 - health_w.max(0.0));
+            band(shifted_x0.max(r.x0), health_w)
+        };
+        let health_rect = if !rtl {
+            band(health_rect.x0, (health_rect.width().min(r.x1 - health_rect.x0)).max(0.0))
+        } else {
+            band(health_rect.x0, (health_rect.width().min(health_rect.x1 - r.x0)).max(0.0))
+        };
+
+        let context_rect = if !rtl {
+            band(r.x0, (health_rect.x0 - r.x0).max(0.0))
+        } else {
+            band(health_rect.x1, (r.x1 - health_rect.x1).max(0.0))
+        };
+
+        // ── Layout trace ────────────────────────────────────────────────
+        if std::env::var("ZAROXI_STATUS_LAYOUT_TRACE").as_deref() == Ok("1") {
+            let center_target = r.x0 + total_w / 2.0;
+            let center_actual = health_rect.x0 + health_rect.width() / 2.0;
+            let shift = center_actual - center_target;
+            let overlap_lc = if !rtl {
+                (context_rect.x1 - health_rect.x0).max(0.0)
+            } else {
+                (health_rect.x1 - context_rect.x0).max(0.0)
+            };
+            let overlap_cr = if !rtl {
+                (ai_rect.x0 - health_rect.x1).max(0.0)
+            } else {
+                (health_rect.x0 - ai_rect.x1).max(0.0)
+            };
+            eprintln!(
+                "ZAROXI_STATUS_LAYOUT_TRACE: bucket={} level={} total_w={:.0} context_w={:.0} center_w={:.0} ai_w={:.0} center_target_x={:.0} center_actual_x={:.0} center_shift_px={:.1} overlap_lc={:.1} overlap_cr={:.1} ai_compact={} health_slim={}",
+                bucket.label(),
+                level,
+                total_w,
+                context_rect.width(),
+                health_rect.width(),
+                ai_rect.width(),
+                center_target,
+                center_actual,
+                shift,
+                overlap_lc,
+                overlap_cr,
+                ai_w <= AI_COMPACT_W + 1.0,
+                health_w <= HEALTH_BAND_MIN_W + 2.0,
+            );
+        }
+
+        let context = context_rect;
+        let health = health_rect;
+        let ai = ai_rect;
 
         let mut texts: Vec<PText> = Vec::new();
         let mut vectors: Vec<PVec> = Vec::new();
@@ -1401,6 +1465,9 @@ mod tests {
         assert!(narrow.context_items <= a.context_items, "narrower must not add context items");
 
         // Reserved bands keep stable widths across buckets (no jitter).
-        assert_eq!(a.right_band_w, narrow.right_band_w, "AI band width is reserved/constant");
+        // Reserved bands are stable within a bucket-tier but can shrink at
+        // higher collapse levels (the AI band compacts at L4+ by design).
+        assert_eq!(a.right_band_w, b.right_band_w, "right band stable within a bucket");
+        assert!(narrow.right_band_w <= a.right_band_w, "right band may compact at narrow widths");
     }
 }
