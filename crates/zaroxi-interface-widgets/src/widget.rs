@@ -95,12 +95,23 @@ pub struct WidgetText {
     pub size_px: f32,
     /// RGBA color.
     pub color: [f32; 4],
+    /// Optional clip rect `(x, y, w, h)` in physical px. When set, the host
+    /// renderer will cull glyphs that fall outside this region. Set this to the
+    /// widget's layout rect so text never bleeds across panel boundaries.
+    pub clip_rect: Option<(f32, f32, f32, f32)>,
 }
 
 impl WidgetText {
     /// Convenience constructor.
     pub fn new(text: impl Into<String>, x: f32, y: f32, size_px: f32, color: [f32; 4]) -> Self {
-        Self { text: text.into(), x, y, size_px, color }
+        Self { text: text.into(), x, y, size_px, color, clip_rect: None }
+    }
+
+    /// Attach a clip rect `(x, y, w, h)` so the host renderer culls glyphs
+    /// outside this region. Chain after [`WidgetText::new`].
+    pub fn with_clip(mut self, clip: (f32, f32, f32, f32)) -> Self {
+        self.clip_rect = Some(clip);
+        self
     }
 }
 

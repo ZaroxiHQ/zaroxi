@@ -1880,6 +1880,10 @@ pub struct CockpitText {
     pub size_px: f32,
     /// RGBA color.
     pub color: [f32; 4],
+    /// Optional clip rect `(x, y, w, h)` passed through from the widget that
+    /// produced this text. Glyphs outside this region are culled by the cosmic
+    /// text layer.
+    pub clip_rect: Option<(f32, f32, f32, f32)>,
 }
 
 /// Per-frame render-side timing + counters, gated behind `ZAROXI_PERF_TRACE=1`.
@@ -2489,16 +2493,10 @@ fn render_frame_inner(
             // drawn by the text pass below. The vello overlay supplies vector
             // visuals; glyphs always come from cosmic-text.
             for ct in cockpit_text {
+                let (clip_x, clip_y, clip_w, clip_h) =
+                    ct.clip_rect.unwrap_or((0.0, 0.0, config.width as f32, config.height as f32));
                 text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                    &ct.text,
-                    ct.x,
-                    ct.y,
-                    ct.color,
-                    ct.size_px,
-                    0.0,
-                    0.0,
-                    config.width as f32,
-                    config.height as f32,
+                    &ct.text, ct.x, ct.y, ct.color, ct.size_px, clip_x, clip_y, clip_w, clip_h,
                 ));
             }
             let mut text_cmd_count: usize = 0;

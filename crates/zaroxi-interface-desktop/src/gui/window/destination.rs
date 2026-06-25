@@ -378,6 +378,50 @@ pub struct UnifiedTab {
     pub id: WorkbenchTabId,
 }
 
+/// Format a file path into a compact, filename-first tab label.
+///
+/// Rules (matches common IDE tab-label conventions):
+/// - Single file: basename only (e.g. `AGENTS.md`)
+/// - Unique basenames among all open files: basename only
+/// - Duplicate basenames: add one parent-dir segment (e.g. `src/main.rs`,
+///   `client/main.rs`)
+/// - Paths that look like non-filesystem display names are returned as-is.
+pub fn format_file_tab_label(path: &str, all_paths: &[&str]) -> String {
+    // Guard: paths without any separator are likely display names, not
+    // filesystem paths. Return them unchanged.
+    if !path.contains('/') && !path.contains('\\') {
+        return path.to_string();
+    }
+
+    let basename = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path);
+
+    // Collect all basenames from sibling paths.
+    let same_basename_count = all_paths
+        .iter()
+        .filter(|p| {
+            std::path::Path::new(p)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|b| b == basename)
+                .unwrap_or(false)
+        })
+        .count();
+
+    // Unique — just the basename.
+    if same_basename_count <= 1 {
+        return basename.to_string();
+    }
+
+    // Duplicate: add one parent segment for disambiguation.
+    let parent = std::path::Path::new(path)
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    if parent.is_empty() { format!("../{basename}") } else { format!("{parent}/{basename}") }
+}
+
 /// Project the unified tab strip from the file buffers (as `(label, is_active)`
 /// pairs) followed by the open non-file workbench tabs. File tabs are only
 /// highlighted when the editor itself is the active tab.
@@ -388,9 +432,11 @@ pub fn build_unified_tabs(
 ) -> Vec<UnifiedTab> {
     let mut out = Vec::new();
     let editor_active = active_tab.is_editor();
+    let all_paths: Vec<&str> = file_tabs.iter().map(|(t, _)| t.as_str()).collect();
     for (i, (title, is_active)) in file_tabs.iter().enumerate() {
+        let compact = format_file_tab_label(title, &all_paths);
         out.push(UnifiedTab {
-            title: title.clone(),
+            title: compact,
             active: editor_active && *is_active,
             closable: false,
             file_index: Some(i),
@@ -500,7 +546,7 @@ mod tests {
 
     #[test]
     fn unified_tabs_orders_files_then_non_file_and_flags_active() {
-        let files = vec![("main.rs".to_string(), true), ("lib.rs".to_string(), false)];
+        let files = vec![("src/main.rs".to_string(), true), ("src/lib.rs".to_string(), false)];
         let non_file = vec![
             WorkbenchTab {
                 id: WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings),
@@ -526,6 +572,21 @@ mod tests {
         let tabs = build_unified_tabs(&files, &ext, &non_file);
         assert!(!tabs[0].active && !tabs[1].active);
         assert!(tabs[3].active);
+    }
+
+    #[test]
+    fn format_file_tab_disambiguates_duplicates() {
+        let paths: Vec<&str> = vec!["src/main.rs", "client/main.rs", "src/lib.rs"];
+        assert_eq!(format_file_tab_label("src/main.rs", &paths), "src/main.rs");
+        assert_eq!(format_file_tab_label("client/main.rs", &paths), "client/main.rs");
+        assert_eq!(format_file_tab_label("src/lib.rs", &paths), "lib.rs");
+    }
+
+    #[test]
+    fn format_file_tab_uses_basename_for_unique_names() {
+        let paths: Vec<&str> = vec!["src/main.rs", "src/lib.rs"];
+        assert_eq!(format_file_tab_label("src/main.rs", &paths), "main.rs");
+        assert_eq!(format_file_tab_label("AGENTS.md", &paths), "AGENTS.md");
     }
 
     #[test]

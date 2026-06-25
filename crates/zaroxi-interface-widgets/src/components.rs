@@ -1390,6 +1390,20 @@ pub struct SettingsPanel {
     pub selected_section: usize,
 }
 
+fn settings_row_value(row: &SettingsRow) -> String {
+    match &row.kind {
+        SettingsRowKind::Toggle { on } => {
+            if *on {
+                "On".to_string()
+            } else {
+                "Off".to_string()
+            }
+        }
+        SettingsRowKind::Select { value, .. } => value.clone(),
+        SettingsRowKind::Label { value } => value.clone(),
+    }
+}
+
 impl ZaroxiWidget for SettingsPanel {
     fn layer(&self) -> WidgetLayer {
         WidgetLayer::ActivityRail
@@ -1410,41 +1424,58 @@ impl ZaroxiWidget for SettingsPanel {
         let mut runs = Vec::new();
         let px = layout.location.x + 28.0;
         let py = layout.location.y + 22.0;
-        let right = layout.location.x + layout.size.width - 132.0;
+        let content_w = layout.size.width;
+        let narrow = content_w < 420.0;
+        let right = layout.location.x + (content_w - 132.0).max(28.0 + 200.0);
+        let clip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
         let Some(sec) = self.sections.get(self.selected_section) else {
             return runs;
         };
-        // Single section title (no nav column, no duplicate page title).
-        runs.push(WidgetText::new(sec.label.clone(), px, py, 18.0, color_arr(theme.text_primary)));
+        runs.push(
+            WidgetText::new(sec.label.clone(), px, py, 18.0, color_arr(theme.text_primary))
+                .with_clip(clip),
+        );
         let mut y = py + 44.0;
         for row in &sec.items {
-            runs.push(WidgetText::new(
-                row.label.clone(),
-                px,
-                y,
-                14.0,
-                color_arr(theme.text_primary),
-            ));
-            let val = match &row.kind {
-                SettingsRowKind::Toggle { on } => {
-                    if *on {
-                        "On".to_string()
-                    } else {
-                        "Off".to_string()
-                    }
-                }
-                SettingsRowKind::Select { value, .. } => value.clone(),
-                SettingsRowKind::Label { value } => value.clone(),
-            };
-            runs.push(WidgetText::new(val, right, y, 13.0, color_arr(theme.accent)));
-            runs.push(WidgetText::new(
-                row.description.clone(),
-                px,
-                y + 18.0,
-                11.5,
-                color_arr(theme.text_muted),
-            ));
-            y += 48.0;
+            if narrow {
+                let val = settings_row_value(row);
+                let line = format!("{}  —  {}", row.label, val);
+                runs.push(
+                    WidgetText::new(line, px, y, 13.0, color_arr(theme.text_primary))
+                        .with_clip(clip),
+                );
+                runs.push(
+                    WidgetText::new(
+                        row.description.clone(),
+                        px,
+                        y + 18.0,
+                        11.5,
+                        color_arr(theme.text_muted),
+                    )
+                    .with_clip(clip),
+                );
+                y += 40.0;
+            } else {
+                runs.push(
+                    WidgetText::new(row.label.clone(), px, y, 14.0, color_arr(theme.text_primary))
+                        .with_clip(clip),
+                );
+                let val = settings_row_value(row);
+                runs.push(
+                    WidgetText::new(val, right, y, 13.0, color_arr(theme.accent)).with_clip(clip),
+                );
+                runs.push(
+                    WidgetText::new(
+                        row.description.clone(),
+                        px,
+                        y + 18.0,
+                        11.5,
+                        color_arr(theme.text_muted),
+                    )
+                    .with_clip(clip),
+                );
+                y += 48.0;
+            }
         }
         runs
     }
@@ -1498,6 +1529,10 @@ impl ZaroxiWidget for ExtensionsPanel {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let panel = layout_rect(layout);
+        let content_w = layout.size.width;
+        if content_w < 300.0 {
+            return;
+        }
         let Some(e) = self.entries.get(self.selected_entry) else {
             return;
         };
@@ -1515,35 +1550,67 @@ impl ZaroxiWidget for ExtensionsPanel {
         let mut runs = Vec::new();
         let px = layout.location.x + 28.0;
         let py = layout.location.y + 22.0;
+        let content_w = layout.size.width;
+        let narrow = content_w < 420.0;
+        let desc_max_w = (content_w - 56.0).max(200.0);
+        let clip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
         let Some(e) = self.entries.get(self.selected_entry) else {
             return runs;
         };
-        runs.push(WidgetText::new(e.name.clone(), px, py, 20.0, color_arr(theme.text_primary)));
+        runs.push(
+            WidgetText::new(e.name.clone(), px, py, 20.0, color_arr(theme.text_primary))
+                .with_clip(clip),
+        );
         let status = if e.installed { "Installed" } else { "Available" };
-        runs.push(WidgetText::new(
-            format!("{} · {}", e.publisher, status),
-            px,
-            py + 28.0,
-            12.0,
-            color_arr(theme.text_muted),
-        ));
-        runs.push(WidgetText::new(
-            e.description.clone(),
-            px,
-            py + 64.0,
-            13.0,
-            color_arr(theme.text_secondary),
-        ));
+        runs.push(
+            WidgetText::new(
+                format!("{} · {}", e.publisher, status),
+                px,
+                py + 28.0,
+                12.0,
+                color_arr(theme.text_muted),
+            )
+            .with_clip(clip),
+        );
+        let desc = if narrow {
+            let max_chars = (desc_max_w / 6.5) as usize;
+            if e.description.chars().count() > max_chars {
+                let mut s: String =
+                    e.description.chars().take(max_chars.saturating_sub(1)).collect();
+                s.push('…');
+                s
+            } else {
+                e.description.clone()
+            }
+        } else {
+            e.description.clone()
+        };
+        runs.push(
+            WidgetText::new(
+                desc,
+                px,
+                py + if narrow { 52.0 } else { 64.0 },
+                13.0,
+                color_arr(theme.text_secondary),
+            )
+            .with_clip(clip),
+        );
+        if narrow {
+            return runs;
+        }
         for (idx, label) in extension_action_labels(e).iter().enumerate() {
             let bx = layout.location.x + 28.0 + idx as f32 * 116.0;
             let by = layout.location.y + 132.0;
-            runs.push(WidgetText::new(
-                label.clone(),
-                bx + 16.0,
-                by + 8.0,
-                12.5,
-                color_arr(theme.text_primary),
-            ));
+            runs.push(
+                WidgetText::new(
+                    label.clone(),
+                    bx + 16.0,
+                    by + 8.0,
+                    12.5,
+                    color_arr(theme.text_primary),
+                )
+                .with_clip(clip),
+            );
         }
         runs
     }
@@ -1582,10 +1649,15 @@ impl ZaroxiWidget for DestinationPlaceholder {
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         // Background is owned by the host shape pass (below the text pass). Draw
         // a short accent rule beneath the heading as a vector accent.
+        let content_w = layout.size.width;
+        if content_w < 200.0 {
+            return;
+        }
         let panel = layout_rect(layout);
+        let rule_w = 48.0f64.min(content_w as f64 - 28.0);
         let rule = Line::new(
             Point::new(panel.x0 + 28.0, panel.y0 + 54.0),
-            Point::new(panel.x0 + 28.0 + 48.0, panel.y0 + 54.0),
+            Point::new(panel.x0 + 28.0 + rule_w, panel.y0 + 54.0),
         );
         stroke(scene, 2.0, &rule, theme.accent);
     }
@@ -1593,21 +1665,31 @@ impl ZaroxiWidget for DestinationPlaceholder {
     fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let px = layout.location.x;
         let py = layout.location.y;
+        let content_w = layout.size.width;
+        let clip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        let title_max_chars = ((content_w - 56.0) / 11.0).max(4.0) as usize;
+        let title: String = if self.title.chars().count() > title_max_chars {
+            let mut s: String =
+                self.title.chars().take(title_max_chars.saturating_sub(1)).collect();
+            s.push('…');
+            s
+        } else {
+            self.title.clone()
+        };
+        let subtitle_max_chars = ((content_w - 56.0) / 7.5).max(10.0) as usize;
+        let subtitle: String = if self.subtitle.chars().count() > subtitle_max_chars {
+            let mut s: String =
+                self.subtitle.chars().take(subtitle_max_chars.saturating_sub(1)).collect();
+            s.push('…');
+            s
+        } else {
+            self.subtitle.clone()
+        };
         vec![
-            WidgetText::new(
-                self.title.clone(),
-                px + 28.0,
-                py + 24.0,
-                18.0,
-                color_arr(theme.text_primary),
-            ),
-            WidgetText::new(
-                self.subtitle.clone(),
-                px + 28.0,
-                py + 66.0,
-                13.0,
-                color_arr(theme.text_muted),
-            ),
+            WidgetText::new(title, px + 28.0, py + 24.0, 18.0, color_arr(theme.text_primary))
+                .with_clip(clip),
+            WidgetText::new(subtitle, px + 28.0, py + 66.0, 13.0, color_arr(theme.text_muted))
+                .with_clip(clip),
         ]
     }
 
@@ -1763,20 +1845,13 @@ impl ZaroxiWidget for WorkbenchTabStrip {
         if lr.overflow {
             let arrow_color = theme.text_muted;
             if self.tab_scroll_offset > 0.0 {
-                let path = overflow_arrow_left(
-                    (sx + 6.0) as f64,
-                    (sy + sh * 0.5) as f64,
-                    4.0,
-                );
+                let path = overflow_arrow_left((sx + 6.0) as f64, (sy + sh * 0.5) as f64, 4.0);
                 fill(scene, &path, arrow_color);
             }
             let max_scroll = (lr.total_width - sw).max(0.0);
             if self.tab_scroll_offset < max_scroll - 0.5 {
-                let path = overflow_arrow_right(
-                    (clip_right - 10.0) as f64,
-                    (sy + sh * 0.5) as f64,
-                    4.0,
-                );
+                let path =
+                    overflow_arrow_right((clip_right - 10.0) as f64, (sy + sh * 0.5) as f64, 4.0);
                 fill(scene, &path, arrow_color);
             }
         }
@@ -1787,6 +1862,8 @@ impl ZaroxiWidget for WorkbenchTabStrip {
     fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let strip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
         let (sx, _, sw, sh) = strip;
+        let strip_clip =
+            (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
         let closables: Vec<bool> = self.tabs.iter().map(|t| t.closable).collect();
         let lr = workbench_tab_layout(strip, &closables, self.tab_scroll_offset);
         let clip_right = sx + sw;
@@ -1808,22 +1885,26 @@ impl ZaroxiWidget for WorkbenchTabStrip {
                 t.title.clone()
             };
             let ty_text = ty + (sh - 13.0) * 0.5;
-            // Clip text to stay within the tab strip viewport.
             let tx_text = tx + 12.0;
             if tx_text < clip_right - TAB_MIN_VISIBLE {
-                runs.push(WidgetText::new(label, tx_text, ty_text, 13.0, color));
+                runs.push(
+                    WidgetText::new(label, tx_text, ty_text, 13.0, color).with_clip(strip_clip),
+                );
             }
             if let Some((cx, cy, _cw, _ch)) = close
                 && *cx >= sx
                 && *cx < clip_right - 4.0
             {
-                runs.push(WidgetText::new(
-                    "×".to_string(),
-                    *cx + 3.0,
-                    *cy,
-                    14.0,
-                    color_arr(theme.text_muted),
-                ));
+                runs.push(
+                    WidgetText::new(
+                        "×".to_string(),
+                        *cx + 3.0,
+                        *cy,
+                        14.0,
+                        color_arr(theme.text_muted),
+                    )
+                    .with_clip(strip_clip),
+                );
             }
         }
         runs

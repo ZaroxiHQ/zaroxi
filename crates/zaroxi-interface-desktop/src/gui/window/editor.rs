@@ -90,9 +90,17 @@ impl EditorPanel {
                 ..Default::default()
             };
         }
+        // For file tabs: show only the parent directory (not the full path) to
+        // avoid duplicating the basename already shown in the tab label.
+        let dir_only = std::path::Path::new(&data.breadcrumb_label)
+            .parent()
+            .and_then(|p| p.to_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         UiBlock {
             id: r.id.to_string(),
-            title: data.breadcrumb_label.clone(),
+            title: dir_only,
             rect: r.into(),
             header_color: Some(tokens.editor_breadcrumb_background.to_array()),
             header_only: true,

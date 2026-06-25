@@ -482,6 +482,7 @@ fn to_render_text(
         y: t.y,
         size_px: t.size_px,
         color: t.color,
+        clip_rect: t.clip_rect,
     }
 }
 
