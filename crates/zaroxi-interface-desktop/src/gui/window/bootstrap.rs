@@ -106,6 +106,7 @@ pub fn run_shell_window(
         active_tab: super::destination::WorkbenchTabId::Editor,
         sidebar_row_hit_rects: Vec::new(),
         tab_hit_rects: Vec::new(),
+        tab_scroll_offset: 0.0,
         explorer_caret_blink_epoch: std::time::Instant::now(),
         explorer_visible_rows: 1,
         last_render_size: (0, 0),

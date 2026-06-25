@@ -1642,34 +1642,81 @@ pub struct CockpitTab {
 /// `close_rect` is `Some` only for closable tabs.
 pub type TabGeometry = ((f32, f32, f32, f32), Option<(f32, f32, f32, f32)>);
 
-/// Deterministic per-tab layout shared by [`WorkbenchTabStrip`] paint and the
-/// host's hit-testing. Returns `(tab_rect, close_rect)` per tab as `(x,y,w,h)`.
-pub fn workbench_tab_layout(strip: (f32, f32, f32, f32), closables: &[bool]) -> Vec<TabGeometry> {
-    let (sx, sy, _sw, sh) = strip;
-    let mut out = Vec::with_capacity(closables.len());
+/// Result of the tab layout computation.
+pub struct TabLayoutResult {
+    /// Per-tab geometries (tab rect + optional close rect).
+    pub geometries: Vec<TabGeometry>,
+    /// Total content width of all tabs placed end-to-end.
+    pub total_width: f32,
+    /// Whether overflow exists (total_width > available_width).
+    pub overflow: bool,
+}
+
+/// Minimum visible portion (px) of a partially-visible tab at each edge.
+const TAB_MIN_VISIBLE: f32 = 24.0;
+
+/// Deterministic per-tab layout with overflow support, shared by
+/// [`WorkbenchTabStrip`] paint and the host's hit-testing.
+///
+/// `strip` is `(x, y, w, h)` in logical px — the available viewport rect for
+/// the tab strip. `closables` is per-tab. `scroll_offset` (>= 0) shifts the
+/// tab origin leftward so scrolled-offscreen tabs become visible.
+///
+/// Returns `TabLayoutResult` with clipped geometries, the total content width,
+/// and whether overflow exists.
+pub fn workbench_tab_layout(
+    strip: (f32, f32, f32, f32),
+    closables: &[bool],
+    scroll_offset: f32,
+) -> TabLayoutResult {
+    let (sx, sy, sw, sh) = strip;
+    let total_w = closables.len() as f32 * WORKBENCH_TAB_W;
+    let overflow = total_w > sw;
+    let clip_right = sx + sw;
+    let dead_zone = 2.0;
+    let mut geometries = Vec::with_capacity(closables.len());
     for (i, &closable) in closables.iter().enumerate() {
-        let tx = sx + i as f32 * WORKBENCH_TAB_W;
-        let tab = (tx, sy, WORKBENCH_TAB_W, sh);
+        let tx = sx + i as f32 * WORKBENCH_TAB_W - scroll_offset;
+        let tab_right = tx + WORKBENCH_TAB_W;
+        let cx0 = tx.max(sx);
+        let cx1 = tab_right.min(clip_right);
+        let visible = cx1 - cx0;
+        if visible <= dead_zone {
+            let tab = (0.0, 0.0, 0.0, 0.0);
+            geometries.push((tab, None));
+            continue;
+        }
+        let tab = (cx0, sy, WORKBENCH_TAB_W, sh);
         let close = if closable {
-            Some((
-                tx + WORKBENCH_TAB_W - WORKBENCH_TAB_CLOSE_W - 6.0,
-                sy + (sh - WORKBENCH_TAB_CLOSE_W) * 0.5,
-                WORKBENCH_TAB_CLOSE_W,
-                WORKBENCH_TAB_CLOSE_W,
-            ))
+            let c_left = tx + WORKBENCH_TAB_W - WORKBENCH_TAB_CLOSE_W - 6.0;
+            let c_right = c_left + WORKBENCH_TAB_CLOSE_W;
+            if c_right > sx && c_left < clip_right && c_right - c_left > 4.0 {
+                Some((
+                    c_left,
+                    sy + (sh - WORKBENCH_TAB_CLOSE_W) * 0.5,
+                    WORKBENCH_TAB_CLOSE_W,
+                    WORKBENCH_TAB_CLOSE_W,
+                ))
+            } else {
+                None
+            }
         } else {
             None
         };
-        out.push((tab, close));
+        geometries.push((tab, close));
     }
-    out
+    TabLayoutResult { geometries, total_width: total_w, overflow }
 }
 
-/// The unified tab strip rendered by the cockpit. The opaque strip background
-/// comes from the host shape pass; this widget draws the active-tab accent +
-/// separators (overlay) and the labels + close glyphs (text pass).
+/// The unified tab strip rendered by the cockpit, with overflow scrolling
+/// support. The opaque strip background comes from the host shape pass; this
+/// widget draws the active-tab accent + separators (overlay) and the labels +
+/// close glyphs (text pass). Tabs that exceed the layout width are scrolled
+/// horizontally; the active tab is always visible.
 pub struct WorkbenchTabStrip {
     pub tabs: Vec<CockpitTab>,
+    /// Horizontal scroll offset in px (>= 0, clamped by the host).
+    pub tab_scroll_offset: f32,
 }
 
 impl ZaroxiWidget for WorkbenchTabStrip {
@@ -1679,29 +1726,76 @@ impl ZaroxiWidget for WorkbenchTabStrip {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let strip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        let (sx, sy, sw, sh) = strip;
         let closables: Vec<bool> = self.tabs.iter().map(|t| t.closable).collect();
-        let rects = workbench_tab_layout(strip, &closables);
-        for (i, (tab, _close)) in rects.iter().enumerate() {
+        let lr = workbench_tab_layout(strip, &closables, self.tab_scroll_offset);
+        let clip_right = sx + sw;
+
+        // Clip the vello scene to the tab strip viewport so no vector
+        // accent (highlight / separator) paints outside the strip.
+        let clip = Rect::new(sx as f64, sy as f64, clip_right as f64, (sy + sh) as f64);
+        scene.push_layer(
+            vello::peniko::Fill::NonZero,
+            vello::peniko::Mix::Normal,
+            1.0,
+            Affine::IDENTITY,
+            &clip,
+        );
+
+        for (i, (tab, _close)) in lr.geometries.iter().enumerate() {
             let (tx, ty, tw, th) = *tab;
+            if tw <= 0.0 {
+                continue;
+            }
             let (x0, y0, x1, y1) = (tx as f64, ty as f64, (tx + tw) as f64, (ty + th) as f64);
             if self.tabs[i].active {
                 fill(scene, &Rect::new(x0, y0, x1, y1), theme.accent_soft);
                 let underline = Line::new(Point::new(x0, y1 - 1.0), Point::new(x1, y1 - 1.0));
                 stroke(scene, 2.0, &underline, theme.accent);
             }
-            // Right separator.
-            let sep = Line::new(Point::new(x1, y0 + 4.0), Point::new(x1, y1 - 4.0));
+            // Right separator between tabs.
+            let sep_x = (x0 + tw as f64).min(clip_right as f64);
+            let sep = Line::new(Point::new(sep_x, y0 + 4.0), Point::new(sep_x, y1 - 4.0));
             stroke(scene, 1.0, &sep, theme.divider);
         }
+
+        // Overflow affordance arrows at edges.
+        if lr.overflow {
+            let arrow_color = theme.text_muted;
+            if self.tab_scroll_offset > 0.0 {
+                let path = overflow_arrow_left(
+                    (sx + 6.0) as f64,
+                    (sy + sh * 0.5) as f64,
+                    4.0,
+                );
+                fill(scene, &path, arrow_color);
+            }
+            let max_scroll = (lr.total_width - sw).max(0.0);
+            if self.tab_scroll_offset < max_scroll - 0.5 {
+                let path = overflow_arrow_right(
+                    (clip_right - 10.0) as f64,
+                    (sy + sh * 0.5) as f64,
+                    4.0,
+                );
+                fill(scene, &path, arrow_color);
+            }
+        }
+
+        scene.pop_layer();
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let strip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        let (sx, _, sw, sh) = strip;
         let closables: Vec<bool> = self.tabs.iter().map(|t| t.closable).collect();
-        let rects = workbench_tab_layout(strip, &closables);
+        let lr = workbench_tab_layout(strip, &closables, self.tab_scroll_offset);
+        let clip_right = sx + sw;
         let mut runs = Vec::new();
-        for (i, (tab, close)) in rects.iter().enumerate() {
-            let (tx, ty, _tw, th) = *tab;
+        for (i, (tab, close)) in lr.geometries.iter().enumerate() {
+            let (tx, ty, tw, _th) = *tab;
+            if tw <= 0.0 {
+                continue;
+            }
             let t = &self.tabs[i];
             let color =
                 if t.active { color_arr(theme.text_primary) } else { color_arr(theme.text_muted) };
@@ -1713,9 +1807,16 @@ impl ZaroxiWidget for WorkbenchTabStrip {
             } else {
                 t.title.clone()
             };
-            let ty_text = ty + (th - 13.0) * 0.5;
-            runs.push(WidgetText::new(label, tx + 12.0, ty_text, 13.0, color));
-            if let Some((cx, cy, _cw, _ch)) = close {
+            let ty_text = ty + (sh - 13.0) * 0.5;
+            // Clip text to stay within the tab strip viewport.
+            let tx_text = tx + 12.0;
+            if tx_text < clip_right - TAB_MIN_VISIBLE {
+                runs.push(WidgetText::new(label, tx_text, ty_text, 13.0, color));
+            }
+            if let Some((cx, cy, _cw, _ch)) = close
+                && *cx >= sx
+                && *cx < clip_right - 4.0
+            {
                 runs.push(WidgetText::new(
                     "×".to_string(),
                     *cx + 3.0,
@@ -1731,6 +1832,26 @@ impl ZaroxiWidget for WorkbenchTabStrip {
     fn a11y_label(&self) -> Option<String> {
         Some(format!("{} workbench tabs", self.tabs.len()))
     }
+}
+
+/// Left-pointing triangle arrow for overflow affordance.
+fn overflow_arrow_left(cx: f64, cy: f64, r: f64) -> BezPath {
+    let mut p = BezPath::new();
+    p.move_to((cx + r, cy - 1.5 * r));
+    p.line_to((cx - r * 0.6, cy));
+    p.line_to((cx + r, cy + 1.5 * r));
+    p.close_path();
+    p
+}
+
+/// Right-pointing triangle arrow for overflow affordance.
+fn overflow_arrow_right(cx: f64, cy: f64, r: f64) -> BezPath {
+    let mut p = BezPath::new();
+    p.move_to((cx - r, cy - 1.5 * r));
+    p.line_to((cx + r * 0.6, cy));
+    p.line_to((cx - r, cy + 1.5 * r));
+    p.close_path();
+    p
 }
 
 #[cfg(test)]

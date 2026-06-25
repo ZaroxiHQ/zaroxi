@@ -104,6 +104,10 @@ pub struct CockpitInputs {
     pub placeholder_panel: Option<(String, String)>,
     /// Animation phase in `[0,1)` (advanced by the host clock).
     pub phase: f32,
+    /// Horizontal scroll offset (px) for the tab strip, set by wheel/hit-
+    /// interaction on the tab strip. Clamped by `WorkbenchTabStrip` against the
+    /// overflow width. Zero when no overflow or scrolled to origin.
+    pub tab_scroll_offset: f32,
 }
 
 /// Resolve the active desktop theme to the shared `SemanticColors` token set
@@ -449,7 +453,10 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         && regions.tab_strip.size.height > 0.0
     {
         tree.push(
-            Box::new(zaroxi_interface_widgets::WorkbenchTabStrip { tabs: inputs.tabs.clone() }),
+            Box::new(zaroxi_interface_widgets::WorkbenchTabStrip {
+                tabs: inputs.tabs.clone(),
+                tab_scroll_offset: inputs.tab_scroll_offset,
+            }),
             regions.tab_strip,
         );
     }
@@ -550,6 +557,7 @@ mod tests {
             extensions_panel: None,
             placeholder_panel: None,
             phase: 0.3,
+            tab_scroll_offset: 0.0,
             rail_rect: (0.0, 776.0, 0.0, 0.0),
             rail_items: vec![],
             tab_strip_rect: (0.0, 0.0, 0.0, 0.0),

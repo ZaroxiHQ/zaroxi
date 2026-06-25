@@ -559,22 +559,28 @@ fn explorer_wheel_rows(delta: &MouseScrollDelta) -> i32 {
 
 /// True when the pointer currently sits over the explorer sidebar region.
 fn pointer_over_sidebar(app: &GuiApp) -> bool {
+    pointer_over_region(app, zaroxi_core_engine_style::PanelRole::SidePanel)
+}
+
+/// True when the pointer currently sits over the tab strip region.
+fn pointer_over_tab_strip(app: &GuiApp) -> bool {
+    pointer_over_region(app, zaroxi_core_engine_style::PanelRole::ContentTabStrip)
+}
+
+fn pointer_over_region(app: &GuiApp, role: zaroxi_core_engine_style::PanelRole) -> bool {
     let Some((cx, cy)) = app.interaction.cursor_pos_f32() else {
         return false;
     };
     let regions = app.layout_controller.shell_regions();
-    crate::gui::region_dispatch::find_region_by_role(
-        regions,
-        zaroxi_core_engine_style::PanelRole::SidePanel,
-    )
-    .map(|sb| {
-        let sx = sb.rect.x as f32;
-        let sy = sb.rect.y as f32;
-        let sw = sb.rect.width as f32;
-        let sh = sb.rect.height as f32;
-        cx >= sx && cx < sx + sw && cy >= sy && cy < sy + sh
-    })
-    .unwrap_or(false)
+    crate::gui::region_dispatch::find_region_by_role(regions, role)
+        .map(|r| {
+            let sx = r.rect.x as f32;
+            let sy = r.rect.y as f32;
+            let sw = r.rect.width as f32;
+            let sh = r.rect.height as f32;
+            cx >= sx && cx < sx + sw && cy >= sy && cy < sy + sh
+        })
+        .unwrap_or(false)
 }
 
 /// Apply mouse-wheel delta to composition pending scroll state and trigger
@@ -595,6 +601,25 @@ pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
                 app.explorer_scroll_top = app.explorer_scroll_top.saturating_sub((-rows) as usize);
             }
             app.invalidate(super::InvalidationFlags::scroll());
+        }
+        return;
+    }
+
+    // When the pointer is over the tab strip and tabs overflow, scroll the
+    // tab strip horizontally instead of the editor.
+    if pointer_over_tab_strip(app) {
+        let scroll_px: f32 = match *delta {
+            MouseScrollDelta::LineDelta(_, y) => y * 48.0,
+            MouseScrollDelta::PixelDelta(pos) => {
+                // Horizontal mouse wheel on the tab strip scrolls tabs.
+                if pos.x.abs() > pos.y.abs() { pos.x as f32 } else { pos.y as f32 }
+            }
+        };
+        if scroll_px.abs() > 0.01 {
+            app.tab_scroll_offset -= scroll_px;
+            app.tab_scroll_offset = app.tab_scroll_offset.max(0.0);
+            app.cockpit_status_fingerprint = 0;
+            app.needs_render = true;
         }
         return;
     }

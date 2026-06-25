@@ -78,15 +78,21 @@ impl EditorPanel {
         data: &EditorContentData,
         dest: WorkbenchDestination,
     ) -> UiBlock {
-        // Non-file destinations show their own title instead of a file path.
-        let label = if dest.is_explorer() {
-            data.breadcrumb_label.clone()
-        } else {
-            dest.title().to_string()
-        };
+        // Non-file destinations: the tab strip already carries the title, so the
+        // breadcrumb row is redundant. Suppress it to keep non-file pages clean.
+        if !dest.is_explorer() {
+            return UiBlock {
+                id: r.id.to_string(),
+                title: String::new(),
+                rect: r.into(),
+                header_color: Some(tokens.tab_strip_background.to_array()),
+                content_color: Some(tokens.tab_strip_background.to_array()),
+                ..Default::default()
+            };
+        }
         UiBlock {
             id: r.id.to_string(),
-            title: label,
+            title: data.breadcrumb_label.clone(),
             rect: r.into(),
             header_color: Some(tokens.editor_breadcrumb_background.to_array()),
             header_only: true,

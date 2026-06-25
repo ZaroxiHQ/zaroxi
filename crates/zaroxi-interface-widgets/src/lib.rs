@@ -20,7 +20,7 @@ pub use components::{
     HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind, MetaChips,
     PaletteItem, PredictionCell, RelatedPanel, SemanticMinimap, SettingsPanel, SettingsRow,
     SettingsRowKind, SettingsSection, StatusBar, StatusMarker, StatusMetrics, SymbolKind,
-    WORKBENCH_TAB_W, WorkbenchTabStrip, workbench_tab_layout,
+    TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip, workbench_tab_layout,
 };
 
 pub use tree::{PlacedWidget, WidgetTree};
