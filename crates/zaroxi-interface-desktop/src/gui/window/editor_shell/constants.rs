@@ -19,7 +19,7 @@ Whenever a dimension needs adjusting, it should be changed HERE.
 pub const TITLEBAR_H: f32 = 32.0;
 pub const STATUS_H: f32 = 26.0;
 pub const RAIL_W: f32 = 44.0;
-pub const RAIL_STRIP_H: f32 = 40.0;
+pub const RAIL_STRIP_H: f32 = 32.0;
 pub const TAB_STRIP_H: f32 = 28.0;
 pub const BREADCRUMB_H: f32 = 20.0;
 pub const GUTTER_W: f32 = 52.0;

@@ -89,19 +89,31 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         WidgetId::TextInput { .. } => None,
         WidgetId::Tab { index } => {
             let items = comp.latest_opened_buffers_summary().items;
-            let entry = items.get(*index)?;
-            let buffer_id = entry.buffer_id.clone();
-
-            let result =
-                pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
-                    comp,
-                    service.clone(),
-                    view.clone(),
-                    session,
-                    app.workspace_id,
-                    buffer_id,
-                ));
-            result.ok().map(|_| comp.build_work_content())
+            if *index < items.len() {
+                let entry = items.get(*index)?;
+                let buffer_id = entry.buffer_id.clone();
+                let result =
+                    pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
+                        comp,
+                        service.clone(),
+                        view.clone(),
+                        session,
+                        app.workspace_id,
+                        buffer_id,
+                    ));
+                return result.ok().map(|_| comp.build_work_content());
+            }
+            // Non-file tab — switch rail destination.
+            let non_file_idx = *index - items.len();
+            if let Some(wc) = &app.work_content {
+                if let Some(nf_tabs) = &wc.editor_non_file_tabs {
+                    if let Some((_, kind)) = nf_tabs.get(non_file_idx) {
+                        app.rail_selected_index = *kind;
+                        return Some(comp.build_work_content());
+                    }
+                }
+            }
+            None
         }
         WidgetId::PanelAction { header_id, action } => {
             match (*header_id, *action) {
@@ -114,6 +126,10 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             Some(comp.build_work_content())
         }
         WidgetId::ListItem { index } => {
+            if *index >= 100 {
+                app.rail_selected_index = 4;
+                return Some(comp.build_work_content());
+            }
             if *index >= 10 {
                 let comp = app.composition.as_mut()?;
                 let explorer_idx = *index - 10;

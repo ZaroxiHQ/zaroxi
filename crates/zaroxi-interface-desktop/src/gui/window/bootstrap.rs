@@ -102,7 +102,6 @@ pub fn run_shell_window(
         rail_selected_index: 0,
         rail_hovered_index: None,
         rail_item_hit_rects: Vec::new(),
-        panel_destination: 0,
         explorer_caret_blink_epoch: std::time::Instant::now(),
         explorer_visible_rows: 1,
         last_render_size: (0, 0),

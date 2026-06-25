@@ -374,9 +374,6 @@ pub struct GuiApp {
     /// Index of the currently selected activity rail item (0=Explorer, 1=Search,
     /// 2=Source Ctrl, 3=Debug, 4=Extensions, 5=Settings, 6=Account). Default 0.
     pub rail_selected_index: usize,
-    /// Same as rail_selected_index; tracks the active panel destination for
-    /// Settings / Extensions overlay panels.
-    pub panel_destination: usize,
     /// Index of the currently hovered activity rail item, or None.
     pub rail_hovered_index: Option<usize>,
     /// Hit rects for each rail item, set each frame from the cockpit rail layout.
@@ -2234,6 +2231,37 @@ impl winit::application::ApplicationHandler for GuiApp {
                         self.last_widget_tree_fingerprint = new_fingerprint;
                     }
 
+                    // Inject non-file tabs and extension sidebar data into
+                    // ShellWorkContent based on the active rail destination.
+                    if let Some(ref mut wc) = self.work_content {
+                        let dest = self.rail_selected_index;
+                        wc.active_tab_index = if dest == 0 {
+                            wc.editor_tabs.as_ref().map(|t| t.len().saturating_sub(1)).or(Some(0))
+                        } else {
+                            wc.editor_tabs.as_ref().map(|t| t.len()).or(Some(0))
+                        };
+                        wc.editor_non_file_tabs = if dest == 5 {
+                            Some(vec![("Settings".into(), 5)])
+                        } else if dest == 4 {
+                            Some(vec![
+                                ("Zaroxi Formatter".into(), 4),
+                                ("LSP Client".into(), 4),
+                                ("Community Themes".into(), 4),
+                            ])
+                        } else {
+                            None
+                        };
+                        wc.extension_sidebar_items = if dest == 4 {
+                            Some(vec![
+                                ("Zaroxi Formatter".into(), "zaroxi.formatter".into()),
+                                ("LSP Client".into(), "zaroxi.lsp-client".into()),
+                                ("Community Themes".into(), "community.themes".into()),
+                            ])
+                        } else {
+                            None
+                        };
+                    }
+
                     let mut widget_tree = if rebuild_tree {
                         zaroxi_core_engine_ui::build_shell_widget_tree(
                             engine_layout,
@@ -3125,7 +3153,34 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         } else {
                                             None
                                         },
-                                        extensions_panel: self.rail_selected_index == 4,
+                                        extensions_panel: if self.rail_selected_index == 4 {
+                                            use zaroxi_interface_widgets::ExtensionEntry;
+                                            Some(vec![
+                                                ExtensionEntry {
+                                                    id: "zaroxi.formatter".into(),
+                                                    name: "Zaroxi Formatter".into(),
+                                                    publisher: "Zaroxi Team".into(),
+                                                    description: "Code formatting for Rust, TOML, JSON, and more.".into(),
+                                                    installed: true,
+                                                },
+                                                ExtensionEntry {
+                                                    id: "zaroxi.lsp-client".into(),
+                                                    name: "LSP Client".into(),
+                                                    publisher: "Zaroxi Team".into(),
+                                                    description: "Language Server Protocol client for Rust, TypeScript, Python.".into(),
+                                                    installed: true,
+                                                },
+                                                ExtensionEntry {
+                                                    id: "community.themes".into(),
+                                                    name: "Community Themes".into(),
+                                                    publisher: "Community".into(),
+                                                    description: "A collection of popular color themes.".into(),
+                                                    installed: false,
+                                                },
+                                            ])
+                                        } else {
+                                            None
+                                        },
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(

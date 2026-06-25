@@ -114,6 +114,14 @@ pub struct ShellWorkContent {
     /// renders its search box (even when a filter yields no matches).
     pub explorer_has_workspace: bool,
     pub active_file: Option<String>,
+    /// Non-file editor tabs (Settings, Extension Details, etc.). Each entry
+    /// is `(label, kind_index)` where kind_index routes activation.
+    pub editor_non_file_tabs: Option<Vec<(String, usize)>>,
+    /// Index of the currently active tab (0-based across file + non-file tabs).
+    pub active_tab_index: Option<usize>,
+    /// Extension sidebar items (replaces explorer when Some). Each entry is
+    /// `(name, id)` — id is used for opening extension detail tabs.
+    pub extension_sidebar_items: Option<Vec<(String, String)>>,
     pub terminal_tabs: Option<Vec<String>>,
     /// AI assistant panel content view — built from the current AI projection
     /// in `DesktopComposition::build_work_content()`.
@@ -148,6 +156,9 @@ impl ShellWorkContent {
             terminal_tabs,
             ai_panel_content: None,
             syntax_highlights: None,
+            editor_non_file_tabs: None,
+            active_tab_index: Some(0),
+            extension_sidebar_items: None,
         }
     }
 }

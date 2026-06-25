@@ -308,8 +308,8 @@ mod tests {
         for w in [400u32, 500, 700, 900, 1200] {
             let l = compute_layout(w as f32, 400.0);
             assert!(
-                l.rail_rect.3 >= 38.0,
-                "rail h={} should stay >= 38 at width {}",
+                l.rail_rect.3 >= 30.0,
+                "rail h={} should stay >= 30 at width {}",
                 l.rail_rect.3,
                 w
             );

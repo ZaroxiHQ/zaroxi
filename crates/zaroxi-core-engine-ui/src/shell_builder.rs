@@ -223,18 +223,34 @@ pub fn build_shell_widget_tree(
         subtle: false,
     });
 
-    // TabItem widgets: driven by ShellWorkContent.editor_tabs, with fallback
+    // TabItem widgets: driven by ShellWorkContent.editor_tabs + non_file_tabs
     if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
         let tab_h = layout.content_tab_strip.height + TAB_Y_HANG;
         let tab_y = layout.content_tab_strip.y - TAB_Y_HANG;
-        let tabs: Vec<(&str, bool, usize)> = content
+        let active_idx = content.and_then(|c| c.active_tab_index).unwrap_or(0);
+        let mut tabs: Vec<(String, bool, usize)> = content
             .and_then(|c| c.editor_tabs.as_ref())
-            .map(|tabs| {
-                tabs.iter().enumerate().map(|(i, label)| (label.as_str(), i == 0, i)).collect()
+            .map(|ts| {
+                ts.iter()
+                    .enumerate()
+                    .map(|(i, label)| (label.clone(), i == active_idx, i))
+                    .collect()
             })
-            .unwrap_or_else(|| {
-                vec![("main.rs", true, 0), ("lib.rs", false, 1), ("mod.rs", false, 2)]
-            });
+            .unwrap_or_default();
+        if let Some(nf) = content.and_then(|c| c.editor_non_file_tabs.as_ref()) {
+            let base = tabs.len();
+            for (i, (label, _kind)) in nf.iter().enumerate() {
+                let idx = base + i;
+                tabs.push((label.clone(), idx == active_idx, idx));
+            }
+        }
+        if tabs.is_empty() {
+            tabs = vec![
+                ("main.rs".into(), true, 0),
+                ("lib.rs".into(), false, 1),
+                ("mod.rs".into(), false, 2),
+            ];
+        }
         let tab_w = TAB_W_INACTIVE;
         let mut tx = layout.content_tab_strip.x;
 
@@ -638,6 +654,34 @@ fn build_explorer_panel_section(
     inner_w: f32,
     y_off: &mut f32,
 ) {
+    let sidebar_w = sidebar_rect.width;
+    let row_h = EXPLORER_ROW_H;
+
+    // ── Extensions sidebar (replaces explorer when active) ──
+    if let Some(items) = content.and_then(|c| c.extension_sidebar_items.as_ref()) {
+        let header_h = 30.0;
+        tree.push(ShellWidget::Surface {
+            rect: Rect::new(sidebar_rect.x, *y_off, sidebar_w, header_h),
+            fill_color: tokens.panel_header_background.to_array(),
+            border_color: None,
+            border_width: 0.0,
+        });
+        *y_off += header_h + 4.0;
+        for (i, (name, _id)) in items.iter().enumerate() {
+            let row_y = *y_off + i as f32 * row_h;
+            tree.push(ShellWidget::ListItem {
+                id: WidgetId::list_item(100 + i),
+                rect: Rect::new(sidebar_rect.x + pad, row_y, inner_w, row_h),
+                label: name.clone(),
+                fill_color: tokens.sidebar_background.to_array(),
+                accent_indicator: None,
+                state: InteractionState::Normal,
+            });
+        }
+        *y_off += items.len() as f32 * row_h;
+        return;
+    }
+
     let row_h = EXPLORER_ROW_H;
     let sidebar_w = sidebar_rect.width;
     let max_y = layout.left_panel.y + layout.left_panel.height - EXPLORER_MAX_Y_INSET;

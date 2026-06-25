@@ -16,10 +16,10 @@ pub mod widget;
 
 pub use components::{
     ActivityItem, ActivityRail, AiBand, AiMode, AiPredictionGutter, CommandPalette, ContextBand,
-    ContextCanvas, ExtensionsPanel, HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer,
-    LspStatus, MarkerKind, MetaChips, PaletteItem, PredictionCell, RelatedPanel, SemanticMinimap,
-    SettingsPanel, SettingsRow, SettingsRowKind, SettingsSection, StatusBar, StatusMarker,
-    StatusMetrics, SymbolKind,
+    ContextCanvas, ExtensionEntry, ExtensionsPanel, HealthBand, InstrumentStatus, LayoutBucket,
+    LivingDiffLayer, LspStatus, MarkerKind, MetaChips, PaletteItem, PredictionCell, RelatedPanel,
+    SemanticMinimap, SettingsPanel, SettingsRow, SettingsRowKind, SettingsSection, StatusBar,
+    StatusMarker, StatusMetrics, SymbolKind,
 };
 
 pub use tree::{PlacedWidget, WidgetTree};

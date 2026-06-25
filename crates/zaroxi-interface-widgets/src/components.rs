@@ -1361,7 +1361,7 @@ impl ZaroxiWidget for ActivityRail {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings panel — cockpit-owned overlay, wired to the settings crate theme mode.
+// Settings panel — cockpit-owned, rendered in the editor content region.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// One settings section (tab / category).
@@ -1387,85 +1387,71 @@ pub enum SettingsRowKind {
     Label { value: String },
 }
 
-/// Professional settings panel implemented as a cockpit widget (vello vector
-/// background + border + cosmic-text section labels and row content).
+/// Settings page rendered in the editor content area via cockpit vello +
+/// cosmic-text.  Uses a left section nav + right content pane layout.
 pub struct SettingsPanel {
-    pub opened: bool,
     pub sections: Vec<SettingsSection>,
     pub selected_section: usize,
 }
 
 impl ZaroxiWidget for SettingsPanel {
     fn layer(&self) -> WidgetLayer {
-        WidgetLayer::Palette
+        WidgetLayer::ActivityRail
     }
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
-        if !self.opened {
-            return;
-        }
         let panel = layout_rect(layout);
-        let bg = RoundedRect::new(panel.x0, panel.y0, panel.x1, panel.y1, 12.0);
-        fill(scene, &bg, theme.bg_elevated);
-        let border = RoundedRect::new(panel.x0, panel.y0, panel.x1, panel.y1, 12.0);
-        stroke(scene, 1.5, &border, theme.divider);
+        fill(scene, &panel, theme.bg_elevated);
 
-        if self.sections.is_empty() {
-            return;
-        }
-        let nav_w = 180.0;
-        let row_h = 32.0;
-        let mut y = panel.y0 + 10.0;
+        let nav_w = 160.0;
+        let row_h = 28.0;
+        let mut y = panel.y0 + 28.0;
         for (i, _sec) in self.sections.iter().enumerate() {
-            let item_rect = Rect::new(panel.x0 + 8.0, y, panel.x0 + nav_w - 8.0, y + row_h);
+            let item_rect = Rect::new(panel.x0 + 12.0, y, panel.x0 + nav_w - 12.0, y + row_h);
             if i == self.selected_section {
                 let sel_bg =
-                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 6.0);
+                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 5.0);
                 fill(scene, &sel_bg, theme.accent_soft);
             }
             y += row_h + 2.0;
         }
-        // Section divider
         let div = Line::new(
-            Point::new(panel.x0 + nav_w, panel.y0 + 12.0),
-            Point::new(panel.x0 + nav_w, panel.y1 - 12.0),
+            Point::new(panel.x0 + nav_w, panel.y0 + 16.0),
+            Point::new(panel.x0 + nav_w, panel.y1 - 8.0),
         );
         stroke(scene, 1.0, &div, theme.divider);
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
-        if !self.opened || self.sections.is_empty() {
-            return vec![];
-        }
         let mut runs = Vec::new();
         let px = layout.location.x;
         let py = layout.location.y;
-        let nav_w = 180.0;
-        let row_h = 32.0;
+        let nav_w = 160.0;
+        let row_h = 28.0;
         let content_x = nav_w + 20.0;
         let content_w = layout.size.width - content_x - 16.0;
 
         runs.push(WidgetText::new(
             "Settings".to_string(),
             px + 12.0,
-            py + 10.0,
-            18.0,
+            py + 6.0,
+            17.0,
             color_arr(theme.text_primary),
         ));
 
-        let mut y = py + 36.0;
+        let mut y = py + 28.0;
         for (i, sec) in self.sections.iter().enumerate() {
             let c = if i == self.selected_section {
                 color_arr(theme.text_primary)
             } else {
                 color_arr(theme.text_muted)
             };
-            runs.push(WidgetText::new(sec.label.clone(), px + 16.0, y + 6.0, 14.0, c));
+            runs.push(WidgetText::new(sec.label.clone(), px + 20.0, y + 5.0, 13.0, c));
             y += row_h + 2.0;
         }
 
         if let Some(sec) = self.sections.get(self.selected_section) {
-            y = py + 36.0;
+            y = py + 28.0;
             runs.push(WidgetText::new(
                 sec.label.clone(),
                 px + content_x,
@@ -1476,86 +1462,159 @@ impl ZaroxiWidget for SettingsPanel {
             y += 24.0;
             for row in &sec.items {
                 runs.push(WidgetText::new(
-                    format!("{} — {}", row.label, row.description),
+                    format!("{}  —  {}", row.label, row.description),
                     px + content_x,
                     y,
-                    13.0,
+                    12.0,
                     color_arr(theme.text_muted),
                 ));
                 let val = match &row.kind {
-                    SettingsRowKind::Toggle { on } => if *on { "On" } else { "Off" }.into(),
-                    SettingsRowKind::Select { value, .. } => value.clone(),
-                    SettingsRowKind::Label { value } => value.clone(),
-                };
+                    SettingsRowKind::Toggle { on } => {
+                        if *on {
+                            "On"
+                        } else {
+                            "Off"
+                        }
+                    }
+                    SettingsRowKind::Select { value, .. } => value,
+                    SettingsRowKind::Label { value } => value,
+                }
+                .to_string();
                 runs.push(WidgetText::new(
                     val,
-                    px + content_x + content_w - 60.0,
+                    px + content_x + content_w - 80.0,
                     y,
-                    13.0,
+                    12.0,
                     color_arr(theme.text_primary),
                 ));
-                y += 22.0;
+                y += 20.0;
             }
         }
         runs
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some(format!("Settings panel — {} sections", self.sections.len()))
+        Some(format!("Settings page — {} sections", self.sections.len()))
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Extensions panel — professional scaffold for future extension management.
+// Extensions panel — editor-hosted cockpit view with sidebar list.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Extensions panel cockpit widget with a clean placeholder structure.
+/// Descriptor for one extension in the browse list.
+#[derive(Debug, Clone)]
+pub struct ExtensionEntry {
+    pub id: String,
+    pub name: String,
+    pub publisher: String,
+    pub description: String,
+    pub installed: bool,
+}
+
+/// Extensions page rendered in the editor content area.  Shows a list of
+/// extensions with a details pane for the selected entry.
 pub struct ExtensionsPanel {
-    pub opened: bool,
+    pub entries: Vec<ExtensionEntry>,
+    pub selected_entry: usize,
 }
 
 impl ZaroxiWidget for ExtensionsPanel {
     fn layer(&self) -> WidgetLayer {
-        WidgetLayer::Palette
+        WidgetLayer::ActivityRail
     }
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
-        if !self.opened {
-            return;
-        }
         let panel = layout_rect(layout);
-        let bg = RoundedRect::new(panel.x0, panel.y0, panel.x1, panel.y1, 12.0);
-        fill(scene, &bg, theme.bg_elevated);
-        let border = RoundedRect::new(panel.x0, panel.y0, panel.x1, panel.y1, 12.0);
-        stroke(scene, 1.5, &border, theme.divider);
+        fill(scene, &panel, theme.bg_elevated);
+
+        let list_w = 220.0;
+        let row_h = 30.0;
+        let mut y = panel.y0 + 28.0;
+        for (i, _e) in self.entries.iter().enumerate() {
+            let item_rect = Rect::new(panel.x0 + 8.0, y, panel.x0 + list_w - 8.0, y + row_h);
+            if i == self.selected_entry {
+                let sel_bg =
+                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 5.0);
+                fill(scene, &sel_bg, theme.accent_soft);
+            }
+            y += row_h + 2.0;
+        }
+        let div = Line::new(
+            Point::new(panel.x0 + list_w, panel.y0 + 16.0),
+            Point::new(panel.x0 + list_w, panel.y1 - 8.0),
+        );
+        stroke(scene, 1.0, &div, theme.divider);
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
-        if !self.opened {
-            return vec![];
-        }
+        let mut runs = Vec::new();
         let px = layout.location.x;
         let py = layout.location.y;
-        let mut runs = Vec::new();
+        let list_w = 220.0;
+        let row_h = 30.0;
+        let detail_x = list_w + 20.0;
+        let _detail_w = layout.size.width - detail_x - 16.0;
+
         runs.push(WidgetText::new(
             "Extensions".to_string(),
             px + 12.0,
-            py + 10.0,
-            18.0,
+            py + 6.0,
+            17.0,
             color_arr(theme.text_primary),
         ));
-        runs.push(WidgetText::new(
-            "Manage your installed extensions and discover new ones.".to_string(),
-            px + 12.0,
-            py + 40.0,
-            13.0,
-            color_arr(theme.text_muted),
-        ));
+
+        let mut y = py + 28.0;
+        for (i, e) in self.entries.iter().enumerate() {
+            let c = if i == self.selected_entry {
+                color_arr(theme.text_primary)
+            } else {
+                color_arr(theme.text_muted)
+            };
+            runs.push(WidgetText::new(e.name.clone(), px + 16.0, y + 6.0, 13.0, c));
+            y += row_h + 2.0;
+        }
+
+        if let Some(e) = self.entries.get(self.selected_entry) {
+            y = py + 28.0;
+            runs.push(WidgetText::new(
+                e.name.clone(),
+                px + detail_x,
+                y,
+                16.0,
+                color_arr(theme.text_primary),
+            ));
+            y += 22.0;
+            runs.push(WidgetText::new(
+                e.publisher.clone(),
+                px + detail_x,
+                y,
+                12.0,
+                color_arr(theme.text_muted),
+            ));
+            y += 18.0;
+            runs.push(WidgetText::new(
+                e.description.clone(),
+                px + detail_x,
+                y,
+                12.0,
+                color_arr(theme.text_secondary),
+            ));
+            y += 20.0;
+            let status = if e.installed { "Installed" } else { "Not installed" };
+            runs.push(WidgetText::new(
+                status.to_string(),
+                px + detail_x,
+                y,
+                12.0,
+                color_arr(theme.text_muted),
+            ));
+        }
         runs
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some("Extensions panel".into())
+        Some(format!("Extensions — {} entries", self.entries.len()))
     }
 }
 

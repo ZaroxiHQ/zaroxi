@@ -358,6 +358,9 @@ pub fn build_work_content(
         terminal_tabs,
         ai_panel_content,
         syntax_highlights,
+        editor_non_file_tabs: None,
+        active_tab_index: Some(0),
+        extension_sidebar_items: None,
     }
 }
 
