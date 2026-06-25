@@ -59,6 +59,21 @@ impl WorkbenchDestination {
         matches!(self, Self::Explorer)
     }
 
+    /// The activity-rail index that selects this destination (inverse of
+    /// [`from_rail_index`]). Used to keep the rail highlight in sync with the
+    /// active tab.
+    pub fn rail_index(&self) -> usize {
+        match self {
+            Self::Explorer => 0,
+            Self::Search => 1,
+            Self::SourceControl => 2,
+            Self::Debug => 3,
+            Self::Extensions => 4,
+            Self::Settings => 5,
+            Self::Account => 6,
+        }
+    }
+
     /// Human title used for the tab strip / breadcrumb / main heading.
     pub fn title(&self) -> &'static str {
         match self {
@@ -97,6 +112,83 @@ impl WorkbenchDestination {
             _ => return None,
         };
         Some((title.to_string(), subtitle.to_string()))
+    }
+}
+
+/// Identity of a workbench tab. The single source of truth for what the center
+/// content shows. `Editor` collapses *all* file tabs (the active file tab is the
+/// active buffer); the other variants are first-class non-file workbench tabs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkbenchTabId {
+    /// The file editor (whichever buffer is active). Explorer destination.
+    Editor,
+    /// A destination landing/root tab (Search / Source Control / Debug /
+    /// Extensions / Settings / Account). Explorer never gets a root tab — it is
+    /// the editor.
+    DestinationRoot(WorkbenchDestination),
+    /// A specific Settings category page (index into the settings sections).
+    SettingsSection(usize),
+    /// A specific extension detail page (by extension id).
+    ExtensionDetail(String),
+}
+
+impl WorkbenchTabId {
+    /// The workbench area this tab belongs to — drives the sidebar + rail.
+    pub fn destination(&self) -> WorkbenchDestination {
+        match self {
+            Self::Editor => WorkbenchDestination::Explorer,
+            Self::DestinationRoot(d) => *d,
+            Self::SettingsSection(_) => WorkbenchDestination::Settings,
+            Self::ExtensionDetail(_) => WorkbenchDestination::Extensions,
+        }
+    }
+
+    /// Whether this tab shows the file editor (vs a cockpit destination page).
+    pub fn is_editor(&self) -> bool {
+        matches!(self, Self::Editor | Self::DestinationRoot(WorkbenchDestination::Explorer))
+    }
+}
+
+/// An open non-file workbench tab (file tabs are projected from the buffer
+/// summary each frame and never stored here).
+#[derive(Debug, Clone)]
+pub struct WorkbenchTab {
+    /// Stable identity (used for focus + dedup).
+    pub id: WorkbenchTabId,
+    /// Visible tab label, e.g. "Settings: General", "Zaroxi Formatter".
+    pub title: String,
+}
+
+/// A rendered tab's hit region, set each frame from the cockpit tab-strip
+/// layout so the host can route clicks (focus / close) without the widget tree.
+#[derive(Debug, Clone)]
+pub struct WorkbenchTabHit {
+    /// Whole-tab hit rect `(x, y, w, h)`.
+    pub rect: (f32, f32, f32, f32),
+    /// Close-button hit rect, when the tab is closable.
+    pub close_rect: Option<(f32, f32, f32, f32)>,
+    /// `Some(buffer index)` for a file tab (routes to buffer switch); `None`
+    /// for a non-file tab.
+    pub file_index: Option<usize>,
+    /// Tab identity (`Editor` for file tabs).
+    pub id: WorkbenchTabId,
+}
+
+/// Title for a non-file tab id (used when opening a tab).
+pub fn tab_title(id: &WorkbenchTabId) -> String {
+    match id {
+        WorkbenchTabId::Editor => "Editor".to_string(),
+        WorkbenchTabId::DestinationRoot(d) => d.title().to_string(),
+        WorkbenchTabId::SettingsSection(i) => {
+            let sections = settings_sections("");
+            let name = sections.get(*i).map(|s| s.label.as_str()).unwrap_or("Settings");
+            format!("Settings: {name}")
+        }
+        WorkbenchTabId::ExtensionDetail(ext_id) => extension_entries()
+            .into_iter()
+            .find(|e| &e.id == ext_id)
+            .map(|e| e.name)
+            .unwrap_or_else(|| "Extension".to_string()),
     }
 }
 
@@ -230,8 +322,8 @@ pub fn settings_sections(theme_label: &str) -> Vec<SettingsSection> {
 /// they are decorative facets so the sidebar visibly changes per destination.
 pub fn sidebar_rows(
     dest: WorkbenchDestination,
-    extensions_selected: usize,
-    settings_selected: usize,
+    extensions_selected: Option<usize>,
+    settings_selected: Option<usize>,
 ) -> Vec<DestSidebarRow> {
     match dest {
         WorkbenchDestination::Explorer => Vec::new(),
@@ -240,13 +332,13 @@ pub fn sidebar_rows(
             .enumerate()
             .map(|(i, e)| {
                 let badge = if e.installed { "Installed" } else { "Available" };
-                DestSidebarRow::new(&e.name, badge, i == extensions_selected, true)
+                DestSidebarRow::new(&e.name, badge, Some(i) == extensions_selected, true)
             })
             .collect(),
         WorkbenchDestination::Settings => settings_sections("")
             .iter()
             .enumerate()
-            .map(|(i, s)| DestSidebarRow::new(&s.label, "", i == settings_selected, true))
+            .map(|(i, s)| DestSidebarRow::new(&s.label, "", Some(i) == settings_selected, true))
             .collect(),
         WorkbenchDestination::Search => vec![
             DestSidebarRow::new("Match Case", "Aa", false, false),
@@ -268,6 +360,98 @@ pub fn sidebar_rows(
             DestSidebarRow::new("Profile", "", false, false),
             DestSidebarRow::new("Sync Settings", "Off", false, false),
         ],
+    }
+}
+
+/// A tab in the unified tab strip (file tabs + non-file workbench tabs).
+#[derive(Debug, Clone)]
+pub struct UnifiedTab {
+    /// Visible label.
+    pub title: String,
+    /// Whether this is the active tab.
+    pub active: bool,
+    /// Whether a close button is shown (non-file tabs are closable).
+    pub closable: bool,
+    /// `Some(buffer index)` for a file tab, `None` for a non-file tab.
+    pub file_index: Option<usize>,
+    /// Tab identity (`Editor` for file tabs).
+    pub id: WorkbenchTabId,
+}
+
+/// Project the unified tab strip from the file buffers (as `(label, is_active)`
+/// pairs) followed by the open non-file workbench tabs. File tabs are only
+/// highlighted when the editor itself is the active tab.
+pub fn build_unified_tabs(
+    file_tabs: &[(String, bool)],
+    active_tab: &WorkbenchTabId,
+    non_file_tabs: &[WorkbenchTab],
+) -> Vec<UnifiedTab> {
+    let mut out = Vec::new();
+    let editor_active = active_tab.is_editor();
+    for (i, (title, is_active)) in file_tabs.iter().enumerate() {
+        out.push(UnifiedTab {
+            title: title.clone(),
+            active: editor_active && *is_active,
+            closable: false,
+            file_index: Some(i),
+            id: WorkbenchTabId::Editor,
+        });
+    }
+    for t in non_file_tabs {
+        out.push(UnifiedTab {
+            title: t.title.clone(),
+            active: active_tab == &t.id,
+            closable: true,
+            file_index: None,
+            id: t.id.clone(),
+        });
+    }
+    out
+}
+
+/// Resolve the cockpit destination pages for the active tab: returns
+/// `(settings_panel, extensions_panel, placeholder_panel)`. Exactly one (or
+/// none, for the editor) is `Some`.
+#[allow(clippy::type_complexity)]
+pub fn cockpit_panels_for(
+    active: &WorkbenchTabId,
+    theme_label: &str,
+) -> (
+    Option<(Vec<SettingsSection>, usize)>,
+    Option<(Vec<ExtensionEntry>, usize)>,
+    Option<(String, String)>,
+) {
+    match active {
+        WorkbenchTabId::SettingsSection(i) => {
+            let sections = settings_sections(theme_label);
+            let sel = (*i).min(sections.len().saturating_sub(1));
+            (Some((sections, sel)), None, None)
+        }
+        WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings) => {
+            (Some((settings_sections(theme_label), 0)), None, None)
+        }
+        WorkbenchTabId::ExtensionDetail(id) => {
+            let entries = extension_entries();
+            let sel = entries.iter().position(|e| &e.id == id).unwrap_or(0);
+            (None, Some((entries, sel)), None)
+        }
+        WorkbenchTabId::DestinationRoot(WorkbenchDestination::Extensions) => {
+            (None, Some((extension_entries(), 0)), None)
+        }
+        WorkbenchTabId::DestinationRoot(d) => (None, None, d.placeholder()),
+        WorkbenchTabId::Editor => (None, None, None),
+    }
+}
+
+/// Sidebar selection highlight `(extensions_selected, settings_selected)`
+/// derived from the active tab — no separate selection state is stored.
+pub fn sidebar_selection_for(active: &WorkbenchTabId) -> (Option<usize>, Option<usize>) {
+    match active {
+        WorkbenchTabId::ExtensionDetail(id) => {
+            (extension_entries().iter().position(|e| &e.id == id), None)
+        }
+        WorkbenchTabId::SettingsSection(i) => (None, Some(*i)),
+        _ => (None, None),
     }
 }
 
@@ -303,7 +487,7 @@ mod tests {
 
     #[test]
     fn extensions_sidebar_marks_selection() {
-        let rows = sidebar_rows(WorkbenchDestination::Extensions, 1, 0);
+        let rows = sidebar_rows(WorkbenchDestination::Extensions, Some(1), None);
         assert!(rows[1].selected);
         assert!(rows[0].selectable);
         assert!(!rows[0].selected);
@@ -311,6 +495,78 @@ mod tests {
 
     #[test]
     fn explorer_has_no_destination_rows() {
-        assert!(sidebar_rows(WorkbenchDestination::Explorer, 0, 0).is_empty());
+        assert!(sidebar_rows(WorkbenchDestination::Explorer, None, None).is_empty());
+    }
+
+    #[test]
+    fn unified_tabs_orders_files_then_non_file_and_flags_active() {
+        let files = vec![("main.rs".to_string(), true), ("lib.rs".to_string(), false)];
+        let non_file = vec![
+            WorkbenchTab {
+                id: WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings),
+                title: "Settings".to_string(),
+            },
+            WorkbenchTab {
+                id: WorkbenchTabId::ExtensionDetail("zaroxi.git".to_string()),
+                title: "Git Integration".to_string(),
+            },
+        ];
+
+        // Editor active: the active file tab is highlighted, no non-file tab is.
+        let tabs = build_unified_tabs(&files, &WorkbenchTabId::Editor, &non_file);
+        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs[0].title, "main.rs");
+        assert!(tabs[0].active && tabs[0].file_index == Some(0) && !tabs[0].closable);
+        assert!(!tabs[1].active); // lib.rs not the active buffer
+        assert!(!tabs[2].active && tabs[2].closable); // Settings tab
+        assert!(!tabs[3].active && tabs[3].closable); // extension tab
+
+        // A non-file tab active: no file tab is highlighted, that tab is.
+        let ext = WorkbenchTabId::ExtensionDetail("zaroxi.git".to_string());
+        let tabs = build_unified_tabs(&files, &ext, &non_file);
+        assert!(!tabs[0].active && !tabs[1].active);
+        assert!(tabs[3].active);
+    }
+
+    #[test]
+    fn panels_follow_active_tab() {
+        // Settings section -> settings panel at that index.
+        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::SettingsSection(2), "Dark");
+        assert!(s.is_some() && e.is_none() && p.is_none());
+        assert_eq!(s.unwrap().1, 2);
+
+        // Extension detail -> extensions panel selecting that id.
+        let id = extension_entries()[2].id.clone();
+        let (s, e, _p) = cockpit_panels_for(&WorkbenchTabId::ExtensionDetail(id), "Dark");
+        assert!(s.is_none());
+        assert_eq!(e.unwrap().1, 2);
+
+        // A facet destination root -> placeholder; the editor -> nothing.
+        let (_s, _e, p) = cockpit_panels_for(
+            &WorkbenchTabId::DestinationRoot(WorkbenchDestination::Search),
+            "Dark",
+        );
+        assert!(p.is_some());
+        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::Editor, "Dark");
+        assert!(s.is_none() && e.is_none() && p.is_none());
+    }
+
+    #[test]
+    fn sidebar_selection_derives_from_active_tab() {
+        let id = extension_entries()[1].id.clone();
+        assert_eq!(sidebar_selection_for(&WorkbenchTabId::ExtensionDetail(id)), (Some(1), None));
+        assert_eq!(sidebar_selection_for(&WorkbenchTabId::SettingsSection(3)), (None, Some(3)));
+        assert_eq!(sidebar_selection_for(&WorkbenchTabId::Editor), (None, None));
+    }
+
+    #[test]
+    fn tab_titles_are_human_readable() {
+        assert_eq!(
+            tab_title(&WorkbenchTabId::DestinationRoot(WorkbenchDestination::Extensions)),
+            "Extensions"
+        );
+        assert!(tab_title(&WorkbenchTabId::SettingsSection(0)).starts_with("Settings: "));
+        let id = extension_entries()[0].id.clone();
+        assert_eq!(tab_title(&WorkbenchTabId::ExtensionDetail(id)), extension_entries()[0].name);
     }
 }

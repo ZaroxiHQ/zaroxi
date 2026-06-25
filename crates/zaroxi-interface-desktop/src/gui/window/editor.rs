@@ -57,28 +57,17 @@ impl EditorPanel {
     pub fn build_tab_strip_block(
         r: &ShellRegion,
         tokens: &StyleTokens,
-        data: &EditorContentData,
-        dest: WorkbenchDestination,
+        _data: &EditorContentData,
+        _dest: WorkbenchDestination,
     ) -> UiBlock {
-        // Explorer shows file tabs; other destinations show a single
-        // destination tab (e.g. "Settings") so the strip never implies a file
-        // is open in a non-file view.
-        let tab_spans = if dest.is_explorer() {
-            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(&data.tab_entries, tokens)
-        } else {
-            let entry = TabEntry { label: dest.title().to_string(), active: true };
-            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(
-                std::slice::from_ref(&entry),
-                tokens,
-            )
-        };
-
+        // Background only: the unified tab strip (file tabs + non-file workbench
+        // tabs) is rendered by the cockpit `WorkbenchTabStrip` (overlay accents +
+        // text labels), so the shape pass emits just the strip surface here.
         UiBlock {
             id: r.id.to_string(),
             rect: r.into(),
             header_color: Some(tokens.tab_strip_background.to_array()),
             content_color: Some(tokens.tab_strip_background.to_array()),
-            content_spans: Some(tab_spans),
             ..Default::default()
         }
     }

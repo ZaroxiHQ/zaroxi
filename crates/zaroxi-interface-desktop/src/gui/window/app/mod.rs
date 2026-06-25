@@ -379,15 +379,19 @@ pub struct GuiApp {
     /// Hit rects for each rail item, set each frame from the cockpit rail layout.
     /// `Vec<(rect_x, rect_y, rect_w, rect_h)>` in logical px.
     pub rail_item_hit_rects: Vec<(f32, f32, f32, f32)>,
-    /// Selected entry index in the Extensions destination (drives the detail
-    /// pane). Updated when an extensions sidebar row is clicked.
-    pub extensions_selected_index: usize,
-    /// Selected category index in the Settings destination (drives the rows
-    /// pane). Updated when a settings sidebar category is clicked.
-    pub settings_selected_section: usize,
+    /// Open non-file workbench tabs (Settings sections, extension details,
+    /// destination roots). File tabs are projected from the buffer summary each
+    /// frame and are not stored here.
+    pub non_file_tabs: Vec<super::destination::WorkbenchTab>,
+    /// The active workbench tab — the single source of truth for the visible
+    /// center content, the sidebar destination, and the rail highlight.
+    pub active_tab: super::destination::WorkbenchTabId,
     /// Hit rects for destination sidebar rows (Extensions list / Settings
     /// categories), set each frame from the sidebar render. `(x, y, w, h)`.
     pub sidebar_row_hit_rects: Vec<(f32, f32, f32, f32)>,
+    /// Hit rects for the unified tab strip (file + non-file tabs), set each
+    /// frame from the cockpit tab-strip layout so clicks route to focus/close.
+    pub tab_hit_rects: Vec<super::destination::WorkbenchTabHit>,
     /// Keyboard-selected row within the (filtered) explorer list, for arrow-key
     /// navigation while searching. Absolute index into the visible item set.
     pub explorer_search_sel: Option<usize>,
@@ -767,6 +771,48 @@ impl GuiApp {
     /// buffer load happens later in `commit_open` (next frame). A newer
     /// `request_open` supersedes the pending one, so rapid explorer switching
     /// never runs a stale file's heavy open work. The newest selection wins.
+    /// Open the tab if absent (dedup by id) and focus it. `Editor`/Explorer root
+    /// focuses the file editor (no stored tab). Keeps the rail highlight in sync
+    /// and triggers a cockpit rebuild + redraw.
+    fn open_or_focus_tab(&mut self, id: super::destination::WorkbenchTabId) {
+        use super::destination::WorkbenchTabId as T;
+        if id.is_editor() {
+            self.active_tab = T::Editor;
+        } else {
+            if !self.non_file_tabs.iter().any(|t| t.id == id) {
+                let title = super::destination::tab_title(&id);
+                self.non_file_tabs.push(super::destination::WorkbenchTab { id: id.clone(), title });
+            }
+            self.active_tab = id;
+        }
+        self.rail_selected_index = self.active_tab.destination().rail_index();
+        self.cockpit_status_fingerprint = 0;
+        self.needs_render = true;
+    }
+
+    /// Close a non-file tab; if it was active, focus a sane fallback (the tab
+    /// that took its slot, else the previous one, else the file editor).
+    fn close_tab(&mut self, id: &super::destination::WorkbenchTabId) {
+        use super::destination::WorkbenchTabId as T;
+        let Some(pos) = self.non_file_tabs.iter().position(|t| &t.id == id) else {
+            return;
+        };
+        let was_active = &self.active_tab == id;
+        self.non_file_tabs.remove(pos);
+        if was_active {
+            let fallback = self
+                .non_file_tabs
+                .get(pos)
+                .or_else(|| pos.checked_sub(1).and_then(|p| self.non_file_tabs.get(p)))
+                .map(|t| t.id.clone())
+                .unwrap_or(T::Editor);
+            self.active_tab = fallback;
+            self.rail_selected_index = self.active_tab.destination().rail_index();
+        }
+        self.cockpit_status_fingerprint = 0;
+        self.needs_render = true;
+    }
+
     fn request_open(&mut self, wc: ShellWorkContent) {
         self.open_token += 1;
         let token = self.open_token;
@@ -1890,41 +1936,80 @@ impl winit::application::ApplicationHandler for GuiApp {
                     y,
                     self.explorer_button_rect
                 );
-                // Rail item click (cockpit-owned, separate from shell tree).
+                // Unified tab-strip click (file tabs + non-file workbench tabs).
+                // Close hits remove the tab; tab hits focus it (file tabs switch
+                // the active buffer, non-file tabs become the active tab).
                 if let ElementState::Released = state {
-                    let rail_idx = self.rail_hovered_index;
-                    if let Some(idx) = rail_idx {
-                        self.rail_selected_index = idx;
-                        self.cockpit_status_fingerprint = 0;
-                        self.needs_render = true;
-                        let id = zaroxi_core_engine_style::WidgetId::list_item(idx);
-                        self.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(
-                            id,
-                        )]);
+                    let action = self.tab_hit_rects.iter().find_map(|h| {
+                        if let Some((cx, cy, cw, ch)) = h.close_rect
+                            && x >= cx
+                            && x < cx + cw
+                            && y >= cy
+                            && y < cy + ch
+                        {
+                            return Some((true, h.file_index, h.id.clone()));
+                        }
+                        let (tx, ty, tw, th) = h.rect;
+                        if x >= tx && x < tx + tw && y >= ty && y < ty + th {
+                            return Some((false, h.file_index, h.id.clone()));
+                        }
+                        None
+                    });
+                    if let Some((is_close, file_index, id)) = action {
+                        if is_close {
+                            self.close_tab(&id);
+                        } else if let Some(fi) = file_index {
+                            self.active_tab = super::destination::WorkbenchTabId::Editor;
+                            self.rail_selected_index = 0;
+                            self.cockpit_status_fingerprint = 0;
+                            self.needs_render = true;
+                            self.handle_actions(vec![
+                                zaroxi_core_engine_ui::WidgetAction::Activated(
+                                    zaroxi_core_engine_style::WidgetId::Tab { index: fi },
+                                ),
+                            ]);
+                        } else {
+                            self.open_or_focus_tab(id);
+                        }
                         return;
                     }
                 }
+                // Rail item click: navigation intent — open/focus the
+                // destination's root tab (Explorer focuses the file editor).
+                if let ElementState::Released = state
+                    && let Some(idx) = self.rail_hovered_index
+                {
+                    let dest = super::destination::WorkbenchDestination::from_rail_index(idx);
+                    let target = if dest.is_explorer() {
+                        super::destination::WorkbenchTabId::Editor
+                    } else {
+                        super::destination::WorkbenchTabId::DestinationRoot(dest)
+                    };
+                    self.open_or_focus_tab(target);
+                    return;
+                }
                 // Destination sidebar row click (Extensions list / Settings
-                // categories). Updates the active selection so the cockpit
-                // detail / rows pane re-renders for the clicked item, and the
-                // sidebar re-highlights the selected row.
+                // categories): open or focus the corresponding detail tab.
                 if let ElementState::Released = state {
-                    use super::destination::WorkbenchDestination as D;
-                    let dest = D::from_rail_index(self.rail_selected_index);
+                    use super::destination::{WorkbenchDestination as D, WorkbenchTabId as T};
+                    let dest = self.active_tab.destination();
                     if matches!(dest, D::Extensions | D::Settings) {
                         let hit =
                             self.sidebar_row_hit_rects.iter().position(|&(rx, ry, rw, rh)| {
                                 x >= rx && x < rx + rw && y >= ry && y < ry + rh
                             });
                         if let Some(row) = hit {
-                            match dest {
-                                D::Extensions => self.extensions_selected_index = row,
-                                D::Settings => self.settings_selected_section = row,
-                                _ => {}
+                            let target = match dest {
+                                D::Extensions => super::destination::extension_entries()
+                                    .get(row)
+                                    .map(|e| T::ExtensionDetail(e.id.clone())),
+                                D::Settings => Some(T::SettingsSection(row)),
+                                _ => None,
+                            };
+                            if let Some(t) = target {
+                                self.open_or_focus_tab(t);
+                                return;
                             }
-                            self.cockpit_status_fingerprint = 0;
-                            self.needs_render = true;
-                            return;
                         }
                     }
                 }
@@ -2454,6 +2539,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                             )
                         })
                         .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                    let cockpit_tab_strip_rect: (f32, f32, f32, f32) =
+                        crate::gui::region_dispatch::find_region_by_role(
+                            shell_regions,
+                            zaroxi_core_engine_style::PanelRole::ContentTabStrip,
+                        )
+                        .map(|r| {
+                            (
+                                r.rect.x as f32,
+                                r.rect.y as f32,
+                                r.rect.width as f32,
+                                r.rect.height as f32,
+                            )
+                        })
+                        .unwrap_or((0.0, 0.0, 0.0, 0.0));
                     let visible_line_range: Option<(usize, usize)> =
                         self.composition.as_ref().and_then(|comp| comp.metadata.as_ref()).map(
                             |meta| {
@@ -2601,14 +2700,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let block_t = std::time::Instant::now();
-                    let destination = super::destination::WorkbenchDestination::from_rail_index(
-                        self.rail_selected_index,
-                    );
-                    let sidebar_list = super::destination::sidebar_rows(
-                        destination,
-                        self.extensions_selected_index,
-                        self.settings_selected_section,
-                    );
+                    let destination = self.active_tab.destination();
+                    let (ext_sel, set_sel) =
+                        super::destination::sidebar_selection_for(&self.active_tab);
+                    let sidebar_list =
+                        super::destination::sidebar_rows(destination, ext_sel, set_sel);
                     let ctx = super::frame::ShellBlockContext {
                         editor_data,
                         explorer_data,
@@ -3061,12 +3157,52 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     && fp == self.cockpit_status_fingerprint;
                                 self.cockpit_status_fingerprint = fp;
                                 if !skip {
+                                    let file_tabs: Vec<(String, bool)> = self
+                                        .composition
+                                        .as_ref()
+                                        .map(|c| {
+                                            c.latest_opened_buffers_summary()
+                                                .items
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, it)| {
+                                                    (
+                                                        it.display.clone().unwrap_or_else(|| {
+                                                            format!("Buffer {}", i + 1)
+                                                        }),
+                                                        it.active,
+                                                    )
+                                                })
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                    let workbench_tabs = super::destination::build_unified_tabs(
+                                        &file_tabs,
+                                        &self.active_tab,
+                                        &self.non_file_tabs,
+                                    );
+                                    let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
+                                        workbench_tabs
+                                            .iter()
+                                            .map(|t| zaroxi_interface_widgets::CockpitTab {
+                                                title: t.title.clone(),
+                                                active: t.active,
+                                                closable: t.closable,
+                                            })
+                                            .collect();
+                                    let (dp_settings, dp_extensions, dp_placeholder) =
+                                        super::destination::cockpit_panels_for(
+                                            &self.active_tab,
+                                            &format!("{:?}", self.theme_mode),
+                                        );
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
                                         editor_rect: cockpit_editor_rect,
                                         status_rect: cockpit_status_rect,
                                         rail_rect: cockpit_rail_rect,
+                                        tab_strip_rect: cockpit_tab_strip_rect,
+                                        tabs: cockpit_tabs,
                                         rail_items: {
                                             let glyphs: [(u32, &str); 7] = [
                                                 (0xf07b, "Explorer"),
@@ -3109,41 +3245,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             editor_total_lines,
                                         ),
                                         status: instrument_status,
-                                        settings_panel: {
-                                            use super::destination::WorkbenchDestination as D;
-                                            if D::from_rail_index(self.rail_selected_index)
-                                                == D::Settings
-                                            {
-                                                let sections = super::destination::settings_sections(
-                                                    &format!("{:?}", self.theme_mode),
-                                                );
-                                                let sel = self
-                                                    .settings_selected_section
-                                                    .min(sections.len().saturating_sub(1));
-                                                Some((sections, sel))
-                                            } else {
-                                                None
-                                            }
-                                        },
-                                        extensions_panel: {
-                                            use super::destination::WorkbenchDestination as D;
-                                            if D::from_rail_index(self.rail_selected_index)
-                                                == D::Extensions
-                                            {
-                                                let entries = super::destination::extension_entries();
-                                                let sel = self
-                                                    .extensions_selected_index
-                                                    .min(entries.len().saturating_sub(1));
-                                                Some((entries, sel))
-                                            } else {
-                                                None
-                                            }
-                                        },
-                                        placeholder_panel:
-                                            super::destination::WorkbenchDestination::from_rail_index(
-                                                self.rail_selected_index,
-                                            )
-                                            .placeholder(),
+                                        settings_panel: dp_settings,
+                                        extensions_panel: dp_extensions,
+                                        placeholder_panel: dp_placeholder,
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(
@@ -3170,6 +3274,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             rects.push((sx, ry, slot_w, rh));
                                         }
                                         rects
+                                    };
+                                    self.tab_hit_rects = {
+                                        let closables: Vec<bool> =
+                                            workbench_tabs.iter().map(|t| t.closable).collect();
+                                        let layout = zaroxi_interface_widgets::workbench_tab_layout(
+                                            cockpit_tab_strip_rect,
+                                            &closables,
+                                        );
+                                        workbench_tabs
+                                            .iter()
+                                            .zip(layout)
+                                            .map(|(t, (rect, close))| {
+                                                super::destination::WorkbenchTabHit {
+                                                    rect,
+                                                    close_rect: close,
+                                                    file_index: t.file_index,
+                                                    id: t.id.clone(),
+                                                }
+                                            })
+                                            .collect()
                                     };
                                 }
                                 let cockpit_bytes_est =
@@ -3574,6 +3698,45 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 + 1024;
                                         self.cockpit_retained_bytes = cockpit_bytes_est;
                                     } else {
+                                        let file_tabs: Vec<(String, bool)> = self
+                                            .composition
+                                            .as_ref()
+                                            .map(|c| {
+                                                c.latest_opened_buffers_summary()
+                                                    .items
+                                                    .iter()
+                                                    .enumerate()
+                                                    .map(|(i, it)| {
+                                                        (
+                                                            it.display.clone().unwrap_or_else(
+                                                                || format!("Buffer {}", i + 1),
+                                                            ),
+                                                            it.active,
+                                                        )
+                                                    })
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default();
+                                        let workbench_tabs = super::destination::build_unified_tabs(
+                                            &file_tabs,
+                                            &self.active_tab,
+                                            &self.non_file_tabs,
+                                        );
+                                        let cockpit_tabs: Vec<
+                                            zaroxi_interface_widgets::CockpitTab,
+                                        > = workbench_tabs
+                                            .iter()
+                                            .map(|t| zaroxi_interface_widgets::CockpitTab {
+                                                title: t.title.clone(),
+                                                active: t.active,
+                                                closable: t.closable,
+                                            })
+                                            .collect();
+                                        let (dp_settings, dp_extensions, dp_placeholder) =
+                                            super::destination::cockpit_panels_for(
+                                                &self.active_tab,
+                                                &format!("{:?}", self.theme_mode),
+                                            );
                                         let inputs = super::cockpit::CockpitInputs {
                                             width: sw as f32,
                                             height: sh as f32,
@@ -3586,6 +3749,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             // Activity rail rect from the shell layout
                                             // (bottom of the left column, cockpit-owned).
                                             rail_rect: cockpit_rail_rect,
+                                            tab_strip_rect: cockpit_tab_strip_rect,
+                                            tabs: cockpit_tabs,
                                             rail_items: {
                                                 let glyphs: [(u32, &str); 7] = [
                                                     (0xf07b, "Explorer"),
@@ -3641,43 +3806,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             status: instrument_status,
                                             // prediction_cells / ai_regions remain empty:
                                             // there is no edit-prediction subsystem yet.
-                                            settings_panel: {
-                                                use super::destination::WorkbenchDestination as D;
-                                                if D::from_rail_index(self.rail_selected_index)
-                                                    == D::Settings
-                                                {
-                                                    let sections =
-                                                        super::destination::settings_sections(
-                                                            &format!("{:?}", self.theme_mode),
-                                                        );
-                                                    let sel = self
-                                                        .settings_selected_section
-                                                        .min(sections.len().saturating_sub(1));
-                                                    Some((sections, sel))
-                                                } else {
-                                                    None
-                                                }
-                                            },
-                                            extensions_panel: {
-                                                use super::destination::WorkbenchDestination as D;
-                                                if D::from_rail_index(self.rail_selected_index)
-                                                    == D::Extensions
-                                                {
-                                                    let entries =
-                                                        super::destination::extension_entries();
-                                                    let sel = self
-                                                        .extensions_selected_index
-                                                        .min(entries.len().saturating_sub(1));
-                                                    Some((entries, sel))
-                                                } else {
-                                                    None
-                                                }
-                                            },
-                                            placeholder_panel:
-                                                super::destination::WorkbenchDestination::from_rail_index(
-                                                    self.rail_selected_index,
-                                                )
-                                                .placeholder(),
+                                            settings_panel: dp_settings,
+                                            extensions_panel: dp_extensions,
+                                            placeholder_panel: dp_placeholder,
                                             ..Default::default()
                                         };
                                         let (scene, text) =
@@ -3707,6 +3838,27 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 rects.push((sx, ry, slot_w, rh));
                                             }
                                             rects
+                                        };
+                                        self.tab_hit_rects = {
+                                            let closables: Vec<bool> =
+                                                workbench_tabs.iter().map(|t| t.closable).collect();
+                                            let layout =
+                                                zaroxi_interface_widgets::workbench_tab_layout(
+                                                    cockpit_tab_strip_rect,
+                                                    &closables,
+                                                );
+                                            workbench_tabs
+                                                .iter()
+                                                .zip(layout)
+                                                .map(|(t, (rect, close))| {
+                                                    super::destination::WorkbenchTabHit {
+                                                        rect,
+                                                        close_rect: close,
+                                                        file_index: t.file_index,
+                                                        id: t.id.clone(),
+                                                    }
+                                                })
+                                                .collect()
                                         };
                                         // Cockpit built pre-render; the trace was
                                         // emitted there.

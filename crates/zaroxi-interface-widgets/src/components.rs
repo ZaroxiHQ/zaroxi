@@ -1381,8 +1381,10 @@ pub enum SettingsRowKind {
     Label { value: String },
 }
 
-/// Settings page rendered in the editor content area via cockpit vello +
-/// cosmic-text.  Uses a left section nav + right content pane layout.
+/// Settings detail page rendered in the editor content area. Shows exactly ONE
+/// section (the selected category). The sidebar owns category navigation and the
+/// tab/breadcrumb own the page title, so this pane never repeats them — one
+/// section title, then its rows.
 pub struct SettingsPanel {
     pub sections: Vec<SettingsSection>,
     pub selected_section: usize,
@@ -1394,104 +1396,66 @@ impl ZaroxiWidget for SettingsPanel {
     }
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
+        // Background is owned by the host shape pass. The only vector accent is a
+        // thin rule under the section title.
         let panel = layout_rect(layout);
-        // The opaque panel background is owned by the host shape pass (drawn
-        // BELOW the cosmic-text pass) so the labels stay readable; the cockpit
-        // overlay composites ABOVE the text, so here we draw only translucent
-        // accents (selection wash, divider).
-
-        let nav_w = 160.0;
-        let row_h = 28.0;
-        let mut y = panel.y0 + 28.0;
-        for (i, _sec) in self.sections.iter().enumerate() {
-            let item_rect = Rect::new(panel.x0 + 12.0, y, panel.x0 + nav_w - 12.0, y + row_h);
-            if i == self.selected_section {
-                let sel_bg =
-                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 5.0);
-                fill(scene, &sel_bg, theme.accent_soft);
-            }
-            y += row_h + 2.0;
-        }
-        let div = Line::new(
-            Point::new(panel.x0 + nav_w, panel.y0 + 16.0),
-            Point::new(panel.x0 + nav_w, panel.y1 - 8.0),
+        let rule = Line::new(
+            Point::new(panel.x0 + 28.0, panel.y0 + 48.0),
+            Point::new((panel.x1 - 28.0).max(panel.x0 + 28.0), panel.y0 + 48.0),
         );
-        stroke(scene, 1.0, &div, theme.divider);
+        stroke(scene, 1.0, &rule, theme.divider);
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let mut runs = Vec::new();
-        let px = layout.location.x;
-        let py = layout.location.y;
-        let nav_w = 160.0;
-        let row_h = 28.0;
-        let content_x = nav_w + 20.0;
-        let content_w = layout.size.width - content_x - 16.0;
-
-        runs.push(WidgetText::new(
-            "Settings".to_string(),
-            px + 12.0,
-            py + 6.0,
-            17.0,
-            color_arr(theme.text_primary),
-        ));
-
-        let mut y = py + 28.0;
-        for (i, sec) in self.sections.iter().enumerate() {
-            let c = if i == self.selected_section {
-                color_arr(theme.text_primary)
-            } else {
-                color_arr(theme.text_muted)
-            };
-            runs.push(WidgetText::new(sec.label.clone(), px + 20.0, y + 5.0, 13.0, c));
-            y += row_h + 2.0;
-        }
-
-        if let Some(sec) = self.sections.get(self.selected_section) {
-            y = py + 28.0;
+        let px = layout.location.x + 28.0;
+        let py = layout.location.y + 22.0;
+        let right = layout.location.x + layout.size.width - 132.0;
+        let Some(sec) = self.sections.get(self.selected_section) else {
+            return runs;
+        };
+        // Single section title (no nav column, no duplicate page title).
+        runs.push(WidgetText::new(sec.label.clone(), px, py, 18.0, color_arr(theme.text_primary)));
+        let mut y = py + 44.0;
+        for row in &sec.items {
             runs.push(WidgetText::new(
-                sec.label.clone(),
-                px + content_x,
+                row.label.clone(),
+                px,
                 y,
-                16.0,
+                14.0,
                 color_arr(theme.text_primary),
             ));
-            y += 24.0;
-            for row in &sec.items {
-                runs.push(WidgetText::new(
-                    format!("{}  —  {}", row.label, row.description),
-                    px + content_x,
-                    y,
-                    12.0,
-                    color_arr(theme.text_muted),
-                ));
-                let val = match &row.kind {
-                    SettingsRowKind::Toggle { on } => {
-                        if *on {
-                            "On"
-                        } else {
-                            "Off"
-                        }
+            let val = match &row.kind {
+                SettingsRowKind::Toggle { on } => {
+                    if *on {
+                        "On".to_string()
+                    } else {
+                        "Off".to_string()
                     }
-                    SettingsRowKind::Select { value, .. } => value,
-                    SettingsRowKind::Label { value } => value,
                 }
-                .to_string();
-                runs.push(WidgetText::new(
-                    val,
-                    px + content_x + content_w - 80.0,
-                    y,
-                    12.0,
-                    color_arr(theme.text_primary),
-                ));
-                y += 20.0;
-            }
+                SettingsRowKind::Select { value, .. } => value.clone(),
+                SettingsRowKind::Label { value } => value.clone(),
+            };
+            runs.push(WidgetText::new(val, right, y, 13.0, color_arr(theme.accent)));
+            runs.push(WidgetText::new(
+                row.description.clone(),
+                px,
+                y + 18.0,
+                11.5,
+                color_arr(theme.text_muted),
+            ));
+            y += 48.0;
         }
         runs
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some(format!("Settings page — {} sections", self.sections.len()))
+        let name = self
+            .sections
+            .get(self.selected_section)
+            .map(|s| s.label.as_str())
+            .unwrap_or("Settings");
+        Some(format!("Settings: {name}"))
     }
 }
 
@@ -1509,11 +1473,22 @@ pub struct ExtensionEntry {
     pub installed: bool,
 }
 
-/// Extensions page rendered in the editor content area.  Shows a list of
-/// extensions with a details pane for the selected entry.
+/// Extension detail page rendered in the editor content area. Shows exactly ONE
+/// extension (the selected entry): header, metadata, description, and action
+/// buttons. The sidebar owns the list and the tab owns the title, so there is no
+/// list column or repeated heading here.
 pub struct ExtensionsPanel {
     pub entries: Vec<ExtensionEntry>,
     pub selected_entry: usize,
+}
+
+/// Action button labels for an extension, reflecting installed state.
+fn extension_action_labels(e: &ExtensionEntry) -> Vec<String> {
+    if e.installed {
+        vec!["Disable".to_string(), "Uninstall".to_string()]
+    } else {
+        vec!["Install".to_string()]
+    }
 }
 
 impl ZaroxiWidget for ExtensionsPanel {
@@ -1523,97 +1498,63 @@ impl ZaroxiWidget for ExtensionsPanel {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let panel = layout_rect(layout);
-        // Opaque background owned by the host shape pass (below the text pass);
-        // the cockpit overlay composites above text, so draw only translucent
-        // accents here (selection wash, divider).
-
-        let list_w = 220.0;
-        let row_h = 30.0;
-        let mut y = panel.y0 + 28.0;
-        for (i, _e) in self.entries.iter().enumerate() {
-            let item_rect = Rect::new(panel.x0 + 8.0, y, panel.x0 + list_w - 8.0, y + row_h);
-            if i == self.selected_entry {
-                let sel_bg =
-                    RoundedRect::new(item_rect.x0, item_rect.y0, item_rect.x1, item_rect.y1, 5.0);
-                fill(scene, &sel_bg, theme.accent_soft);
-            }
-            y += row_h + 2.0;
+        let Some(e) = self.entries.get(self.selected_entry) else {
+            return;
+        };
+        // Translucent action-button backgrounds (labels stay readable, drawn in
+        // the text pass below this overlay).
+        for idx in 0..extension_action_labels(e).len() {
+            let bx = panel.x0 + 28.0 + idx as f64 * 116.0;
+            let by = panel.y0 + 132.0;
+            let r = RoundedRect::new(bx, by, bx + 104.0, by + 30.0, 6.0);
+            fill(scene, &r, theme.accent_soft);
         }
-        let div = Line::new(
-            Point::new(panel.x0 + list_w, panel.y0 + 16.0),
-            Point::new(panel.x0 + list_w, panel.y1 - 8.0),
-        );
-        stroke(scene, 1.0, &div, theme.divider);
     }
 
     fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let mut runs = Vec::new();
-        let px = layout.location.x;
-        let py = layout.location.y;
-        let list_w = 220.0;
-        let row_h = 30.0;
-        let detail_x = list_w + 20.0;
-        let _detail_w = layout.size.width - detail_x - 16.0;
-
+        let px = layout.location.x + 28.0;
+        let py = layout.location.y + 22.0;
+        let Some(e) = self.entries.get(self.selected_entry) else {
+            return runs;
+        };
+        runs.push(WidgetText::new(e.name.clone(), px, py, 20.0, color_arr(theme.text_primary)));
+        let status = if e.installed { "Installed" } else { "Available" };
         runs.push(WidgetText::new(
-            "Extensions".to_string(),
-            px + 12.0,
-            py + 6.0,
-            17.0,
-            color_arr(theme.text_primary),
+            format!("{} · {}", e.publisher, status),
+            px,
+            py + 28.0,
+            12.0,
+            color_arr(theme.text_muted),
         ));
-
-        let mut y = py + 28.0;
-        for (i, e) in self.entries.iter().enumerate() {
-            let c = if i == self.selected_entry {
-                color_arr(theme.text_primary)
-            } else {
-                color_arr(theme.text_muted)
-            };
-            runs.push(WidgetText::new(e.name.clone(), px + 16.0, y + 6.0, 13.0, c));
-            y += row_h + 2.0;
-        }
-
-        if let Some(e) = self.entries.get(self.selected_entry) {
-            y = py + 28.0;
+        runs.push(WidgetText::new(
+            e.description.clone(),
+            px,
+            py + 64.0,
+            13.0,
+            color_arr(theme.text_secondary),
+        ));
+        for (idx, label) in extension_action_labels(e).iter().enumerate() {
+            let bx = layout.location.x + 28.0 + idx as f32 * 116.0;
+            let by = layout.location.y + 132.0;
             runs.push(WidgetText::new(
-                e.name.clone(),
-                px + detail_x,
-                y,
-                16.0,
+                label.clone(),
+                bx + 16.0,
+                by + 8.0,
+                12.5,
                 color_arr(theme.text_primary),
-            ));
-            y += 22.0;
-            runs.push(WidgetText::new(
-                e.publisher.clone(),
-                px + detail_x,
-                y,
-                12.0,
-                color_arr(theme.text_muted),
-            ));
-            y += 18.0;
-            runs.push(WidgetText::new(
-                e.description.clone(),
-                px + detail_x,
-                y,
-                12.0,
-                color_arr(theme.text_secondary),
-            ));
-            y += 20.0;
-            let status = if e.installed { "Installed" } else { "Not installed" };
-            runs.push(WidgetText::new(
-                status.to_string(),
-                px + detail_x,
-                y,
-                12.0,
-                color_arr(theme.text_muted),
             ));
         }
         runs
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some(format!("Extensions — {} entries", self.entries.len()))
+        Some(
+            self.entries
+                .get(self.selected_entry)
+                .map(|e| e.name.clone())
+                .unwrap_or_else(|| "Extensions".to_string()),
+        )
     }
 }
 
@@ -1672,6 +1613,123 @@ impl ZaroxiWidget for DestinationPlaceholder {
 
     fn a11y_label(&self) -> Option<String> {
         Some(format!("{} — {}", self.title, self.subtitle))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Workbench tab strip — the unified, cockpit-rendered tab strip hosting file
+// tabs and non-file workbench tabs (destination roots / settings sections /
+// extension details).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Fixed per-tab width for the unified tab strip. Host hit-testing and the
+/// widget paint share this so click rects always match the rendered tabs.
+pub const WORKBENCH_TAB_W: f32 = 168.0;
+const WORKBENCH_TAB_CLOSE_W: f32 = 18.0;
+
+/// One entry in the unified workbench tab strip.
+#[derive(Debug, Clone)]
+pub struct CockpitTab {
+    /// Visible label.
+    pub title: String,
+    /// Whether this is the active tab (highlight + accent underline).
+    pub active: bool,
+    /// Whether a close button is shown (non-file tabs are closable).
+    pub closable: bool,
+}
+
+/// Geometry of one rendered tab: `(tab_rect, close_rect)` in `(x, y, w, h)`.
+/// `close_rect` is `Some` only for closable tabs.
+pub type TabGeometry = ((f32, f32, f32, f32), Option<(f32, f32, f32, f32)>);
+
+/// Deterministic per-tab layout shared by [`WorkbenchTabStrip`] paint and the
+/// host's hit-testing. Returns `(tab_rect, close_rect)` per tab as `(x,y,w,h)`.
+pub fn workbench_tab_layout(strip: (f32, f32, f32, f32), closables: &[bool]) -> Vec<TabGeometry> {
+    let (sx, sy, _sw, sh) = strip;
+    let mut out = Vec::with_capacity(closables.len());
+    for (i, &closable) in closables.iter().enumerate() {
+        let tx = sx + i as f32 * WORKBENCH_TAB_W;
+        let tab = (tx, sy, WORKBENCH_TAB_W, sh);
+        let close = if closable {
+            Some((
+                tx + WORKBENCH_TAB_W - WORKBENCH_TAB_CLOSE_W - 6.0,
+                sy + (sh - WORKBENCH_TAB_CLOSE_W) * 0.5,
+                WORKBENCH_TAB_CLOSE_W,
+                WORKBENCH_TAB_CLOSE_W,
+            ))
+        } else {
+            None
+        };
+        out.push((tab, close));
+    }
+    out
+}
+
+/// The unified tab strip rendered by the cockpit. The opaque strip background
+/// comes from the host shape pass; this widget draws the active-tab accent +
+/// separators (overlay) and the labels + close glyphs (text pass).
+pub struct WorkbenchTabStrip {
+    pub tabs: Vec<CockpitTab>,
+}
+
+impl ZaroxiWidget for WorkbenchTabStrip {
+    fn layer(&self) -> WidgetLayer {
+        WidgetLayer::ActivityRail
+    }
+
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
+        let strip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        let closables: Vec<bool> = self.tabs.iter().map(|t| t.closable).collect();
+        let rects = workbench_tab_layout(strip, &closables);
+        for (i, (tab, _close)) in rects.iter().enumerate() {
+            let (tx, ty, tw, th) = *tab;
+            let (x0, y0, x1, y1) = (tx as f64, ty as f64, (tx + tw) as f64, (ty + th) as f64);
+            if self.tabs[i].active {
+                fill(scene, &Rect::new(x0, y0, x1, y1), theme.accent_soft);
+                let underline = Line::new(Point::new(x0, y1 - 1.0), Point::new(x1, y1 - 1.0));
+                stroke(scene, 2.0, &underline, theme.accent);
+            }
+            // Right separator.
+            let sep = Line::new(Point::new(x1, y0 + 4.0), Point::new(x1, y1 - 4.0));
+            stroke(scene, 1.0, &sep, theme.divider);
+        }
+    }
+
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
+        let strip = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+        let closables: Vec<bool> = self.tabs.iter().map(|t| t.closable).collect();
+        let rects = workbench_tab_layout(strip, &closables);
+        let mut runs = Vec::new();
+        for (i, (tab, close)) in rects.iter().enumerate() {
+            let (tx, ty, _tw, th) = *tab;
+            let t = &self.tabs[i];
+            let color =
+                if t.active { color_arr(theme.text_primary) } else { color_arr(theme.text_muted) };
+            let max_chars = 16usize;
+            let label: String = if t.title.chars().count() > max_chars {
+                let mut s: String = t.title.chars().take(max_chars - 1).collect();
+                s.push('…');
+                s
+            } else {
+                t.title.clone()
+            };
+            let ty_text = ty + (th - 13.0) * 0.5;
+            runs.push(WidgetText::new(label, tx + 12.0, ty_text, 13.0, color));
+            if let Some((cx, cy, _cw, _ch)) = close {
+                runs.push(WidgetText::new(
+                    "×".to_string(),
+                    *cx + 3.0,
+                    *cy,
+                    14.0,
+                    color_arr(theme.text_muted),
+                ));
+            }
+        }
+        runs
+    }
+
+    fn a11y_label(&self) -> Option<String> {
+        Some(format!("{} workbench tabs", self.tabs.len()))
     }
 }
 

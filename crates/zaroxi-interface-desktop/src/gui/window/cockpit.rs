@@ -56,6 +56,11 @@ pub struct CockpitInputs {
     /// (bottom of the left column, above the status bar). When zero, the rail is
     /// not rendered.
     pub rail_rect: (f32, f32, f32, f32),
+    /// Unified tab-strip rect `(x, y, w, h)` in logical px from the shell layout.
+    /// When zero (or `tabs` is empty) the strip is not rendered.
+    pub tab_strip_rect: (f32, f32, f32, f32),
+    /// Unified workbench tabs (file tabs followed by non-file tabs), in order.
+    pub tabs: Vec<zaroxi_interface_widgets::CockpitTab>,
     /// Activity rail items in left-to-right order.
     pub rail_items: Vec<ActivityItem>,
     /// Style-token-derived colors for the rail (from StyleTokens, not
@@ -186,6 +191,7 @@ struct Regions {
     minimap: taffy::Layout,
     status: taffy::Layout,
     activity_rail: taffy::Layout,
+    tab_strip: taffy::Layout,
 }
 
 /// Build a window-space `taffy::Layout` from an `(x, y, w, h)` rect.
@@ -239,6 +245,12 @@ fn layout_regions(inputs: &CockpitInputs) -> Regions {
             inputs.rail_rect.1,
             inputs.rail_rect.2,
             inputs.rail_rect.3,
+        ),
+        tab_strip: rect_layout(
+            inputs.tab_strip_rect.0,
+            inputs.tab_strip_rect.1,
+            inputs.tab_strip_rect.2,
+            inputs.tab_strip_rect.3,
         ),
     }
 }
@@ -431,6 +443,17 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         );
     }
 
+    // Unified workbench tab strip (file tabs + non-file workbench tabs).
+    if !inputs.tabs.is_empty()
+        && regions.tab_strip.size.width > 0.0
+        && regions.tab_strip.size.height > 0.0
+    {
+        tree.push(
+            Box::new(zaroxi_interface_widgets::WorkbenchTabStrip { tabs: inputs.tabs.clone() }),
+            regions.tab_strip,
+        );
+    }
+
     tree
 }
 
@@ -529,6 +552,8 @@ mod tests {
             phase: 0.3,
             rail_rect: (0.0, 776.0, 0.0, 0.0),
             rail_items: vec![],
+            tab_strip_rect: (0.0, 0.0, 0.0, 0.0),
+            tabs: vec![],
             rail_bg_color: [0.0; 4],
             rail_item_active: [0.0; 4],
             rail_accent_color: [0.0; 4],
