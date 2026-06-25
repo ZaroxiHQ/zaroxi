@@ -184,8 +184,9 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                                 ),
                             );
                             let wc = comp.build_work_content();
-                            app.active_tab =
-                                crate::gui::window::destination::WorkbenchTabId::Editor;
+                            app.tab_state.focus_tab(
+                                &crate::gui::window::destination::WorkbenchTabId::Editor,
+                            );
                             app.rail_selected_index = 0;
                             app.cockpit_status_fingerprint = 0;
                             app.request_open(wc);

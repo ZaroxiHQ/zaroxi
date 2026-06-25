@@ -157,7 +157,7 @@ impl ShellWorkContent {
             ai_panel_content: None,
             syntax_highlights: None,
             editor_non_file_tabs: None,
-            active_tab_index: Some(0),
+            active_tab_index: None,
             extension_sidebar_items: None,
         }
     }

@@ -20,7 +20,7 @@ contract.
 use zaroxi_interface_widgets::{ExtensionEntry, SettingsRow, SettingsRowKind, SettingsSection};
 
 /// A first-class destination selected from the activity rail.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WorkbenchDestination {
     /// File tree + editor cockpit (the default).
     Explorer,
@@ -120,7 +120,7 @@ impl WorkbenchDestination {
 /// compatibility with `active_tab` comparisons). `FileBuffer(String)` is a
 /// single opened file identified by its stable buffer id string. The other
 /// variants are first-class non-file workbench tabs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WorkbenchTabId {
     /// The file editor identity (used for the unified Editor role).
     Editor,
@@ -197,6 +197,192 @@ pub fn tab_title(id: &WorkbenchTabId) -> String {
             .find(|e| &e.id == ext_id)
             .map(|e| e.name)
             .unwrap_or_else(|| "Extension".to_string()),
+    }
+}
+
+/// A canonical entry in the workbench tab strip — either a file buffer tab or
+/// a non-file workbench tab. This is the single authoritative tab model; every
+/// visual and interactive element in the tab strip must derive from this.
+#[derive(Debug, Clone)]
+pub enum WorkbenchTabEntry {
+    File { buffer_id: String, title: String, is_active_buffer: bool },
+    NonFile { id: WorkbenchTabId, title: String },
+}
+
+impl WorkbenchTabEntry {
+    pub fn stable_id(&self) -> WorkbenchTabId {
+        match self {
+            Self::File { buffer_id, .. } => WorkbenchTabId::FileBuffer(buffer_id.clone()),
+            Self::NonFile { id, .. } => id.clone(),
+        }
+    }
+
+    pub fn title(&self) -> &str {
+        match self {
+            Self::File { title, .. } => title,
+            Self::NonFile { title, .. } => title,
+        }
+    }
+
+    pub fn closable(&self) -> bool {
+        true
+    }
+
+    pub fn is_file(&self) -> bool {
+        matches!(self, Self::File { .. })
+    }
+}
+
+/// The single canonical tab state for the workbench. Owns all tab identities,
+/// the active tab, and scroll position. Every open, close, focus, and scroll
+/// action must go through one of its methods — no alternative authority exists.
+///
+/// File tabs are synced from composition metadata each frame via
+/// [`sync_file_tabs`]; non-file tabs are directly owned here.
+#[derive(Debug, Clone)]
+pub struct WorkbenchTabState {
+    entries: Vec<WorkbenchTabEntry>,
+    active: WorkbenchTabId,
+    pub scroll_offset: f32,
+}
+
+impl Default for WorkbenchTabState {
+    fn default() -> Self {
+        Self { entries: Vec::new(), active: WorkbenchTabId::Editor, scroll_offset: 0.0 }
+    }
+}
+
+impl WorkbenchTabState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The ordered set of canonical tab entries.
+    pub fn entries(&self) -> &[WorkbenchTabEntry] {
+        &self.entries
+    }
+
+    /// The active tab identity.
+    pub fn active(&self) -> &WorkbenchTabId {
+        &self.active
+    }
+
+    /// Sync file tabs from the composition's opened-buffers summary.
+    /// Rebuilds the file-tab portion of the entry list while preserving
+    /// all non-file tabs in their current order.
+    pub fn sync_file_tabs(&mut self, titles: &[(String, String, bool)]) {
+        self.entries.retain(|e| !e.is_file());
+        let all_paths: Vec<&str> = titles.iter().map(|(t, _, _)| t.as_str()).collect();
+        let mut new_files: Vec<WorkbenchTabEntry> = titles
+            .iter()
+            .map(|(path, bid, is_active)| WorkbenchTabEntry::File {
+                buffer_id: bid.clone(),
+                title: format_file_tab_label(path, &all_paths),
+                is_active_buffer: *is_active,
+            })
+            .collect();
+        self.entries = new_files.drain(..).chain(self.entries.drain(..)).collect();
+    }
+
+    /// Open or focus a non-file tab. Deduplicates by id; if the tab already
+    /// exists it is focused, otherwise it is created and made active.
+    pub fn open_or_focus_non_file(&mut self, id: WorkbenchTabId) {
+        if id.is_editor() {
+            self.active = WorkbenchTabId::Editor;
+            return;
+        }
+        if let Some(existing) = self.entries.iter().position(|e| e.stable_id() == id) {
+            self.active = self.entries[existing].stable_id();
+        } else {
+            let title = tab_title(&id);
+            self.entries.push(WorkbenchTabEntry::NonFile { id: id.clone(), title });
+            self.active = id;
+        }
+    }
+
+    /// Close a tab by its stable identity. Returns `true` if the active tab
+    /// changed and the caller needs to update content.
+    pub fn close_tab(&mut self, id: &WorkbenchTabId) -> bool {
+        let Some(pos) = self.entries.iter().position(|e| &e.stable_id() == id) else {
+            return false;
+        };
+        let was_file = self.entries[pos].is_file();
+        let was_active = &self.active == id;
+        self.entries.remove(pos);
+        if was_active {
+            let fallback = self
+                .entries
+                .get(pos)
+                .or_else(|| pos.checked_sub(1).and_then(|p| self.entries.get(p)))
+                .map(|e| e.stable_id())
+                .unwrap_or(WorkbenchTabId::Editor);
+            self.active = fallback;
+        }
+        was_file || was_active
+    }
+
+    /// Focus an existing tab by id. Returns `true` if the active tab changed.
+    pub fn focus_tab(&mut self, id: &WorkbenchTabId) -> bool {
+        if self.active == *id {
+            return false;
+        }
+        if id.is_editor() {
+            self.active = WorkbenchTabId::Editor;
+            return true;
+        }
+        if self.entries.iter().any(|e| e.stable_id() == *id) {
+            self.active = id.clone();
+            return true;
+        }
+        false
+    }
+
+    /// Ensure the active tab is visible within `strip_w` logical pixels.
+    /// Nudges `scroll_offset` so the active tab is fully inside the viewport.
+    pub fn ensure_active_visible(&mut self, strip_w: f32, tab_w: f32) {
+        if let Some(act_idx) = self.entries.iter().position(|e| e.stable_id() == self.active) {
+            let tab_left = act_idx as f32 * tab_w;
+            let tab_right = tab_left + tab_w;
+            if tab_right - self.scroll_offset > strip_w {
+                self.scroll_offset = (tab_right - strip_w + 4.0).max(0.0);
+            }
+            if tab_left < self.scroll_offset {
+                self.scroll_offset = (tab_left - 4.0).max(0.0);
+            }
+        }
+        let total_w = self.entries.len() as f32 * tab_w;
+        let max_scroll = (total_w - strip_w).max(0.0);
+        if max_scroll <= 0.0 {
+            self.scroll_offset = 0.0;
+        } else {
+            self.scroll_offset = self.scroll_offset.min(max_scroll);
+        }
+    }
+
+    /// Whether the active tab is in file-editor mode.
+    pub fn is_editor_active(&self) -> bool {
+        self.active.is_editor()
+    }
+
+    /// Project the canonical tab list into a `Vec<UnifiedTab>` for cockpit
+    /// consumption and hit-test layout.
+    pub fn projected_tabs(&self) -> Vec<UnifiedTab> {
+        self.entries
+            .iter()
+            .map(|e| {
+                let id = e.stable_id();
+                let editor_active = self.active.is_editor();
+                let active = match &id {
+                    WorkbenchTabId::Editor => false,
+                    WorkbenchTabId::FileBuffer(_) => {
+                        editor_active
+                            && matches!(e, WorkbenchTabEntry::File { is_active_buffer: true, .. })
+                    }
+                    _ => id == self.active,
+                };
+                UnifiedTab { title: e.title().to_string(), active, closable: e.closable(), id }
+            })
+            .collect()
     }
 }
 

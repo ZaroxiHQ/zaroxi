@@ -270,7 +270,7 @@ pub fn select_prev_command_index(current: usize, len: usize) -> usize {
 pub fn build_work_content(
     opened: &OpenedBuffersSummary,
     doc: Option<&ActiveDocumentSummary>,
-    ctx: Option<&ShellContext>,
+    _ctx: Option<&ShellContext>,
     visible_window: Option<&VisibleWindowBasic>,
     ai_panel_content: Option<ContentView>,
     explorer_items: Option<Vec<String>>,
@@ -299,19 +299,9 @@ pub fn build_work_content(
         }
     });
 
-    let editor_tabs = if !opened.items.is_empty() {
-        Some(
-            opened
-                .items
-                .iter()
-                .map(|it| it.display.clone().unwrap_or_else(|| "untitled".to_string()))
-                .collect(),
-        )
-    } else {
-        None
-    };
+    let editor_tabs: Option<Vec<String>> = None;
 
-    let editor_breadcrumb = ctx.and_then(|c| c.active_display.clone());
+    let editor_breadcrumb: Option<String> = None;
 
     let editor_body = doc.map(|d| {
         let title = d.display.clone().unwrap_or_else(|| "untitled".to_string());
@@ -359,7 +349,7 @@ pub fn build_work_content(
         ai_panel_content,
         syntax_highlights,
         editor_non_file_tabs: None,
-        active_tab_index: Some(0),
+        active_tab_index: None,
         extension_sidebar_items: None,
     }
 }

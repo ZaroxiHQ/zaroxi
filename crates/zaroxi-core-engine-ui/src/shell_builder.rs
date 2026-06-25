@@ -12,10 +12,10 @@ use crate::layout_constants::{
     PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET, RAIL_STRIP_H, SB_BOTTOM_SPEC,
     SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM,
     SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD,
-    STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TAB_W_ACTIVE_EXTRA,
-    TAB_W_INACTIVE, TAB_Y_HANG, TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H,
-    TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP,
-    TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W, compute_scrollbar_geometry,
+    STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TERMINAL_HEADER_H,
+    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
+    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
+    compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -223,84 +223,15 @@ pub fn build_shell_widget_tree(
         subtle: false,
     });
 
-    // TabItem widgets: driven by ShellWorkContent.editor_tabs + non_file_tabs
-    if layout.content_tab_strip.width > 80.0 && layout.content_tab_strip.height > 4.0 {
-        let tab_h = layout.content_tab_strip.height + TAB_Y_HANG;
-        let tab_y = layout.content_tab_strip.y - TAB_Y_HANG;
-        let active_idx = content.and_then(|c| c.active_tab_index).unwrap_or(0);
-        let mut tabs: Vec<(String, bool, usize)> = content
-            .and_then(|c| c.editor_tabs.as_ref())
-            .map(|ts| {
-                ts.iter()
-                    .enumerate()
-                    .map(|(i, label)| (label.clone(), i == active_idx, i))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if let Some(nf) = content.and_then(|c| c.editor_non_file_tabs.as_ref()) {
-            let base = tabs.len();
-            for (i, (label, _kind)) in nf.iter().enumerate() {
-                let idx = base + i;
-                tabs.push((label.clone(), idx == active_idx, idx));
-            }
-        }
-        if tabs.is_empty() {
-            tabs = vec![
-                ("main.rs".into(), true, 0),
-                ("lib.rs".into(), false, 1),
-                ("mod.rs".into(), false, 2),
-            ];
-        }
-        let tab_w = TAB_W_INACTIVE;
-        let mut tx = layout.content_tab_strip.x;
-
-        for (label, active, idx) in tabs {
-            let tw = if active { tab_w + TAB_W_ACTIVE_EXTRA } else { tab_w };
-            if tx + tw > layout.content_tab_strip.x + layout.content_tab_strip.width {
-                break;
-            }
-            let tab_rect = Rect::new(tx, tab_y, tw, tab_h);
-            let fill = if active {
-                tokens.tab_active_background.to_array()
-            } else {
-                tokens.tab_inactive_background.to_array()
-            };
-            let text_c =
-                if active { tokens.text_primary.to_array() } else { tokens.text_muted.to_array() };
-            let accent = if active { Some(tokens.accent.to_array()) } else { None };
-            let state = if active { InteractionState::Selected } else { InteractionState::Normal };
-
-            tree.push(ShellWidget::TabItem {
-                id: WidgetId::tab(idx),
-                rect: tab_rect,
-                label: label.into(),
-                fill_color: fill,
-                text_color: text_c,
-                accent_strip: accent,
-                state,
-            });
-            tx += tw;
-        }
-    }
+    // The unified tab strip (file tabs + non-file workbench tabs) is rendered
+    // exclusively by the cockpit WorkbenchTabStrip overlay. The shell shape pass
+    // emits only the background surface + divider here.
 
     // ── 6. Editor breadcrumb ──
-    tree.push(ShellWidget::Surface {
-        rect: layout.content_breadcrumb,
-        fill_color: tokens.editor_breadcrumb_background.to_array(),
-        border_color: None,
-        border_width: 0.0,
-    });
-    tree.push(ShellWidget::Divider {
-        rect: Rect::new(
-            layout.content_breadcrumb.x,
-            layout.content_breadcrumb.y + layout.content_breadcrumb.height - 1.0,
-            layout.content_breadcrumb.width,
-            1.0,
-        ),
-        color: tokens.divider_subtle.to_array(),
-        orientation: DividerOrientation::Horizontal,
-        subtle: true,
-    });
+    // The breadcrumb row is suppressed: the cockpit tab strip carries file
+    // identity (basename-first with disambiguation). The shape pass still
+    // emits the background strip via EditorPanel::build_breadcrumb_block()
+    // so the layout stays stable; no shell widget duplicates it here.
 
     // ── 7. Editor content ──
     tree.push(ShellWidget::Surface {

@@ -616,8 +616,8 @@ pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
             }
         };
         if scroll_px.abs() > 0.01 {
-            app.tab_scroll_offset -= scroll_px;
-            app.tab_scroll_offset = app.tab_scroll_offset.max(0.0);
+            app.tab_state.scroll_offset -= scroll_px;
+            app.tab_state.scroll_offset = app.tab_state.scroll_offset.max(0.0);
             app.cockpit_status_fingerprint = 0;
             app.needs_render = true;
         }

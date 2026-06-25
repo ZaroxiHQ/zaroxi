@@ -135,7 +135,6 @@ pub struct WidgetTreeFingerprint {
     explorer_scroll_top: usize,
     editor_lines_len: Option<usize>,
     active_file: Option<String>,
-    editor_tabs: Option<Vec<String>>,
 }
 
 impl WidgetTreeFingerprint {
@@ -146,7 +145,6 @@ impl WidgetTreeFingerprint {
             explorer_scroll_top: wc.explorer_scroll_top,
             editor_lines_len: wc.editor_body.as_ref().map(|b| b.lines.len()),
             active_file: wc.active_file.clone(),
-            editor_tabs: wc.editor_tabs.clone(),
         }
     }
 }
@@ -379,13 +377,10 @@ pub struct GuiApp {
     /// Hit rects for each rail item, set each frame from the cockpit rail layout.
     /// `Vec<(rect_x, rect_y, rect_w, rect_h)>` in logical px.
     pub rail_item_hit_rects: Vec<(f32, f32, f32, f32)>,
-    /// Open non-file workbench tabs (Settings sections, extension details,
-    /// destination roots). File tabs are projected from the buffer summary each
-    /// frame and are not stored here.
-    pub non_file_tabs: Vec<super::destination::WorkbenchTab>,
-    /// The active workbench tab — the single source of truth for the visible
-    /// center content, the sidebar destination, and the rail highlight.
-    pub active_tab: super::destination::WorkbenchTabId,
+    /// The single canonical workbench tab state — the sole authority for the
+    /// visible tab strip, active tab identity, and scroll position. No other
+    /// structure may act as an alternative tab authority.
+    pub tab_state: super::destination::WorkbenchTabState,
     /// Hit rects for destination sidebar rows (Extensions list / Settings
     /// categories), set each frame from the sidebar render. `(x, y, w, h)`.
     pub sidebar_row_hit_rects: Vec<(f32, f32, f32, f32)>,
@@ -593,10 +588,8 @@ pub struct GuiApp {
     /// time the persistent buffer is reallocated (growth). Used by the renderer
     /// to detect stale buffers from across-frame resizes.
     pub text_instance_buffer_version: u64,
-    /// Horizontal scroll offset for the unified tab strip (>= 0). Adjusted by
-    /// mouse wheel on the tab strip so overflowed tabs become visible. Clamped
-    /// each frame against the actual overflow width.
-    pub tab_scroll_offset: f32,
+    /// Horizontal scroll offset for the unified tab strip is now owned by
+    /// [`super::destination::WorkbenchTabState::scroll_offset`].
     /// Left overflow arrow hit rect `(x,y,w,h)` when the tab strip needs
     /// scrolling and there are tabs scrolled off the left edge.
     pub tab_arrow_left_rect: Option<(f32, f32, f32, f32)>,
@@ -775,50 +768,21 @@ impl GuiApp {
             .and_then(|core| core.text_renderer().and_then(|tr| tr.monospace_advance_x()))
     }
 
-    /// Stage A — request an open. Cheap and non-blocking: stamps a new open
-    /// token, updates the chrome (explorer selection / title / status) instantly
-    /// via `work_content`, and records the content as *pending*. The heavy
-    /// buffer load happens later in `commit_open` (next frame). A newer
-    /// `request_open` supersedes the pending one, so rapid explorer switching
-    /// never runs a stale file's heavy open work. The newest selection wins.
-    /// Open the tab if absent (dedup by id) and focus it. `Editor`/Explorer root
-    /// focuses the file editor (no stored tab). Keeps the rail highlight in sync
-    /// and triggers a cockpit rebuild + redraw.
+    /// Open or focus a tab through the canonical tab state. Editor/Explorer
+    /// focuses the file editor; non-file tabs are deduplicated and focused.
+    /// Keeps the rail highlight in sync and triggers a cockpit rebuild + redraw.
     fn open_or_focus_tab(&mut self, id: super::destination::WorkbenchTabId) {
-        use super::destination::WorkbenchTabId as T;
-        if id.is_editor() {
-            self.active_tab = T::Editor;
-        } else {
-            if !self.non_file_tabs.iter().any(|t| t.id == id) {
-                let title = super::destination::tab_title(&id);
-                self.non_file_tabs.push(super::destination::WorkbenchTab { id: id.clone(), title });
-            }
-            self.active_tab = id;
-        }
-        self.rail_selected_index = self.active_tab.destination().rail_index();
+        self.tab_state.open_or_focus_non_file(id);
+        self.rail_selected_index = self.tab_state.active().destination().rail_index();
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
     }
 
-    /// Close a non-file tab; if it was active, focus a sane fallback (the tab
-    /// that took its slot, else the previous one, else the file editor).
+    /// Close a tab by stable identity through the canonical tab state.
+    /// Updates rail highlight and triggers cockpit rebuild + redraw.
     fn close_tab(&mut self, id: &super::destination::WorkbenchTabId) {
-        use super::destination::WorkbenchTabId as T;
-        let Some(pos) = self.non_file_tabs.iter().position(|t| &t.id == id) else {
-            return;
-        };
-        let was_active = &self.active_tab == id;
-        self.non_file_tabs.remove(pos);
-        if was_active {
-            let fallback = self
-                .non_file_tabs
-                .get(pos)
-                .or_else(|| pos.checked_sub(1).and_then(|p| self.non_file_tabs.get(p)))
-                .map(|t| t.id.clone())
-                .unwrap_or(T::Editor);
-            self.active_tab = fallback;
-            self.rail_selected_index = self.active_tab.destination().rail_index();
-        }
+        let _changed = self.tab_state.close_tab(id);
+        self.rail_selected_index = self.tab_state.active().destination().rail_index();
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
     }
@@ -1691,7 +1655,6 @@ impl GuiApp {
                         let changed = self.work_content.as_ref().is_none_or(|old| {
                             old.explorer_items != wc.explorer_items
                                 || old.active_file != wc.active_file
-                                || old.editor_tabs != wc.editor_tabs
                                 || old.editor_body.as_ref().map(|b| &b.lines)
                                     != wc.editor_body.as_ref().map(|b| &b.lines)
                         });
@@ -1957,7 +1920,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         && y >= ay
                         && y < ay + ah
                     {
-                        self.tab_scroll_offset = (self.tab_scroll_offset
+                        self.tab_state.scroll_offset = (self.tab_state.scroll_offset
                             - zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0)
                             .max(0.0);
                         self.cockpit_status_fingerprint = 0;
@@ -1970,7 +1933,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         && y >= ay
                         && y < ay + ah
                     {
-                        self.tab_scroll_offset += zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0;
+                        self.tab_state.scroll_offset +=
+                            zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0;
                         self.cockpit_status_fingerprint = 0;
                         self.needs_render = true;
                         return;
@@ -1994,15 +1958,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         if is_close {
                             if let super::destination::WorkbenchTabId::FileBuffer(ref bid_str) = id
                             {
-                                // ── Atomic file-tab close ────────────────
-                                // 1. Remove from metadata.opened_buffers.
-                                // 2. Update active_buffer + details if the
-                                //    closed buffer was active.
-                                // 3. Rebuild work content from the updated
-                                //    metadata so editor_tabs, breadcrumb,
-                                //    and editor_body reflect the fallback.
-                                // 4. Invalidate cockpit fingerprint so the
-                                //    tab strip rebuilds from canonical state.
+                                let mut needs_wc_rebuild = false;
                                 if let Some(ref mut comp) = self.composition {
                                     if let Some(meta) = comp.metadata.as_mut() {
                                         if let Some(pos) = meta
@@ -2018,6 +1974,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             meta.opened_buffers.remove(pos);
                                             meta.opened_buffer_count = meta.opened_buffers.len();
                                             if was_active {
+                                                needs_wc_rebuild = true;
                                                 if meta.opened_buffers.is_empty() {
                                                     meta.active_buffer = None;
                                                     meta.active_buffer_details = None;
@@ -2032,25 +1989,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                             display: fallback.display.clone(),
                                                             line_count: 0,
                                                         });
-                                                    // Mark fallback as active.
                                                     meta.opened_buffers[new_idx].active = true;
                                                 }
-                                                // Clear stale active flag on
-                                                // the removed buffer (safety).
                                             }
                                         }
                                     }
-                                    let wc = comp.build_work_content();
-                                    self.request_open(wc);
+                                    if needs_wc_rebuild {
+                                        let wc = comp.build_work_content();
+                                        self.request_open(wc);
+                                    }
                                 }
-                                self.active_tab = super::destination::WorkbenchTabId::Editor;
+                                self.tab_state
+                                    .focus_tab(&super::destination::WorkbenchTabId::Editor);
+                                self.rail_selected_index = 0;
                                 self.cockpit_status_fingerprint = 0;
                                 self.needs_render = true;
                             } else {
                                 self.close_tab(&id);
                             }
                         } else if id.is_editor() {
-                            self.active_tab = super::destination::WorkbenchTabId::Editor;
+                            self.tab_state.focus_tab(&super::destination::WorkbenchTabId::Editor);
                             self.rail_selected_index = 0;
                             self.cockpit_status_fingerprint = 0;
                             self.needs_render = true;
@@ -2095,7 +2053,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // categories): open or focus the corresponding detail tab.
                 if let ElementState::Released = state {
                     use super::destination::{WorkbenchDestination as D, WorkbenchTabId as T};
-                    let dest = self.active_tab.destination();
+                    let dest = self.tab_state.active().destination();
                     if matches!(dest, D::Extensions | D::Settings) {
                         let hit =
                             self.sidebar_row_hit_rects.iter().position(|&(rx, ry, rw, rh)| {
@@ -2803,9 +2761,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let block_t = std::time::Instant::now();
-                    let destination = self.active_tab.destination();
+                    let destination = self.tab_state.active().destination();
                     let (ext_sel, set_sel) =
-                        super::destination::sidebar_selection_for(&self.active_tab);
+                        super::destination::sidebar_selection_for(self.tab_state.active());
                     let sidebar_list =
                         super::destination::sidebar_rows(destination, ext_sel, set_sel);
                     let ctx = super::frame::ShellBlockContext {
@@ -3284,11 +3242,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 .collect()
                                         })
                                         .unwrap_or_default();
-                                    let workbench_tabs = super::destination::build_unified_tabs(
-                                        &file_tabs,
-                                        &self.active_tab,
-                                        &self.non_file_tabs,
-                                    );
+                                    self.tab_state.sync_file_tabs(&file_tabs);
+                                    let workbench_tabs = self.tab_state.projected_tabs();
                                     let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
                                         workbench_tabs
                                             .iter()
@@ -3300,7 +3255,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             .collect();
                                     let (dp_settings, dp_extensions, dp_placeholder) =
                                         super::destination::cockpit_panels_for(
-                                            &self.active_tab,
+                                            self.tab_state.active(),
                                             &format!("{:?}", self.theme_mode),
                                         );
                                     let inputs = super::cockpit::CockpitInputs {
@@ -3356,8 +3311,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         settings_panel: dp_settings,
                                         extensions_panel: dp_extensions,
                                         placeholder_panel: dp_placeholder,
-                                        file_editor_active: self.active_tab.is_editor(),
-                                        tab_scroll_offset: self.tab_scroll_offset,
+                                        file_editor_active: self.tab_state.is_editor_active(),
+                                        tab_scroll_offset: self.tab_state.scroll_offset,
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(
@@ -3389,60 +3344,17 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // ── Tab hit rects (recomputed every frame so resize
                                 // always produces correct hit geometry) ─────
                                 self.tab_hit_rects = {
-                                    let file_labels: Vec<(String, String, bool)> = self
-                                        .composition
-                                        .as_ref()
-                                        .map(|c| {
-                                            c.latest_opened_buffers_summary()
-                                                .items
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(i, it)| {
-                                                    (
-                                                        it.display.clone().unwrap_or_else(|| {
-                                                            format!("Buffer {}", i + 1)
-                                                        }),
-                                                        it.buffer_id.to_string(),
-                                                        it.active,
-                                                    )
-                                                })
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-                                    let wb = super::destination::build_unified_tabs(
-                                        &file_labels,
-                                        &self.active_tab,
-                                        &self.non_file_tabs,
-                                    );
+                                    let wb = self.tab_state.projected_tabs();
                                     let closables: Vec<bool> =
                                         wb.iter().map(|t| t.closable).collect();
-                                    if let Some(act_idx) = wb.iter().position(|t| t.active) {
-                                        let strip_w = cockpit_tab_strip_rect.2;
-                                        let tab_left = act_idx as f32
-                                            * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                        let tab_right =
-                                            tab_left + zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                        if tab_right - self.tab_scroll_offset > strip_w {
-                                            self.tab_scroll_offset =
-                                                (tab_right - strip_w + 4.0).max(0.0);
-                                        }
-                                        if tab_left < self.tab_scroll_offset {
-                                            self.tab_scroll_offset = (tab_left - 4.0).max(0.0);
-                                        }
-                                    }
-                                    let total_w = closables.len() as f32
-                                        * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                    let max_scroll = (total_w - cockpit_tab_strip_rect.2).max(0.0);
-                                    self.tab_scroll_offset = self.tab_scroll_offset.min(max_scroll);
-                                    // When all tabs fit (no overflow), reset scroll to origin
-                                    // so returning from narrow->wide never leaves tabs scrolled.
-                                    if max_scroll <= 0.0 {
-                                        self.tab_scroll_offset = 0.0;
-                                    }
+                                    self.tab_state.ensure_active_visible(
+                                        cockpit_tab_strip_rect.2,
+                                        zaroxi_interface_widgets::WORKBENCH_TAB_W,
+                                    );
                                     let layout_res = zaroxi_interface_widgets::workbench_tab_layout(
                                         cockpit_tab_strip_rect,
                                         &closables,
-                                        self.tab_scroll_offset,
+                                        self.tab_state.scroll_offset,
                                     );
                                     self.tab_arrow_left_rect = layout_res.arrow_left;
                                     self.tab_arrow_right_rect = layout_res.arrow_right;
@@ -3879,11 +3791,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                     .collect()
                                             })
                                             .unwrap_or_default();
-                                        let workbench_tabs = super::destination::build_unified_tabs(
-                                            &file_tabs,
-                                            &self.active_tab,
-                                            &self.non_file_tabs,
-                                        );
+                                        self.tab_state.sync_file_tabs(&file_tabs);
+                                        let workbench_tabs = self.tab_state.projected_tabs();
                                         let cockpit_tabs: Vec<
                                             zaroxi_interface_widgets::CockpitTab,
                                         > = workbench_tabs
@@ -3896,7 +3805,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             .collect();
                                         let (dp_settings, dp_extensions, dp_placeholder) =
                                             super::destination::cockpit_panels_for(
-                                                &self.active_tab,
+                                                self.tab_state.active(),
                                                 &format!("{:?}", self.theme_mode),
                                             );
                                         let inputs = super::cockpit::CockpitInputs {
@@ -3971,8 +3880,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             settings_panel: dp_settings,
                                             extensions_panel: dp_extensions,
                                             placeholder_panel: dp_placeholder,
-                                            file_editor_active: self.active_tab.is_editor(),
-                                            tab_scroll_offset: self.tab_scroll_offset,
+                                            file_editor_active: self.tab_state.is_editor_active(),
+                                            tab_scroll_offset: self.tab_state.scroll_offset,
                                             ..Default::default()
                                         };
                                         let (scene, text) =
