@@ -597,6 +597,12 @@ pub struct GuiApp {
     /// mouse wheel on the tab strip so overflowed tabs become visible. Clamped
     /// each frame against the actual overflow width.
     pub tab_scroll_offset: f32,
+    /// Left overflow arrow hit rect `(x,y,w,h)` when the tab strip needs
+    /// scrolling and there are tabs scrolled off the left edge.
+    pub tab_arrow_left_rect: Option<(f32, f32, f32, f32)>,
+    /// Right overflow arrow hit rect `(x,y,w,h)` when tabs are scrolled off
+    /// the right edge.
+    pub tab_arrow_right_rect: Option<(f32, f32, f32, f32)>,
 }
 
 /// Phase 6 two-tier open shaping budget.
@@ -1944,6 +1950,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                 // Close hits remove the tab; tab hits focus it (file tabs switch
                 // the active buffer, non-file tabs become the active tab).
                 if let ElementState::Released = state {
+                    // ── Tab overflow arrows: scroll the strip, never select a tab ──
+                    if let Some((ax, ay, aw, ah)) = self.tab_arrow_left_rect
+                        && x >= ax
+                        && x < ax + aw
+                        && y >= ay
+                        && y < ay + ah
+                    {
+                        self.tab_scroll_offset = (self.tab_scroll_offset
+                            - zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0)
+                            .max(0.0);
+                        self.cockpit_status_fingerprint = 0;
+                        self.needs_render = true;
+                        return;
+                    }
+                    if let Some((ax, ay, aw, ah)) = self.tab_arrow_right_rect
+                        && x >= ax
+                        && x < ax + aw
+                        && y >= ay
+                        && y < ay + ah
+                    {
+                        self.tab_scroll_offset += zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0;
+                        self.cockpit_status_fingerprint = 0;
+                        self.needs_render = true;
+                        return;
+                    }
                     let action = self.tab_hit_rects.iter().find_map(|h| {
                         if let Some((cx, cy, cw, ch)) = h.close_rect
                             && x >= cx
@@ -2928,7 +2959,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         meta.editor_horizontal_offset_px.unwrap_or(0.0);
                                     let off_y =
                                         meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
-                                    block.content_offset_y = off_y;
+                                    // The renderer's content-positioning adds a 28 px
+                                    // header band + 8 px content padding (=36 px) to every
+                                    // non-header_only block.  Include that offset here so
+                                    // line 1 starts directly below the breadcrumb row.
+                                    block.content_offset_y = off_y + lc::HEADER_CONTENT_GAP;
                                     if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                                         eprintln!(
                                             "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
@@ -3252,6 +3287,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         settings_panel: dp_settings,
                                         extensions_panel: dp_extensions,
                                         placeholder_panel: dp_placeholder,
+                                        file_editor_active: self.active_tab.is_editor(),
                                         tab_scroll_offset: self.tab_scroll_offset,
                                         ..Default::default()
                                     };
@@ -3280,52 +3316,78 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         }
                                         rects
                                     };
-                                    self.tab_hit_rects = {
-                                        let closables: Vec<bool> =
-                                            workbench_tabs.iter().map(|t| t.closable).collect();
-                                        // Auto-scroll active tab into view.
-                                        if let Some(act_idx) =
-                                            workbench_tabs.iter().position(|t| t.active)
-                                        {
-                                            let strip_w = cockpit_tab_strip_rect.2;
-                                            let tab_left = act_idx as f32
-                                                * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                            let tab_right = tab_left
-                                                + zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                            if tab_right - self.tab_scroll_offset > strip_w {
-                                                self.tab_scroll_offset =
-                                                    (tab_right - strip_w + 4.0).max(0.0);
-                                            }
-                                            if tab_left < self.tab_scroll_offset {
-                                                self.tab_scroll_offset = (tab_left - 4.0).max(0.0);
-                                            }
-                                        }
-                                        // Clamp against max scroll.
-                                        let total_w = closables.len() as f32
-                                            * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                        let max_scroll =
-                                            (total_w - cockpit_tab_strip_rect.2).max(0.0);
-                                        self.tab_scroll_offset =
-                                            self.tab_scroll_offset.min(max_scroll);
-                                        let layout = zaroxi_interface_widgets::workbench_tab_layout(
-                                            cockpit_tab_strip_rect,
-                                            &closables,
-                                            self.tab_scroll_offset,
-                                        );
-                                        workbench_tabs
-                                            .iter()
-                                            .zip(layout.geometries)
-                                            .map(|(t, (rect, close))| {
-                                                super::destination::WorkbenchTabHit {
-                                                    rect,
-                                                    close_rect: close,
-                                                    file_index: t.file_index,
-                                                    id: t.id.clone(),
-                                                }
-                                            })
-                                            .collect()
-                                    };
                                 }
+                                // ── Tab hit rects (recomputed every frame so resize
+                                // always produces correct hit geometry) ─────
+                                self.tab_hit_rects = {
+                                    let file_labels: Vec<(String, bool)> = self
+                                        .composition
+                                        .as_ref()
+                                        .map(|c| {
+                                            c.latest_opened_buffers_summary()
+                                                .items
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, it)| {
+                                                    (
+                                                        it.display.clone().unwrap_or_else(|| {
+                                                            format!("Buffer {}", i + 1)
+                                                        }),
+                                                        it.active,
+                                                    )
+                                                })
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+                                    let wb = super::destination::build_unified_tabs(
+                                        &file_labels,
+                                        &self.active_tab,
+                                        &self.non_file_tabs,
+                                    );
+                                    let closables: Vec<bool> =
+                                        wb.iter().map(|t| t.closable).collect();
+                                    if let Some(act_idx) = wb.iter().position(|t| t.active) {
+                                        let strip_w = cockpit_tab_strip_rect.2;
+                                        let tab_left = act_idx as f32
+                                            * zaroxi_interface_widgets::WORKBENCH_TAB_W;
+                                        let tab_right =
+                                            tab_left + zaroxi_interface_widgets::WORKBENCH_TAB_W;
+                                        if tab_right - self.tab_scroll_offset > strip_w {
+                                            self.tab_scroll_offset =
+                                                (tab_right - strip_w + 4.0).max(0.0);
+                                        }
+                                        if tab_left < self.tab_scroll_offset {
+                                            self.tab_scroll_offset = (tab_left - 4.0).max(0.0);
+                                        }
+                                    }
+                                    let total_w = closables.len() as f32
+                                        * zaroxi_interface_widgets::WORKBENCH_TAB_W;
+                                    let max_scroll = (total_w - cockpit_tab_strip_rect.2).max(0.0);
+                                    self.tab_scroll_offset = self.tab_scroll_offset.min(max_scroll);
+                                    // When all tabs fit (no overflow), reset scroll to origin
+                                    // so returning from narrow->wide never leaves tabs scrolled.
+                                    if max_scroll <= 0.0 {
+                                        self.tab_scroll_offset = 0.0;
+                                    }
+                                    let layout_res = zaroxi_interface_widgets::workbench_tab_layout(
+                                        cockpit_tab_strip_rect,
+                                        &closables,
+                                        self.tab_scroll_offset,
+                                    );
+                                    self.tab_arrow_left_rect = layout_res.arrow_left;
+                                    self.tab_arrow_right_rect = layout_res.arrow_right;
+                                    wb.iter()
+                                        .zip(layout_res.geometries)
+                                        .map(|(t, (rect, close))| {
+                                            super::destination::WorkbenchTabHit {
+                                                rect,
+                                                close_rect: close,
+                                                file_index: t.file_index,
+                                                id: t.id.clone(),
+                                            }
+                                        })
+                                        .collect()
+                                };
                                 let cockpit_bytes_est =
                                     self.cockpit_minimap_symbols.len().saturating_mul(64)
                                         + self.cockpit_diff_hunks.len().saturating_mul(32)
@@ -3839,6 +3901,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             settings_panel: dp_settings,
                                             extensions_panel: dp_extensions,
                                             placeholder_panel: dp_placeholder,
+                                            file_editor_active: self.active_tab.is_editor(),
                                             tab_scroll_offset: self.tab_scroll_offset,
                                             ..Default::default()
                                         };
@@ -3869,52 +3932,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 rects.push((sx, ry, slot_w, rh));
                                             }
                                             rects
-                                        };
-                                        self.tab_hit_rects = {
-                                            let closables: Vec<bool> =
-                                                workbench_tabs.iter().map(|t| t.closable).collect();
-                                            // Auto-scroll active tab into view.
-                                            if let Some(act_idx) =
-                                                workbench_tabs.iter().position(|t| t.active)
-                                            {
-                                                let strip_w = cockpit_tab_strip_rect.2;
-                                                let tab_left = act_idx as f32
-                                                    * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                                let tab_right = tab_left
-                                                    + zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                                if tab_right - self.tab_scroll_offset > strip_w {
-                                                    self.tab_scroll_offset =
-                                                        (tab_right - strip_w + 4.0).max(0.0);
-                                                }
-                                                if tab_left < self.tab_scroll_offset {
-                                                    self.tab_scroll_offset =
-                                                        (tab_left - 4.0).max(0.0);
-                                                }
-                                            }
-                                            let total_w = closables.len() as f32
-                                                * zaroxi_interface_widgets::WORKBENCH_TAB_W;
-                                            let max_scroll =
-                                                (total_w - cockpit_tab_strip_rect.2).max(0.0);
-                                            self.tab_scroll_offset =
-                                                self.tab_scroll_offset.min(max_scroll);
-                                            let layout =
-                                                zaroxi_interface_widgets::workbench_tab_layout(
-                                                    cockpit_tab_strip_rect,
-                                                    &closables,
-                                                    self.tab_scroll_offset,
-                                                );
-                                            workbench_tabs
-                                                .iter()
-                                                .zip(layout.geometries)
-                                                .map(|(t, (rect, close))| {
-                                                    super::destination::WorkbenchTabHit {
-                                                        rect,
-                                                        close_rect: close,
-                                                        file_index: t.file_index,
-                                                        id: t.id.clone(),
-                                                    }
-                                                })
-                                                .collect()
                                         };
                                         // Cockpit built pre-render; the trace was
                                         // emitted there.

@@ -137,7 +137,7 @@ impl EditorPanel {
 
         UiBlock {
             id: r.id.to_string(),
-            title: data.body_title.clone(),
+            title: String::new(),
             content: data.editor_body_text.clone(),
             rect: r.into(),
             header_color: Some(tokens.editor_content_background.to_array()),
@@ -163,14 +163,14 @@ impl EditorPanel {
         dest: WorkbenchDestination,
     ) -> UiBlock {
         // Non-Explorer destinations have no file, so the gutter shows no line
-        // numbers — just its background — to avoid phantom numbers beside the
-        // settings / extensions / placeholder page.
+        // numbers — suppress entirely so non-file pages use the full content
+        // width without a phantom gutter column.
         if !dest.is_explorer() {
             return UiBlock {
                 id: r.id.to_string(),
                 rect: r.into(),
-                header_color: Some(tokens.editor_gutter_bg.to_array()),
-                content_color: Some(tokens.editor_gutter_bg.to_array()),
+                header_color: Some(tokens.panel_background.to_array()),
+                content_color: Some(tokens.panel_background.to_array()),
                 ..Default::default()
             };
         }

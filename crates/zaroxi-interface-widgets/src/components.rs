@@ -1732,6 +1732,12 @@ pub struct TabLayoutResult {
     pub total_width: f32,
     /// Whether overflow exists (total_width > available_width).
     pub overflow: bool,
+    /// Left overflow arrow hit rect `(x,y,w,h)`, present only when scrolled
+    /// away from the origin and overflow is active.
+    pub arrow_left: Option<(f32, f32, f32, f32)>,
+    /// Right overflow arrow hit rect `(x,y,w,h)`, present only when there
+    /// are tabs scrolled past the right edge.
+    pub arrow_right: Option<(f32, f32, f32, f32)>,
 }
 
 /// Minimum visible portion (px) of a partially-visible tab at each edge.
@@ -1745,7 +1751,12 @@ const TAB_MIN_VISIBLE: f32 = 24.0;
 /// tab origin leftward so scrolled-offscreen tabs become visible.
 ///
 /// Returns `TabLayoutResult` with clipped geometries, the total content width,
-/// and whether overflow exists.
+/// and whether overflow exists. Also returns overflow arrow hit rechS so the
+/// host can route clicks to them instead of to the nearest tab.
+///
+/// Each tab geometry uses the **visible** width (`clipped_w = cx1 - cx0`) so
+/// both paint and hit-testing are confined to the actual clipped slot — no two
+/// tabs can accidentally overlap.
 pub fn workbench_tab_layout(
     strip: (f32, f32, f32, f32),
     closables: &[bool],
@@ -1762,17 +1773,16 @@ pub fn workbench_tab_layout(
         let tab_right = tx + WORKBENCH_TAB_W;
         let cx0 = tx.max(sx);
         let cx1 = tab_right.min(clip_right);
-        let visible = cx1 - cx0;
-        if visible <= dead_zone {
-            let tab = (0.0, 0.0, 0.0, 0.0);
-            geometries.push((tab, None));
+        let clipped_w = cx1 - cx0;
+        if clipped_w <= dead_zone {
+            geometries.push(((0.0, 0.0, 0.0, 0.0), None));
             continue;
         }
-        let tab = (cx0, sy, WORKBENCH_TAB_W, sh);
+        let tab = (cx0, sy, clipped_w, sh);
         let close = if closable {
             let c_left = tx + WORKBENCH_TAB_W - WORKBENCH_TAB_CLOSE_W - 6.0;
             let c_right = c_left + WORKBENCH_TAB_CLOSE_W;
-            if c_right > sx && c_left < clip_right && c_right - c_left > 4.0 {
+            if c_left >= sx && c_right <= clip_right + 1.0 && c_right - c_left > 4.0 {
                 Some((
                     c_left,
                     sy + (sh - WORKBENCH_TAB_CLOSE_W) * 0.5,
@@ -1787,7 +1797,22 @@ pub fn workbench_tab_layout(
         };
         geometries.push((tab, close));
     }
-    TabLayoutResult { geometries, total_width: total_w, overflow }
+    // Arrow hit rects: 24x24 px squares at strip edges, only when overflow exists
+    // and there is content scrolled past that edge.
+    let arrow_l = if overflow && scroll_offset > 0.0 { Some((sx, sy, 24.0, sh)) } else { None };
+    let max_scroll = (total_w - sw).max(0.0);
+    let arrow_r = if overflow && scroll_offset < max_scroll - 0.5 {
+        Some((clip_right - 24.0, sy, 24.0, sh))
+    } else {
+        None
+    };
+    TabLayoutResult {
+        geometries,
+        total_width: total_w,
+        overflow,
+        arrow_left: arrow_l,
+        arrow_right: arrow_r,
+    }
 }
 
 /// The unified tab strip rendered by the cockpit, with overflow scrolling
@@ -1835,10 +1860,16 @@ impl ZaroxiWidget for WorkbenchTabStrip {
                 let underline = Line::new(Point::new(x0, y1 - 1.0), Point::new(x1, y1 - 1.0));
                 stroke(scene, 2.0, &underline, theme.accent);
             }
-            // Right separator between tabs.
-            let sep_x = (x0 + tw as f64).min(clip_right as f64);
-            let sep = Line::new(Point::new(sep_x, y0 + 4.0), Point::new(sep_x, y1 - 4.0));
-            stroke(scene, 1.0, &sep, theme.divider);
+            // Right separator between visible tabs only.
+            if i + 1 < lr.geometries.len() {
+                let next = lr.geometries[i + 1];
+                let (nx, _, nw, _) = next.0;
+                if nw > 0.0 && nx > tx {
+                    let sep_x = (x0 + tw as f64).min(clip_right as f64);
+                    let sep = Line::new(Point::new(sep_x, y0 + 4.0), Point::new(sep_x, y1 - 4.0));
+                    stroke(scene, 1.0, &sep, theme.divider);
+                }
+            }
         }
 
         // Overflow affordance arrows at edges.

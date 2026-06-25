@@ -148,6 +148,12 @@ pub const LINE_HEIGHT: f32 = 16.0;
 pub const CHAR_WIDTH_STUB: f32 = 8.0;
 pub const CONTENT_HEADER_H: f32 = 28.0;
 
+/// Combined vertical gap the renderer applies above content rows in a
+/// non-header_only block: header height (28 px) + content_padding (8 px).
+/// The editor content block's `content_offset_y` is pre-set to this value
+/// so line 1 starts directly below the breadcrumb without a dead band.
+pub const HEADER_CONTENT_GAP: f32 = CONTENT_HEADER_H + 8.0;
+
 // ── Sidebar / Explorer widget layout ──
 
 pub const SIDEBAR_PAD: f32 = 10.0;

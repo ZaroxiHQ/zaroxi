@@ -102,6 +102,10 @@ pub struct CockpitInputs {
     /// Debug / Account). Rendered in the editor content region so selecting the
     /// destination visibly replaces the file editor.
     pub placeholder_panel: Option<(String, String)>,
+    /// True when the active tab is the file editor (Explorer mode). Gates
+    /// file-editor-only surfaces (minimap, prediction gutter) so they never
+    /// appear on non-file cockpit pages.
+    pub file_editor_active: bool,
     /// Animation phase in `[0,1)` (advanced by the host clock).
     pub phase: f32,
     /// Horizontal scroll offset (px) for the tab strip, set by wheel/hit-
@@ -333,31 +337,35 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         regions.editor,
     );
 
-    // AI prediction gutter (right side).
-    tree.push(
-        Box::new(AiPredictionGutter {
-            cells: inputs.prediction_cells.clone(),
-            line_height,
-            pulse_line: inputs
-                .prediction_cells
-                .iter()
-                .find(|c| c.probability >= 0.8)
-                .map(|c| c.line),
-            phase: inputs.phase,
-        }),
-        regions.prediction_gutter,
-    );
+    // AI prediction gutter (right side) — file-editor only.
+    if inputs.file_editor_active {
+        tree.push(
+            Box::new(AiPredictionGutter {
+                cells: inputs.prediction_cells.clone(),
+                line_height,
+                pulse_line: inputs
+                    .prediction_cells
+                    .iter()
+                    .find(|c| c.probability >= 0.8)
+                    .map(|c| c.line),
+                phase: inputs.phase,
+            }),
+            regions.prediction_gutter,
+        );
+    }
 
-    // Semantic minimap (far right rail).
-    tree.push(
-        Box::new(SemanticMinimap {
-            symbols: inputs.minimap_symbols.clone(),
-            total_lines: inputs.total_lines,
-            ai_regions: inputs.ai_regions.clone(),
-            viewport: inputs.viewport,
-        }),
-        regions.minimap,
-    );
+    // Semantic minimap (far right rail) — file-editor only.
+    if inputs.file_editor_active {
+        tree.push(
+            Box::new(SemanticMinimap {
+                symbols: inputs.minimap_symbols.clone(),
+                total_lines: inputs.total_lines,
+                ai_regions: inputs.ai_regions.clone(),
+                viewport: inputs.viewport,
+            }),
+            regions.minimap,
+        );
+    }
 
     // Instrument-panel status bar (three bands; built + traced above).
     tree.push(Box::new(status_bar), regions.status);
@@ -557,6 +565,7 @@ mod tests {
             settings_panel: None,
             extensions_panel: None,
             placeholder_panel: None,
+            file_editor_active: true,
             phase: 0.3,
             tab_scroll_offset: 0.0,
             rail_rect: (0.0, 776.0, 0.0, 0.0),

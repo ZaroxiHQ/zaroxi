@@ -71,6 +71,8 @@ mod tests {
             sidebar_row_hit_rects: Vec::new(),
             tab_hit_rects: Vec::new(),
             tab_scroll_offset: 0.0,
+            tab_arrow_left_rect: None,
+            tab_arrow_right_rect: None,
             explorer_caret_blink_epoch: std::time::Instant::now(),
             explorer_visible_rows: 1,
             last_render_size: (0, 0),

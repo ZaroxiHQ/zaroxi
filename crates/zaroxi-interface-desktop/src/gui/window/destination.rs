@@ -438,7 +438,7 @@ pub fn build_unified_tabs(
         out.push(UnifiedTab {
             title: compact,
             active: editor_active && *is_active,
-            closable: false,
+            closable: true,
             file_index: Some(i),
             id: WorkbenchTabId::Editor,
         });
@@ -562,7 +562,7 @@ mod tests {
         let tabs = build_unified_tabs(&files, &WorkbenchTabId::Editor, &non_file);
         assert_eq!(tabs.len(), 4);
         assert_eq!(tabs[0].title, "main.rs");
-        assert!(tabs[0].active && tabs[0].file_index == Some(0) && !tabs[0].closable);
+        assert!(tabs[0].active && tabs[0].file_index == Some(0) && tabs[0].closable);
         assert!(!tabs[1].active); // lib.rs not the active buffer
         assert!(!tabs[2].active && tabs[2].closable); // Settings tab
         assert!(!tabs[3].active && tabs[3].closable); // extension tab
