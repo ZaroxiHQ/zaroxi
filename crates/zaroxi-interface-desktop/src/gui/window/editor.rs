@@ -75,36 +75,21 @@ impl EditorPanel {
     pub fn build_breadcrumb_block(
         r: &ShellRegion,
         tokens: &StyleTokens,
-        data: &EditorContentData,
-        dest: WorkbenchDestination,
+        _data: &EditorContentData,
+        _dest: WorkbenchDestination,
     ) -> UiBlock {
-        // Non-file destinations: the tab strip already carries the title, so the
-        // breadcrumb row is redundant. Suppress it to keep non-file pages clean.
-        if !dest.is_explorer() {
-            return UiBlock {
-                id: r.id.to_string(),
-                title: String::new(),
-                rect: r.into(),
-                header_color: Some(tokens.tab_strip_background.to_array()),
-                content_color: Some(tokens.tab_strip_background.to_array()),
-                ..Default::default()
-            };
-        }
-        // For file tabs: show only the parent directory (not the full path) to
-        // avoid duplicating the basename already shown in the tab label.
-        let dir_only = std::path::Path::new(&data.breadcrumb_label)
-            .parent()
-            .and_then(|p| p.to_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
+        // The breadcrumb row currently shows the parent directory path, which
+        // looks like cluttered `/home/.../crates/...` text above the code.
+        // Suppress it entirely: the workbench tab strip already carries the
+        // file identity (basename-first with disambiguation).  Future iterations
+        // can reintroduce a lightweight breadcrumb when it is used for file
+        // navigation rather than static display.
         UiBlock {
             id: r.id.to_string(),
-            title: dir_only,
+            title: String::new(),
             rect: r.into(),
-            header_color: Some(tokens.editor_breadcrumb_background.to_array()),
-            header_only: true,
-            text_color: Some(tokens.text_muted.to_array()),
+            header_color: Some(tokens.tab_strip_background.to_array()),
+            content_color: Some(tokens.tab_strip_background.to_array()),
             ..Default::default()
         }
     }
@@ -147,6 +132,10 @@ impl EditorPanel {
             cursor_col: Some(data.cursor_col),
             highlight_active_line: true,
             content_line_offset,
+            // Advance content upward so line 1 starts below the breadcrumb
+            // without a 36 px header band gap (the renderer always adds 28 px
+            // header + 8 px padding to non-header_only blocks).
+            content_offset_y: 36.0,
             ..Default::default()
         }
     }

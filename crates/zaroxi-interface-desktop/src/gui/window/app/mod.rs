@@ -1992,7 +1992,29 @@ impl winit::application::ApplicationHandler for GuiApp {
                     });
                     if let Some((is_close, file_index, id)) = action {
                         if is_close {
-                            self.close_tab(&id);
+                            if let Some(fi) = file_index {
+                                if let Some(ref mut comp) = self.composition {
+                                    let bid = comp
+                                        .latest_opened_buffers_summary()
+                                        .items
+                                        .get(fi)
+                                        .map(|it| it.buffer_id.clone());
+                                    if let Some(bid) = bid {
+                                        comp.close_opened_buffer(&bid);
+                                        // Rebuild work content from the
+                                        // post-close state so editor_tabs,
+                                        // breadcrumb, and active buffer
+                                        // reflect the removal.
+                                        let wc = comp.build_work_content();
+                                        self.request_open(wc);
+                                    }
+                                }
+                                self.active_tab = super::destination::WorkbenchTabId::Editor;
+                                self.cockpit_status_fingerprint = 0;
+                                self.needs_render = true;
+                            } else {
+                                self.close_tab(&id);
+                            }
                         } else if let Some(fi) = file_index {
                             self.active_tab = super::destination::WorkbenchTabId::Editor;
                             self.rail_selected_index = 0;

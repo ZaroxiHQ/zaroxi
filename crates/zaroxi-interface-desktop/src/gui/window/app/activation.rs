@@ -158,6 +158,42 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 let session = app.session_id.clone()?;
                 let item_id = comp.get_explorer_item_id_at(resolved)?;
                 let path = comp.maybe_explorer.as_ref()?.get_entry_path(&item_id)?;
+                // Dedup: if this file is already open, focus the existing tab
+                // instead of opening a duplicate.
+                {
+                    let summary = comp.latest_opened_buffers_summary();
+                    let path_str = path.to_string_lossy();
+                    if let Some(existing) =
+                        summary.items.iter().find(|it| it.display.as_deref() == Some(&*path_str))
+                    {
+                        let active = summary.active.as_ref();
+                        if active != Some(&existing.buffer_id) {
+                            let buffer_id = existing.buffer_id.clone();
+                            let service = app.workspace_service.clone()?;
+                            let view = app.workspace_view.clone()?;
+                            let session = app.session_id.clone()?;
+                            let workspace_id = app.workspace_id;
+                            let _ = pollster::block_on(
+                                crate::actions::set_active_buffer_and_get_shell_context(
+                                    comp,
+                                    service,
+                                    view,
+                                    session,
+                                    workspace_id,
+                                    buffer_id,
+                                ),
+                            );
+                            let wc = comp.build_work_content();
+                            app.active_tab =
+                                crate::gui::window::destination::WorkbenchTabId::Editor;
+                            app.rail_selected_index = 0;
+                            app.cockpit_status_fingerprint = 0;
+                            app.request_open(wc);
+                            app.needs_render = true;
+                        }
+                        return None;
+                    }
+                }
                 let display_name = path
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
