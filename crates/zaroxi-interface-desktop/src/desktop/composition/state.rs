@@ -203,6 +203,7 @@ pub struct DesktopComposition {
     pub(crate) workspace_id: Option<Id>,
     pub metadata: Option<DesktopMetadata>,
     pub(crate) status: Option<DesktopStatus>,
+    pub(crate) pending_removed_buffer_ids: Vec<String>,
     pub(crate) revision: u64,
     pub(crate) pending_refresh_reason: Option<RefreshReason>,
     pub(crate) pending_close: Option<crate::PendingClose>,
@@ -252,6 +253,7 @@ impl DesktopComposition {
             pending_scroll_lines: 0,
             pending_vscroll_px: 0.0,
             pending_hscroll_px: 0.0,
+            pending_removed_buffer_ids: Vec::new(),
         }
     }
 
@@ -494,10 +496,13 @@ impl DesktopComposition {
         if let Some(m) = self.metadata.as_mut() {
             if let Some(pos) = m.opened_buffers.iter().position(|it| &it.buffer_id == buffer_id) {
                 let was_active = m.active_buffer.as_ref().map(|b| b == buffer_id).unwrap_or(false);
+                let bid_str = buffer_id.to_string();
                 m.opened_buffers.remove(pos);
                 m.opened_buffer_count = m.opened_buffers.len();
+                self.pending_removed_buffer_ids.push(bid_str);
 
                 if was_active {
+                    m.visible_window = None;
                     if m.opened_buffers.is_empty() {
                         m.active_buffer = None;
                         m.active_buffer_details = None;
@@ -517,7 +522,6 @@ impl DesktopComposition {
                         });
                     }
                 } else {
-                    // Ensure active_buffer still refers to a present buffer; if not, clear details.
                     if let Some(ab) = &m.active_buffer {
                         if !m.opened_buffers.iter().any(|it| &it.buffer_id == ab) {
                             m.active_buffer = None;
@@ -810,6 +814,11 @@ impl CloseContext for DesktopComposition {
 
     fn close_opened_buffer(&mut self, buffer_id: &crate::ports::BufferId) -> bool {
         self.close_opened_buffer(buffer_id)
+    }
+
+    fn clear_pending_removed_buffer_id(&mut self, buffer_id: &crate::ports::BufferId) {
+        let bid_str = buffer_id.to_string();
+        self.pending_removed_buffer_ids.retain(|b| b != &bid_str);
     }
 
     fn set_status_message(&mut self, message: String) {

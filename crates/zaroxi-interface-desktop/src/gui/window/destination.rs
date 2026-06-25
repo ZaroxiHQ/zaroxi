@@ -148,13 +148,16 @@ impl WorkbenchTabId {
     }
 
     /// Whether this tab shows the file editor (vs a cockpit destination page).
+    /// Only `Editor` (the sentinel) and the Explorer destination root are
+    /// considered editor-mode. `FileBuffer(_)` is a concrete file identity,
+    /// not a mode sentinel — use [`is_file_buffer`] for that.
     pub fn is_editor(&self) -> bool {
-        matches!(
-            self,
-            Self::Editor
-                | Self::FileBuffer(_)
-                | Self::DestinationRoot(WorkbenchDestination::Explorer)
-        )
+        matches!(self, Self::Editor | Self::DestinationRoot(WorkbenchDestination::Explorer))
+    }
+
+    /// Whether this is a concrete opened-file tab identity (not a sentinel).
+    pub fn is_file_buffer(&self) -> bool {
+        matches!(self, Self::FileBuffer(_))
     }
 }
 
@@ -269,25 +272,36 @@ impl WorkbenchTabState {
 
     /// Sync file tabs from the composition's opened-buffers summary.
     /// Rebuilds the file-tab portion of the entry list while preserving
-    /// all non-file tabs in their current order.
+    /// all non-file tabs in their current order. Duplicates (same buffer_id
+    /// or same file path) are removed — only the first occurrence is kept.
     pub fn sync_file_tabs(&mut self, titles: &[(String, String, bool)]) {
         self.entries.retain(|e| !e.is_file());
         let all_paths: Vec<&str> = titles.iter().map(|(t, _, _)| t.as_str()).collect();
-        let mut new_files: Vec<WorkbenchTabEntry> = titles
-            .iter()
-            .map(|(path, bid, is_active)| WorkbenchTabEntry::File {
+        let mut seen_bid = std::collections::HashSet::new();
+        let mut seen_display = std::collections::HashSet::new();
+        let mut new_files: Vec<WorkbenchTabEntry> = Vec::with_capacity(titles.len());
+        for (path, bid, is_active) in titles.iter() {
+            if !seen_bid.insert(bid.as_str()) {
+                continue;
+            }
+            if !seen_display.insert(path.as_str()) {
+                continue;
+            }
+            new_files.push(WorkbenchTabEntry::File {
                 buffer_id: bid.clone(),
                 title: format_file_tab_label(path, &all_paths),
                 is_active_buffer: *is_active,
-            })
-            .collect();
+            });
+        }
         self.entries = new_files.drain(..).chain(self.entries.drain(..)).collect();
     }
 
     /// Open or focus a non-file tab. Deduplicates by id; if the tab already
     /// exists it is focused, otherwise it is created and made active.
+    /// File-buffer identities are not handled here — they are owned by the
+    /// composition metadata and synced via [`sync_file_tabs`].
     pub fn open_or_focus_non_file(&mut self, id: WorkbenchTabId) {
-        if id.is_editor() {
+        if id.is_editor() || id.is_file_buffer() {
             self.active = WorkbenchTabId::Editor;
             return;
         }
@@ -322,11 +336,13 @@ impl WorkbenchTabState {
     }
 
     /// Focus an existing tab by id. Returns `true` if the active tab changed.
+    /// File-buffer identities are translated to the `Editor` sentinel so the
+    /// active mode is correctly set to file-editor.
     pub fn focus_tab(&mut self, id: &WorkbenchTabId) -> bool {
         if self.active == *id {
             return false;
         }
-        if id.is_editor() {
+        if id.is_editor() || id.is_file_buffer() {
             self.active = WorkbenchTabId::Editor;
             return true;
         }

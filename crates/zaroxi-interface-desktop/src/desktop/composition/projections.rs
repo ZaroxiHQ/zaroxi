@@ -41,11 +41,15 @@ pub fn latest_active_document_summary(
                 current_line_snippet = Some(snippet);
             }
         }
-    } else {
-        // Fallback: inspect the presenter's InterfaceRenderableWindow spans as before.
+    } else if abd.line_count > 0 {
+        // Fallback: inspect the presenter's InterfaceRenderableWindow spans.
+        // Only permit the fallback when the active buffer has a positive line
+        // count (i.e. its content was loaded at least once). When line_count
+        // is 0 — e.g. right after a file-tab close sets a fallback without
+        // loading it — reject the presenter fallback so no stale spans from
+        // the old buffer are used as editor content.
         let win_opt = comp.presenter.latest();
         if let Some(win) = win_opt {
-            // Scan spans to find a cursor or selection.
             for line in win.lines.iter() {
                 for sp in line.spans.iter() {
                     match sp.kind {
@@ -59,7 +63,6 @@ pub fn latest_active_document_summary(
                         }
                         _ => {}
                     }
-                    // stop early if we found both
                     if cursor_line.is_some() && selection_present {
                         break;
                     }
@@ -69,7 +72,6 @@ pub fn latest_active_document_summary(
                 }
             }
 
-            // If we didn't detect selection while scanning for cursor, do a secondary lightweight check.
             if !selection_present {
                 'outer2: for line in win.lines.iter() {
                     for sp in line.spans.iter() {
@@ -81,29 +83,19 @@ pub fn latest_active_document_summary(
                 }
             }
 
-            // Determine a reasonable current-line snippet: prefer cursor line, else top_line.
-            // NOTE: Only include user-facing text in the snippet. Exclude presenter marker spans
-            // (cursor/selection/debug) so the produced snippet is clean and free of inline
-            // debug markers like "|^|" or "|/|/" that some renderers may inject.
             let snippet_line_no = cursor_line.unwrap_or(win.top_line);
             if let Some(l) = win.lines.iter().find(|l| l.line_number == snippet_line_no) {
                 let mut s = String::new();
-                // Only include "text" spans in the plain snippet. Exclude cursor/selection/debug spans
-                // so that the resulting snippet remains clean and user-facing.
                 for sp in l.spans.iter() {
                     match sp.kind {
                         crate::view_adapter::InterfaceSpanKind::SelectionCursor
                         | crate::view_adapter::InterfaceSpanKind::Cursor
-                        | crate::view_adapter::InterfaceSpanKind::Selection => {
-                            // skip marker spans from presenter (cursor/selection); these are surfaced
-                            // separately via cursor_line/cursor_column/selection_present.
-                        }
+                        | crate::view_adapter::InterfaceSpanKind::Selection => {}
                         _ => {
                             s.push_str(&sp.text);
                         }
                     }
                 }
-                // Truncate to 120 Unicode scalars for compactness.
                 let snippet: String = s.chars().take(120).collect();
                 current_line_snippet = Some(snippet);
             }

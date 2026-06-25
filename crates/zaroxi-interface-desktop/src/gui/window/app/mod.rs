@@ -1946,18 +1946,69 @@ impl winit::application::ApplicationHandler for GuiApp {
                             && y >= cy
                             && y < cy + ch
                         {
+                            debug::zft(
+                                "hit_close",
+                                format_args!(
+                                    "id={:?}  close_rect=({cx:.0},{cy:.0},{cw:.0},{ch:.0})  \
+                                 body_rect=({:.0},{:.0},{:.0},{:.0})",
+                                    h.id, h.rect.0, h.rect.1, h.rect.2, h.rect.3,
+                                ),
+                            );
                             return Some((true, h.id.clone()));
                         }
                         let (tx, ty, tw, th) = h.rect;
                         if x >= tx && x < tx + tw && y >= ty && y < ty + th {
+                            debug::zft(
+                                "hit_body",
+                                format_args!(
+                                    "id={:?}  rect=({tx:.0},{ty:.0},{tw:.0},{th:.0})",
+                                    h.id,
+                                ),
+                            );
                             return Some((false, h.id.clone()));
                         }
                         None
                     });
+                    if action.is_none() {
+                        debug::zft(
+                            "hit_none",
+                            format_args!(
+                                "click=({x:.0},{y:.0})  tab_hit_rects_count={}  scroll={:.1}",
+                                self.tab_hit_rects.len(),
+                                self.tab_state.scroll_offset,
+                            ),
+                        );
+                    }
                     if let Some((is_close, id)) = action {
+                        debug::zft(
+                            "click_action_resolved",
+                            format_args!(
+                                "is_close={is_close}  id={:?}  \
+                             is_editor={}  is_filebuffer={}  \
+                             tab_active={:?}",
+                                id,
+                                id.is_editor(),
+                                id.is_file_buffer(),
+                                self.tab_state.active(),
+                            ),
+                        );
                         if is_close {
                             if let super::destination::WorkbenchTabId::FileBuffer(ref bid_str) = id
                             {
+                                debug::zft(
+                                    "close_begin",
+                                    format_args!(
+                                        "clicked={bid_str}  tab_active={:?}  meta_active={:?}",
+                                        self.tab_state.active(),
+                                        self.composition.as_ref().and_then(|c| c
+                                            .metadata
+                                            .as_ref()
+                                            .and_then(|m| m
+                                                .active_buffer
+                                                .as_ref()
+                                                .map(|b| b.to_string()))),
+                                    ),
+                                );
                                 let mut needs_wc_rebuild = false;
                                 if let Some(ref mut comp) = self.composition {
                                     if let Some(meta) = comp.metadata.as_mut() {
@@ -1973,6 +2024,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 .unwrap_or(false);
                                             meta.opened_buffers.remove(pos);
                                             meta.opened_buffer_count = meta.opened_buffers.len();
+                                            comp.pending_removed_buffer_ids.push(bid_str.clone());
                                             if was_active {
                                                 needs_wc_rebuild = true;
                                                 if meta.opened_buffers.is_empty() {
@@ -1991,6 +2043,42 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                         });
                                                     meta.opened_buffers[new_idx].active = true;
                                                 }
+                                                // Try to sync-fetch the fallback's visible lines
+                                                // so build_work_content produces real content.
+                                                if let Some(ref bid) = meta.active_buffer {
+                                                    if let Some(ref view) = self.workspace_view {
+                                                        if let Some(ref session) = self.session_id {
+                                                            let req = crate::ports::GetVisibleLinesRequest {
+                                                                session_id: session.clone(),
+                                                                buffer_id: bid.clone(),
+                                                            };
+                                                            if let Ok(resp) = pollster::block_on(
+                                                                view.get_visible_lines(req),
+                                                            ) {
+                                                                let mut lines_vec: Vec<String> =
+                                                                    Vec::with_capacity(
+                                                                        resp.window.lines.len(),
+                                                                    );
+                                                                for vl in resp.window.lines.iter() {
+                                                                    lines_vec.push(vl.text.clone());
+                                                                }
+                                                                let cursor_info =
+                                                                    resp.window.lines.iter().find(
+                                                                        |vl| vl.is_cursor_line,
+                                                                    );
+                                                                meta.visible_window =
+                                                                    Some(crate::desktop::projections::VisibleWindowBasic {
+                                                                        top_line: resp.window.top_line as usize,
+                                                                        total_lines: resp.window.total_lines as usize,
+                                                                        lines: lines_vec,
+                                                                        cursor_line: cursor_info.map(|vl| vl.line_number as usize),
+                                                                        cursor_column: cursor_info.and_then(|vl| vl.cursor_column.map(|c| c as usize)),
+                                                                        selection_present: resp.window.lines.iter().any(|vl| vl.selection_intersects),
+                                                                    });
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -2004,6 +2092,25 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 self.rail_selected_index = 0;
                                 self.cockpit_status_fingerprint = 0;
                                 self.needs_render = true;
+                                debug::zft(
+                                    "close_end",
+                                    format_args!(
+                                        "tab_active={:?}  meta_active={:?}  visible_window={}",
+                                        self.tab_state.active(),
+                                        self.composition.as_ref().and_then(|c| c
+                                            .metadata
+                                            .as_ref()
+                                            .and_then(|m| m
+                                                .active_buffer
+                                                .as_ref()
+                                                .map(|b| b.to_string()))),
+                                        self.composition
+                                            .as_ref()
+                                            .and_then(|c| c.metadata.as_ref())
+                                            .map(|m| m.visible_window.is_some())
+                                            .unwrap_or(false),
+                                    ),
+                                );
                             } else {
                                 self.close_tab(&id);
                             }
@@ -2029,7 +2136,71 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     ),
                                 ]);
                             }
+                        } else if id.is_file_buffer() {
+                            debug::zft(
+                                "click_branch_file_body",
+                                format_args!(
+                                    "ENTER  clicked={:?}  tab_active={:?}  meta_active={:?}",
+                                    id,
+                                    self.tab_state.active(),
+                                    self.composition.as_ref().and_then(|c| c
+                                        .metadata
+                                        .as_ref()
+                                        .and_then(|m| m
+                                            .active_buffer
+                                            .as_ref()
+                                            .map(|b| b.to_string()))),
+                                ),
+                            );
+                            debug::zft(
+                                "focus_click",
+                                format_args!(
+                                    "clicked={:?}  tab_active_before={:?}",
+                                    id,
+                                    self.tab_state.active(),
+                                ),
+                            );
+                            self.tab_state.focus_tab(&super::destination::WorkbenchTabId::Editor);
+                            self.rail_selected_index = 0;
+                            self.cockpit_status_fingerprint = 0;
+                            self.needs_render = true;
+                            if let Some(ref comp) = self.composition {
+                                let summary = comp.latest_opened_buffers_summary();
+                                let bid_str = match &id {
+                                    super::destination::WorkbenchTabId::FileBuffer(s) => s.as_str(),
+                                    _ => "",
+                                };
+                                if let Some(idx) = summary
+                                    .items
+                                    .iter()
+                                    .position(|it| it.buffer_id.to_string() == bid_str)
+                                {
+                                    debug::zft(
+                                        "focus_dispatch",
+                                        format_args!(
+                                            "bid={bid_str}  item_idx={idx}  items_count={}",
+                                            summary.items.len(),
+                                        ),
+                                    );
+                                    self.handle_actions(vec![
+                                        zaroxi_core_engine_ui::WidgetAction::Activated(
+                                            zaroxi_core_engine_style::WidgetId::Tab { index: idx },
+                                        ),
+                                    ]);
+                                } else {
+                                    debug::zft("focus_nomatch", format_args!("bid={bid_str}"));
+                                }
+                            }
                         } else {
+                            debug::zft(
+                                "click_branch_non_file",
+                                format_args!(
+                                    "id={:?}  id_is_editor={}  id_is_filebuffer={}",
+                                    id,
+                                    id.is_editor(),
+                                    id.is_file_buffer(),
+                                ),
+                            );
                             self.open_or_focus_tab(id);
                         }
                         return;

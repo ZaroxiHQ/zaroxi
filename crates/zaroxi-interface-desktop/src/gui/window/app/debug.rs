@@ -61,3 +61,13 @@ macro_rules! gui_debug_fmt {
     };
 }
 pub(crate) use gui_debug_fmt;
+
+pub(crate) fn zft_enabled() -> bool {
+    std::env::var("ZAROXI_FILE_TABS").as_deref() == Ok("1")
+}
+
+pub(crate) fn zft(tag: &str, args: std::fmt::Arguments<'_>) {
+    if zft_enabled() {
+        eprintln!("ZAROXI_FILE_TABS: {tag} {args}");
+    }
+}

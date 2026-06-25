@@ -200,8 +200,13 @@ pub async fn refresh_with_service(
     }
 
     // Prepare default conservative projection values.
-    let mut opened_count = if active_buf_opt.is_some() { 1 } else { 0 };
     let mut opened_list: Vec<super::OpenedBufferItem> = Vec::new();
+
+    // Persistent closed-buffer markers. Never consumed — the close handler
+    // pushes to this list and the refresh filters against it every cycle.
+    // Entries are cleared only when the workspace service no longer lists
+    // the buffer (in which case the entry is harmless but stale).
+    let pending_removals: Vec<String> = comp.pending_removed_buffer_ids.clone();
 
     // 3) If a WorkspaceService is provided, attempt to obtain the authoritative opened buffer list.
     if let Some(svc) = &service {
@@ -211,7 +216,6 @@ pub async fn refresh_with_service(
             .await
         {
             Ok(list_res) => {
-                opened_count = list_res.buffer_ids.len();
                 // Build small projection items. Use path/display when available.
                 for bid in list_res.buffer_ids.iter() {
                     let display = bid.path().map(|p| p.to_string_lossy().to_string());
@@ -236,7 +240,6 @@ pub async fn refresh_with_service(
                             display,
                             active: true,
                         });
-                        opened_count = opened_count.saturating_add(1);
                     }
                 }
             }
@@ -263,6 +266,46 @@ pub async fn refresh_with_service(
             });
         }
     }
+
+    // Filter out buffers that were locally closed since the last refresh.
+    // The workspace service may still report them, but the user explicitly
+    // removed them so they must not reappear.
+    if !pending_removals.is_empty() {
+        let mut i = 0;
+        while i < opened_list.len() {
+            if pending_removals.iter().any(|bid| opened_list[i].buffer_id.to_string() == *bid) {
+                opened_list.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    // Canonical dedupe: never allow two items with the same buffer_id
+    // or the same display (file path) in the opened list. First-chosen
+    // entry wins; duplicates are silently dropped.
+    {
+        let mut seen_bid = std::collections::HashSet::new();
+        let mut seen_display = std::collections::HashSet::<String>::new();
+        let mut i = 0;
+        while i < opened_list.len() {
+            let bid_key = opened_list[i].buffer_id.to_string();
+            let disp_key = opened_list[i].display.clone();
+            let is_dup = seen_bid.contains(&bid_key)
+                || disp_key.as_deref().is_some_and(|d| seen_display.contains(d));
+            if is_dup {
+                opened_list.remove(i);
+            } else {
+                seen_bid.insert(bid_key);
+                if let Some(d) = disp_key {
+                    seen_display.insert(d);
+                }
+                i += 1;
+            }
+        }
+    }
+
+    let opened_count = opened_list.len();
 
     // 4) Update composition metadata and simple recorded ids.
     // Compute authoritative active buffer: prefer service-provided opened-buffer active marker when present.

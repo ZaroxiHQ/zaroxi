@@ -125,6 +125,7 @@ pub trait CloseContext {
     fn set_pending_close(&mut self, pending: PendingClose);
     fn clear_pending_close(&mut self);
     fn close_opened_buffer(&mut self, buffer_id: &BufferId) -> bool;
+    fn clear_pending_removed_buffer_id(&mut self, buffer_id: &BufferId);
     fn set_status_message(&mut self, message: String);
     fn set_close_result_status(&mut self, message: String);
     fn clear_close_result_status(&mut self);
@@ -306,15 +307,33 @@ pub fn build_work_content(
     let editor_body = doc.map(|d| {
         let title = d.display.clone().unwrap_or_else(|| "untitled".to_string());
         let subtitle = d.buffer_id.as_ref().map(|b| b.to_string()).unwrap_or_default();
-        let lines: Vec<String> = visible_window
-            .map(|vw| vw.lines.clone())
-            .unwrap_or_else(|| d.current_line_snippet.iter().map(|s| s.to_string()).collect());
-        let mut cv = ContentView::new(&title, &subtitle, lines)
-            .with_cursor(d.cursor_line.unwrap_or(0), d.cursor_column.unwrap_or(0));
-        if cv.lines.is_empty() {
-            cv = ContentView::default();
+        let lines: Vec<String> = visible_window.map(|vw| vw.lines.clone()).unwrap_or_else(|| {
+            d.current_line_snippet.as_ref().map(|s| vec![s.clone()]).unwrap_or_default()
+        });
+        let source = if visible_window.is_some() {
+            "visible_window"
+        } else if d.current_line_snippet.is_some() {
+            "presenter_snippet"
+        } else {
+            "empty"
+        };
+        if std::env::var("ZAROXI_FILE_TABS").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_FILE_TABS: build_content  buf={}  title={title}  \
+                 lines={}  line_count={}  source={source}",
+                d.buffer_id.as_ref().map(|b| b.to_string()).unwrap_or_default(),
+                lines.len(),
+                d.line_count,
+            );
         }
-        cv
+        ContentView {
+            title,
+            subtitle,
+            lines,
+            cursor_line: d.cursor_line.unwrap_or(0),
+            cursor_col: d.cursor_column.unwrap_or(0),
+            selection: None,
+        }
     });
 
     let terminal_tabs =
@@ -822,6 +841,11 @@ pub async fn set_active_buffer_and_get_shell_context<R: RefreshContext>(
             ctx.set_pending_refresh_reason(RefreshReason::ActiveBufferChanged);
         }
     }
+
+    // Reopening a previously-closed file: ensure the pending-removal
+    // marker is cleared so the upcoming refresh does not filter this
+    // buffer out of the canonical opened list.
+    ctx.clear_pending_removed_buffer_id(&buffer_id);
 
     refresh_and_get_shell_context(ctx, view, session_id, workspace_id, Some(service)).await
 }
