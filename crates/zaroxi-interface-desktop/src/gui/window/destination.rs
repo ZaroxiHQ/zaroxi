@@ -116,12 +116,16 @@ impl WorkbenchDestination {
 }
 
 /// Identity of a workbench tab. The single source of truth for what the center
-/// content shows. `Editor` collapses *all* file tabs (the active file tab is the
-/// active buffer); the other variants are first-class non-file workbench tabs.
+/// content shows. `Editor` is the file-editor aggregate (kept for backward
+/// compatibility with `active_tab` comparisons). `FileBuffer(String)` is a
+/// single opened file identified by its stable buffer id string. The other
+/// variants are first-class non-file workbench tabs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkbenchTabId {
-    /// The file editor (whichever buffer is active). Explorer destination.
+    /// The file editor identity (used for the unified Editor role).
     Editor,
+    /// A specific opened file, identified by its stable buffer id.
+    FileBuffer(String),
     /// A destination landing/root tab (Search / Source Control / Debug /
     /// Extensions / Settings / Account). Explorer never gets a root tab — it is
     /// the editor.
@@ -136,7 +140,7 @@ impl WorkbenchTabId {
     /// The workbench area this tab belongs to — drives the sidebar + rail.
     pub fn destination(&self) -> WorkbenchDestination {
         match self {
-            Self::Editor => WorkbenchDestination::Explorer,
+            Self::Editor | Self::FileBuffer(_) => WorkbenchDestination::Explorer,
             Self::DestinationRoot(d) => *d,
             Self::SettingsSection(_) => WorkbenchDestination::Settings,
             Self::ExtensionDetail(_) => WorkbenchDestination::Extensions,
@@ -145,7 +149,12 @@ impl WorkbenchTabId {
 
     /// Whether this tab shows the file editor (vs a cockpit destination page).
     pub fn is_editor(&self) -> bool {
-        matches!(self, Self::Editor | Self::DestinationRoot(WorkbenchDestination::Explorer))
+        matches!(
+            self,
+            Self::Editor
+                | Self::FileBuffer(_)
+                | Self::DestinationRoot(WorkbenchDestination::Explorer)
+        )
     }
 }
 
@@ -167,10 +176,8 @@ pub struct WorkbenchTabHit {
     pub rect: (f32, f32, f32, f32),
     /// Close-button hit rect, when the tab is closable.
     pub close_rect: Option<(f32, f32, f32, f32)>,
-    /// `Some(buffer index)` for a file tab (routes to buffer switch); `None`
-    /// for a non-file tab.
-    pub file_index: Option<usize>,
-    /// Tab identity (`Editor` for file tabs).
+    /// Stable tab identity. File tabs use `FileBuffer(buffer_id_string)`,
+    /// non-file tabs use `DestinationRoot` / `SettingsSection` / `ExtensionDetail`.
     pub id: WorkbenchTabId,
 }
 
@@ -178,6 +185,7 @@ pub struct WorkbenchTabHit {
 pub fn tab_title(id: &WorkbenchTabId) -> String {
     match id {
         WorkbenchTabId::Editor => "Editor".to_string(),
+        WorkbenchTabId::FileBuffer(bid) => format!("File {bid}"),
         WorkbenchTabId::DestinationRoot(d) => d.title().to_string(),
         WorkbenchTabId::SettingsSection(i) => {
             let sections = settings_sections("");
@@ -372,9 +380,8 @@ pub struct UnifiedTab {
     pub active: bool,
     /// Whether a close button is shown (non-file tabs are closable).
     pub closable: bool,
-    /// `Some(buffer index)` for a file tab, `None` for a non-file tab.
-    pub file_index: Option<usize>,
-    /// Tab identity (`Editor` for file tabs).
+    /// Stable tab identity. File tabs use `FileBuffer(id_string)`, non-file
+    /// tabs use `DestinationRoot` / `SettingsSection` / etc.
     pub id: WorkbenchTabId,
 }
 
@@ -426,21 +433,20 @@ pub fn format_file_tab_label(path: &str, all_paths: &[&str]) -> String {
 /// pairs) followed by the open non-file workbench tabs. File tabs are only
 /// highlighted when the editor itself is the active tab.
 pub fn build_unified_tabs(
-    file_tabs: &[(String, bool)],
+    file_tabs: &[(String, String, bool)],
     active_tab: &WorkbenchTabId,
     non_file_tabs: &[WorkbenchTab],
 ) -> Vec<UnifiedTab> {
     let mut out = Vec::new();
     let editor_active = active_tab.is_editor();
-    let all_paths: Vec<&str> = file_tabs.iter().map(|(t, _)| t.as_str()).collect();
-    for (i, (title, is_active)) in file_tabs.iter().enumerate() {
+    let all_paths: Vec<&str> = file_tabs.iter().map(|(t, _, _)| t.as_str()).collect();
+    for (title, bid, is_active) in file_tabs {
         let compact = format_file_tab_label(title, &all_paths);
         out.push(UnifiedTab {
             title: compact,
             active: editor_active && *is_active,
             closable: true,
-            file_index: Some(i),
-            id: WorkbenchTabId::Editor,
+            id: WorkbenchTabId::FileBuffer(bid.clone()),
         });
     }
     for t in non_file_tabs {
@@ -448,7 +454,6 @@ pub fn build_unified_tabs(
             title: t.title.clone(),
             active: active_tab == &t.id,
             closable: true,
-            file_index: None,
             id: t.id.clone(),
         });
     }
@@ -468,6 +473,7 @@ pub fn cockpit_panels_for(
     Option<(String, String)>,
 ) {
     match active {
+        WorkbenchTabId::Editor | WorkbenchTabId::FileBuffer(_) => (None, None, None),
         WorkbenchTabId::SettingsSection(i) => {
             let sections = settings_sections(theme_label);
             let sel = (*i).min(sections.len().saturating_sub(1));
@@ -485,7 +491,6 @@ pub fn cockpit_panels_for(
             (None, Some((extension_entries(), 0)), None)
         }
         WorkbenchTabId::DestinationRoot(d) => (None, None, d.placeholder()),
-        WorkbenchTabId::Editor => (None, None, None),
     }
 }
 
@@ -546,7 +551,10 @@ mod tests {
 
     #[test]
     fn unified_tabs_orders_files_then_non_file_and_flags_active() {
-        let files = vec![("src/main.rs".to_string(), true), ("src/lib.rs".to_string(), false)];
+        let files = vec![
+            ("src/main.rs".to_string(), "buf_1".to_string(), true),
+            ("src/lib.rs".to_string(), "buf_2".to_string(), false),
+        ];
         let non_file = vec![
             WorkbenchTab {
                 id: WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings),
@@ -562,7 +570,8 @@ mod tests {
         let tabs = build_unified_tabs(&files, &WorkbenchTabId::Editor, &non_file);
         assert_eq!(tabs.len(), 4);
         assert_eq!(tabs[0].title, "main.rs");
-        assert!(tabs[0].active && tabs[0].file_index == Some(0) && tabs[0].closable);
+        assert!(tabs[0].active && tabs[0].closable);
+        assert!(matches!(tabs[0].id, WorkbenchTabId::FileBuffer(_)));
         assert!(!tabs[1].active); // lib.rs not the active buffer
         assert!(!tabs[2].active && tabs[2].closable); // Settings tab
         assert!(!tabs[3].active && tabs[3].closable); // extension tab

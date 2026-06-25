@@ -1982,32 +1982,66 @@ impl winit::application::ApplicationHandler for GuiApp {
                             && y >= cy
                             && y < cy + ch
                         {
-                            return Some((true, h.file_index, h.id.clone()));
+                            return Some((true, h.id.clone()));
                         }
                         let (tx, ty, tw, th) = h.rect;
                         if x >= tx && x < tx + tw && y >= ty && y < ty + th {
-                            return Some((false, h.file_index, h.id.clone()));
+                            return Some((false, h.id.clone()));
                         }
                         None
                     });
-                    if let Some((is_close, file_index, id)) = action {
+                    if let Some((is_close, id)) = action {
                         if is_close {
-                            if let Some(fi) = file_index {
+                            if let super::destination::WorkbenchTabId::FileBuffer(ref bid_str) = id
+                            {
+                                // ── Atomic file-tab close ────────────────
+                                // 1. Remove from metadata.opened_buffers.
+                                // 2. Update active_buffer + details if the
+                                //    closed buffer was active.
+                                // 3. Rebuild work content from the updated
+                                //    metadata so editor_tabs, breadcrumb,
+                                //    and editor_body reflect the fallback.
+                                // 4. Invalidate cockpit fingerprint so the
+                                //    tab strip rebuilds from canonical state.
                                 if let Some(ref mut comp) = self.composition {
-                                    let bid = comp
-                                        .latest_opened_buffers_summary()
-                                        .items
-                                        .get(fi)
-                                        .map(|it| it.buffer_id.clone());
-                                    if let Some(bid) = bid {
-                                        comp.close_opened_buffer(&bid);
-                                        // Rebuild work content from the
-                                        // post-close state so editor_tabs,
-                                        // breadcrumb, and active buffer
-                                        // reflect the removal.
-                                        let wc = comp.build_work_content();
-                                        self.request_open(wc);
+                                    if let Some(meta) = comp.metadata.as_mut() {
+                                        if let Some(pos) = meta
+                                            .opened_buffers
+                                            .iter()
+                                            .position(|it| it.buffer_id.to_string() == *bid_str)
+                                        {
+                                            let was_active = meta
+                                                .active_buffer
+                                                .as_ref()
+                                                .map(|a| a.to_string() == *bid_str)
+                                                .unwrap_or(false);
+                                            meta.opened_buffers.remove(pos);
+                                            meta.opened_buffer_count = meta.opened_buffers.len();
+                                            if was_active {
+                                                if meta.opened_buffers.is_empty() {
+                                                    meta.active_buffer = None;
+                                                    meta.active_buffer_details = None;
+                                                } else {
+                                                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                                                    let fallback = &meta.opened_buffers[new_idx];
+                                                    meta.active_buffer =
+                                                        Some(fallback.buffer_id.clone());
+                                                    meta.active_buffer_details =
+                                                        Some(crate::desktop::ActiveBufferDetails {
+                                                            buffer_id: fallback.buffer_id.clone(),
+                                                            display: fallback.display.clone(),
+                                                            line_count: 0,
+                                                        });
+                                                    // Mark fallback as active.
+                                                    meta.opened_buffers[new_idx].active = true;
+                                                }
+                                                // Clear stale active flag on
+                                                // the removed buffer (safety).
+                                            }
+                                        }
                                     }
+                                    let wc = comp.build_work_content();
+                                    self.request_open(wc);
                                 }
                                 self.active_tab = super::destination::WorkbenchTabId::Editor;
                                 self.cockpit_status_fingerprint = 0;
@@ -2015,16 +2049,28 @@ impl winit::application::ApplicationHandler for GuiApp {
                             } else {
                                 self.close_tab(&id);
                             }
-                        } else if let Some(fi) = file_index {
+                        } else if id.is_editor() {
                             self.active_tab = super::destination::WorkbenchTabId::Editor;
                             self.rail_selected_index = 0;
                             self.cockpit_status_fingerprint = 0;
                             self.needs_render = true;
-                            self.handle_actions(vec![
-                                zaroxi_core_engine_ui::WidgetAction::Activated(
-                                    zaroxi_core_engine_style::WidgetId::Tab { index: fi },
-                                ),
-                            ]);
+                            if let Some(ref comp) = self.composition {
+                                let summary = comp.latest_opened_buffers_summary();
+                                let active_bi = summary
+                                    .active
+                                    .as_ref()
+                                    .and_then(|ab| {
+                                        summary.items.iter().position(|it| &it.buffer_id == ab)
+                                    })
+                                    .unwrap_or(0);
+                                self.handle_actions(vec![
+                                    zaroxi_core_engine_ui::WidgetAction::Activated(
+                                        zaroxi_core_engine_style::WidgetId::Tab {
+                                            index: active_bi,
+                                        },
+                                    ),
+                                ]);
+                            }
                         } else {
                             self.open_or_focus_tab(id);
                         }
@@ -3218,7 +3264,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     && fp == self.cockpit_status_fingerprint;
                                 self.cockpit_status_fingerprint = fp;
                                 if !skip {
-                                    let file_tabs: Vec<(String, bool)> = self
+                                    let file_tabs: Vec<(String, String, bool)> = self
                                         .composition
                                         .as_ref()
                                         .map(|c| {
@@ -3231,6 +3277,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                         it.display.clone().unwrap_or_else(|| {
                                                             format!("Buffer {}", i + 1)
                                                         }),
+                                                        it.buffer_id.to_string(),
                                                         it.active,
                                                     )
                                                 })
@@ -3342,7 +3389,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 // ── Tab hit rects (recomputed every frame so resize
                                 // always produces correct hit geometry) ─────
                                 self.tab_hit_rects = {
-                                    let file_labels: Vec<(String, bool)> = self
+                                    let file_labels: Vec<(String, String, bool)> = self
                                         .composition
                                         .as_ref()
                                         .map(|c| {
@@ -3355,6 +3402,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                         it.display.clone().unwrap_or_else(|| {
                                                             format!("Buffer {}", i + 1)
                                                         }),
+                                                        it.buffer_id.to_string(),
                                                         it.active,
                                                     )
                                                 })
@@ -3404,7 +3452,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             super::destination::WorkbenchTabHit {
                                                 rect,
                                                 close_rect: close,
-                                                file_index: t.file_index,
                                                 id: t.id.clone(),
                                             }
                                         })
@@ -3812,7 +3859,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 + 1024;
                                         self.cockpit_retained_bytes = cockpit_bytes_est;
                                     } else {
-                                        let file_tabs: Vec<(String, bool)> = self
+                                        let file_tabs: Vec<(String, String, bool)> = self
                                             .composition
                                             .as_ref()
                                             .map(|c| {
@@ -3825,6 +3872,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                             it.display.clone().unwrap_or_else(
                                                                 || format!("Buffer {}", i + 1),
                                                             ),
+                                                            it.buffer_id.to_string(),
                                                             it.active,
                                                         )
                                                     })
