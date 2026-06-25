@@ -10,6 +10,8 @@ use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_ui::chrome::TabEntry;
 
+use super::destination::WorkbenchDestination;
+
 #[derive(Clone)]
 pub struct EditorContentData {
     pub tab_entries: Vec<TabEntry>,
@@ -56,9 +58,20 @@ impl EditorPanel {
         r: &ShellRegion,
         tokens: &StyleTokens,
         data: &EditorContentData,
+        dest: WorkbenchDestination,
     ) -> UiBlock {
-        let tab_spans =
-            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(&data.tab_entries, tokens);
+        // Explorer shows file tabs; other destinations show a single
+        // destination tab (e.g. "Settings") so the strip never implies a file
+        // is open in a non-file view.
+        let tab_spans = if dest.is_explorer() {
+            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(&data.tab_entries, tokens)
+        } else {
+            let entry = TabEntry { label: dest.title().to_string(), active: true };
+            zaroxi_core_engine_ui::chrome::format_tab_strip_spans(
+                std::slice::from_ref(&entry),
+                tokens,
+            )
+        };
 
         UiBlock {
             id: r.id.to_string(),
@@ -74,10 +87,17 @@ impl EditorPanel {
         r: &ShellRegion,
         tokens: &StyleTokens,
         data: &EditorContentData,
+        dest: WorkbenchDestination,
     ) -> UiBlock {
+        // Non-file destinations show their own title instead of a file path.
+        let label = if dest.is_explorer() {
+            data.breadcrumb_label.clone()
+        } else {
+            dest.title().to_string()
+        };
         UiBlock {
             id: r.id.to_string(),
-            title: data.breadcrumb_label.clone(),
+            title: label,
             rect: r.into(),
             header_color: Some(tokens.editor_breadcrumb_background.to_array()),
             header_only: true,
@@ -90,7 +110,23 @@ impl EditorPanel {
         r: &ShellRegion,
         tokens: &StyleTokens,
         data: &EditorContentData,
+        dest: WorkbenchDestination,
     ) -> UiBlock {
+        // Non-Explorer destinations replace the file editor with a clean,
+        // opaque page surface. The cockpit page (Settings / Extensions /
+        // placeholder) draws its labels + accents on top in the text + overlay
+        // passes. Suppressing the file body here is what makes the destination
+        // visibly take over the main content region.
+        if !dest.is_explorer() {
+            return UiBlock {
+                id: r.id.to_string(),
+                rect: r.into(),
+                header_color: Some(tokens.panel_background.to_array()),
+                content_color: Some(tokens.panel_background.to_array()),
+                ..Default::default()
+            };
+        }
+
         // When viewport-windowed, content_line_offset is the absolute
         // line number of the first line in the content String.  The
         // renderer uses this to compute the correct screen position.
@@ -121,7 +157,20 @@ impl EditorPanel {
         tokens: &StyleTokens,
         total_lines: usize,
         visible_range: Option<(usize, usize)>,
+        dest: WorkbenchDestination,
     ) -> UiBlock {
+        // Non-Explorer destinations have no file, so the gutter shows no line
+        // numbers — just its background — to avoid phantom numbers beside the
+        // settings / extensions / placeholder page.
+        if !dest.is_explorer() {
+            return UiBlock {
+                id: r.id.to_string(),
+                rect: r.into(),
+                header_color: Some(tokens.editor_gutter_bg.to_array()),
+                content_color: Some(tokens.editor_gutter_bg.to_array()),
+                ..Default::default()
+            };
+        }
         if let Some((start, end)) = visible_range {
             zaroxi_core_engine_ui::blocks::make_gutter_block_windowed(
                 r.rect.x as f32,

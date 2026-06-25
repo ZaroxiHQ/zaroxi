@@ -6,7 +6,9 @@ description = "Zaroxi cockpit UI widgets: vello Scene composition, taffy layout,
 license = "MIT"
 
 [dependencies]
-# Themes are owned by the theme crate (source of truth); widgets only consume them.
+# Single theme source of truth: the authorable theme crate. Widgets consume its
+# resolved `SemanticColors`; they never define colors. A future theme/extension
+# system plugs in here by producing `SemanticColors`.
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
 # GPU vector scene composition + flex/grid layout.
 vello = { workspace = true }

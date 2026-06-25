@@ -1,7 +1,7 @@
 //! `WidgetTree`: composes widgets and paints them in strict layer order.
 
 use vello::Scene;
-use zaroxi_interface_theme::CockpitTokens;
+use zaroxi_interface_theme::SemanticColors;
 
 use crate::widget::{WidgetLayer, WidgetText, ZaroxiWidget};
 
@@ -53,7 +53,7 @@ impl WidgetTree {
 
     /// Paint every widget into `scene` in ascending [`WidgetLayer`] order
     /// (stable by insertion order within a layer).
-    pub fn paint(&self, scene: &mut Scene, theme: &CockpitTokens) {
+    pub fn paint(&self, scene: &mut Scene, theme: &SemanticColors) {
         let mut order: Vec<usize> = (0..self.items.len()).collect();
         order.sort_by_key(|&i| (self.items[i].widget.layer(), i));
         for i in order {
@@ -65,7 +65,7 @@ impl WidgetTree {
     /// Collect every widget's positioned text runs (for the host to queue into
     /// the cosmic-text layer). Painted vector visuals and text are decoupled:
     /// [`WidgetTree::paint`] produces the vello scene; this produces the glyphs.
-    pub fn collect_text(&self, theme: &CockpitTokens) -> Vec<WidgetText> {
+    pub fn collect_text(&self, theme: &SemanticColors) -> Vec<WidgetText> {
         let mut out = Vec::new();
         for item in &self.items {
             out.extend(item.widget.text_items(&item.layout, theme));
@@ -90,7 +90,7 @@ mod tests {
         fn layer(&self) -> WidgetLayer {
             self.layer
         }
-        fn paint(&self, _scene: &mut Scene, _layout: &taffy::Layout, _theme: &CockpitTokens) {
+        fn paint(&self, _scene: &mut Scene, _layout: &taffy::Layout, _theme: &SemanticColors) {
             self.log.borrow_mut().push(self.layer);
         }
     }
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(tree.len(), 4);
 
         let mut scene = Scene::new();
-        let theme = CockpitTokens::void();
+        let theme = SemanticColors::dark();
         tree.paint(&mut scene, &theme);
 
         assert_eq!(

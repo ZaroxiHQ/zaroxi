@@ -838,11 +838,24 @@ fn build_explorer_panel_section(
         });
     }
 
-    // No legacy items and content is None → hardcoded placeholders (original fallback)
-    if legacy_items.is_none()
-        && panel_items.is_none()
-        && content.map(|c| c.explorer_panel_title.is_some()).unwrap_or(false)
-    {
-        // Had a title with no items — keep placeholder
+    // Fallback: when no live content is supplied (initial frame / tests), emit
+    // a few placeholder file rows so the widget tree always has stable hit
+    // targets and the sidebar is never blank before the first snapshot lands.
+    if content.is_none() {
+        let placeholders = ["src", "Cargo.toml", "README.md", "main.rs", "lib.rs"];
+        for (i, label) in placeholders.iter().enumerate() {
+            if *y_off + row_h > max_y {
+                break;
+            }
+            tree.push(ShellWidget::ListItem {
+                id: WidgetId::list_item(10 + i),
+                rect: Rect::new(sidebar_rect.x + pad + 14.0, *y_off + 2.0, inner_w - 20.0, 14.0),
+                label: label.to_string(),
+                fill_color: tokens.sidebar_file_item.to_array(),
+                accent_indicator: None,
+                state: InteractionState::Normal,
+            });
+            *y_off += row_h;
+        }
     }
 }

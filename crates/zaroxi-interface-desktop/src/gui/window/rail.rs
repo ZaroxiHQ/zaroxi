@@ -11,6 +11,8 @@ use zaroxi_core_engine_style::StyleTokens;
 use zaroxi_core_engine_ui::ExplorerPanelItem;
 use zaroxi_core_engine_ui::chrome::PanelSection;
 
+use crate::gui::window::destination::{DestSidebarRow, WorkbenchDestination};
+
 use crate::gui::window::editor_shell::constants::{
     EXPLORER_GLYPH_COL_W, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
     EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION,
@@ -163,6 +165,9 @@ pub struct SidebarBlocks {
     /// Hit rect for the search input box, if rendered (x, y, w, h). Clicking it
     /// focuses the explorer search for keyboard input.
     pub search_hit_rect: Option<(f32, f32, f32, f32)>,
+    /// Hit rects for destination sidebar rows (Extensions list / Settings
+    /// categories), in row order. Empty for the Explorer destination.
+    pub row_hit_rects: Vec<(f32, f32, f32, f32)>,
 }
 
 pub struct RailPanel;
@@ -182,6 +187,8 @@ impl RailPanel {
         r: &ShellRegion,
         tokens: &StyleTokens,
         data: &ExplorerData,
+        dest: WorkbenchDestination,
+        sidebar_list: &[DestSidebarRow],
     ) -> SidebarBlocks {
         let mut blocks = Vec::new();
         let mut cta_hit_rect: Option<(f32, f32, f32, f32)> = None;
@@ -196,6 +203,14 @@ impl RailPanel {
             content_color: Some(tokens.sidebar_background.to_array()),
             ..Default::default()
         });
+
+        // ── Destination sidebar (replaces the explorer tree) ──
+        // For any non-Explorer destination the sidebar becomes a titled list of
+        // destination rows (Extensions / Settings categories / facet rows). This
+        // is what makes the left column visibly stop being the explorer.
+        if !dest.is_explorer() {
+            return Self::build_destination_sidebar(blocks, rect, tokens, dest, sidebar_list);
+        }
 
         let pad = SIDEBAR_PAD;
         let inner_w = rect.w - pad * 2.0;
@@ -346,7 +361,12 @@ impl RailPanel {
                     );
                     y_off += row_h;
                 }
-                return SidebarBlocks { blocks, cta_hit_rect, search_hit_rect };
+                return SidebarBlocks {
+                    blocks,
+                    cta_hit_rect,
+                    search_hit_rect,
+                    row_hit_rects: Vec::new(),
+                };
             }
         }
 
@@ -365,7 +385,12 @@ impl RailPanel {
                     tokens.text_muted.to_array(),
                 ));
             }
-            return SidebarBlocks { blocks, cta_hit_rect, search_hit_rect };
+            return SidebarBlocks {
+                blocks,
+                cta_hit_rect,
+                search_hit_rect,
+                row_hit_rects: Vec::new(),
+            };
         }
 
         // ── Fallback: single text-block rendering (legacy) ──
@@ -421,6 +446,89 @@ impl RailPanel {
             }
         }
 
-        SidebarBlocks { blocks, cta_hit_rect, search_hit_rect }
+        SidebarBlocks { blocks, cta_hit_rect, search_hit_rect, row_hit_rects: Vec::new() }
+    }
+
+    /// Build the sidebar for a non-Explorer destination: a titled header plus a
+    /// list of destination rows. Returns the per-row hit rects so the host can
+    /// route clicks to selection changes (Extensions / Settings).
+    fn build_destination_sidebar(
+        mut blocks: Vec<UiBlock>,
+        rect: zaroxi_core_engine_render::Rect,
+        tokens: &StyleTokens,
+        dest: WorkbenchDestination,
+        sidebar_list: &[DestSidebarRow],
+    ) -> SidebarBlocks {
+        let pad = SIDEBAR_PAD;
+        let inner_w = (rect.w - pad * 2.0).max(4.0);
+        let mut y = rect.y + pad;
+
+        // Header title.
+        let header_h = 28.0;
+        blocks.push(UiBlock {
+            id: "dest_sidebar_header".to_string(),
+            title: dest.sidebar_title().to_string(),
+            rect: zaroxi_core_engine_render::Rect { x: rect.x + pad, y, w: inner_w, h: header_h },
+            header_color: Some(tokens.panel_header_background.to_array()),
+            header_only: true,
+            text_color: Some(tokens.panel_header_text.to_array()),
+            ..Default::default()
+        });
+        y += header_h + 8.0;
+
+        let row_h = 30.0;
+        let mut row_hit_rects = Vec::new();
+        for (i, row) in sidebar_list.iter().enumerate() {
+            let row_y = y + i as f32 * (row_h + 2.0);
+            if row_y + row_h > rect.y + rect.h {
+                break;
+            }
+            let row_rect =
+                zaroxi_core_engine_render::Rect { x: rect.x + pad, y: row_y, w: inner_w, h: row_h };
+            let fill = if row.selected {
+                tokens.rail_item_active.to_array()
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
+            };
+            let text_c = if row.selected {
+                tokens.text_primary.to_array()
+            } else {
+                tokens.text_secondary.to_array()
+            };
+            // Row background / selection highlight.
+            blocks.push(UiBlock {
+                id: format!("dest_row_bg_{}", i),
+                rect: row_rect,
+                header_color: Some(fill),
+                corner_radius: 4.0,
+                header_only: true,
+                ..Default::default()
+            });
+            // Primary label.
+            blocks.push(explorer_text_block(
+                format!("dest_row_label_{}", i),
+                format!("  {}", row.label),
+                row_rect.x + 4.0,
+                row_y,
+                (inner_w - 64.0).max(4.0),
+                row_h,
+                text_c,
+            ));
+            // Trailing badge (Installed / Available / count).
+            if !row.secondary.is_empty() {
+                blocks.push(explorer_text_block(
+                    format!("dest_row_badge_{}", i),
+                    row.secondary.clone(),
+                    row_rect.x + inner_w - 68.0,
+                    row_y,
+                    64.0,
+                    row_h,
+                    tokens.text_muted.to_array(),
+                ));
+            }
+            row_hit_rects.push((row_rect.x, row_rect.y, row_rect.w, row_rect.h));
+        }
+
+        SidebarBlocks { blocks, cta_hit_rect: None, search_hit_rect: None, row_hit_rects }
     }
 }

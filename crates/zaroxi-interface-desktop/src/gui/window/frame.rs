@@ -20,6 +20,7 @@ use zaroxi_core_engine_style::{PanelRole, StyleTokens};
 
 use super::ai_pane::{AiPanel, AiPanelData};
 use super::bottom_panel::BottomDockPanel;
+use super::destination::{DestSidebarRow, WorkbenchDestination};
 use super::editor::{EditorContentData, EditorPanel};
 use super::rail::{ExplorerData, RailPanel};
 use super::status_bar::{StatusModel, StatusView};
@@ -31,6 +32,13 @@ pub struct ShellBlockContext {
     pub status_bar_data: StatusModel,
     pub ai_data: AiPanelData,
     pub terminal_tabs: Option<Vec<String>>,
+    /// Active workbench destination — the single routing concept that decides
+    /// whether the sidebar/editor render the Explorer (file) view or a
+    /// destination-specific view (Extensions / Settings / placeholder).
+    pub destination: WorkbenchDestination,
+    /// Destination sidebar rows (Extensions list / Settings categories / facet
+    /// rows). Empty for Explorer (the explorer tree owns the sidebar).
+    pub sidebar_list: Vec<DestSidebarRow>,
     /// When `true`, the cockpit overlay is actively producing status text
     /// and the shell path should emit only the background strip (no
     /// breadcrumb) to avoid duplicated text.  False during startup and the
@@ -270,14 +278,19 @@ pub fn extract_scrollbar_blocks(
 /// An optional UI hit rectangle (x, y, w, h).
 type HitRect = Option<(f32, f32, f32, f32)>;
 
+/// Output of [`compose_blocks`]: the draw blocks, the explorer CTA + search hit
+/// rects, and the destination sidebar row hit rects (in row order).
+type ComposedBlocks = (Vec<UiBlock>, HitRect, HitRect, Vec<(f32, f32, f32, f32)>);
+
 pub fn compose_blocks(
     regions: &[ShellRegion],
     tokens: &StyleTokens,
     ctx: &ShellBlockContext,
-) -> (Vec<UiBlock>, HitRect, HitRect) {
+) -> ComposedBlocks {
     let mut blocks: Vec<UiBlock> = Vec::new();
     let mut explorer_cta_rect: HitRect = None;
     let mut explorer_search_rect: HitRect = None;
+    let mut sidebar_row_hit_rects: Vec<(f32, f32, f32, f32)> = Vec::new();
     for r in regions {
         let role = region_role(r.id);
         match role {
@@ -290,10 +303,17 @@ pub fn compose_blocks(
                 blocks.push(RailPanel::build_rail_block(r, tokens));
             }
             PanelRole::SidePanel => {
-                let sidebar = RailPanel::build_sidebar_block(r, tokens, &ctx.explorer_data);
+                let sidebar = RailPanel::build_sidebar_block(
+                    r,
+                    tokens,
+                    &ctx.explorer_data,
+                    ctx.destination,
+                    &ctx.sidebar_list,
+                );
                 blocks.extend(sidebar.blocks);
                 explorer_cta_rect = sidebar.cta_hit_rect;
                 explorer_search_rect = sidebar.search_hit_rect;
+                sidebar_row_hit_rects = sidebar.row_hit_rects;
             }
             PanelRole::GutterLane => {
                 blocks.push(EditorPanel::build_gutter_block(
@@ -301,16 +321,32 @@ pub fn compose_blocks(
                     tokens,
                     ctx.editor_data.total_lines,
                     ctx.editor_data.visible_line_range,
+                    ctx.destination,
                 ));
             }
             PanelRole::ContentTabStrip => {
-                blocks.push(EditorPanel::build_tab_strip_block(r, tokens, &ctx.editor_data));
+                blocks.push(EditorPanel::build_tab_strip_block(
+                    r,
+                    tokens,
+                    &ctx.editor_data,
+                    ctx.destination,
+                ));
             }
             PanelRole::ContentBreadcrumb => {
-                blocks.push(EditorPanel::build_breadcrumb_block(r, tokens, &ctx.editor_data));
+                blocks.push(EditorPanel::build_breadcrumb_block(
+                    r,
+                    tokens,
+                    &ctx.editor_data,
+                    ctx.destination,
+                ));
             }
             PanelRole::ContentArea => {
-                blocks.push(EditorPanel::build_content_area_block(r, tokens, &ctx.editor_data));
+                blocks.push(EditorPanel::build_content_area_block(
+                    r,
+                    tokens,
+                    &ctx.editor_data,
+                    ctx.destination,
+                ));
             }
             PanelRole::MinimapLane => {
                 // No legacy shell minimap surface. The overview/minimap is owned
@@ -389,5 +425,5 @@ pub fn compose_blocks(
         }
     }
 
-    (blocks, explorer_cta_rect, explorer_search_rect)
+    (blocks, explorer_cta_rect, explorer_search_rect, sidebar_row_hit_rects)
 }

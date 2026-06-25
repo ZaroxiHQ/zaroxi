@@ -6,7 +6,7 @@
 //! `taffy`.
 //!
 //! Themes are **not** defined here. They are owned by `zaroxi-interface-theme`
-//! (the source of truth); widgets consume [`CockpitTokens`] read-only. This
+//! (the source of truth); widgets consume [`SemanticColors`] read-only. This
 //! crate sits in the `interface` layer so it may depend on the theme crate
 //! while honouring the `interface -> ... -> core` dependency direction.
 
@@ -16,10 +16,10 @@ pub mod widget;
 
 pub use components::{
     ActivityItem, ActivityRail, AiBand, AiMode, AiPredictionGutter, CommandPalette, ContextBand,
-    ContextCanvas, ExtensionEntry, ExtensionsPanel, HealthBand, InstrumentStatus, LayoutBucket,
-    LivingDiffLayer, LspStatus, MarkerKind, MetaChips, PaletteItem, PredictionCell, RelatedPanel,
-    SemanticMinimap, SettingsPanel, SettingsRow, SettingsRowKind, SettingsSection, StatusBar,
-    StatusMarker, StatusMetrics, SymbolKind,
+    ContextCanvas, DestinationPlaceholder, ExtensionEntry, ExtensionsPanel, HealthBand,
+    InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind, MetaChips, PaletteItem,
+    PredictionCell, RelatedPanel, SemanticMinimap, SettingsPanel, SettingsRow, SettingsRowKind,
+    SettingsSection, StatusBar, StatusMarker, StatusMetrics, SymbolKind,
 };
 
 pub use tree::{PlacedWidget, WidgetTree};
@@ -27,6 +27,3 @@ pub use widget::{
     WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, fill_rect, layout_rect, reduce_motion,
     set_reduce_motion,
 };
-
-/// The cockpit theme token set, re-exported from the theme crate (its owner).
-pub use zaroxi_interface_theme::{CockpitTheme, CockpitTokens};

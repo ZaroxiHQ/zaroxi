@@ -12,8 +12,8 @@
 use vello::Scene;
 use vello::kurbo::{Affine, BezPath, Circle, Line, Point, Rect, RoundedRect, Stroke};
 use vello::peniko::Fill;
-use zaroxi_interface_theme::CockpitTokens;
 use zaroxi_interface_theme::Color as ThemeColor;
+use zaroxi_interface_theme::SemanticColors;
 
 use crate::widget::{
     WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, layout_rect, reduce_motion,
@@ -116,15 +116,15 @@ impl ZaroxiWidget for SemanticMinimap {
         WidgetLayer::Minimap
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
-        fill(scene, &r, theme.minimap_bg);
+        fill(scene, &r, theme.editor_gutter_background);
 
         // AI-modified regions (drawn first, behind symbols).
         for (start, end) in &self.ai_regions {
             let y0 = self.y_of(*start, r.y0, r.height());
             let y1 = self.y_of(*end, r.y0, r.height()).max(y0 + 2.0);
-            fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.minimap_ai_region);
+            fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.accent_soft);
         }
 
         let cx = (r.x0 + r.x1) * 0.5;
@@ -133,14 +133,14 @@ impl ZaroxiWidget for SemanticMinimap {
             match sym.kind {
                 SymbolKind::Function => {
                     let block = RoundedRect::new(r.x0 + 6.0, y - 2.0, r.x1 - 6.0, y + 2.0, 1.5);
-                    fill(scene, &block, theme.sym_function);
+                    fill(scene, &block, theme.syntax_function);
                 }
-                SymbolKind::Type => fill(scene, &diamond(cx, y, 4.0), theme.sym_type),
+                SymbolKind::Type => fill(scene, &diamond(cx, y, 4.0), theme.syntax_type),
                 SymbolKind::Import => stroke(
                     scene,
                     1.0,
                     &Line::new((r.x0 + 10.0, y), (r.x1 - 10.0, y)),
-                    theme.sym_import,
+                    theme.syntax_namespace,
                 ),
             }
         }
@@ -195,7 +195,7 @@ impl ZaroxiWidget for LivingDiffLayer {
         WidgetLayer::DiffLayer
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
         let glow = pulse(self.phase);
         for (i, h) in self.hunks.iter().enumerate() {
@@ -203,22 +203,17 @@ impl ZaroxiWidget for LivingDiffLayer {
             let y1 = y0 + self.line_height;
             let is_active = self.active == Some(i);
             if h.added {
-                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.diff_added_bg);
+                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.success);
                 let border_color = if is_active {
-                    theme.diff_added_border.with_alpha(0.4 + 0.6 * glow)
+                    theme.success.with_alpha(0.4 + 0.6 * glow)
                 } else {
-                    theme.diff_added_border
+                    theme.success
                 };
                 fill(scene, &Rect::new(r.x0, y0, r.x0 + 3.0, y1), border_color);
             } else {
-                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.diff_removed_bg);
+                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.error);
                 let mid = (y0 + y1) * 0.5;
-                stroke(
-                    scene,
-                    1.5,
-                    &Line::new((r.x0 + 4.0, mid), (r.x1 - 4.0, mid)),
-                    theme.diff_removed_strike,
-                );
+                stroke(scene, 1.5, &Line::new((r.x0 + 4.0, mid), (r.x1 - 4.0, mid)), theme.error);
             }
         }
     }
@@ -276,7 +271,7 @@ impl ZaroxiWidget for ContextCanvas {
         WidgetLayer::Palette // full-surface modal overlay
     }
 
-    fn paint(&self, scene: &mut Scene, _layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, _layout: &taffy::Layout, theme: &SemanticColors) {
         let (cx, cy, cw, ch) = self.center;
         let center_pt = Point::new(cx + cw * 0.5, cy + ch * 0.5);
 
@@ -291,22 +286,22 @@ impl ZaroxiWidget for ContextCanvas {
             let mut path = BezPath::new();
             path.move_to(src);
             path.curve_to(c1, c2, dst);
-            stroke(scene, 1.5, &path, theme.canvas_connection);
+            stroke(scene, 1.5, &path, theme.divider);
 
             // Flow particle along the curve.
             let t = if reduce_motion() { 0.5 } else { self.phase.fract() as f64 };
             let pos = cubic(src, c1, c2, dst, t);
-            fill(scene, &Circle::new(pos, 2.5), theme.canvas_particle);
+            fill(scene, &Circle::new(pos, 2.5), theme.accent);
 
             // Related panel.
             let pr = RoundedRect::new(px, py, px + pw, py + ph, 6.0);
-            fill(scene, &pr, theme.canvas_panel_bg);
-            stroke(scene, 1.0, &pr, theme.canvas_glow);
+            fill(scene, &pr, theme.panel_background);
+            stroke(scene, 1.0, &pr, theme.accent_soft);
         }
 
         // Focused file panel on top.
         let cr = RoundedRect::new(cx, cy, cx + cw, cy + ch, 8.0);
-        fill(scene, &cr, theme.canvas_panel_bg);
+        fill(scene, &cr, theme.panel_background);
         stroke(scene, 2.0, &cr, theme.accent);
         let _ = center_pt;
     }
@@ -356,21 +351,20 @@ impl ZaroxiWidget for AiPredictionGutter {
         WidgetLayer::Gutter
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
-        fill(scene, &r, theme.bg_elevated);
+        fill(scene, &r, theme.elevated_panel_background);
         let pulse_a = pulse(self.phase);
         for cell in &self.cells {
             let y0 = r.y0 + cell.line as f64 * self.line_height;
             let y1 = y0 + self.line_height - 1.0;
-            let heat =
-                lerp_color(theme.ai_prediction_base, theme.ai_prediction_warm, cell.probability);
+            let heat = lerp_color(theme.accent_soft_background, theme.warning, cell.probability);
             fill(scene, &Rect::new(r.x0, y0, r.x1, y1), heat);
             if self.pulse_line == Some(cell.line) {
                 fill(
                     scene,
                     &Rect::new(r.x0, y0, r.x1, y1),
-                    theme.ai_pulse.with_alpha(0.25 + 0.55 * pulse_a),
+                    theme.accent_hover.with_alpha(0.25 + 0.55 * pulse_a),
                 );
             }
         }
@@ -420,12 +414,12 @@ impl ZaroxiWidget for CommandPalette {
         WidgetLayer::Palette
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
         // Frosted background approximation + border.
         let panel = RoundedRect::new(r.x0, r.y0, r.x1, r.y1, 10.0);
-        fill(scene, &panel, theme.palette_bg);
-        stroke(scene, 1.0, &panel, theme.palette_border);
+        fill(scene, &panel, theme.elevated_panel_background);
+        stroke(scene, 1.0, &panel, theme.border);
 
         let pad = 10.0;
         let input_h = self.row_height + 4.0;
@@ -445,12 +439,12 @@ impl ZaroxiWidget for CommandPalette {
             fill(
                 scene,
                 &Rect::new(label_x0, y1 - 3.0, label_x1, y1 - 1.0),
-                theme.palette_match.with_alpha(0.6),
+                theme.accent.with_alpha(0.6),
             );
         }
     }
 
-    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let r = layout_rect(layout);
         let pad = 12.0;
         let input_h = self.row_height + 4.0;
@@ -812,7 +806,7 @@ impl StatusBar {
     ///   center = slim health strip (LSP/AI dots, optional FPS/MEM, truly centred),
     ///   right  = durable editor metadata (Ln/Col, language, indent, EOL, encoding).
     /// Collision priority: right > center > left.
-    fn plan(&self, r: &Rect, theme: &CockpitTokens) -> StatusPlan {
+    fn plan(&self, r: &Rect, theme: &SemanticColors) -> StatusPlan {
         let bucket = LayoutBucket::from_width(r.width());
         let level = bucket.collapse_level();
         let rtl = self.status.rtl;
@@ -977,9 +971,9 @@ impl StatusBar {
         }
         // LSP dot.
         let (lsp_color, lsp_pulse) = match h.lsp {
-            LspStatus::Healthy => (theme.status_healthy, true),
-            LspStatus::Slow => (theme.status_slow, false),
-            LspStatus::Error => (theme.status_error, false),
+            LspStatus::Healthy => (theme.success, true),
+            LspStatus::Slow => (theme.warning, false),
+            LspStatus::Error => (theme.error, false),
         };
         {
             let dx = if !rtl { center_x0 + 8.0 } else { center_x1 - 8.0 };
@@ -996,7 +990,7 @@ impl StatusBar {
             let (ai_color, ai_pulse, ai_r) = match aib.mode {
                 AiMode::Dormant => (theme.text_muted, false, 3.0),
                 AiMode::Live | AiMode::Degraded => {
-                    (theme.ai_highlight, matches!(aib.mode, AiMode::Live), 3.5)
+                    (theme.accent, matches!(aib.mode, AiMode::Live), 3.5)
                 }
             };
             let dx = if !rtl { center_x0 + 20.0 } else { center_x1 - 20.0 };
@@ -1089,9 +1083,9 @@ impl StatusBar {
             for m in markers {
                 let (color, pulse) = match m.kind {
                     MarkerKind::Modified => (theme.accent, false),
-                    MarkerKind::Parsing => (theme.ai_highlight, true),
-                    MarkerKind::Error => (theme.status_error, false),
-                    MarkerKind::Warning => (theme.status_slow, false),
+                    MarkerKind::Parsing => (theme.accent, true),
+                    MarkerKind::Error => (theme.error, false),
+                    MarkerKind::Warning => (theme.warning, false),
                 };
                 vectors.push(PVec::Dot { c: Point::new(mx, cy), r: 3.0, color, pulse });
                 mx += 11.0;
@@ -1162,7 +1156,7 @@ impl StatusBar {
         }
     }
 
-    pub fn metrics(&self, status_rect: Rect, theme: &CockpitTokens) -> StatusMetrics {
+    pub fn metrics(&self, status_rect: Rect, theme: &SemanticColors) -> StatusMetrics {
         let p = self.plan(&status_rect, theme);
         StatusMetrics {
             bucket: p.bucket,
@@ -1186,7 +1180,7 @@ impl ZaroxiWidget for StatusBar {
         WidgetLayer::StatusBar
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
         // Top hairline divides the strip from the editor (the elevated strip
         // fill itself is the shell shape pass, drawn under the cosmic-text).
@@ -1204,7 +1198,7 @@ impl ZaroxiWidget for StatusBar {
         }
     }
 
-    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let r = layout_rect(layout);
         self.plan(&r, theme)
             .texts
@@ -1281,7 +1275,7 @@ impl ZaroxiWidget for ActivityRail {
         WidgetLayer::ActivityRail
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, _theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, _theme: &SemanticColors) {
         let rail = layout_rect(layout);
         let count = self.items.len().max(1);
         let slot_w = rail.width() / count as f64;
@@ -1328,7 +1322,7 @@ impl ZaroxiWidget for ActivityRail {
         }
     }
 
-    fn text_items(&self, layout: &taffy::Layout, _theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, layout: &taffy::Layout, _theme: &SemanticColors) -> Vec<WidgetText> {
         let count = self.items.len().max(1);
         let slot_w = layout.size.width / count as f32;
         let icon_sz = (layout.size.height * 0.5).clamp(16.0, 24.0);
@@ -1399,9 +1393,12 @@ impl ZaroxiWidget for SettingsPanel {
         WidgetLayer::ActivityRail
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let panel = layout_rect(layout);
-        fill(scene, &panel, theme.bg_elevated);
+        // The opaque panel background is owned by the host shape pass (drawn
+        // BELOW the cosmic-text pass) so the labels stay readable; the cockpit
+        // overlay composites ABOVE the text, so here we draw only translucent
+        // accents (selection wash, divider).
 
         let nav_w = 160.0;
         let row_h = 28.0;
@@ -1422,7 +1419,7 @@ impl ZaroxiWidget for SettingsPanel {
         stroke(scene, 1.0, &div, theme.divider);
     }
 
-    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let mut runs = Vec::new();
         let px = layout.location.x;
         let py = layout.location.y;
@@ -1524,9 +1521,11 @@ impl ZaroxiWidget for ExtensionsPanel {
         WidgetLayer::ActivityRail
     }
 
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens) {
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let panel = layout_rect(layout);
-        fill(scene, &panel, theme.bg_elevated);
+        // Opaque background owned by the host shape pass (below the text pass);
+        // the cockpit overlay composites above text, so draw only translucent
+        // accents here (selection wash, divider).
 
         let list_w = 220.0;
         let row_h = 30.0;
@@ -1547,7 +1546,7 @@ impl ZaroxiWidget for ExtensionsPanel {
         stroke(scene, 1.0, &div, theme.divider);
     }
 
-    fn text_items(&self, layout: &taffy::Layout, theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
         let mut runs = Vec::new();
         let px = layout.location.x;
         let py = layout.location.y;
@@ -1618,6 +1617,64 @@ impl ZaroxiWidget for ExtensionsPanel {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Destination placeholder — generic titled page for rail destinations without a
+// bespoke view yet (Search / Source Control / Debug / Account).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A generic destination page rendered in the editor content region. The opaque
+/// background is owned by the host shape pass; this widget contributes a title +
+/// subtitle (text) and a thin accent rule (vector) so selecting the destination
+/// visibly replaces the file editor.
+pub struct DestinationPlaceholder {
+    /// Large heading (e.g. "Search", "Source Control").
+    pub title: String,
+    /// Supporting line under the heading.
+    pub subtitle: String,
+}
+
+impl ZaroxiWidget for DestinationPlaceholder {
+    fn layer(&self) -> WidgetLayer {
+        WidgetLayer::ActivityRail
+    }
+
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
+        // Background is owned by the host shape pass (below the text pass). Draw
+        // a short accent rule beneath the heading as a vector accent.
+        let panel = layout_rect(layout);
+        let rule = Line::new(
+            Point::new(panel.x0 + 28.0, panel.y0 + 54.0),
+            Point::new(panel.x0 + 28.0 + 48.0, panel.y0 + 54.0),
+        );
+        stroke(scene, 2.0, &rule, theme.accent);
+    }
+
+    fn text_items(&self, layout: &taffy::Layout, theme: &SemanticColors) -> Vec<WidgetText> {
+        let px = layout.location.x;
+        let py = layout.location.y;
+        vec![
+            WidgetText::new(
+                self.title.clone(),
+                px + 28.0,
+                py + 24.0,
+                18.0,
+                color_arr(theme.text_primary),
+            ),
+            WidgetText::new(
+                self.subtitle.clone(),
+                px + 28.0,
+                py + 66.0,
+                13.0,
+                color_arr(theme.text_muted),
+            ),
+        ]
+    }
+
+    fn a11y_label(&self) -> Option<String> {
+        Some(format!("{} — {}", self.title, self.subtitle))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1662,7 +1719,7 @@ mod tests {
 
     #[test]
     fn all_components_paint_without_panic_and_report_layer() {
-        let theme = CockpitTokens::void();
+        let theme = SemanticColors::dark();
         let mut scene = Scene::new();
 
         let minimap = SemanticMinimap {
@@ -1737,7 +1794,7 @@ mod tests {
 
     #[test]
     fn ai_band_is_dormant_quietly_and_degrades_without_a_total() {
-        let theme = CockpitTokens::void();
+        let theme = SemanticColors::dark();
 
         // No session: dormant — a single quiet dim dot, no flickering text,
         // never a misleading "/0". The AI band still reserves its width.
@@ -1796,7 +1853,7 @@ mod tests {
     /// essentials (file leaf + Ln/Col) — rather than vanish.
     #[test]
     fn status_segments_produce_visible_text_runs_and_elide_gracefully() {
-        let theme = CockpitTokens::void();
+        let theme = SemanticColors::dark();
         let status = StatusBar { status: agents_instrument(), phase: 0.0 };
 
         // Wide: full content is emitted as visible runs.
@@ -1822,7 +1879,7 @@ mod tests {
     /// (hysteresis, no per-resize churn); narrower bucket only ever simplifies.
     #[test]
     fn metrics_are_stable_within_a_bucket_and_simplify_when_narrow() {
-        let theme = CockpitTokens::void();
+        let theme = SemanticColors::dark();
         let status = StatusBar { status: full_instrument(), phase: 0.0 };
 
         // Two widths in the same (Wide) bucket → identical metrics.

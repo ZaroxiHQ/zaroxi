@@ -379,6 +379,15 @@ pub struct GuiApp {
     /// Hit rects for each rail item, set each frame from the cockpit rail layout.
     /// `Vec<(rect_x, rect_y, rect_w, rect_h)>` in logical px.
     pub rail_item_hit_rects: Vec<(f32, f32, f32, f32)>,
+    /// Selected entry index in the Extensions destination (drives the detail
+    /// pane). Updated when an extensions sidebar row is clicked.
+    pub extensions_selected_index: usize,
+    /// Selected category index in the Settings destination (drives the rows
+    /// pane). Updated when a settings sidebar category is clicked.
+    pub settings_selected_section: usize,
+    /// Hit rects for destination sidebar rows (Extensions list / Settings
+    /// categories), set each frame from the sidebar render. `(x, y, w, h)`.
+    pub sidebar_row_hit_rects: Vec<(f32, f32, f32, f32)>,
     /// Keyboard-selected row within the (filtered) explorer list, for arrow-key
     /// navigation while searching. Absolute index into the visible item set.
     pub explorer_search_sel: Option<usize>,
@@ -1895,6 +1904,30 @@ impl winit::application::ApplicationHandler for GuiApp {
                         return;
                     }
                 }
+                // Destination sidebar row click (Extensions list / Settings
+                // categories). Updates the active selection so the cockpit
+                // detail / rows pane re-renders for the clicked item, and the
+                // sidebar re-highlights the selected row.
+                if let ElementState::Released = state {
+                    use super::destination::WorkbenchDestination as D;
+                    let dest = D::from_rail_index(self.rail_selected_index);
+                    if matches!(dest, D::Extensions | D::Settings) {
+                        let hit =
+                            self.sidebar_row_hit_rects.iter().position(|&(rx, ry, rw, rh)| {
+                                x >= rx && x < rx + rw && y >= ry && y < ry + rh
+                            });
+                        if let Some(row) = hit {
+                            match dest {
+                                D::Extensions => self.extensions_selected_index = row,
+                                D::Settings => self.settings_selected_section = row,
+                                _ => {}
+                            }
+                            self.cockpit_status_fingerprint = 0;
+                            self.needs_render = true;
+                            return;
+                        }
+                    }
+                }
                 // Explorer search box focus: clicking the box grabs keyboard
                 // focus; clicking anywhere else releases it (the filter itself
                 // persists until cleared with Escape).
@@ -2229,37 +2262,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.last_widget_tree_size = (sw, sh);
                     if new_fingerprint.is_some() {
                         self.last_widget_tree_fingerprint = new_fingerprint;
-                    }
-
-                    // Inject non-file tabs and extension sidebar data into
-                    // ShellWorkContent based on the active rail destination.
-                    if let Some(ref mut wc) = self.work_content {
-                        let dest = self.rail_selected_index;
-                        wc.active_tab_index = if dest == 0 {
-                            wc.editor_tabs.as_ref().map(|t| t.len().saturating_sub(1)).or(Some(0))
-                        } else {
-                            wc.editor_tabs.as_ref().map(|t| t.len()).or(Some(0))
-                        };
-                        wc.editor_non_file_tabs = if dest == 5 {
-                            Some(vec![("Settings".into(), 5)])
-                        } else if dest == 4 {
-                            Some(vec![
-                                ("Zaroxi Formatter".into(), 4),
-                                ("LSP Client".into(), 4),
-                                ("Community Themes".into(), 4),
-                            ])
-                        } else {
-                            None
-                        };
-                        wc.extension_sidebar_items = if dest == 4 {
-                            Some(vec![
-                                ("Zaroxi Formatter".into(), "zaroxi.formatter".into()),
-                                ("LSP Client".into(), "zaroxi.lsp-client".into()),
-                                ("Community Themes".into(), "community.themes".into()),
-                            ])
-                        } else {
-                            None
-                        };
                     }
 
                     let mut widget_tree = if rebuild_tree {
@@ -2599,6 +2601,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let block_t = std::time::Instant::now();
+                    let destination = super::destination::WorkbenchDestination::from_rail_index(
+                        self.rail_selected_index,
+                    );
+                    let sidebar_list = super::destination::sidebar_rows(
+                        destination,
+                        self.extensions_selected_index,
+                        self.settings_selected_section,
+                    );
                     let ctx = super::frame::ShellBlockContext {
                         editor_data,
                         explorer_data,
@@ -2608,12 +2618,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .work_content
                             .as_ref()
                             .and_then(|wc| wc.terminal_tabs.clone()),
+                        destination,
+                        sidebar_list,
                         cockpit_text_active: self.cockpit_text_active,
                     };
 
                     // ── Startup trace: shell block composition ───────────
                     let _tc = if startup_trace { Some(std::time::Instant::now()) } else { None };
-                    let (mut render_blocks, explorer_cta_rect, explorer_search_rect) =
+                    let (mut render_blocks, explorer_cta_rect, explorer_search_rect, sidebar_rows) =
                         super::frame::compose_blocks(shell_regions, &tokens, &ctx);
                     if let Some(t) = _tc {
                         eprintln!(
@@ -2624,6 +2636,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     self.explorer_button_rect = explorer_cta_rect;
                     self.explorer_search_rect = explorer_search_rect;
+                    self.sidebar_row_hit_rects = sidebar_rows;
 
                     if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
                         for block in &render_blocks {
@@ -3096,91 +3109,41 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             editor_total_lines,
                                         ),
                                         status: instrument_status,
-                                        settings_panel: if self.rail_selected_index == 5 {
-                                            let mode_name = format!("{:?}", self.theme_mode);
-                                            use zaroxi_interface_widgets::{
-                                                SettingsRow, SettingsRowKind, SettingsSection,
-                                            };
-                                            Some((
-                                                vec![
-                                                    SettingsSection {
-                                                        label: "General".to_string(),
-                                                        items: vec![SettingsRow {
-                                                            label: "Theme".to_string(),
-                                                            description: "Color theme for the IDE"
-                                                                .to_string(),
-                                                            kind: SettingsRowKind::Label {
-                                                                value: mode_name,
-                                                            },
-                                                        }],
-                                                    },
-                                                    SettingsSection {
-                                                        label: "Appearance".to_string(),
-                                                        items: vec![SettingsRow {
-                                                            label: "Font Size".to_string(),
-                                                            description: "Default editor font size"
-                                                                .to_string(),
-                                                            kind: SettingsRowKind::Label {
-                                                                value: "13 px".to_string(),
-                                                            },
-                                                        }],
-                                                    },
-                                                    SettingsSection {
-                                                        label: "Editor".to_string(),
-                                                        items: vec![SettingsRow {
-                                                            label: "Tab Size".to_string(),
-                                                            description: "Spaces per tab"
-                                                                .to_string(),
-                                                            kind: SettingsRowKind::Label {
-                                                                value: "4".to_string(),
-                                                            },
-                                                        }],
-                                                    },
-                                                    SettingsSection {
-                                                        label: "Keybindings".to_string(),
-                                                        items: vec![SettingsRow {
-                                                            label: "Scheme".to_string(),
-                                                            description: "Keyboard shortcut scheme"
-                                                                .to_string(),
-                                                            kind: SettingsRowKind::Label {
-                                                                value: "Default".to_string(),
-                                                            },
-                                                        }],
-                                                    },
-                                                ],
-                                                0,
-                                            ))
-                                        } else {
-                                            None
+                                        settings_panel: {
+                                            use super::destination::WorkbenchDestination as D;
+                                            if D::from_rail_index(self.rail_selected_index)
+                                                == D::Settings
+                                            {
+                                                let sections = super::destination::settings_sections(
+                                                    &format!("{:?}", self.theme_mode),
+                                                );
+                                                let sel = self
+                                                    .settings_selected_section
+                                                    .min(sections.len().saturating_sub(1));
+                                                Some((sections, sel))
+                                            } else {
+                                                None
+                                            }
                                         },
-                                        extensions_panel: if self.rail_selected_index == 4 {
-                                            use zaroxi_interface_widgets::ExtensionEntry;
-                                            Some(vec![
-                                                ExtensionEntry {
-                                                    id: "zaroxi.formatter".into(),
-                                                    name: "Zaroxi Formatter".into(),
-                                                    publisher: "Zaroxi Team".into(),
-                                                    description: "Code formatting for Rust, TOML, JSON, and more.".into(),
-                                                    installed: true,
-                                                },
-                                                ExtensionEntry {
-                                                    id: "zaroxi.lsp-client".into(),
-                                                    name: "LSP Client".into(),
-                                                    publisher: "Zaroxi Team".into(),
-                                                    description: "Language Server Protocol client for Rust, TypeScript, Python.".into(),
-                                                    installed: true,
-                                                },
-                                                ExtensionEntry {
-                                                    id: "community.themes".into(),
-                                                    name: "Community Themes".into(),
-                                                    publisher: "Community".into(),
-                                                    description: "A collection of popular color themes.".into(),
-                                                    installed: false,
-                                                },
-                                            ])
-                                        } else {
-                                            None
+                                        extensions_panel: {
+                                            use super::destination::WorkbenchDestination as D;
+                                            if D::from_rail_index(self.rail_selected_index)
+                                                == D::Extensions
+                                            {
+                                                let entries = super::destination::extension_entries();
+                                                let sel = self
+                                                    .extensions_selected_index
+                                                    .min(entries.len().saturating_sub(1));
+                                                Some((entries, sel))
+                                            } else {
+                                                None
+                                            }
                                         },
+                                        placeholder_panel:
+                                            super::destination::WorkbenchDestination::from_rail_index(
+                                                self.rail_selected_index,
+                                            )
+                                            .placeholder(),
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(
@@ -3678,6 +3641,43 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             status: instrument_status,
                                             // prediction_cells / ai_regions remain empty:
                                             // there is no edit-prediction subsystem yet.
+                                            settings_panel: {
+                                                use super::destination::WorkbenchDestination as D;
+                                                if D::from_rail_index(self.rail_selected_index)
+                                                    == D::Settings
+                                                {
+                                                    let sections =
+                                                        super::destination::settings_sections(
+                                                            &format!("{:?}", self.theme_mode),
+                                                        );
+                                                    let sel = self
+                                                        .settings_selected_section
+                                                        .min(sections.len().saturating_sub(1));
+                                                    Some((sections, sel))
+                                                } else {
+                                                    None
+                                                }
+                                            },
+                                            extensions_panel: {
+                                                use super::destination::WorkbenchDestination as D;
+                                                if D::from_rail_index(self.rail_selected_index)
+                                                    == D::Extensions
+                                                {
+                                                    let entries =
+                                                        super::destination::extension_entries();
+                                                    let sel = self
+                                                        .extensions_selected_index
+                                                        .min(entries.len().saturating_sub(1));
+                                                    Some((entries, sel))
+                                                } else {
+                                                    None
+                                                }
+                                            },
+                                            placeholder_panel:
+                                                super::destination::WorkbenchDestination::from_rail_index(
+                                                    self.rail_selected_index,
+                                                )
+                                                .placeholder(),
                                             ..Default::default()
                                         };
                                         let (scene, text) =

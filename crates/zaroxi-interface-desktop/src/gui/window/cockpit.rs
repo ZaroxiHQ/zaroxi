@@ -17,12 +17,12 @@ use vello::Scene;
 use zaroxi_core_editor_rope::LineIndex;
 use zaroxi_core_platform_syntax::SymbolKind as SyntaxSymbolKind;
 use zaroxi_core_platform_syntax::highlight::HighlightSpan;
-use zaroxi_interface_theme::ZaroxiTheme;
+use zaroxi_interface_theme::{SemanticColors, ZaroxiTheme};
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
-    ActivityItem, ActivityRail, AiPredictionGutter, CockpitTokens, CommandPalette,
-    InstrumentStatus, LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, StatusBar,
-    SymbolKind, WidgetTree,
+    ActivityItem, ActivityRail, AiPredictionGutter, CommandPalette, InstrumentStatus,
+    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, StatusBar, SymbolKind,
+    WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -89,18 +89,27 @@ pub struct CockpitInputs {
     /// Settings panel: `Some(sections, selected_section)` when open in the
     /// editor content region (replaces text editor content visually).
     pub settings_panel: Option<(Vec<zaroxi_interface_widgets::SettingsSection>, usize)>,
-    /// Extensions page: `Some(entries)` when open in the editor content region.
-    pub extensions_panel: Option<Vec<zaroxi_interface_widgets::ExtensionEntry>>,
+    /// Extensions page: `Some(entries, selected_entry)` when open in the editor
+    /// content region. `selected_entry` drives which detail pane is shown.
+    pub extensions_panel: Option<(Vec<zaroxi_interface_widgets::ExtensionEntry>, usize)>,
+    /// Generic destination placeholder `Some(title, subtitle)` for rail
+    /// destinations without a bespoke page yet (Search / Source Control /
+    /// Debug / Account). Rendered in the editor content region so selecting the
+    /// destination visibly replaces the file editor.
+    pub placeholder_panel: Option<(String, String)>,
     /// Animation phase in `[0,1)` (advanced by the host clock).
     pub phase: f32,
 }
 
-/// Map the active desktop theme to a cockpit token set.
-pub fn cockpit_tokens(theme: ZaroxiTheme, system_is_dark: bool) -> CockpitTokens {
+/// Resolve the active desktop theme to the shared `SemanticColors` token set
+/// (the single source of truth from `zaroxi-interface-theme`). The cockpit
+/// widgets read these directly, so the cockpit matches the rest of the IDE
+/// chrome and any future authorable theme/extension plugs in here.
+pub fn cockpit_tokens(theme: ZaroxiTheme, system_is_dark: bool) -> SemanticColors {
     match theme.resolve(system_is_dark) {
-        ZaroxiTheme::Light => CockpitTokens::light(),
-        // Dark (and resolved System) map to Void by default.
-        _ => CockpitTokens::void(),
+        ZaroxiTheme::Light => SemanticColors::light(),
+        // Dark (and resolved System) map to the dark palette by default.
+        _ => SemanticColors::dark(),
     }
 }
 
@@ -269,7 +278,7 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         // (counts/buckets/widths), so a default token set is fine here.
         let s = &regions.status;
         let status_rect = zaroxi_interface_widgets::layout_rect(&regions.status);
-        let m = status_bar.metrics(status_rect, &CockpitTokens::void());
+        let m = status_bar.metrics(status_rect, &SemanticColors::dark());
         let ai_mode = match m.ai_mode {
             zaroxi_interface_widgets::AiMode::Dormant => "dormant",
             zaroxi_interface_widgets::AiMode::Live => "live",
@@ -399,22 +408,24 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
     }
 
     // Extensions page — rendered in the editor content region.
-    if let Some(entries) = &inputs.extensions_panel {
+    if let Some((entries, selected)) = &inputs.extensions_panel {
         tree.push(
             Box::new(zaroxi_interface_widgets::ExtensionsPanel {
                 entries: entries.clone(),
-                selected_entry: 0,
+                selected_entry: *selected,
             }),
             regions.editor,
         );
     }
 
-    // Extensions page — rendered in the editor content region.
-    if let Some(entries) = &inputs.extensions_panel {
+    // Generic destination placeholder (Search / Source Control / Debug /
+    // Account) — rendered in the editor content region so selecting a rail
+    // destination visibly replaces the file editor with a titled panel.
+    if let Some((title, subtitle)) = &inputs.placeholder_panel {
         tree.push(
-            Box::new(zaroxi_interface_widgets::ExtensionsPanel {
-                entries: entries.clone(),
-                selected_entry: 0,
+            Box::new(zaroxi_interface_widgets::DestinationPlaceholder {
+                title: title.clone(),
+                subtitle: subtitle.clone(),
             }),
             regions.editor,
         );
@@ -424,7 +435,7 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
 }
 
 /// Build the cockpit tree and paint it into a fresh `vello::Scene`.
-pub fn paint_cockpit(inputs: &CockpitInputs, tokens: &CockpitTokens) -> Scene {
+pub fn paint_cockpit(inputs: &CockpitInputs, tokens: &SemanticColors) -> Scene {
     let tree = build_cockpit(inputs);
     let mut scene = Scene::new();
     tree.paint(&mut scene, tokens);
@@ -448,7 +459,7 @@ fn to_render_text(
 /// positioned text runs (the latter drawn by the cosmic-text layer).
 pub fn build_cockpit_frame(
     inputs: &CockpitInputs,
-    tokens: &CockpitTokens,
+    tokens: &SemanticColors,
 ) -> (Scene, Vec<zaroxi_core_engine_render::renderer::CockpitText>) {
     let tree = build_cockpit(inputs);
     let mut scene = Scene::new();
@@ -514,6 +525,7 @@ mod tests {
             )),
             settings_panel: None,
             extensions_panel: None,
+            placeholder_panel: None,
             phase: 0.3,
             rail_rect: (0.0, 776.0, 0.0, 0.0),
             rail_items: vec![],
@@ -575,9 +587,10 @@ mod tests {
     fn paint_produces_scene_without_panic() {
         let tokens = cockpit_tokens(ZaroxiTheme::Dark, true);
         let _scene = paint_cockpit(&sample(), &tokens);
-        // Light theme maps to the light token set.
+        // Light and dark resolve to distinct palettes from the theme crate.
         let light = cockpit_tokens(ZaroxiTheme::Light, false);
-        assert!(!light.is_dark);
+        let dark = cockpit_tokens(ZaroxiTheme::Dark, true);
+        assert_ne!(light.app_background.r, dark.app_background.r);
     }
 
     #[test]

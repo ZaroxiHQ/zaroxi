@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use vello::Scene;
 use vello::kurbo::{Affine, Rect};
 use vello::peniko::{Color as VColor, Fill};
-use zaroxi_interface_theme::CockpitTokens;
 use zaroxi_interface_theme::Color as ThemeColor;
+use zaroxi_interface_theme::SemanticColors;
 
 /// Compositing layer for a widget. The [`crate::WidgetTree`] paints widgets in
 /// ascending layer order; the `Ord` derive encodes that order:
@@ -105,7 +105,7 @@ impl WidgetText {
 }
 
 /// A cockpit widget: composes itself into a vello [`Scene`] given its computed
-/// `taffy::Layout` and the active [`CockpitTokens`] theme. This is the single
+/// `taffy::Layout` and the active [`SemanticColors`] theme. This is the single
 /// trait every component implements.
 pub trait ZaroxiWidget {
     /// Compositing layer (drives [`crate::WidgetTree`] paint order).
@@ -115,12 +115,12 @@ pub trait ZaroxiWidget {
     /// reading colors from `theme`. Implementations must respect
     /// [`reduce_motion`] for any animation. Text is *not* drawn here — see
     /// [`ZaroxiWidget::text_items`].
-    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &CockpitTokens);
+    fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors);
 
     /// Positioned text runs this widget wants drawn by the cosmic-text layer.
     /// Default: none. Components with labels override this so the host can queue
     /// the text at the matching slot coordinates.
-    fn text_items(&self, _layout: &taffy::Layout, _theme: &CockpitTokens) -> Vec<WidgetText> {
+    fn text_items(&self, _layout: &taffy::Layout, _theme: &SemanticColors) -> Vec<WidgetText> {
         Vec::new()
     }
 

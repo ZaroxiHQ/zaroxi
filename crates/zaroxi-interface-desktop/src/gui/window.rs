@@ -9,6 +9,8 @@ mod bottom_panel;
 
 pub mod cockpit;
 #[cfg(feature = "gui_window")]
+pub mod destination;
+#[cfg(feature = "gui_window")]
 mod editor;
 #[cfg(feature = "gui_window")]
 pub mod editor_buf;
