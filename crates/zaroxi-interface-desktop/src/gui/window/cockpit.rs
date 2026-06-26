@@ -102,6 +102,10 @@ pub struct CockpitInputs {
     /// Debug / Account). Rendered in the editor content region so selecting the
     /// destination visibly replaces the file editor.
     pub placeholder_panel: Option<(String, String)>,
+    /// Whether the Welcome screen should be shown (no file open, no non-file
+    /// destination active). When true, the Welcome panel replaces the editor
+    /// content region completely.
+    pub welcome_panel: bool,
     /// True when the active tab is the file editor (Explorer mode). Gates
     /// file-editor-only surfaces (minimap, prediction gutter) so they never
     /// appear on non-file cockpit pages.
@@ -442,17 +446,40 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         );
     }
 
-    // Generic destination placeholder (Search / Source Control / Debug /
-    // Account) — rendered in the editor content region so selecting a rail
-    // destination visibly replaces the file editor with a titled panel.
-    if let Some((title, subtitle)) = &inputs.placeholder_panel {
+    // Welcome screen — shown when Welcome is the active workbench tab.
+    if inputs.welcome_panel {
         tree.push(
-            Box::new(zaroxi_interface_widgets::DestinationPlaceholder {
-                title: title.clone(),
-                subtitle: subtitle.clone(),
+            Box::new(zaroxi_interface_widgets::WelcomePanel {
+                title: "Zaroxi Studio".into(),
+                tagline: "A workspace-first Rust-native studio with AI-assisted cockpit".into(),
+                hint_open: "\u{2192} Open a file from the Explorer sidebar (Ctrl+O)".into(),
+                hint_switch: "\u{2192} Use the top tabs to switch between files and cockpit pages"
+                    .into(),
+                hint_settings: "\u{2192} Visit Settings and Extensions from the cockpit rail"
+                    .into(),
+                hint_ai: "\u{2192} Open a file first to use the AI Assistant for code-aware help"
+                    .into(),
+                recent_placeholder: "Your recently opened files and projects will appear here"
+                    .into(),
             }),
             regions.editor,
         );
+    }
+
+    // Generic destination placeholder (Search / Source Control / Debug /
+    // Account) — rendered in the editor content region so selecting a rail
+    // destination visibly replaces the file editor. Skipped when Welcome
+    // is active so the WelcomePanel widget has exclusive ownership.
+    if !inputs.welcome_panel {
+        if let Some((title, subtitle)) = &inputs.placeholder_panel {
+            tree.push(
+                Box::new(zaroxi_interface_widgets::DestinationPlaceholder {
+                    title: title.clone(),
+                    subtitle: subtitle.clone(),
+                }),
+                regions.editor,
+            );
+        }
     }
 
     // Unified workbench tab strip (file tabs + non-file workbench tabs).
@@ -565,6 +592,7 @@ mod tests {
             settings_panel: None,
             extensions_panel: None,
             placeholder_panel: None,
+            welcome_panel: false,
             file_editor_active: true,
             phase: 0.3,
             tab_scroll_offset: 0.0,

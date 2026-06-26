@@ -12,6 +12,7 @@
 
 pub mod components;
 pub mod tree;
+pub mod welcome;
 pub mod widget;
 
 pub use components::{
@@ -24,6 +25,7 @@ pub use components::{
 };
 
 pub use tree::{PlacedWidget, WidgetTree};
+pub use welcome::WelcomePanel;
 pub use widget::{
     WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, fill_rect, layout_rect, reduce_motion,
     set_reduce_motion,

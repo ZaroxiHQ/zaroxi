@@ -307,10 +307,15 @@ pub fn build_work_content(
     let editor_body = doc.map(|d| {
         let title = d.display.clone().unwrap_or_else(|| "untitled".to_string());
         let subtitle = d.buffer_id.as_ref().map(|b| b.to_string()).unwrap_or_default();
-        let lines: Vec<String> = visible_window.map(|vw| vw.lines.clone()).unwrap_or_else(|| {
+        // Guard: if visible_window has no lines, treat it as absent so we
+        // don't build source="visible_window" content with an empty payload.
+        let vw_valid = visible_window.as_ref().map_or(false, |vw| !vw.lines.is_empty());
+        let lines: Vec<String> = if vw_valid {
+            visible_window.as_ref().unwrap().lines.clone()
+        } else {
             d.current_line_snippet.as_ref().map(|s| vec![s.clone()]).unwrap_or_default()
-        });
-        let source = if visible_window.is_some() {
+        };
+        let source = if vw_valid {
             "visible_window"
         } else if d.current_line_snippet.is_some() {
             "presenter_snippet"
@@ -320,7 +325,7 @@ pub fn build_work_content(
         if std::env::var("ZAROXI_FILE_TABS").as_deref() == Ok("1") {
             eprintln!(
                 "ZAROXI_FILE_TABS: build_content  buf={}  title={title}  \
-                 lines={}  line_count={}  source={source}",
+                 lines={}  line_count={}  source={source}  vw_valid={vw_valid}",
                 d.buffer_id.as_ref().map(|b| b.to_string()).unwrap_or_default(),
                 lines.len(),
                 d.line_count,
@@ -354,6 +359,7 @@ pub fn build_work_content(
         editor_body,
         editor_tabs,
         editor_breadcrumb,
+        suppress_empty_state: false,
         explorer_items,
         explorer_panel_items: None,
         explorer_panel_title: None,

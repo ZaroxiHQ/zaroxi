@@ -251,6 +251,12 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 // Instant loading chrome (status + current content). The new
                 // file's content commits via `poll_read_results` -> `request_open`
                 // when the off-thread read completes.
+                // Switch from Welcome to Editor mode immediately so the tab
+                // strip reflects the file-editor selection even while the
+                // background read is still in flight.
+                app.tab_state.focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
+                app.rail_selected_index = 0;
+                app.cockpit_status_fingerprint = 0;
                 return Some(comp.build_work_content());
             }
             // Rail activation: switch active panel / open command

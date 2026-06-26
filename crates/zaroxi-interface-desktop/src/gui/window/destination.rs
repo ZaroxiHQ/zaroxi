@@ -134,13 +134,17 @@ pub enum WorkbenchTabId {
     SettingsSection(usize),
     /// A specific extension detail page (by extension id).
     ExtensionDetail(String),
+    /// Welcome screen shown when no file is open and no non-file tab is
+    /// active. Not closable and never appears in the tab strip — it is the
+    /// default cockpit content.
+    Welcome,
 }
 
 impl WorkbenchTabId {
     /// The workbench area this tab belongs to — drives the sidebar + rail.
     pub fn destination(&self) -> WorkbenchDestination {
         match self {
-            Self::Editor | Self::FileBuffer(_) => WorkbenchDestination::Explorer,
+            Self::Editor | Self::FileBuffer(_) | Self::Welcome => WorkbenchDestination::Explorer,
             Self::DestinationRoot(d) => *d,
             Self::SettingsSection(_) => WorkbenchDestination::Settings,
             Self::ExtensionDetail(_) => WorkbenchDestination::Extensions,
@@ -188,6 +192,7 @@ pub struct WorkbenchTabHit {
 pub fn tab_title(id: &WorkbenchTabId) -> String {
     match id {
         WorkbenchTabId::Editor => "Editor".to_string(),
+        WorkbenchTabId::Welcome => "Welcome".to_string(),
         WorkbenchTabId::FileBuffer(bid) => format!("File {bid}"),
         WorkbenchTabId::DestinationRoot(d) => d.title().to_string(),
         WorkbenchTabId::SettingsSection(i) => {
@@ -251,7 +256,14 @@ pub struct WorkbenchTabState {
 
 impl Default for WorkbenchTabState {
     fn default() -> Self {
-        Self { entries: Vec::new(), active: WorkbenchTabId::Editor, scroll_offset: 0.0 }
+        Self {
+            entries: vec![WorkbenchTabEntry::NonFile {
+                id: WorkbenchTabId::Welcome,
+                title: "Welcome".into(),
+            }],
+            active: WorkbenchTabId::Welcome,
+            scroll_offset: 0.0,
+        }
     }
 }
 
@@ -305,6 +317,8 @@ impl WorkbenchTabState {
             self.active = WorkbenchTabId::Editor;
             return;
         }
+        // Create or focus the non-file tab. Welcome is treated as a normal
+        // non-file entry — it appears in the strip and can be closed.
         if let Some(existing) = self.entries.iter().position(|e| e.stable_id() == id) {
             self.active = self.entries[existing].stable_id();
         } else {
@@ -324,6 +338,7 @@ impl WorkbenchTabState {
         let was_active = &self.active == id;
         self.entries.remove(pos);
         if was_active {
+            // Prefer successor at same slot, then predecessor, then Editor.
             let fallback = self
                 .entries
                 .get(pos)
@@ -676,6 +691,8 @@ pub fn cockpit_panels_for(
 ) {
     match active {
         WorkbenchTabId::Editor | WorkbenchTabId::FileBuffer(_) => (None, None, None),
+        // Welcome renders via WelcomePanel widget, not via placeholder.
+        WorkbenchTabId::Welcome => (None, None, None),
         WorkbenchTabId::SettingsSection(i) => {
             let sections = settings_sections(theme_label);
             let sel = (*i).min(sections.len().saturating_sub(1));

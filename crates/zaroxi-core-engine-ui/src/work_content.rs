@@ -90,6 +90,10 @@ pub struct ShellWorkContent {
     pub editor_body: Option<ContentView>,
     pub editor_tabs: Option<Vec<String>>,
     pub editor_breadcrumb: Option<String>,
+    /// When `true`, the shell widget tree must not render the "No file
+    /// open" empty-state widget. Used when the cockpit decorates the
+    /// editor region with a Welcome screen or other non-file content.
+    pub suppress_empty_state: bool,
     pub explorer_items: Option<Vec<String>>,
     /// Structured explorer tree items for the widget builder (drive ListItem widgets).
     pub explorer_panel_items: Option<Vec<ExplorerPanelItem>>,
@@ -153,6 +157,7 @@ impl ShellWorkContent {
             explorer_search_active: false,
             explorer_has_workspace: false,
             active_file,
+            suppress_empty_state: false,
             terminal_tabs,
             ai_panel_content: None,
             syntax_highlights: None,

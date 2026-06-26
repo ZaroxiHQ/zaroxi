@@ -72,12 +72,7 @@ impl EditorPanel {
         }
     }
 
-    pub fn build_breadcrumb_block(
-        r: &ShellRegion,
-        tokens: &StyleTokens,
-        _data: &EditorContentData,
-        _dest: WorkbenchDestination,
-    ) -> UiBlock {
+    pub fn build_breadcrumb_block(r: &ShellRegion, tokens: &StyleTokens) -> UiBlock {
         // The breadcrumb row currently shows the parent directory path, which
         // looks like cluttered `/home/.../crates/...` text above the code.
         // Suppress it entirely: the workbench tab strip already carries the

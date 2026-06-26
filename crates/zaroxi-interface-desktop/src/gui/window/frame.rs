@@ -45,6 +45,10 @@ pub struct ShellBlockContext {
     /// first few frames before the cockpit pipeline has produced its first
     /// text run.
     pub cockpit_text_active: bool,
+    /// When `true`, the Welcome page is active — no file editor content
+    /// (gutter, text, empty state) should be rendered. The cockpit provides
+    /// the Welcome screen instead.
+    pub welcome_active: bool,
 }
 
 /// Compute scrollbar UiBlocks directly from ShellFrame regions.
@@ -316,13 +320,15 @@ pub fn compose_blocks(
                 sidebar_row_hit_rects = sidebar.row_hit_rects;
             }
             PanelRole::GutterLane => {
-                blocks.push(EditorPanel::build_gutter_block(
-                    r,
-                    tokens,
-                    ctx.editor_data.total_lines,
-                    ctx.editor_data.visible_line_range,
-                    ctx.destination,
-                ));
+                if !ctx.welcome_active {
+                    blocks.push(EditorPanel::build_gutter_block(
+                        r,
+                        tokens,
+                        ctx.editor_data.total_lines,
+                        ctx.editor_data.visible_line_range,
+                        ctx.destination,
+                    ));
+                }
             }
             PanelRole::ContentTabStrip => {
                 blocks.push(EditorPanel::build_tab_strip_block(
@@ -333,20 +339,21 @@ pub fn compose_blocks(
                 ));
             }
             PanelRole::ContentBreadcrumb => {
-                blocks.push(EditorPanel::build_breadcrumb_block(
-                    r,
-                    tokens,
-                    &ctx.editor_data,
-                    ctx.destination,
-                ));
+                if !ctx.welcome_active {
+                    blocks.push(EditorPanel::build_breadcrumb_block(r, tokens));
+                }
             }
             PanelRole::ContentArea => {
-                blocks.push(EditorPanel::build_content_area_block(
-                    r,
-                    tokens,
-                    &ctx.editor_data,
-                    ctx.destination,
-                ));
+                if ctx.welcome_active {
+                    blocks.push(UiBlock::default());
+                } else {
+                    blocks.push(EditorPanel::build_content_area_block(
+                        r,
+                        tokens,
+                        &ctx.editor_data,
+                        ctx.destination,
+                    ));
+                }
             }
             PanelRole::MinimapLane => {
                 // No legacy shell minimap surface. The overview/minimap is owned

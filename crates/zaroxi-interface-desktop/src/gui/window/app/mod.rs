@@ -1660,6 +1660,18 @@ impl GuiApp {
                         });
                         if changed {
                             self.request_open(wc.clone());
+                            // When a file opens, switch from Welcome
+                            // to Editor mode so file-editor surfaces
+                            // (minimap, diff) are visible.
+                            if matches!(
+                                self.tab_state.active(),
+                                super::destination::WorkbenchTabId::Welcome
+                            ) {
+                                self.tab_state
+                                    .focus_tab(&super::destination::WorkbenchTabId::Editor);
+                                self.rail_selected_index = 0;
+                                self.cockpit_status_fingerprint = 0;
+                            }
                             content_changed = true;
                             self.pending_scroll_frac = 0.0;
                             if let Some(ref mut comp) = self.composition {
@@ -2010,6 +2022,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     ),
                                 );
                                 let mut needs_wc_rebuild = false;
+                                // Track whether the last file was just closed
+                                // so the tab-mode switch can be gated correctly.
+                                let mut opened_empty_after_close = false;
                                 if let Some(ref mut comp) = self.composition {
                                     if let Some(meta) = comp.metadata.as_mut() {
                                         if let Some(pos) = meta
@@ -2030,6 +2045,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                 if meta.opened_buffers.is_empty() {
                                                     meta.active_buffer = None;
                                                     meta.active_buffer_details = None;
+                                                    meta.visible_window = None;
+                                                    opened_empty_after_close = true;
+                                                    self.tab_state.open_or_focus_non_file(
+                                                        super::destination::WorkbenchTabId::Welcome,
+                                                    );
                                                 } else {
                                                     let new_idx = if pos > 0 { pos - 1 } else { 0 };
                                                     let fallback = &meta.opened_buffers[new_idx];
@@ -2085,11 +2105,24 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     if needs_wc_rebuild {
                                         let wc = comp.build_work_content();
                                         self.request_open(wc);
+                                        // Hard-invalidate editor text caches so
+                                        // stale shaped text from the closed file
+                                        // cannot survive into the next present.
+                                        self.cached_editor_data = None;
+                                        self.cached_editor_lines_hash = 0;
+                                        self.cached_editor_spans_version = 0;
                                     }
                                 }
-                                self.tab_state
-                                    .focus_tab(&super::destination::WorkbenchTabId::Editor);
-                                self.rail_selected_index = 0;
+                                // After closing a file tab, switch to file-editor
+                                // mode — but only when at least one file remains.
+                                // If the last file was just closed, Welcome is
+                                // already active via open_or_focus_non_file above.
+                                if !opened_empty_after_close {
+                                    self.tab_state
+                                        .focus_tab(&super::destination::WorkbenchTabId::Editor);
+                                }
+                                self.rail_selected_index =
+                                    self.tab_state.active().destination().rail_index();
                                 self.cockpit_status_fingerprint = 0;
                                 self.needs_render = true;
                                 debug::zft(
@@ -2113,6 +2146,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 );
                             } else {
                                 self.close_tab(&id);
+                                // If closing Welcome left no tabs at all,
+                                // recreate Welcome immediately.
+                                if self.tab_state.entries().is_empty() {
+                                    self.tab_state.open_or_focus_non_file(
+                                        super::destination::WorkbenchTabId::Welcome,
+                                    );
+                                }
                             }
                         } else if id.is_editor() {
                             self.tab_state.focus_tab(&super::destination::WorkbenchTabId::Editor);
@@ -2581,18 +2621,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                         self.last_widget_tree_fingerprint = new_fingerprint;
                     }
 
+                    // When Welcome is active, suppress the shell's empty-state
+                    // widget — the cockpit provides the Welcome screen instead.
+                    let shell_wc: Option<ShellWorkContent> =
+                        self.work_content.clone().map(|mut wc| {
+                            if matches!(
+                                self.tab_state.active(),
+                                super::destination::WorkbenchTabId::Welcome
+                            ) {
+                                wc.suppress_empty_state = true;
+                            }
+                            wc
+                        });
+
                     let mut widget_tree = if rebuild_tree {
                         zaroxi_core_engine_ui::build_shell_widget_tree(
                             engine_layout,
                             &tokens,
-                            self.work_content.as_ref(),
+                            shell_wc.as_ref(),
                         )
                     } else {
                         self.widget_tree.take().unwrap_or_else(|| {
                             zaroxi_core_engine_ui::build_shell_widget_tree(
                                 engine_layout,
                                 &tokens,
-                                self.work_content.as_ref(),
+                                shell_wc.as_ref(),
                             )
                         })
                     };
@@ -2949,6 +3002,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                         destination,
                         sidebar_list,
                         cockpit_text_active: self.cockpit_text_active,
+                        welcome_active: matches!(
+                            self.tab_state.active(),
+                            super::destination::WorkbenchTabId::Welcome
+                        ),
                     };
 
                     // ── Startup trace: shell block composition ───────────
@@ -3482,6 +3539,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         settings_panel: dp_settings,
                                         extensions_panel: dp_extensions,
                                         placeholder_panel: dp_placeholder,
+                                        welcome_panel: matches!(
+                                            self.tab_state.active(),
+                                            super::destination::WorkbenchTabId::Welcome,
+                                        ),
                                         file_editor_active: self.tab_state.is_editor_active(),
                                         tab_scroll_offset: self.tab_state.scroll_offset,
                                         ..Default::default()

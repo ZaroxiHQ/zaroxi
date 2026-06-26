@@ -243,7 +243,8 @@ pub fn build_shell_widget_tree(
 
     // Empty state when no editor body
     let has_editor = content.and_then(|c| c.editor_body.as_ref()).is_some();
-    if !has_editor {
+    let suppress = content.map(|c| c.suppress_empty_state).unwrap_or(false);
+    if !has_editor && !suppress {
         tree.push(ShellWidget::EmptyState {
             rect: Rect::new(
                 layout.content_area.x + EMPTY_STATE_X_OFFSET,
