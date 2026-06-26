@@ -2487,11 +2487,11 @@ fn render_frame_inner(
 
             let panel_indices_len = panel_indices.len() as u32;
             let total_indices_len = indices.len() as u32;
-            // Captured before `prepare` (which clears the queue) so it reflects
-            // the number of text commands shaped this frame.
+
             // Queue cockpit text into the cosmic-text layer so it is shaped and
-            // drawn by the text pass below. The vello overlay supplies vector
-            // visuals; glyphs always come from cosmic-text.
+            // drawn by the text pass. Text is rendered AFTER the vello overlay
+            // (which provides popup backgrounds etc.) so cockpit text sits atop
+            // cockpit shape visuals.
             for ct in cockpit_text {
                 let (clip_x, clip_y, clip_w, clip_h) =
                     ct.clip_rect.unwrap_or((0.0, 0.0, config.width as f32, config.height as f32));
@@ -2500,12 +2500,23 @@ fn render_frame_inner(
                 ));
             }
             let mut text_cmd_count: usize = 0;
-            // Wall time spent inside text_renderer.prepare(), subtracted from the
-            // encode window so gpu_encode_ms reflects only render-pass recording.
             let mut prepare_wall_ms: f32 = 0.0;
+
+            // Prepare text (CPU shaping + GPU atlas upload) before any render
+            // passes. This must happen after queueing and before the text render
+            // pass, but is independent of the shape/vello render passes.
+            let has_text = total_indices_len > panel_indices_len || text_renderer.queued_len() > 0;
+            if has_text && !text_pass_disabled() {
+                text_cmd_count = text_renderer.queued_len();
+                let prep_start = std::time::Instant::now();
+                text_renderer.prepare(device, queue)?;
+                prepare_wall_ms = prep_start.elapsed().as_secs_f32() * 1000.0;
+            }
+
+            // Pass 1: shapes (Clear — erases previous frame)
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("main-pass"),
+                    label: Some("shape-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
@@ -2527,27 +2538,11 @@ fn render_frame_inner(
                         panel_indices_len,
                     );
                 }
-
-                if total_indices_len > panel_indices_len || text_renderer.queued_len() > 0 {
-                    if !text_pass_disabled() {
-                        text_cmd_count = text_renderer.queued_len();
-                        let prep_start = std::time::Instant::now();
-                        text_renderer.prepare(device, queue)?;
-                        prepare_wall_ms = prep_start.elapsed().as_secs_f32() * 1000.0;
-                        text_renderer.render_pass(
-                            &mut rpass,
-                            text_pipeline,
-                            panel_indices_len,
-                            total_indices_len,
-                        )?;
-                    }
-                }
             }
 
-            // Cockpit vello overlay composite (additive; runs only when the host
-            // set a cockpit scene, i.e. ZAROXI_COCKPIT enabled). Blits the vector
-            // visuals over the main GUI; cockpit text is drawn by the cosmic-text
-            // pass above, never by vello.
+            // Pass 2: cockpit vello overlay (Load — adds cockpit vector visuals
+            // on top of the shape pass). This runs before the text pass so popup
+            // backgrounds, selection highlights, etc. sit UNDER the text.
             if let (Some(overlay), Some(scene)) = (cockpit_overlay, cockpit_scene) {
                 overlay.composite(
                     device,
@@ -2558,6 +2553,31 @@ fn render_frame_inner(
                     config.width,
                     config.height,
                 );
+            }
+
+            // Pass 3: text (Load — draws all text on top of shapes + vello overlay,
+            // so cockpit text is visible in front of cockpit shape backgrounds).
+            if text_cmd_count > 0 {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("text-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    ..Default::default()
+                });
+
+                text_renderer.render_pass(
+                    &mut rpass,
+                    text_pipeline,
+                    panel_indices_len,
+                    total_indices_len,
+                )?;
             }
 
             let gpu_encode_ms =

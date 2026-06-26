@@ -648,29 +648,7 @@ pub fn build_cockpit_frame(
                             break;
                         };
                         popup.paint(&mut scene, tokens);
-
-                        // Construct popup text directly from popup_rect +
-                        // option_rects so coordinates always match the paint
-                        // pass. This bypasses text_items() to eliminate any
-                        // coordinate-space mismatch between the two paths.
-                        let (_prx, _pry, _prw, _prh) = popup.popup_rect;
-                        let fs: f32 = 12.0;
-                        for (i, &(ox, oy, _ow, oh)) in popup.option_rects.iter().enumerate() {
-                            let label = popup.options.get(i).cloned().unwrap_or_default();
-                            let c = if i == popup.selected_index {
-                                tokens.accent
-                            } else {
-                                tokens.text_primary
-                            };
-                            let y_off = (oh - fs).max(0.0) * 0.5;
-                            let wt = zaroxi_interface_widgets::widget::WidgetText::new(
-                                label,
-                                ox + 8.0,
-                                oy + y_off,
-                                fs,
-                                zaroxi_interface_widgets::widget::color_arr(c),
-                            )
-                            .with_clip(popup.popup_rect);
+                        for wt in popup.text_items(tokens) {
                             text.push(to_render_text(wt));
                         }
                         break;

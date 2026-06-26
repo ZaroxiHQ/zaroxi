@@ -1453,7 +1453,7 @@ impl PopupMenu {
         let lh = ph as f64;
 
         let bg = RoundedRect::new(lx, ly, lx + lw, ly + lh, 4.0);
-        fill(scene, &bg, theme.panel_background);
+        fill(scene, &bg, theme.elevated_panel_background);
         stroke(scene, 1.0, &Line::new(Point::new(lx, ly), Point::new(lx + lw, ly)), theme.border);
         stroke(
             scene,
@@ -1468,62 +1468,6 @@ impl PopupMenu {
                     RoundedRect::new(ox as f64, oy as f64, (ox + ow) as f64, (oy + oh) as f64, 2.0);
                 fill(scene, &sel, theme.selected_background);
             }
-            // ── Debug: draw option rect outlines (ZAROXI_POPUP_DEBUG=1) ──
-            if std::env::var("ZAROXI_POPUP_DEBUG").is_ok() {
-                let dbg_color = if i == self.selected_index {
-                    ThemeColor::from_rgba(0.2, 1.0, 0.2, 1.0)
-                } else {
-                    ThemeColor::from_rgba(1.0, 0.4, 0.2, 1.0)
-                };
-                stroke(
-                    scene,
-                    1.5,
-                    &Line::new(
-                        Point::new(ox as f64, oy as f64),
-                        Point::new((ox + ow) as f64, oy as f64),
-                    ),
-                    dbg_color,
-                );
-                stroke(
-                    scene,
-                    1.5,
-                    &Line::new(
-                        Point::new((ox + ow) as f64, oy as f64),
-                        Point::new((ox + ow) as f64, (oy + oh) as f64),
-                    ),
-                    dbg_color,
-                );
-                // Draw a small dot at text origin
-                fill(
-                    scene,
-                    &RoundedRect::new(
-                        (ox + 8.0) as f64,
-                        (oy + (oh - 12.0) * 0.5) as f64,
-                        (ox + 12.0) as f64,
-                        (oy + (oh - 12.0) * 0.5 + 4.0) as f64,
-                        1.0,
-                    ),
-                    dbg_color,
-                );
-            }
-        }
-        // ── Debug: draw popup rect outline in bright magenta ──────────
-        if std::env::var("ZAROXI_POPUP_DEBUG").is_ok() {
-            let d = ThemeColor::from_rgba(0.8, 0.2, 1.0, 1.0); // magenta
-            stroke(scene, 2.0, &Line::new(Point::new(lx, ly), Point::new(lx + lw, ly)), d);
-            stroke(
-                scene,
-                2.0,
-                &Line::new(Point::new(lx + lw, ly), Point::new(lx + lw, ly + lh)),
-                d,
-            );
-            stroke(
-                scene,
-                2.0,
-                &Line::new(Point::new(lx + lw, ly + lh), Point::new(lx, ly + lh)),
-                d,
-            );
-            stroke(scene, 2.0, &Line::new(Point::new(lx, ly + lh), Point::new(lx, ly)), d);
         }
     }
 
