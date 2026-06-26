@@ -608,17 +608,6 @@ pub fn build_cockpit_frame(
     tree.paint(&mut scene, tokens);
     let mut text: Vec<_> = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
 
-    // Pre-compute editor clip rect for identifying settings-panel text items
-    // when applying popup-area clipping below. Only text whose clip rect matches
-    // this editor-area rect is subject to popup clipping; other cockpit text
-    // (status bar, minimap, etc.) has different clip rects and is left alone.
-    let editor_clip = (
-        inputs.editor_rect.0,
-        inputs.editor_rect.1,
-        inputs.editor_rect.2.max(0.0),
-        inputs.editor_rect.3.max(0.0),
-    );
-
     // ── Popup menu (post-tree, stable geometry from cache) ─────────────────
     if let Some((sections, selected_section)) = &inputs.settings_panel {
         if let Some(settings) = &inputs.settings {
@@ -660,31 +649,12 @@ pub fn build_cockpit_frame(
                         };
                         popup.paint(&mut scene, tokens);
 
-                        // Clip settings text items that fall within the popup
-                        // area so they don't bleed through the popup background
-                        // when text pass runs after the vello overlay. Only text
-                        // whose clip rect matches the editor area is subject to
-                        // clipping; status bar, minimap, and other cockpit text
-                        // with different clip rects is left untouched.
-                        let (_px, py, _pw, ph) = popup.popup_rect;
-                        for t in &mut text {
-                            let Some((cx, cy, cw, ch)) = t.clip_rect else {
-                                continue;
-                            };
-                            // Only clip settings-panel text, identified by its
-                            // clip rect matching the editor area origin.
-                            if (cx - editor_clip.0).abs() > 1.0 || (cy - editor_clip.1).abs() > 1.0
-                            {
-                                continue;
-                            }
-                            // Only clip text whose Y position overlaps the popup
-                            // vertically (with a small margin above).
-                            if t.y < py + ph && t.y > py - 20.0 {
-                                let clip_bottom = (cy + ch).min(py);
-                                let new_h = clip_bottom - cy;
-                                t.clip_rect = Some((cx, cy, cw, new_h.max(0.0)));
-                            }
-                        }
+                        // Remove settings text items that fall behind the popup
+                        // background. Since text renders after the vello overlay
+                        // (popup bg), such text would bleed through if not removed.
+                        // Run BEFORE popup text push so option labels are kept.
+                        let (px, py, pw, ph) = popup.popup_rect;
+                        text.retain(|t| t.y < py || t.y > py + ph || t.x < px || t.x > px + pw);
 
                         for wt in popup.text_items(tokens) {
                             text.push(to_render_text(wt));
