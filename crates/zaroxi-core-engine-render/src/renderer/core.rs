@@ -191,8 +191,13 @@ pub struct RenderCore {
     vello_overlay: Option<crate::renderer::vello_overlay::VelloOverlay>,
     /// Cockpit vello scene to composite on the next frame (set by the host).
     cockpit_scene: Option<vello::Scene>,
-    /// Cockpit text runs (drawn by the cosmic-text pass), set by the host.
+    /// Cockpit text runs (drawn by the cosmic-text pass before the vello
+    /// overlay), set by the host. These sit behind cockpit shape visuals.
     cockpit_text: Vec<CockpitText>,
+    /// Overlay text runs (drawn by the cosmic-text pass AFTER the vello
+    /// overlay). Popup menu option labels go here so they sit on top of
+    /// popup backgrounds, selection highlights, etc.
+    cockpit_overlay_text: Vec<CockpitText>,
 }
 
 impl<'a> Renderer<'a> {
@@ -1711,6 +1716,7 @@ impl RenderCore {
             vello_overlay: None,
             cockpit_scene: None,
             cockpit_text: Vec::new(),
+            cockpit_overlay_text: Vec::new(),
         })
     }
 
@@ -1818,6 +1824,7 @@ impl RenderCore {
             self.vello_overlay.as_mut(),
             self.cockpit_scene.as_ref(),
             &self.cockpit_text,
+            &self.cockpit_overlay_text,
         )
     }
 
@@ -1859,6 +1866,13 @@ impl RenderCore {
     /// Pass an empty vec to clear. Positions are physical px in surface space.
     pub fn set_cockpit_text(&mut self, items: Vec<CockpitText>) {
         self.cockpit_text = items;
+    }
+
+    /// Set overlay text runs (popup option labels) to draw AFTER the vello
+    /// overlay pass. Pass an empty vec to clear. These sit on top of cockpit
+    /// shape visuals (popup backgrounds, selection highlights).
+    pub fn set_cockpit_overlay_text(&mut self, items: Vec<CockpitText>) {
+        self.cockpit_overlay_text = items;
     }
 }
 
@@ -1981,6 +1995,7 @@ fn render_frame_inner(
     cockpit_overlay: Option<&mut crate::renderer::vello_overlay::VelloOverlay>,
     cockpit_scene: Option<&vello::Scene>,
     cockpit_text: &[CockpitText],
+    cockpit_overlay_text: &[CockpitText],
 ) -> Result<RenderPerf, RenderError> {
     if config.width == 0 || config.height == 0 {
         return Ok(RenderPerf::default());
@@ -2488,10 +2503,9 @@ fn render_frame_inner(
             let panel_indices_len = panel_indices.len() as u32;
             let total_indices_len = indices.len() as u32;
 
-            // Queue cockpit text into the cosmic-text layer so it is shaped and
-            // drawn by the text pass. Text is rendered AFTER the vello overlay
-            // (which provides popup backgrounds etc.) so cockpit text sits atop
-            // cockpit shape visuals.
+            // Queue cockpit text (non-popup: status bar, minimap, settings labels)
+            // into the cosmic-text layer. These render BEFORE the vello overlay so
+            // the overlay's opaque popup backgrounds etc. cover them.
             for ct in cockpit_text {
                 let (clip_x, clip_y, clip_w, clip_h) =
                     ct.clip_rect.unwrap_or((0.0, 0.0, config.width as f32, config.height as f32));
@@ -2502,9 +2516,6 @@ fn render_frame_inner(
             let mut text_cmd_count: usize = 0;
             let mut prepare_wall_ms: f32 = 0.0;
 
-            // Prepare text (CPU shaping + GPU atlas upload) before any render
-            // passes. This must happen after queueing and before the text render
-            // pass, but is independent of the shape/vello render passes.
             let has_text = total_indices_len > panel_indices_len || text_renderer.queued_len() > 0;
             if has_text && !text_pass_disabled() {
                 text_cmd_count = text_renderer.queued_len();
@@ -2513,10 +2524,12 @@ fn render_frame_inner(
                 prepare_wall_ms = prep_start.elapsed().as_secs_f32() * 1000.0;
             }
 
-            // Pass 1: shapes (Clear — erases previous frame)
+            // Pass 1: shapes + cockpit text (Clear — erases previous frame).
+            // Cockpit text here is behind the vello overlay (Pass 2) so popup
+            // backgrounds cover settings labels etc.
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("shape-pass"),
+                    label: Some("shape-text-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
@@ -2538,11 +2551,20 @@ fn render_frame_inner(
                         panel_indices_len,
                     );
                 }
+
+                if text_cmd_count > 0 {
+                    text_renderer.render_pass(
+                        &mut rpass,
+                        text_pipeline,
+                        panel_indices_len,
+                        total_indices_len,
+                    )?;
+                }
             }
 
             // Pass 2: cockpit vello overlay (Load — adds cockpit vector visuals
-            // on top of the shape pass). This runs before the text pass so popup
-            // backgrounds, selection highlights, etc. sit UNDER the text.
+            // on top of shape + text pass). Popup backgrounds, selection
+            // highlights etc. cover the text rendered in Pass 1.
             if let (Some(overlay), Some(scene)) = (cockpit_overlay, cockpit_scene) {
                 overlay.composite(
                     device,
@@ -2555,11 +2577,30 @@ fn render_frame_inner(
                 );
             }
 
-            // Pass 3: text (Load — draws all text on top of shapes + vello overlay,
-            // so cockpit text is visible in front of cockpit shape backgrounds).
-            if text_cmd_count > 0 {
+            // Queue overlay text (popup option labels) and render it in a
+            // separate pass AFTER the vello overlay, so it sits on top of
+            // popup backgrounds and selection highlights.
+            let mut overlay_text_cmd_count: usize = 0;
+            if !cockpit_overlay_text.is_empty() && !text_pass_disabled() {
+                for ct in cockpit_overlay_text {
+                    let (clip_x, clip_y, clip_w, clip_h) = ct.clip_rect.unwrap_or((
+                        0.0,
+                        0.0,
+                        config.width as f32,
+                        config.height as f32,
+                    ));
+                    text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
+                        &ct.text, ct.x, ct.y, ct.color, ct.size_px, clip_x, clip_y, clip_w, clip_h,
+                    ));
+                }
+                overlay_text_cmd_count = text_renderer.queued_len();
+                text_renderer.prepare(device, queue)?;
+            }
+
+            // Pass 3: overlay text (Load — popup labels on top of vello overlay).
+            if overlay_text_cmd_count > 0 {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("text-pass"),
+                    label: Some("overlay-text-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,

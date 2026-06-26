@@ -1918,7 +1918,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     if hit_idx != self.rail_hovered_index {
                         self.rail_hovered_index = hit_idx;
-                        self.cockpit_status_fingerprint = 0;
+                        if self.settings_dropdown.open_row.is_none() {
+                            self.cockpit_status_fingerprint = 0;
+                        }
                         self.needs_render = true;
                     }
                 }
@@ -3631,14 +3633,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         tab_scroll_offset: self.tab_state.scroll_offset,
                                         ..Default::default()
                                     };
-                                    let (scene, text) = super::cockpit::build_cockpit_frame(
-                                        &mut inputs,
-                                        &cockpit_tokens,
-                                    );
+                                    let (scene, text, overlay_text) =
+                                        super::cockpit::build_cockpit_frame(
+                                            &mut inputs,
+                                            &cockpit_tokens,
+                                        );
                                     self.cached_settings_popup = inputs.cached_popup.clone();
                                     core.set_cockpit_scene(Some(scene));
-                                    let text_runs = text.len();
+                                    let text_runs = text.len() + overlay_text.len();
                                     core.set_cockpit_text(text);
+                                    core.set_cockpit_overlay_text(overlay_text);
                                     if text_runs > 0 {
                                         self.cockpit_text_active = true;
                                     }
@@ -4222,17 +4226,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             tab_scroll_offset: self.tab_state.scroll_offset,
                                             ..Default::default()
                                         };
-                                        let (scene, text) = super::cockpit::build_cockpit_frame(
-                                            &mut inputs,
-                                            &tokens,
-                                        );
+                                        let (scene, text, overlay_text) =
+                                            super::cockpit::build_cockpit_frame(
+                                                &mut inputs,
+                                                &tokens,
+                                            );
                                         self.cached_settings_popup = inputs.cached_popup.clone();
                                         // Vector visuals via the vello overlay; text
                                         // via the cosmic-text pass (both applied next
                                         // frame inside RenderCore).
                                         core.set_cockpit_scene(Some(scene));
-                                        let text_runs = text.len();
+                                        let text_runs = text.len() + overlay_text.len();
                                         core.set_cockpit_text(text);
+                                        core.set_cockpit_overlay_text(overlay_text);
                                         if text_runs > 0 {
                                             self.cockpit_text_active = true;
                                         }
