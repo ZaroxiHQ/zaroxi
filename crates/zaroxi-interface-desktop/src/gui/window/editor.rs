@@ -127,10 +127,7 @@ impl EditorPanel {
             cursor_col: Some(data.cursor_col),
             highlight_active_line: true,
             content_line_offset,
-            // Advance content upward so line 1 starts below the breadcrumb
-            // without a 36 px header band gap (the renderer always adds 28 px
-            // header + 8 px padding to non-header_only blocks).
-            content_offset_y: 36.0,
+            content_offset_y: 0.0,
             ..Default::default()
         }
     }

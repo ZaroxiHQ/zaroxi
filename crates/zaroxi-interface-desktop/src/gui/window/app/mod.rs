@@ -3284,10 +3284,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 block.cursor_line = Some(cursor_line);
                                 block.cursor_col = Some(cursor_col);
                                 block.selection_range = selection_range;
+                                let clip_w = if self.tab_state.is_editor_active() {
+                                    (vp.clip_rect.2 - 100.0).max(0.0)
+                                } else {
+                                    vp.clip_rect.2
+                                };
                                 block.clip_rect = Some(zaroxi_core_engine_render::Rect {
                                     x: vp.clip_rect.0,
                                     y: vp.clip_rect.1,
-                                    w: vp.clip_rect.2,
+                                    w: clip_w,
                                     h: vp.clip_rect.3,
                                 });
                                 if let Some(ref comp) = self.composition
@@ -3297,11 +3302,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         meta.editor_horizontal_offset_px.unwrap_or(0.0);
                                     let off_y =
                                         meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
-                                    // The renderer's content-positioning adds a 28 px
-                                    // header band + 8 px content padding (=36 px) to every
-                                    // non-header_only block.  Include that offset here so
-                                    // line 1 starts directly below the breadcrumb row.
-                                    block.content_offset_y = off_y + lc::HEADER_CONTENT_GAP;
+                                    block.content_offset_y = off_y;
                                     if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                                         eprintln!(
                                             "ZAROXI_SCROLL: block content_offset x={:.1} y={:.1} top_line={}",
