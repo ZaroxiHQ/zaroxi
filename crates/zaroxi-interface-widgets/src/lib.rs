@@ -19,9 +19,10 @@ pub use components::{
     ActivityItem, ActivityRail, AiBand, AiMode, AiPredictionGutter, CockpitTab, CommandPalette,
     ContextBand, ContextCanvas, DestinationPlaceholder, ExtensionEntry, ExtensionsPanel,
     HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind, MetaChips,
-    PaletteItem, PredictionCell, RelatedPanel, SemanticMinimap, SettingsPanel, SettingsRow,
-    SettingsRowHit, SettingsRowKind, SettingsSection, StatusBar, StatusMarker, StatusMetrics,
-    SymbolKind, TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip, workbench_tab_layout,
+    PaletteItem, PopupMenu, PredictionCell, RelatedPanel, SemanticMinimap, SettingsDropdownState,
+    SettingsPanel, SettingsRow, SettingsRowHit, SettingsRowKind, SettingsSection, StatusBar,
+    StatusMarker, StatusMetrics, SymbolKind, TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip,
+    settings_popup, workbench_tab_layout,
 };
 
 pub use zaroxi_domain_settings::{FontPreference, Settings, SettingsAction, ThemePreference};

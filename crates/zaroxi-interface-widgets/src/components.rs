@@ -1378,47 +1378,267 @@ pub struct SettingsRow {
 /// The control affordance for a settings row.
 #[derive(Debug, Clone)]
 pub enum SettingsRowKind {
-    Toggle {
-        on: bool,
-    },
-    Select {
-        value: String,
-        options: Vec<String>,
-    },
-    /// A theme-picker row (driven by live state, not static label).
+    Toggle { on: bool },
+    Select { value: String, options: Vec<String> },
     Theme,
-    /// A font-picker row (driven by live state, not static label).
     Font,
-    /// Static read-only label (legacy compatibility).
-    Label {
-        value: String,
-    },
+    Label { value: String },
 }
 
-/// Hit target for an interactive settings row. Returned by
-/// [`SettingsPanel::row_hits`] so the host can route clicks to
-/// [`SettingsAction`] dispatch.
+// ── Generic reusable popup select menu ────────────────────────────────────────
+// Not Settings-specific. Usable by command menus, toolbar selects, etc.
+// Pure geometry + paint/text — no WidgetTree, no taffy. Designed for
+// post-tree rendering in build_cockpit_frame.
+
+/// A standalone popup menu. Owns its own geometry; the host paints it directly
+/// after the cockpit tree, then collects its text runs into the cockpit text
+/// buffer. Text from the closed trigger is suppressed in SettingsPanel when the
+/// menu is open, preventing dual-render overlap.
+#[derive(Debug, Clone)]
+pub struct PopupMenu {
+    pub popup_rect: (f32, f32, f32, f32),
+    pub option_rects: Vec<(f32, f32, f32, f32)>,
+    pub options: Vec<String>,
+    pub selected_index: usize,
+}
+
+impl PopupMenu {
+    /// Build a popup from an anchor rect and pane bounds.
+    /// `options` and `selected_index` drive content; anchor + pane determine
+    /// position and clipping.
+    pub fn new(
+        anchor: (f32, f32, f32, f32),
+        pane: (f32, f32, f32, f32),
+        options: Vec<String>,
+        selected_index: usize,
+    ) -> Self {
+        // pane = (x, y, width, height)
+        let pane_r = pane.0 + pane.2; // x + width  = right
+        let pane_b = pane.1 + pane.3; // y + height = bottom
+        let opt_h = 22.0;
+        let n = options.len().max(1) as f32;
+        let gap = 1.0;
+        let menu_h = gap + n * opt_h + gap;
+
+        let menu_x = anchor.0.max(pane.0);
+        let menu_r = (anchor.0 + anchor.2).min(pane_r);
+        let menu_w = (menu_r - menu_x).max(80.0);
+
+        let menu_y_pre = anchor.1 + anchor.3 + 2.0;
+        let can_fit = (menu_y_pre + menu_h) <= pane_b;
+        let menu_y =
+            if can_fit { menu_y_pre.max(pane.1) } else { (anchor.1 - menu_h - 2.0).max(pane.1) };
+        let menu_b = (menu_y + menu_h).min(pane_b);
+        let actual_h = menu_b - menu_y;
+
+        let option_rects: Vec<_> = options
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (menu_x, menu_y + gap + i as f32 * opt_h, menu_w, opt_h))
+            .collect();
+
+        Self {
+            popup_rect: (menu_x, menu_y, menu_w, actual_h),
+            option_rects,
+            options,
+            selected_index,
+        }
+    }
+
+    pub fn paint(&self, scene: &mut Scene, theme: &SemanticColors) {
+        let (px, py, pw, ph) = self.popup_rect;
+        let lx = px as f64;
+        let ly = py as f64;
+        let lw = pw as f64;
+        let lh = ph as f64;
+
+        let bg = RoundedRect::new(lx, ly, lx + lw, ly + lh, 4.0);
+        fill(scene, &bg, theme.panel_background);
+        stroke(scene, 1.0, &Line::new(Point::new(lx, ly), Point::new(lx + lw, ly)), theme.border);
+        stroke(
+            scene,
+            1.0,
+            &Line::new(Point::new(lx, ly + lh), Point::new(lx + lw, ly + lh)),
+            theme.border,
+        );
+
+        for (i, &(ox, oy, ow, oh)) in self.option_rects.iter().enumerate() {
+            if i == self.selected_index {
+                let sel =
+                    RoundedRect::new(ox as f64, oy as f64, (ox + ow) as f64, (oy + oh) as f64, 2.0);
+                fill(scene, &sel, theme.selected_background);
+            }
+            // ── Debug: draw option rect outlines (ZAROXI_POPUP_DEBUG=1) ──
+            if std::env::var("ZAROXI_POPUP_DEBUG").is_ok() {
+                let dbg_color = if i == self.selected_index {
+                    ThemeColor::from_rgba(0.2, 1.0, 0.2, 1.0)
+                } else {
+                    ThemeColor::from_rgba(1.0, 0.4, 0.2, 1.0)
+                };
+                stroke(
+                    scene,
+                    1.5,
+                    &Line::new(
+                        Point::new(ox as f64, oy as f64),
+                        Point::new((ox + ow) as f64, oy as f64),
+                    ),
+                    dbg_color,
+                );
+                stroke(
+                    scene,
+                    1.5,
+                    &Line::new(
+                        Point::new((ox + ow) as f64, oy as f64),
+                        Point::new((ox + ow) as f64, (oy + oh) as f64),
+                    ),
+                    dbg_color,
+                );
+                // Draw a small dot at text origin
+                fill(
+                    scene,
+                    &RoundedRect::new(
+                        (ox + 8.0) as f64,
+                        (oy + (oh - 12.0) * 0.5) as f64,
+                        (ox + 12.0) as f64,
+                        (oy + (oh - 12.0) * 0.5 + 4.0) as f64,
+                        1.0,
+                    ),
+                    dbg_color,
+                );
+            }
+        }
+        // ── Debug: draw popup rect outline in bright magenta ──────────
+        if std::env::var("ZAROXI_POPUP_DEBUG").is_ok() {
+            let d = ThemeColor::from_rgba(0.8, 0.2, 1.0, 1.0); // magenta
+            stroke(scene, 2.0, &Line::new(Point::new(lx, ly), Point::new(lx + lw, ly)), d);
+            stroke(
+                scene,
+                2.0,
+                &Line::new(Point::new(lx + lw, ly), Point::new(lx + lw, ly + lh)),
+                d,
+            );
+            stroke(
+                scene,
+                2.0,
+                &Line::new(Point::new(lx + lw, ly + lh), Point::new(lx, ly + lh)),
+                d,
+            );
+            stroke(scene, 2.0, &Line::new(Point::new(lx, ly + lh), Point::new(lx, ly)), d);
+        }
+    }
+
+    pub fn text_items(&self, theme: &SemanticColors) -> Vec<WidgetText> {
+        let clip = self.popup_rect;
+        let fs: f32 = 12.0;
+        self.option_rects
+            .iter()
+            .enumerate()
+            .map(|(i, &(ox, oy, _ow, oh))| {
+                let label = self.options.get(i).cloned().unwrap_or_default();
+                let c = if i == self.selected_index { theme.accent } else { theme.text_primary };
+                WidgetText::new(label, ox + 8.0, oy + (oh - fs) * 0.5, fs, color_arr(c))
+                    .with_clip(clip)
+            })
+            .collect()
+    }
+
+    pub fn option_hits(&self) -> Vec<(f32, f32, f32, f32)> {
+        self.option_rects.clone()
+    }
+}
+
+// ── Settings-specific types (consumer of the generic SelectDropdown) ─────────
+
+/// Hit target for an interactive settings row.
 #[derive(Debug, Clone)]
 pub struct SettingsRowHit {
     pub label: String,
     pub rect: (f32, f32, f32, f32),
     pub action: SettingsAction,
+    pub row_index: Option<usize>,
+    pub is_trigger: bool,
+    pub is_option: bool,
 }
 
-/// Settings detail page rendered in the editor content area. Shows exactly ONE
-/// section (the selected category). The sidebar owns category navigation and the
-/// tab/breadcrumb own the page title, so this pane never repeats them — one
-/// section title, then its rows.
-///
-/// Rendering is driven by two inputs:
-/// - `sections` defines the layout structure (section labels, row labels, row
-///   kinds).
-/// - `settings` carries the live user preferences so the panel always reflects
-///   actual state, not placeholder text.
+/// State controlling which dropdown (if any) is open.
+#[derive(Debug, Clone, Default)]
+pub struct SettingsDropdownState {
+    pub open_row: Option<usize>,
+}
+
+impl SettingsDropdownState {
+    pub fn toggle(&mut self, row: usize) {
+        if self.open_row == Some(row) {
+            self.open_row = None;
+        } else {
+            self.open_row = Some(row);
+        }
+    }
+
+    pub fn close(&mut self) {
+        self.open_row = None;
+    }
+}
+
+/// Settings detail page. Renders section title + rows with triggers.
+/// Popup dropdowns are rendered by the generic [`SelectDropdownOverlay`].
 pub struct SettingsPanel {
     pub sections: Vec<SettingsSection>,
     pub selected_section: usize,
     pub settings: Settings,
+    pub dropdown_state: SettingsDropdownState,
+}
+
+/// Compute the trigger rect for a dropdown row in the settings panel.
+fn settings_trigger_rect(
+    row_index: usize,
+    layout: &taffy::Layout,
+    narrow: bool,
+) -> (f32, f32, f32, f32) {
+    let base_y = layout.location.y + 22.0 + 44.0;
+    let row_h = if narrow { 40.0 } else { 48.0 };
+    let y = base_y + row_index as f32 * row_h;
+    if narrow {
+        let x = layout.location.x + 28.0;
+        let w = (layout.size.width - 56.0).max(120.0);
+        (x, y, w, 22.0)
+    } else {
+        let right = layout.location.x + (layout.size.width - 132.0).max(28.0 + 200.0);
+        let w = (layout.size.width - right + layout.location.x - 28.0).min(170.0).max(100.0);
+        (right, y, w, 22.0)
+    }
+}
+
+/// Build the generic `PopupMenu` for a settings dropdown row, or `None`.
+pub fn settings_popup(
+    row_index: usize,
+    kind: &SettingsRowKind,
+    layout: &taffy::Layout,
+    settings: &Settings,
+    dropdown_state: &SettingsDropdownState,
+) -> Option<PopupMenu> {
+    if dropdown_state.open_row != Some(row_index) {
+        return None;
+    }
+    let (options, selected): (Vec<String>, usize) = match kind {
+        SettingsRowKind::Theme => {
+            let opts: Vec<String> =
+                ThemePreference::all().iter().map(|t| t.display_name().to_string()).collect();
+            let sel = ThemePreference::all().iter().position(|t| *t == settings.theme).unwrap_or(0);
+            (opts, sel)
+        }
+        SettingsRowKind::Font => {
+            let opts: Vec<String> =
+                FontPreference::all().iter().map(|f| f.display_name().to_string()).collect();
+            let sel = FontPreference::all().iter().position(|f| *f == settings.font).unwrap_or(0);
+            (opts, sel)
+        }
+        _ => return None,
+    };
+    let narrow = layout.size.width < 420.0;
+    let trigger_rect = settings_trigger_rect(row_index, layout, narrow);
+    let pane_bounds = (layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+    Some(PopupMenu::new(trigger_rect, pane_bounds, options, selected))
 }
 
 fn settings_row_value(row: &SettingsRow, settings: &Settings) -> String {
@@ -1437,126 +1657,89 @@ fn settings_row_value(row: &SettingsRow, settings: &Settings) -> String {
     }
 }
 
-/// Whether a settings row is interactive (clickable) based on its kind.
 fn settings_row_interactive(kind: &SettingsRowKind) -> bool {
     matches!(kind, SettingsRowKind::Theme | SettingsRowKind::Font | SettingsRowKind::Toggle { .. })
 }
 
-/// Action to dispatch when clicking a settings row's value area.
-fn settings_row_action(kind: &SettingsRowKind, settings: &Settings) -> SettingsAction {
-    match kind {
-        SettingsRowKind::Theme => {
-            let next = match settings.theme {
-                ThemePreference::System => ThemePreference::Dark,
-                ThemePreference::Dark => ThemePreference::Light,
-                ThemePreference::Light => ThemePreference::System,
-            };
-            SettingsAction::SetTheme(next)
-        }
-        SettingsRowKind::Font => {
-            let next = match settings.font {
-                FontPreference::JetBrainsMonoNerdFont => FontPreference::JetBrainsMono,
-                FontPreference::JetBrainsMono => FontPreference::JetBrainsMonoNerdFont,
-            };
-            SettingsAction::SetFont(next)
-        }
-        SettingsRowKind::Toggle { on } => SettingsAction::SetTelemetry(!on),
-        _ => SettingsAction::SetTheme(settings.theme),
-    }
-}
-
-/// Render the theme picker as a segmented-control-like row of three options.
-/// Returns the WidgetText runs and the hit rects for each option.
-fn render_theme_picker(
-    pref: ThemePreference,
-    x: f32,
-    y: f32,
-    clip: (f32, f32, f32, f32),
-    theme: &SemanticColors,
-) -> (Vec<WidgetText>, Vec<(f32, f32, f32, f32, ThemePreference)>) {
-    let mut runs = Vec::new();
-    let mut hits = Vec::new();
-    let opts = ThemePreference::all();
-    let pill_w: f32 = 56.0;
-    let pill_h: f32 = 22.0;
-    let gap: f32 = 4.0;
-    let font_size: f32 = 11.0;
-    for (i, opt) in opts.iter().enumerate() {
-        let ox = x + i as f32 * (pill_w + gap);
-        let oy = y;
-        let hit_rect = (ox, oy, pill_w, pill_h + 6.0);
-        let selected = *opt == pref;
-        if selected {
-            runs.push(
-                WidgetText::new(
-                    opt.display_name(),
-                    ox + 4.0,
-                    oy + 3.0,
-                    font_size,
-                    color_arr(theme.accent),
-                )
-                .with_clip(clip),
-            );
-        } else {
-            runs.push(
-                WidgetText::new(
-                    opt.display_name(),
-                    ox + 4.0,
-                    oy + 3.0,
-                    font_size,
-                    color_arr(theme.text_muted),
-                )
-                .with_clip(clip),
-            );
-        }
-        hits.push((hit_rect.0, hit_rect.1, hit_rect.2, hit_rect.3, *opt));
-    }
-    (runs, hits)
-}
-
 impl SettingsPanel {
-    /// Compute hit rects for every interactive settings row in the currently
-    /// visible section. The host uses these to map pointer events to
-    /// [`SettingsAction`] dispatch.
     pub fn row_hits(&self, layout: &taffy::Layout) -> Vec<SettingsRowHit> {
         let mut hits = Vec::new();
-        let px = layout.location.x + 28.0;
-        let py = layout.location.y + 22.0;
         let content_w = layout.size.width;
         let narrow = content_w < 420.0;
-        let right = layout.location.x + (content_w - 132.0).max(28.0 + 200.0);
         let Some(sec) = self.sections.get(self.selected_section) else {
             return hits;
         };
-        let mut y = py + 44.0;
+
+        let mut dd_idx: usize = 0;
         for row in &sec.items {
-            if !settings_row_interactive(&row.kind) {
-                y += if narrow { 40.0 } else { 48.0 };
-                continue;
-            }
-            let row_h = if narrow { 40.0 } else { 48.0 };
-            let action = settings_row_action(&row.kind, &self.settings);
-            if matches!(&row.kind, SettingsRowKind::Theme) {
-                let opts = ThemePreference::all();
-                let pill_w: f32 = 56.0;
-                let gap: f32 = 4.0;
-                for (i, opt) in opts.iter().enumerate() {
-                    let ox = right + i as f32 * (pill_w + gap);
-                    hits.push(SettingsRowHit {
-                        label: opt.display_name().to_string(),
-                        rect: (ox, y, pill_w, row_h),
-                        action: SettingsAction::SetTheme(*opt),
-                    });
+            if matches!(&row.kind, SettingsRowKind::Theme | SettingsRowKind::Font) {
+                let (tx, ty, tw, th) = settings_trigger_rect(dd_idx, layout, narrow);
+                hits.push(SettingsRowHit {
+                    label: format!("{} trigger", row.label),
+                    rect: (tx, ty, tw, th),
+                    action: SettingsAction::SetTheme(self.settings.theme),
+                    row_index: Some(dd_idx),
+                    is_trigger: true,
+                    is_option: false,
+                });
+                if let Some(popup) =
+                    settings_popup(dd_idx, &row.kind, layout, &self.settings, &self.dropdown_state)
+                {
+                    let action_factory: Box<dyn Fn(usize) -> SettingsAction> = match &row.kind {
+                        SettingsRowKind::Theme => {
+                            let prefs = ThemePreference::all();
+                            Box::new(move |i| {
+                                prefs
+                                    .get(i)
+                                    .map(|p| SettingsAction::SetTheme(*p))
+                                    .unwrap_or(SettingsAction::SetTheme(self.settings.theme))
+                            })
+                        }
+                        SettingsRowKind::Font => {
+                            let fonts = FontPreference::all();
+                            Box::new(move |i| {
+                                fonts
+                                    .get(i)
+                                    .map(|f| SettingsAction::SetFont(f.clone()))
+                                    .unwrap_or(SettingsAction::SetFont(self.settings.font.clone()))
+                            })
+                        }
+                        _ => continue,
+                    };
+                    for (i, &(ox, oy, ow, oh)) in popup.option_rects.iter().enumerate() {
+                        hits.push(SettingsRowHit {
+                            label: format!("option {}", i),
+                            rect: (ox, oy, ow, oh),
+                            action: action_factory(i),
+                            row_index: Some(dd_idx),
+                            is_trigger: false,
+                            is_option: true,
+                        });
+                    }
                 }
-            } else {
+                dd_idx += 1;
+            }
+        }
+
+        let px = layout.location.x + 28.0;
+        let mut row_idx: usize = 0;
+        let mut y_off = layout.location.y + 22.0 + 44.0;
+        for row in &sec.items {
+            if matches!(&row.kind, SettingsRowKind::Toggle { .. }) {
+                let row_h = if narrow { 40.0 } else { 48.0 };
                 hits.push(SettingsRowHit {
                     label: row.label.clone(),
-                    rect: (px, y, (content_w - 56.0).max(200.0), row_h),
-                    action,
+                    rect: (px, y_off, (content_w - 56.0).max(200.0), row_h),
+                    action: SettingsAction::SetTelemetry(false),
+                    row_index: Some(row_idx),
+                    is_trigger: false,
+                    is_option: false,
                 });
             }
-            y += row_h;
+            y_off += if narrow { 40.0 } else { 48.0 };
+            row_idx += 1;
         }
+
         hits
     }
 }
@@ -1586,11 +1769,15 @@ impl ZaroxiWidget for SettingsPanel {
         let Some(sec) = self.sections.get(self.selected_section) else {
             return runs;
         };
+
         runs.push(
             WidgetText::new(sec.label.clone(), px, py, 18.0, color_arr(theme.text_primary))
                 .with_clip(clip),
         );
+
         let mut y = py + 44.0;
+        let mut dd_idx: usize = 0;
+
         for row in &sec.items {
             if narrow {
                 let val = settings_row_value(row, &self.settings);
@@ -1610,14 +1797,30 @@ impl ZaroxiWidget for SettingsPanel {
                     .with_clip(clip),
                 );
                 y += 40.0;
-            } else if matches!(&row.kind, SettingsRowKind::Theme) {
+            } else if matches!(&row.kind, SettingsRowKind::Theme | SettingsRowKind::Font) {
                 runs.push(
                     WidgetText::new(row.label.clone(), px, y, 14.0, color_arr(theme.text_primary))
                         .with_clip(clip),
                 );
-                let (theme_runs, _) =
-                    render_theme_picker(self.settings.theme, right, y, clip, theme);
-                runs.extend(theme_runs);
+                let is_open = self.dropdown_state.open_row == Some(dd_idx);
+                if !is_open {
+                    let current = match &row.kind {
+                        SettingsRowKind::Theme => self.settings.theme.display_name().to_string(),
+                        SettingsRowKind::Font => self.settings.font.display_name().to_string(),
+                        _ => String::new(),
+                    };
+                    let (tx, ty, _tw, _th) = settings_trigger_rect(dd_idx, layout, narrow);
+                    runs.push(
+                        WidgetText::new(
+                            format!("{}  \u{25BC}", current),
+                            tx + 6.0,
+                            ty + 3.0,
+                            11.5,
+                            color_arr(theme.accent),
+                        )
+                        .with_clip(clip),
+                    );
+                }
                 runs.push(
                     WidgetText::new(
                         row.description.clone(),
@@ -1629,6 +1832,7 @@ impl ZaroxiWidget for SettingsPanel {
                     .with_clip(clip),
                 );
                 y += 48.0;
+                dd_idx += 1;
             } else {
                 runs.push(
                     WidgetText::new(row.label.clone(), px, y, 14.0, color_arr(theme.text_primary))
@@ -1640,7 +1844,8 @@ impl ZaroxiWidget for SettingsPanel {
                 } else {
                     theme.text_muted
                 };
-                runs.push(WidgetText::new(val, right, y, 13.0, color_arr(color)).with_clip(clip));
+                let val_x = right.min(layout.location.x + layout.size.width - 32.0);
+                runs.push(WidgetText::new(val, val_x, y, 13.0, color_arr(color)).with_clip(clip));
                 runs.push(
                     WidgetText::new(
                         row.description.clone(),

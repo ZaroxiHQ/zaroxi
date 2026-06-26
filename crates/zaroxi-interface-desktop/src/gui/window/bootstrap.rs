@@ -46,7 +46,8 @@ pub fn run_shell_window(
     let window_attributes = WindowAttributes::default()
         .with_title("Zaroxi - GUI Shell")
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
-        .with_resizable(true);
+        .with_resizable(true)
+        .with_min_inner_size(PhysicalSize::new(480, 320));
 
     let title = format!("Zaroxi - GUI Shell ({}x{})", shell.size.width, shell.size.height);
 
@@ -72,6 +73,8 @@ pub fn run_shell_window(
         theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
         settings: zaroxi_domain_settings::Settings::default(),
         settings_hit_rects: Vec::new(),
+        settings_dropdown: zaroxi_interface_widgets::SettingsDropdownState::default(),
+        cached_settings_popup: None,
         shift_held: false,
         ctrl_held: false,
         mem_monitor: zaroxi_core_telemetry::MemoryMonitor::from_env(),

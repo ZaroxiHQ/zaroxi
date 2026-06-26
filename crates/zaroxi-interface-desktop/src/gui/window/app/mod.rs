@@ -328,6 +328,12 @@ pub struct GuiApp {
     /// Hit rects for interactive settings rows, set each frame from the cockpit
     /// layout. Used to route pointer events to settings actions.
     pub settings_hit_rects: Vec<zaroxi_interface_widgets::SettingsRowHit>,
+    /// Dropdown open state for the settings panel — tracks which select
+    /// dropdown (if any) is currently expanded.
+    pub settings_dropdown: zaroxi_interface_widgets::SettingsDropdownState,
+    /// Cached popup geometry, frozen when a dropdown opens. Prevents visual
+    /// drift caused by frame-to-frame layout rounding of the editor region.
+    pub cached_settings_popup: Option<zaroxi_interface_widgets::PopupMenu>,
     pub shift_held: bool,
     pub ctrl_held: bool,
     /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
@@ -820,6 +826,7 @@ impl GuiApp {
                 self.settings.telemetry.enabled = *enabled;
             }
         }
+        self.cached_settings_popup = None;
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
     }
@@ -2322,8 +2329,9 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
                 }
-                // Settings panel row click: hit-test against computed settings
-                // rows and dispatch the corresponding SettingsAction.
+                // Settings panel row click: dropdown trigger toggles open,
+                // dropdown option dispatches action + closes, toggle rows
+                // dispatch action. Click outside any dropdown closes it.
                 if let ElementState::Released = state {
                     let dest = self.tab_state.active().destination();
                     if matches!(dest, super::destination::WorkbenchDestination::Settings) {
@@ -2332,8 +2340,30 @@ impl winit::application::ApplicationHandler for GuiApp {
                             x >= rx && x < rx + rw && y >= ry && y < ry + rh
                         });
                         if let Some(h) = hit {
+                            if h.is_option {
+                                self.apply_settings_action(h.action.clone());
+                                self.settings_dropdown.close();
+                                self.cached_settings_popup = None;
+                                self.needs_render = true;
+                                return;
+                            }
+                            if h.is_trigger {
+                                if let Some(ri) = h.row_index {
+                                    self.settings_dropdown.toggle(ri);
+                                }
+                                self.cached_settings_popup = None;
+                                self.cockpit_status_fingerprint = 0;
+                                self.needs_render = true;
+                                return;
+                            }
                             self.apply_settings_action(h.action.clone());
                             return;
+                        }
+                        if self.settings_dropdown.open_row.is_some() {
+                            self.settings_dropdown.close();
+                            self.cached_settings_popup = None;
+                            self.cockpit_status_fingerprint = 0;
+                            self.needs_render = true;
                         }
                     }
                 }
@@ -3537,7 +3567,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         super::destination::cockpit_panels_for(
                                             self.tab_state.active(),
                                         );
-                                    let inputs = super::cockpit::CockpitInputs {
+                                    let mut inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
                                         height: sh as f32,
                                         editor_rect: cockpit_editor_rect,
@@ -3589,6 +3619,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         status: instrument_status,
                                         settings_panel: dp_settings.clone(),
                                         settings: Some(self.settings.clone()),
+                                        settings_dropdown: self.settings_dropdown.clone(),
+                                        cached_popup: self.cached_settings_popup.clone(),
                                         extensions_panel: dp_extensions,
                                         placeholder_panel: dp_placeholder,
                                         welcome_panel: matches!(
@@ -3600,9 +3632,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         ..Default::default()
                                     };
                                     let (scene, text) = super::cockpit::build_cockpit_frame(
-                                        &inputs,
+                                        &mut inputs,
                                         &cockpit_tokens,
                                     );
+                                    self.cached_settings_popup = inputs.cached_popup.clone();
                                     core.set_cockpit_scene(Some(scene));
                                     let text_runs = text.len();
                                     core.set_cockpit_text(text);
@@ -3643,6 +3676,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             .unwrap_or(&[]),
                                         dp_settings.as_ref().map(|(_, sel)| *sel).unwrap_or(0),
                                         &self.settings,
+                                        &self.settings_dropdown,
                                     );
                                 }
                                 // ── Tab hit rects (recomputed every frame so resize
@@ -4111,7 +4145,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             super::destination::cockpit_panels_for(
                                                 self.tab_state.active(),
                                             );
-                                        let inputs = super::cockpit::CockpitInputs {
+                                        let mut inputs = super::cockpit::CockpitInputs {
                                             width: sw as f32,
                                             height: sh as f32,
                                             // Editor + status bounds from the shell
@@ -4188,8 +4222,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             tab_scroll_offset: self.tab_state.scroll_offset,
                                             ..Default::default()
                                         };
-                                        let (scene, text) =
-                                            super::cockpit::build_cockpit_frame(&inputs, &tokens);
+                                        let (scene, text) = super::cockpit::build_cockpit_frame(
+                                            &mut inputs,
+                                            &tokens,
+                                        );
+                                        self.cached_settings_popup = inputs.cached_popup.clone();
                                         // Vector visuals via the vello overlay; text
                                         // via the cosmic-text pass (both applied next
                                         // frame inside RenderCore).
@@ -4239,6 +4276,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                                                     .map(|(_, sel)| *sel)
                                                     .unwrap_or(0),
                                                 &self.settings,
+                                                &self.settings_dropdown,
                                             );
                                         // Cockpit built pre-render; the trace was
                                         // emitted there.

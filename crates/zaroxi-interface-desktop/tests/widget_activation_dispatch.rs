@@ -136,6 +136,10 @@ mod tests {
             startup_first_visible_layout_stable: false,
             startup_settle_trimmed: false,
             text_instance_buffer_version: 0,
+            settings: zaroxi_domain_settings::Settings::default(),
+            settings_hit_rects: Vec::new(),
+            settings_dropdown: zaroxi_interface_widgets::SettingsDropdownState::default(),
+            cached_settings_popup: None,
         }
     }
 

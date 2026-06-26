@@ -22,8 +22,8 @@ use zaroxi_interface_theme::{SemanticColors, ZaroxiTheme};
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
     ActivityItem, ActivityRail, AiPredictionGutter, CommandPalette, InstrumentStatus,
-    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, SettingsRowHit, StatusBar,
-    SymbolKind, WidgetTree,
+    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, SettingsDropdownState,
+    SettingsRowHit, StatusBar, SymbolKind, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -98,6 +98,12 @@ pub struct CockpitInputs {
     /// Live settings state for the settings panel — drives current values and
     /// interactive controls. When `None` the panel renders static labels.
     pub settings: Option<Settings>,
+    /// Dropdown open state for the settings panel — controls which select
+    /// dropdown (if any) is currently expanded.
+    pub settings_dropdown: SettingsDropdownState,
+    /// Cached popup geometry. Frozen on open, cleared on close, to prevent
+    /// visual drift from layout rounding between frames.
+    pub cached_popup: Option<zaroxi_interface_widgets::PopupMenu>,
     /// Hit rects for interactive settings rows, computed from the panel layout.
     pub settings_hits: Vec<SettingsRowHit>,
     /// Extensions page: `Some(entries, selected_entry)` when open in the editor
@@ -438,6 +444,7 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
                 sections: sections.clone(),
                 selected_section: *selected_section,
                 settings,
+                dropdown_state: inputs.settings_dropdown.clone(),
             }),
             regions.editor,
         );
@@ -515,11 +522,13 @@ pub fn compute_settings_hits(
     sections: &[zaroxi_interface_widgets::SettingsSection],
     selected_section: usize,
     settings: &Settings,
+    dropdown_state: &SettingsDropdownState,
 ) -> Vec<SettingsRowHit> {
     let panel = zaroxi_interface_widgets::SettingsPanel {
         sections: sections.to_vec(),
         selected_section,
         settings: settings.clone(),
+        dropdown_state: dropdown_state.clone(),
     };
     panel.row_hits(editor_layout)
 }
@@ -529,6 +538,48 @@ pub fn paint_cockpit(inputs: &CockpitInputs, tokens: &SemanticColors) -> Scene {
     let tree = build_cockpit(inputs);
     let mut scene = Scene::new();
     tree.paint(&mut scene, tokens);
+
+    if let Some((sections, selected_section)) = &inputs.settings_panel {
+        if let Some(settings) = &inputs.settings {
+            let editor_layout = taffy::Layout {
+                location: taffy::geometry::Point {
+                    x: inputs.editor_rect.0,
+                    y: inputs.editor_rect.1,
+                },
+                size: taffy::geometry::Size {
+                    width: inputs.editor_rect.2.max(0.0),
+                    height: inputs.editor_rect.3.max(0.0),
+                },
+                ..Default::default()
+            };
+            if let Some(sec) = sections.get(*selected_section) {
+                let mut dd_idx: usize = 0;
+                for row in &sec.items {
+                    if !matches!(
+                        &row.kind,
+                        zaroxi_interface_widgets::SettingsRowKind::Theme
+                            | zaroxi_interface_widgets::SettingsRowKind::Font
+                    ) {
+                        continue;
+                    }
+                    if inputs.settings_dropdown.open_row == Some(dd_idx) {
+                        if let Some(popup) = zaroxi_interface_widgets::settings_popup(
+                            dd_idx,
+                            &row.kind,
+                            &editor_layout,
+                            settings,
+                            &inputs.settings_dropdown,
+                        ) {
+                            popup.paint(&mut scene, tokens);
+                        }
+                        break;
+                    }
+                    dd_idx += 1;
+                }
+            }
+        }
+    }
+
     scene
 }
 
@@ -546,16 +597,90 @@ fn to_render_text(
     }
 }
 
-/// Build the cockpit tree once and return both the vello vector scene and the
-/// positioned text runs (the latter drawn by the cosmic-text layer).
+/// Build the cockpit tree alongside any open popup menus, returning the
+/// combined vello scene and positioned text runs.
 pub fn build_cockpit_frame(
-    inputs: &CockpitInputs,
+    inputs: &mut CockpitInputs,
     tokens: &SemanticColors,
 ) -> (Scene, Vec<zaroxi_core_engine_render::renderer::CockpitText>) {
     let tree = build_cockpit(inputs);
     let mut scene = Scene::new();
     tree.paint(&mut scene, tokens);
-    let text = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
+    let mut text: Vec<_> = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
+
+    // ── Popup menu (post-tree, stable geometry from cache) ─────────────────
+    if let Some((sections, selected_section)) = &inputs.settings_panel {
+        if let Some(settings) = &inputs.settings {
+            let editor_layout = taffy::Layout {
+                location: taffy::geometry::Point {
+                    x: inputs.editor_rect.0,
+                    y: inputs.editor_rect.1,
+                },
+                size: taffy::geometry::Size {
+                    width: inputs.editor_rect.2.max(0.0),
+                    height: inputs.editor_rect.3.max(0.0),
+                },
+                ..Default::default()
+            };
+            if let Some(sec) = sections.get(*selected_section) {
+                let mut dd_idx: usize = 0;
+                for row in &sec.items {
+                    if !matches!(
+                        &row.kind,
+                        zaroxi_interface_widgets::SettingsRowKind::Theme
+                            | zaroxi_interface_widgets::SettingsRowKind::Font
+                    ) {
+                        continue;
+                    }
+                    if inputs.settings_dropdown.open_row == Some(dd_idx) {
+                        let popup = if let Some(ref cached) = inputs.cached_popup {
+                            cached.clone()
+                        } else if let Some(fresh) = zaroxi_interface_widgets::settings_popup(
+                            dd_idx,
+                            &row.kind,
+                            &editor_layout,
+                            settings,
+                            &inputs.settings_dropdown,
+                        ) {
+                            inputs.cached_popup = Some(fresh.clone());
+                            fresh
+                        } else {
+                            break;
+                        };
+                        popup.paint(&mut scene, tokens);
+
+                        // Construct popup text directly from popup_rect +
+                        // option_rects so coordinates always match the paint
+                        // pass. This bypasses text_items() to eliminate any
+                        // coordinate-space mismatch between the two paths.
+                        let (_prx, _pry, _prw, _prh) = popup.popup_rect;
+                        let fs: f32 = 12.0;
+                        for (i, &(ox, oy, _ow, oh)) in popup.option_rects.iter().enumerate() {
+                            let label = popup.options.get(i).cloned().unwrap_or_default();
+                            let c = if i == popup.selected_index {
+                                tokens.accent
+                            } else {
+                                tokens.text_primary
+                            };
+                            let y_off = (oh - fs).max(0.0) * 0.5;
+                            let wt = zaroxi_interface_widgets::widget::WidgetText::new(
+                                label,
+                                ox + 8.0,
+                                oy + y_off,
+                                fs,
+                                zaroxi_interface_widgets::widget::color_arr(c),
+                            )
+                            .with_clip(popup.popup_rect);
+                            text.push(to_render_text(wt));
+                        }
+                        break;
+                    }
+                    dd_idx += 1;
+                }
+            }
+        }
+    }
+
     (scene, text)
 }
 
@@ -617,6 +742,8 @@ mod tests {
             settings_panel: None,
             extensions_panel: None,
             settings: None,
+            settings_dropdown: SettingsDropdownState::default(),
+            cached_popup: None,
             settings_hits: Vec::new(),
             placeholder_panel: None,
             welcome_panel: false,
@@ -719,5 +846,104 @@ mod tests {
         assert_eq!((syms[1].line, syms[1].kind), (1, SymbolKind::Type));
         // Namespace maps to the minimap's import hairline glyph.
         assert_eq!((syms[2].line, syms[2].kind), (2, SymbolKind::Import));
+    }
+
+    /// Instrument the full popup text path: build a cockpit frame with an open
+    /// Theme dropdown and verify text items are created, have valid positions,
+    /// and are appended to the final text buffer.
+    #[test]
+    fn popup_text_items_created_and_appended() {
+        use zaroxi_interface_widgets::{SettingsRow, SettingsRowKind, SettingsSection};
+
+        let sections = vec![SettingsSection {
+            label: "General".to_string(),
+            items: vec![
+                SettingsRow {
+                    label: "Color Theme".to_string(),
+                    description: "Choose theme".to_string(),
+                    kind: SettingsRowKind::Theme,
+                },
+                SettingsRow {
+                    label: "Editor Font".to_string(),
+                    description: "Choose font".to_string(),
+                    kind: SettingsRowKind::Font,
+                },
+            ],
+        }];
+
+        let settings = zaroxi_domain_settings::Settings::default();
+        let mut dropdown = SettingsDropdownState::default();
+        dropdown.open_row = Some(0); // Theme dropdown open
+
+        let mut inputs = sample();
+        inputs.settings_panel = Some((sections.clone(), 0));
+        inputs.settings = Some(settings.clone());
+        inputs.settings_dropdown = dropdown;
+        inputs.cached_popup = None;
+
+        let tokens = SemanticColors::dark();
+        let (_scene, text) = build_cockpit_frame(&mut inputs, &tokens);
+
+        // Should have created and cached a popup
+        assert!(inputs.cached_popup.is_some(), "cached_popup should be set after frame");
+        let popup = inputs.cached_popup.as_ref().unwrap();
+
+        eprintln!(
+            "POPUP TEST: popup_rect={:?} option_count={} option_rects={:?}",
+            popup.popup_rect,
+            popup.options.len(),
+            popup.option_rects,
+        );
+
+        // Popup text items must exist
+        let popup_text: Vec<_> = popup.text_items(&tokens);
+        eprintln!("POPUP TEST: text_items count={}", popup_text.len());
+        for (i, t) in popup_text.iter().enumerate() {
+            eprintln!(
+                "  [{}] '{}' pos=({:.1},{:.1}) sz={} clip={:?}",
+                i, t.text, t.x, t.y, t.size_px, t.clip_rect,
+            );
+        }
+
+        assert!(!popup_text.is_empty(), "popup text items must not be empty");
+        assert_eq!(popup_text.len(), 3, "3 theme options expected");
+        assert_eq!(popup_text[0].text, "System");
+        assert_eq!(popup_text[1].text, "Dark");
+        assert_eq!(popup_text[2].text, "Light");
+
+        // Verify text positions are within popup rect
+        let (px, py, pw, ph) = popup.popup_rect;
+        for t in &popup_text {
+            assert!(t.x >= px, "text x={} should be >= popup x={}", t.x, px);
+            assert!(t.x < px + pw, "text x={} should be < popup right={}", t.x, px + pw);
+            assert!(t.y >= py, "text y={} should be >= popup y={}", t.y, py);
+            assert!(t.y < py + ph, "text y={} should be < popup bottom={}", t.y, py + ph,);
+        }
+
+        // Verify clip rect matches
+        for t in &popup_text {
+            if let Some(clip) = t.clip_rect {
+                assert_eq!(clip.0, px, "clip x mismatch");
+                assert_eq!(clip.1, py, "clip y mismatch");
+            } else {
+                panic!("text item missing clip_rect");
+            }
+        }
+
+        // Verify text items are in the final text buffer.
+        // The cockpit tree already contributes text (section title, row labels),
+        // so look for popup option strings specifically.
+        let final_texts: Vec<&str> = text.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("POPUP TEST: final text buffer ({} items): {:?}", text.len(), final_texts);
+        assert!(final_texts.contains(&"System"), "System missing from final text");
+        assert!(final_texts.contains(&"Dark"), "Dark missing from final text");
+        assert!(final_texts.contains(&"Light"), "Light missing from final text");
+
+        // Second frame with cached popup
+        let mut inputs2 = inputs;
+        let (_scene2, text2) = build_cockpit_frame(&mut inputs2, &tokens);
+        let final2: Vec<&str> = text2.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("POPUP TEST: frame 2 text buffer ({} items): {:?}", text2.len(), final2);
+        assert!(final2.contains(&"System"), "System missing from frame 2 text");
     }
 }
