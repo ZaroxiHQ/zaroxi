@@ -6,4 +6,4 @@ description = "zaroxi-domain-settings (auto-generated)"
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+serde = { workspace = true, features = ["derive"] }

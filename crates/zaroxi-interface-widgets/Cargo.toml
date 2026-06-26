@@ -10,6 +10,7 @@ license = "MIT"
 # resolved `SemanticColors`; they never define colors. A future theme/extension
 # system plugs in here by producing `SemanticColors`.
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
+zaroxi-domain-settings = { path = "../zaroxi-domain-settings" }
 # GPU vector scene composition + flex/grid layout.
 vello = { workspace = true }
 taffy = { workspace = true }

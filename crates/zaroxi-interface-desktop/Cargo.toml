@@ -27,6 +27,7 @@ zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
 # Cockpit vello widgets (ZaroxiWidget trait + WidgetTree + components).
 zaroxi-interface-widgets = { path = "../zaroxi-interface-widgets" }
+zaroxi-domain-settings = { path = "../zaroxi-domain-settings" }
 
 zaroxi-core-engine-clipboard = { path = "../zaroxi-core-engine-clipboard" }
 

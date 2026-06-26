@@ -15,6 +15,8 @@ use vello::peniko::Fill;
 use zaroxi_interface_theme::Color as ThemeColor;
 use zaroxi_interface_theme::SemanticColors;
 
+use zaroxi_domain_settings::{FontPreference, Settings, SettingsAction, ThemePreference};
+
 use crate::widget::{
     WidgetLayer, WidgetText, ZaroxiWidget, brush, color_arr, layout_rect, reduce_motion,
 };
@@ -1376,21 +1378,50 @@ pub struct SettingsRow {
 /// The control affordance for a settings row.
 #[derive(Debug, Clone)]
 pub enum SettingsRowKind {
-    Toggle { on: bool },
-    Select { value: String, options: Vec<String> },
-    Label { value: String },
+    Toggle {
+        on: bool,
+    },
+    Select {
+        value: String,
+        options: Vec<String>,
+    },
+    /// A theme-picker row (driven by live state, not static label).
+    Theme,
+    /// A font-picker row (driven by live state, not static label).
+    Font,
+    /// Static read-only label (legacy compatibility).
+    Label {
+        value: String,
+    },
+}
+
+/// Hit target for an interactive settings row. Returned by
+/// [`SettingsPanel::row_hits`] so the host can route clicks to
+/// [`SettingsAction`] dispatch.
+#[derive(Debug, Clone)]
+pub struct SettingsRowHit {
+    pub label: String,
+    pub rect: (f32, f32, f32, f32),
+    pub action: SettingsAction,
 }
 
 /// Settings detail page rendered in the editor content area. Shows exactly ONE
 /// section (the selected category). The sidebar owns category navigation and the
 /// tab/breadcrumb own the page title, so this pane never repeats them — one
 /// section title, then its rows.
+///
+/// Rendering is driven by two inputs:
+/// - `sections` defines the layout structure (section labels, row labels, row
+///   kinds).
+/// - `settings` carries the live user preferences so the panel always reflects
+///   actual state, not placeholder text.
 pub struct SettingsPanel {
     pub sections: Vec<SettingsSection>,
     pub selected_section: usize,
+    pub settings: Settings,
 }
 
-fn settings_row_value(row: &SettingsRow) -> String {
+fn settings_row_value(row: &SettingsRow, settings: &Settings) -> String {
     match &row.kind {
         SettingsRowKind::Toggle { on } => {
             if *on {
@@ -1400,7 +1431,133 @@ fn settings_row_value(row: &SettingsRow) -> String {
             }
         }
         SettingsRowKind::Select { value, .. } => value.clone(),
+        SettingsRowKind::Theme => settings.theme.display_name().to_string(),
+        SettingsRowKind::Font => settings.font.display_name().to_string(),
         SettingsRowKind::Label { value } => value.clone(),
+    }
+}
+
+/// Whether a settings row is interactive (clickable) based on its kind.
+fn settings_row_interactive(kind: &SettingsRowKind) -> bool {
+    matches!(kind, SettingsRowKind::Theme | SettingsRowKind::Font | SettingsRowKind::Toggle { .. })
+}
+
+/// Action to dispatch when clicking a settings row's value area.
+fn settings_row_action(kind: &SettingsRowKind, settings: &Settings) -> SettingsAction {
+    match kind {
+        SettingsRowKind::Theme => {
+            let next = match settings.theme {
+                ThemePreference::System => ThemePreference::Dark,
+                ThemePreference::Dark => ThemePreference::Light,
+                ThemePreference::Light => ThemePreference::System,
+            };
+            SettingsAction::SetTheme(next)
+        }
+        SettingsRowKind::Font => {
+            let next = match settings.font {
+                FontPreference::JetBrainsMonoNerdFont => FontPreference::JetBrainsMono,
+                FontPreference::JetBrainsMono => FontPreference::JetBrainsMonoNerdFont,
+            };
+            SettingsAction::SetFont(next)
+        }
+        SettingsRowKind::Toggle { on } => SettingsAction::SetTelemetry(!on),
+        _ => SettingsAction::SetTheme(settings.theme),
+    }
+}
+
+/// Render the theme picker as a segmented-control-like row of three options.
+/// Returns the WidgetText runs and the hit rects for each option.
+fn render_theme_picker(
+    pref: ThemePreference,
+    x: f32,
+    y: f32,
+    clip: (f32, f32, f32, f32),
+    theme: &SemanticColors,
+) -> (Vec<WidgetText>, Vec<(f32, f32, f32, f32, ThemePreference)>) {
+    let mut runs = Vec::new();
+    let mut hits = Vec::new();
+    let opts = ThemePreference::all();
+    let pill_w: f32 = 56.0;
+    let pill_h: f32 = 22.0;
+    let gap: f32 = 4.0;
+    let font_size: f32 = 11.0;
+    for (i, opt) in opts.iter().enumerate() {
+        let ox = x + i as f32 * (pill_w + gap);
+        let oy = y;
+        let hit_rect = (ox, oy, pill_w, pill_h + 6.0);
+        let selected = *opt == pref;
+        if selected {
+            runs.push(
+                WidgetText::new(
+                    opt.display_name(),
+                    ox + 4.0,
+                    oy + 3.0,
+                    font_size,
+                    color_arr(theme.accent),
+                )
+                .with_clip(clip),
+            );
+        } else {
+            runs.push(
+                WidgetText::new(
+                    opt.display_name(),
+                    ox + 4.0,
+                    oy + 3.0,
+                    font_size,
+                    color_arr(theme.text_muted),
+                )
+                .with_clip(clip),
+            );
+        }
+        hits.push((hit_rect.0, hit_rect.1, hit_rect.2, hit_rect.3, *opt));
+    }
+    (runs, hits)
+}
+
+impl SettingsPanel {
+    /// Compute hit rects for every interactive settings row in the currently
+    /// visible section. The host uses these to map pointer events to
+    /// [`SettingsAction`] dispatch.
+    pub fn row_hits(&self, layout: &taffy::Layout) -> Vec<SettingsRowHit> {
+        let mut hits = Vec::new();
+        let px = layout.location.x + 28.0;
+        let py = layout.location.y + 22.0;
+        let content_w = layout.size.width;
+        let narrow = content_w < 420.0;
+        let right = layout.location.x + (content_w - 132.0).max(28.0 + 200.0);
+        let Some(sec) = self.sections.get(self.selected_section) else {
+            return hits;
+        };
+        let mut y = py + 44.0;
+        for row in &sec.items {
+            if !settings_row_interactive(&row.kind) {
+                y += if narrow { 40.0 } else { 48.0 };
+                continue;
+            }
+            let row_h = if narrow { 40.0 } else { 48.0 };
+            let action = settings_row_action(&row.kind, &self.settings);
+            if matches!(&row.kind, SettingsRowKind::Theme) {
+                let opts = ThemePreference::all();
+                let pill_w: f32 = 56.0;
+                let gap: f32 = 4.0;
+                for (i, opt) in opts.iter().enumerate() {
+                    let ox = right + i as f32 * (pill_w + gap);
+                    hits.push(SettingsRowHit {
+                        label: opt.display_name().to_string(),
+                        rect: (ox, y, pill_w, row_h),
+                        action: SettingsAction::SetTheme(*opt),
+                    });
+                }
+            } else {
+                hits.push(SettingsRowHit {
+                    label: row.label.clone(),
+                    rect: (px, y, (content_w - 56.0).max(200.0), row_h),
+                    action,
+                });
+            }
+            y += row_h;
+        }
+        hits
     }
 }
 
@@ -1410,8 +1567,6 @@ impl ZaroxiWidget for SettingsPanel {
     }
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
-        // Background is owned by the host shape pass. The only vector accent is a
-        // thin rule under the section title.
         let panel = layout_rect(layout);
         let rule = Line::new(
             Point::new(panel.x0 + 28.0, panel.y0 + 48.0),
@@ -1438,7 +1593,7 @@ impl ZaroxiWidget for SettingsPanel {
         let mut y = py + 44.0;
         for row in &sec.items {
             if narrow {
-                let val = settings_row_value(row);
+                let val = settings_row_value(row, &self.settings);
                 let line = format!("{}  —  {}", row.label, val);
                 runs.push(
                     WidgetText::new(line, px, y, 13.0, color_arr(theme.text_primary))
@@ -1455,15 +1610,37 @@ impl ZaroxiWidget for SettingsPanel {
                     .with_clip(clip),
                 );
                 y += 40.0;
+            } else if matches!(&row.kind, SettingsRowKind::Theme) {
+                runs.push(
+                    WidgetText::new(row.label.clone(), px, y, 14.0, color_arr(theme.text_primary))
+                        .with_clip(clip),
+                );
+                let (theme_runs, _) =
+                    render_theme_picker(self.settings.theme, right, y, clip, theme);
+                runs.extend(theme_runs);
+                runs.push(
+                    WidgetText::new(
+                        row.description.clone(),
+                        px,
+                        y + 18.0,
+                        11.5,
+                        color_arr(theme.text_muted),
+                    )
+                    .with_clip(clip),
+                );
+                y += 48.0;
             } else {
                 runs.push(
                     WidgetText::new(row.label.clone(), px, y, 14.0, color_arr(theme.text_primary))
                         .with_clip(clip),
                 );
-                let val = settings_row_value(row);
-                runs.push(
-                    WidgetText::new(val, right, y, 13.0, color_arr(theme.accent)).with_clip(clip),
-                );
+                let val = settings_row_value(row, &self.settings);
+                let color = if settings_row_interactive(&row.kind) {
+                    theme.accent
+                } else {
+                    theme.text_muted
+                };
+                runs.push(WidgetText::new(val, right, y, 13.0, color_arr(color)).with_clip(clip));
                 runs.push(
                     WidgetText::new(
                         row.description.clone(),

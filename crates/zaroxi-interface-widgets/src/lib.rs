@@ -20,9 +20,11 @@ pub use components::{
     ContextBand, ContextCanvas, DestinationPlaceholder, ExtensionEntry, ExtensionsPanel,
     HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind, MetaChips,
     PaletteItem, PredictionCell, RelatedPanel, SemanticMinimap, SettingsPanel, SettingsRow,
-    SettingsRowKind, SettingsSection, StatusBar, StatusMarker, StatusMetrics, SymbolKind,
-    TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip, workbench_tab_layout,
+    SettingsRowHit, SettingsRowKind, SettingsSection, StatusBar, StatusMarker, StatusMetrics,
+    SymbolKind, TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip, workbench_tab_layout,
 };
+
+pub use zaroxi_domain_settings::{FontPreference, Settings, SettingsAction, ThemePreference};
 
 pub use tree::{PlacedWidget, WidgetTree};
 pub use welcome::WelcomePanel;

@@ -196,7 +196,7 @@ pub fn tab_title(id: &WorkbenchTabId) -> String {
         WorkbenchTabId::FileBuffer(bid) => format!("File {bid}"),
         WorkbenchTabId::DestinationRoot(d) => d.title().to_string(),
         WorkbenchTabId::SettingsSection(i) => {
-            let sections = settings_sections("");
+            let sections = settings_sections();
             let name = sections.get(*i).map(|s| s.label.as_str()).unwrap_or("Settings");
             format!("Settings: {name}")
         }
@@ -471,24 +471,35 @@ pub fn extension_entries() -> Vec<ExtensionEntry> {
     ]
 }
 
-/// Mock settings sections. `theme_label` is the live theme mode so the General
-/// section reflects real app state; the rest are clearly stubbed values.
-pub fn settings_sections(theme_label: &str) -> Vec<SettingsSection> {
+/// Mock settings sections. The structure (sections, row labels, descriptions)
+/// is defined here; live values come from the `Settings` state in `CockpitInputs`.
+/// Theme and font rows use dedicated `SettingsRowKind::Theme` / `::Font` variants
+/// so the panel renders interactive pickers and the host can dispatch
+/// `SettingsAction` on click.
+pub fn settings_sections() -> Vec<SettingsSection> {
     vec![
         SettingsSection {
             label: "General".to_string(),
             items: vec![
                 SettingsRow {
                     label: "Color Theme".to_string(),
-                    description: "Active theme for the IDE".to_string(),
-                    kind: SettingsRowKind::Label { value: theme_label.to_string() },
+                    description: "Choose the editor color theme".to_string(),
+                    kind: SettingsRowKind::Theme,
                 },
                 SettingsRow {
-                    label: "Telemetry".to_string(),
-                    description: "Send anonymous usage data".to_string(),
-                    kind: SettingsRowKind::Toggle { on: false },
+                    label: "Editor Font".to_string(),
+                    description: "Monospace font for editor and UI text".to_string(),
+                    kind: SettingsRowKind::Font,
                 },
             ],
+        },
+        SettingsSection {
+            label: "Privacy".to_string(),
+            items: vec![SettingsRow {
+                label: "Telemetry".to_string(),
+                description: "Send anonymous usage data to improve Zaroxi".to_string(),
+                kind: SettingsRowKind::Toggle { on: false },
+            }],
         },
         SettingsSection {
             label: "Editor".to_string(),
@@ -510,7 +521,7 @@ pub fn settings_sections(theme_label: &str) -> Vec<SettingsSection> {
             items: vec![
                 SettingsRow {
                     label: "Font Size".to_string(),
-                    description: "Default editor font size".to_string(),
+                    description: "Default editor font size in pixels".to_string(),
                     kind: SettingsRowKind::Label { value: "13 px".to_string() },
                 },
                 SettingsRow {
@@ -529,14 +540,6 @@ pub fn settings_sections(theme_label: &str) -> Vec<SettingsSection> {
                     value: "Default".to_string(),
                     options: vec!["Default".to_string(), "Vim".to_string()],
                 },
-            }],
-        },
-        SettingsSection {
-            label: "Extensions".to_string(),
-            items: vec![SettingsRow {
-                label: "Auto Update".to_string(),
-                description: "Keep installed extensions up to date".to_string(),
-                kind: SettingsRowKind::Toggle { on: true },
             }],
         },
     ]
@@ -560,7 +563,7 @@ pub fn sidebar_rows(
                 DestSidebarRow::new(&e.name, badge, Some(i) == extensions_selected, true)
             })
             .collect(),
-        WorkbenchDestination::Settings => settings_sections("")
+        WorkbenchDestination::Settings => settings_sections()
             .iter()
             .enumerate()
             .map(|(i, s)| DestSidebarRow::new(&s.label, "", Some(i) == settings_selected, true))
@@ -683,7 +686,6 @@ pub fn build_unified_tabs(
 #[allow(clippy::type_complexity)]
 pub fn cockpit_panels_for(
     active: &WorkbenchTabId,
-    theme_label: &str,
 ) -> (
     Option<(Vec<SettingsSection>, usize)>,
     Option<(Vec<ExtensionEntry>, usize)>,
@@ -694,12 +696,12 @@ pub fn cockpit_panels_for(
         // Welcome renders via WelcomePanel widget, not via placeholder.
         WorkbenchTabId::Welcome => (None, None, None),
         WorkbenchTabId::SettingsSection(i) => {
-            let sections = settings_sections(theme_label);
+            let sections = settings_sections();
             let sel = (*i).min(sections.len().saturating_sub(1));
             (Some((sections, sel)), None, None)
         }
         WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings) => {
-            (Some((settings_sections(theme_label), 0)), None, None)
+            (Some((settings_sections(), 0)), None, None)
         }
         WorkbenchTabId::ExtensionDetail(id) => {
             let entries = extension_entries();
@@ -820,23 +822,21 @@ mod tests {
     #[test]
     fn panels_follow_active_tab() {
         // Settings section -> settings panel at that index.
-        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::SettingsSection(2), "Dark");
+        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::SettingsSection(2));
         assert!(s.is_some() && e.is_none() && p.is_none());
         assert_eq!(s.unwrap().1, 2);
 
         // Extension detail -> extensions panel selecting that id.
         let id = extension_entries()[2].id.clone();
-        let (s, e, _p) = cockpit_panels_for(&WorkbenchTabId::ExtensionDetail(id), "Dark");
+        let (s, e, _p) = cockpit_panels_for(&WorkbenchTabId::ExtensionDetail(id));
         assert!(s.is_none());
         assert_eq!(e.unwrap().1, 2);
 
         // A facet destination root -> placeholder; the editor -> nothing.
-        let (_s, _e, p) = cockpit_panels_for(
-            &WorkbenchTabId::DestinationRoot(WorkbenchDestination::Search),
-            "Dark",
-        );
+        let (_s, _e, p) =
+            cockpit_panels_for(&WorkbenchTabId::DestinationRoot(WorkbenchDestination::Search));
         assert!(p.is_some());
-        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::Editor, "Dark");
+        let (s, e, p) = cockpit_panels_for(&WorkbenchTabId::Editor);
         assert!(s.is_none() && e.is_none() && p.is_none());
     }
 

@@ -305,6 +305,7 @@ use zaroxi_core_engine_ui::layout_constants as lc;
 use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_core_platform_syntax::language::LanguageId;
 use zaroxi_core_platform_syntax::parser::ParserPool;
+use zaroxi_domain_settings::Settings;
 use zaroxi_kernel_types::Id;
 
 pub type WidgetActivationHandler = Box<dyn FnMut(&WidgetId) -> Option<ShellWorkContent>>;
@@ -322,6 +323,11 @@ pub struct GuiApp {
     pub interaction: zaroxi_core_engine_ui::WidgetInteractionModel,
     pub editor_buffer: EditorBufferState,
     pub theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme,
+    /// Live settings state — the single source of truth for all user preferences.
+    pub settings: Settings,
+    /// Hit rects for interactive settings rows, set each frame from the cockpit
+    /// layout. Used to route pointer events to settings actions.
+    pub settings_hit_rects: Vec<zaroxi_interface_widgets::SettingsRowHit>,
     pub shift_held: bool,
     pub ctrl_held: bool,
     /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
@@ -783,6 +789,37 @@ impl GuiApp {
     fn close_tab(&mut self, id: &super::destination::WorkbenchTabId) {
         let _changed = self.tab_state.close_tab(id);
         self.rail_selected_index = self.tab_state.active().destination().rail_index();
+        self.cockpit_status_fingerprint = 0;
+        self.needs_render = true;
+    }
+
+    /// Apply a settings action and propagate to live systems.
+    /// Theme changes update `theme_mode` so the next frame renders with the
+    /// new palette; font changes update the preference so the renderer can
+    /// resolve the next font load.
+    pub(crate) fn apply_settings_action(&mut self, action: zaroxi_domain_settings::SettingsAction) {
+        match &action {
+            zaroxi_domain_settings::SettingsAction::SetTheme(pref) => {
+                self.settings.theme = *pref;
+                self.theme_mode = match pref {
+                    zaroxi_domain_settings::ThemePreference::System => {
+                        zaroxi_interface_theme::theme::ZaroxiTheme::System
+                    }
+                    zaroxi_domain_settings::ThemePreference::Dark => {
+                        zaroxi_interface_theme::theme::ZaroxiTheme::Dark
+                    }
+                    zaroxi_domain_settings::ThemePreference::Light => {
+                        zaroxi_interface_theme::theme::ZaroxiTheme::Light
+                    }
+                };
+            }
+            zaroxi_domain_settings::SettingsAction::SetFont(pref) => {
+                self.settings.font = pref.clone();
+            }
+            zaroxi_domain_settings::SettingsAction::SetTelemetry(enabled) => {
+                self.settings.telemetry.enabled = *enabled;
+            }
+        }
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
     }
@@ -2285,6 +2322,21 @@ impl winit::application::ApplicationHandler for GuiApp {
                         }
                     }
                 }
+                // Settings panel row click: hit-test against computed settings
+                // rows and dispatch the corresponding SettingsAction.
+                if let ElementState::Released = state {
+                    let dest = self.tab_state.active().destination();
+                    if matches!(dest, super::destination::WorkbenchDestination::Settings) {
+                        let hit = self.settings_hit_rects.iter().find(|h| {
+                            let (rx, ry, rw, rh) = h.rect;
+                            x >= rx && x < rx + rw && y >= ry && y < ry + rh
+                        });
+                        if let Some(h) = hit {
+                            self.apply_settings_action(h.action.clone());
+                            return;
+                        }
+                    }
+                }
                 // Explorer search box focus: clicking the box grabs keyboard
                 // focus; clicking anywhere else releases it (the filter itself
                 // persists until cleared with Escape).
@@ -3484,7 +3536,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     let (dp_settings, dp_extensions, dp_placeholder) =
                                         super::destination::cockpit_panels_for(
                                             self.tab_state.active(),
-                                            &format!("{:?}", self.theme_mode),
                                         );
                                     let inputs = super::cockpit::CockpitInputs {
                                         width: sw as f32,
@@ -3536,7 +3587,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             editor_total_lines,
                                         ),
                                         status: instrument_status,
-                                        settings_panel: dp_settings,
+                                        settings_panel: dp_settings.clone(),
+                                        settings: Some(self.settings.clone()),
                                         extensions_panel: dp_extensions,
                                         placeholder_panel: dp_placeholder,
                                         welcome_panel: matches!(
@@ -3572,6 +3624,26 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         }
                                         rects
                                     };
+                                    // ── Settings row hit rects ────────────
+                                    self.settings_hit_rects = super::cockpit::compute_settings_hits(
+                                        &taffy::Layout {
+                                            location: taffy::geometry::Point {
+                                                x: cockpit_editor_rect.0,
+                                                y: cockpit_editor_rect.1,
+                                            },
+                                            size: taffy::geometry::Size {
+                                                width: cockpit_editor_rect.2.max(0.0),
+                                                height: cockpit_editor_rect.3.max(0.0),
+                                            },
+                                            ..Default::default()
+                                        },
+                                        dp_settings
+                                            .as_ref()
+                                            .map(|(s, _)| s.as_slice())
+                                            .unwrap_or(&[]),
+                                        dp_settings.as_ref().map(|(_, sel)| *sel).unwrap_or(0),
+                                        &self.settings,
+                                    );
                                 }
                                 // ── Tab hit rects (recomputed every frame so resize
                                 // always produces correct hit geometry) ─────
@@ -4038,7 +4110,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         let (dp_settings, dp_extensions, dp_placeholder) =
                                             super::destination::cockpit_panels_for(
                                                 self.tab_state.active(),
-                                                &format!("{:?}", self.theme_mode),
                                             );
                                         let inputs = super::cockpit::CockpitInputs {
                                             width: sw as f32,
@@ -4109,7 +4180,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             status: instrument_status,
                                             // prediction_cells / ai_regions remain empty:
                                             // there is no edit-prediction subsystem yet.
-                                            settings_panel: dp_settings,
+                                            settings_panel: dp_settings.clone(),
+                                            settings: Some(self.settings.clone()),
                                             extensions_panel: dp_extensions,
                                             placeholder_panel: dp_placeholder,
                                             file_editor_active: self.tab_state.is_editor_active(),
@@ -4144,6 +4216,30 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             }
                                             rects
                                         };
+                                        // ── Settings row hit rects ────────────
+                                        self.settings_hit_rects =
+                                            super::cockpit::compute_settings_hits(
+                                                &taffy::Layout {
+                                                    location: taffy::geometry::Point {
+                                                        x: cockpit_editor_rect.0,
+                                                        y: cockpit_editor_rect.1,
+                                                    },
+                                                    size: taffy::geometry::Size {
+                                                        width: cockpit_editor_rect.2.max(0.0),
+                                                        height: cockpit_editor_rect.3.max(0.0),
+                                                    },
+                                                    ..Default::default()
+                                                },
+                                                dp_settings
+                                                    .as_ref()
+                                                    .map(|(s, _)| s.as_slice())
+                                                    .unwrap_or(&[]),
+                                                dp_settings
+                                                    .as_ref()
+                                                    .map(|(_, sel)| *sel)
+                                                    .unwrap_or(0),
+                                                &self.settings,
+                                            );
                                         // Cockpit built pre-render; the trace was
                                         // emitted there.
                                         eprintln!(

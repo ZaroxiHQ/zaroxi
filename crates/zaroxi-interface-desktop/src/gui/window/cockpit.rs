@@ -17,12 +17,13 @@ use vello::Scene;
 use zaroxi_core_editor_rope::LineIndex;
 use zaroxi_core_platform_syntax::SymbolKind as SyntaxSymbolKind;
 use zaroxi_core_platform_syntax::highlight::HighlightSpan;
+use zaroxi_domain_settings::Settings;
 use zaroxi_interface_theme::{SemanticColors, ZaroxiTheme};
 use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
 use zaroxi_interface_widgets::{
     ActivityItem, ActivityRail, AiPredictionGutter, CommandPalette, InstrumentStatus,
-    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, StatusBar, SymbolKind,
-    WidgetTree,
+    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, SettingsRowHit, StatusBar,
+    SymbolKind, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -94,6 +95,11 @@ pub struct CockpitInputs {
     /// Settings panel: `Some(sections, selected_section)` when open in the
     /// editor content region (replaces text editor content visually).
     pub settings_panel: Option<(Vec<zaroxi_interface_widgets::SettingsSection>, usize)>,
+    /// Live settings state for the settings panel — drives current values and
+    /// interactive controls. When `None` the panel renders static labels.
+    pub settings: Option<Settings>,
+    /// Hit rects for interactive settings rows, computed from the panel layout.
+    pub settings_hits: Vec<SettingsRowHit>,
     /// Extensions page: `Some(entries, selected_entry)` when open in the editor
     /// content region. `selected_entry` drives which detail pane is shown.
     pub extensions_panel: Option<(Vec<zaroxi_interface_widgets::ExtensionEntry>, usize)>,
@@ -426,10 +432,12 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
 
     // Settings page — rendered in the editor content region.
     if let Some((sections, selected_section)) = &inputs.settings_panel {
+        let settings = inputs.settings.clone().unwrap_or_default();
         tree.push(
             Box::new(zaroxi_interface_widgets::SettingsPanel {
                 sections: sections.clone(),
                 selected_section: *selected_section,
+                settings,
             }),
             regions.editor,
         );
@@ -497,6 +505,23 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
     }
 
     tree
+}
+
+/// Compute hit rects for interactive settings rows given the editor layout
+/// region and current settings state. Called by the host after layout so
+/// pointer events can be routed to `SettingsAction` dispatch.
+pub fn compute_settings_hits(
+    editor_layout: &taffy::Layout,
+    sections: &[zaroxi_interface_widgets::SettingsSection],
+    selected_section: usize,
+    settings: &Settings,
+) -> Vec<SettingsRowHit> {
+    let panel = zaroxi_interface_widgets::SettingsPanel {
+        sections: sections.to_vec(),
+        selected_section,
+        settings: settings.clone(),
+    };
+    panel.row_hits(editor_layout)
 }
 
 /// Build the cockpit tree and paint it into a fresh `vello::Scene`.
@@ -591,6 +616,8 @@ mod tests {
             )),
             settings_panel: None,
             extensions_panel: None,
+            settings: None,
+            settings_hits: Vec::new(),
             placeholder_panel: None,
             welcome_panel: false,
             file_editor_active: true,

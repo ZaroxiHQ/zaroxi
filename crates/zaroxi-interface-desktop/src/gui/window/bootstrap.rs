@@ -70,6 +70,8 @@ pub fn run_shell_window(
         interaction: zaroxi_core_engine_ui::WidgetInteractionModel::new(),
         editor_buffer: EditorBufferState::empty(),
         theme_mode: zaroxi_interface_theme::theme::ZaroxiTheme::System,
+        settings: zaroxi_domain_settings::Settings::default(),
+        settings_hit_rects: Vec::new(),
         shift_held: false,
         ctrl_held: false,
         mem_monitor: zaroxi_core_telemetry::MemoryMonitor::from_env(),

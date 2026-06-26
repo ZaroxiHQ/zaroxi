@@ -5002,6 +5002,9 @@ dependencies = [
 [[package]]
 name = "zaroxi-domain-settings"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zaroxi-domain-workspace"
@@ -5187,6 +5190,7 @@ dependencies = [
  "zaroxi-core-platform-terminal",
  "zaroxi-core-telemetry",
  "zaroxi-domain-buffer",
+ "zaroxi-domain-settings",
  "zaroxi-domain-workspace",
  "zaroxi-interface-app",
  "zaroxi-interface-theme",
@@ -5209,6 +5213,7 @@ version = "0.1.0"
 dependencies = [
  "taffy",
  "vello",
+ "zaroxi-domain-settings",
  "zaroxi-interface-theme",
 ]
 
