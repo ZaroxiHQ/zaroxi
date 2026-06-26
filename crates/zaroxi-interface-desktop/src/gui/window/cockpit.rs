@@ -599,23 +599,25 @@ fn to_render_text(
 
 /// Build the cockpit tree alongside any open popup menus, returning the
 /// combined vello scene and positioned text runs.
-///
-/// Returns `(scene, cockpit_text, overlay_text)` where:
-/// - `cockpit_text` renders BEFORE the vello overlay (status, labels, etc.)
-/// - `overlay_text` renders AFTER the vello overlay (popup option labels)
 pub fn build_cockpit_frame(
     inputs: &mut CockpitInputs,
     tokens: &SemanticColors,
-) -> (
-    Scene,
-    Vec<zaroxi_core_engine_render::renderer::CockpitText>,
-    Vec<zaroxi_core_engine_render::renderer::CockpitText>,
-) {
+) -> (Scene, Vec<zaroxi_core_engine_render::renderer::CockpitText>) {
     let tree = build_cockpit(inputs);
     let mut scene = Scene::new();
     tree.paint(&mut scene, tokens);
-    let text: Vec<_> = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
-    let mut overlay_text: Vec<zaroxi_core_engine_render::renderer::CockpitText> = Vec::new();
+    let mut text: Vec<_> = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
+
+    // Pre-compute editor clip rect for identifying settings-panel text items
+    // when applying popup-area clipping below. Only text whose clip rect matches
+    // this editor-area rect is subject to popup clipping; other cockpit text
+    // (status bar, minimap, etc.) has different clip rects and is left alone.
+    let editor_clip = (
+        inputs.editor_rect.0,
+        inputs.editor_rect.1,
+        inputs.editor_rect.2.max(0.0),
+        inputs.editor_rect.3.max(0.0),
+    );
 
     // ── Popup menu (post-tree, stable geometry from cache) ─────────────────
     if let Some((sections, selected_section)) = &inputs.settings_panel {
@@ -657,8 +659,35 @@ pub fn build_cockpit_frame(
                             break;
                         };
                         popup.paint(&mut scene, tokens);
+
+                        // Clip settings text items that fall within the popup
+                        // area so they don't bleed through the popup background
+                        // when text pass runs after the vello overlay. Only text
+                        // whose clip rect matches the editor area is subject to
+                        // clipping; status bar, minimap, and other cockpit text
+                        // with different clip rects is left untouched.
+                        let (_px, py, _pw, ph) = popup.popup_rect;
+                        for t in &mut text {
+                            let Some((cx, cy, cw, ch)) = t.clip_rect else {
+                                continue;
+                            };
+                            // Only clip settings-panel text, identified by its
+                            // clip rect matching the editor area origin.
+                            if (cx - editor_clip.0).abs() > 1.0 || (cy - editor_clip.1).abs() > 1.0
+                            {
+                                continue;
+                            }
+                            // Only clip text whose Y position overlaps the popup
+                            // vertically (with a small margin above).
+                            if t.y < py + ph && t.y > py - 20.0 {
+                                let clip_bottom = (cy + ch).min(py);
+                                let new_h = clip_bottom - cy;
+                                t.clip_rect = Some((cx, cy, cw, new_h.max(0.0)));
+                            }
+                        }
+
                         for wt in popup.text_items(tokens) {
-                            overlay_text.push(to_render_text(wt));
+                            text.push(to_render_text(wt));
                         }
                         break;
                     }
@@ -668,7 +697,7 @@ pub fn build_cockpit_frame(
         }
     }
 
-    (scene, text, overlay_text)
+    (scene, text)
 }
 
 #[cfg(test)]
@@ -869,7 +898,7 @@ mod tests {
         inputs.cached_popup = None;
 
         let tokens = SemanticColors::dark();
-        let (_scene, _text, overlay_text) = build_cockpit_frame(&mut inputs, &tokens);
+        let (_scene, text) = build_cockpit_frame(&mut inputs, &tokens);
 
         // Should have created and cached a popup
         assert!(inputs.cached_popup.is_some(), "cached_popup should be set after frame");
@@ -917,27 +946,18 @@ mod tests {
             }
         }
 
-        // Verify popup text is in the overlay_text buffer (rendered after vello
-        // overlay, on top of popup backgrounds).
-        let overlay_strings: Vec<&str> = overlay_text.iter().map(|t| t.text.as_str()).collect();
-        eprintln!(
-            "POPUP TEST: overlay text buffer ({} items): {:?}",
-            overlay_text.len(),
-            overlay_strings
-        );
-        assert!(overlay_strings.contains(&"System"), "System missing from overlay text");
-        assert!(overlay_strings.contains(&"Dark"), "Dark missing from overlay text");
-        assert!(overlay_strings.contains(&"Light"), "Light missing from overlay text");
+        // Verify popup text is in the final text buffer.
+        let final_texts: Vec<&str> = text.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("POPUP TEST: final text buffer ({} items): {:?}", text.len(), final_texts);
+        assert!(final_texts.contains(&"System"), "System missing from final text");
+        assert!(final_texts.contains(&"Dark"), "Dark missing from final text");
+        assert!(final_texts.contains(&"Light"), "Light missing from final text");
 
         // Second frame with cached popup
         let mut inputs2 = inputs;
-        let (_scene2, _text2, overlay_text2) = build_cockpit_frame(&mut inputs2, &tokens);
-        let overlay2: Vec<&str> = overlay_text2.iter().map(|t| t.text.as_str()).collect();
-        eprintln!(
-            "POPUP TEST: frame 2 overlay text buffer ({} items): {:?}",
-            overlay_text2.len(),
-            overlay2
-        );
-        assert!(overlay2.contains(&"System"), "System missing from frame 2 overlay text");
+        let (_scene2, text2) = build_cockpit_frame(&mut inputs2, &tokens);
+        let final2: Vec<&str> = text2.iter().map(|t| t.text.as_str()).collect();
+        eprintln!("POPUP TEST: frame 2 text buffer ({} items): {:?}", text2.len(), final2);
+        assert!(final2.contains(&"System"), "System missing from frame 2 text");
     }
 }
