@@ -57,6 +57,8 @@ mod tests {
             layout_controller:
                 zaroxi_interface_desktop::gui::window::editor_shell::ShellLayoutController::new(),
             editor_viewport: None,
+            editor_visual_to_logical: Vec::new(),
+            editor_chars_per_row: 0,
             needs_render: true,
             last_explorer_ids: Vec::new(),
             explorer_scroll_top: 0,

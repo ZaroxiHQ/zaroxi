@@ -33,6 +33,8 @@ pub(crate) fn project_editor_cursor(
     editor_scroll_offset: f32,
     char_w: f32,
     rope_total_lines: usize,
+    visual_to_logical: &[usize],
+    chars_per_row: usize,
 ) -> Option<(usize, usize)> {
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
@@ -48,8 +50,6 @@ pub(crate) fn project_editor_cursor(
     let rel_x = px - (viewport.content_rect.0 + content_pad);
     let visible_line = (rel_y / line_h).max(0.0) as usize;
 
-    // Use the actual monospace advance from the font system so the
-    // computed column matches the rendered glyph positions exactly.
     let col = (rel_x / char_w.max(0.001)).max(0.0) as usize;
 
     let usable_h = viewport.content_rect.3 - header_h - content_pad * 2.0;
@@ -66,8 +66,18 @@ pub(crate) fn project_editor_cursor(
     let visible_lines_c = (usable_h / line_h).max(1.0) as usize;
     let max_scroll_c = (total_lines.saturating_sub(visible_lines_c)).max(1);
     let first_visible = (editor_scroll_offset * max_scroll_c as f32) as usize;
-    let absolute_line = first_visible + visible_line;
 
+    if !visual_to_logical.is_empty() && chars_per_row > 0 {
+        let logical_line = visual_to_logical.get(visible_line).copied().unwrap_or(0);
+        let sub_line_offset = visual_to_logical[..visible_line.min(visual_to_logical.len())]
+            .iter()
+            .take_while(|&&ll| ll == logical_line)
+            .count();
+        let logical_col = col + sub_line_offset * chars_per_row;
+        return Some((logical_line, logical_col));
+    }
+
+    let absolute_line = first_visible + visible_line;
     Some((absolute_line, col))
 }
 
@@ -115,6 +125,8 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
         if let Some(vp) = &app.editor_viewport {
             let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
             let rope_lines = app.editor_buffer.total_lines();
+            let v2l = app.editor_visual_to_logical.clone();
+            let cpr = app.editor_chars_per_row;
             if let Some((line, vis_col)) = project_editor_cursor(
                 phys,
                 vp,
@@ -123,6 +135,8 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
                     .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
                 char_w,
                 rope_lines,
+                &v2l,
+                cpr,
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
@@ -142,6 +156,8 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
     if let Some(vp) = &app.editor_viewport {
         let char_w = app.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
         let rope_lines = app.editor_buffer.total_lines();
+        let v2l = app.editor_visual_to_logical.clone();
+        let cpr = app.editor_chars_per_row;
         if let Some((line, vis_col)) = project_editor_cursor(
             position,
             vp,
@@ -150,6 +166,8 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
                 .get_scroll_offset(&WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR }),
             char_w,
             rope_lines,
+            &v2l,
+            cpr,
         ) {
             let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
             let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(

@@ -104,6 +104,10 @@ pub fn make_gutter_block(
 ///
 /// `total_lines` is the full document size (for width calculation
 /// and bounds clamping); only the window `[start, end)` is built.
+///
+/// When `visual_to_logical` is non-empty, only the first visual row
+/// of each logical line receives a line number; continuation (wrapped)
+/// rows are suppressed.
 pub fn make_gutter_block_windowed(
     x: f32,
     y: f32,
@@ -113,14 +117,28 @@ pub fn make_gutter_block_windowed(
     start: usize,
     end: usize,
     tokens: &StyleTokens,
+    visual_to_logical: &[usize],
 ) -> UiBlock {
     let model = GutterModel::new(w as u32);
     let end = end.min(total_lines);
     let start = start.min(end);
-    let gutter_text: String = (start + 1..=end)
-        .map(|n| model.line_number_string(n as u32))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let gutter_text: String = if visual_to_logical.is_empty() {
+        (start + 1..=end).map(|n| model.line_number_string(n as u32)).collect::<Vec<_>>().join("\n")
+    } else {
+        let mut last_logical = usize::MAX;
+        visual_to_logical[..visual_to_logical.len().min(end)]
+            .iter()
+            .map(|&ll| {
+                if ll != last_logical {
+                    last_logical = ll;
+                    model.line_number_string((ll + 1) as u32)
+                } else {
+                    String::new()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
     UiBlock {
         id: "gutter_lane".to_string(),
@@ -143,6 +161,6 @@ pub fn make_gutter_block_windowed(
         clip_rect: None,
         content_offset_x: 0.0,
         content_offset_y: 0.0,
-        content_line_offset: Some(start),
+        content_line_offset: if visual_to_logical.is_empty() { Some(start) } else { None },
     }
 }

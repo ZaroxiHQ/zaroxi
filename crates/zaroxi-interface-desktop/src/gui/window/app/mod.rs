@@ -370,6 +370,12 @@ pub struct GuiApp {
     pub cached_editor_spans_version: u64,
     pub layout_controller: ShellLayoutController,
     pub editor_viewport: Option<EditorViewport>,
+    /// Visual-to-logical line mapping from the most recent editor content
+    /// preparation.  Index = visual row (within the window), value = logical
+    /// line index.  Used by hit-testing and cursor projection.
+    pub editor_visual_to_logical: Vec<usize>,
+    /// Characters per visual row from the most recent wrap pass.
+    pub editor_chars_per_row: usize,
     pub needs_render: bool,
     pub last_explorer_ids: Vec<String>,
     /// Explorer tree vertical scroll offset, in rows (first visible row).
@@ -2942,6 +2948,27 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let syntax_t = std::time::Instant::now();
+                    let wrap_chars_per_row = {
+                        let mono_advance = self
+                            .render_core
+                            .as_ref()
+                            .and_then(|core| core.text_renderer())
+                            .and_then(|tr| tr.monospace_advance_x())
+                            .map(|a| a.max(1.0))
+                            .unwrap_or(lc::CHAR_WIDTH_STUB);
+                        let available_w = if self.tab_state.is_editor_active() {
+                            editor_region
+                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
+                                .unwrap_or(600.0)
+                                .max(40.0)
+                        } else {
+                            editor_region
+                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0)
+                                .unwrap_or(600.0)
+                                .max(40.0)
+                        };
+                        (available_w / mono_advance).floor() as usize
+                    };
                     let editor_data = render_state::prepare_editor_data(
                         &self.work_content,
                         &mut self.cached_editor_data,
@@ -2956,6 +2983,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
                         self.editor_buffer.buffer_version,
+                        wrap_chars_per_row,
                     );
                     // Estimate retained editor bytes for memory trace.
                     self.editor_retained_bytes = self
@@ -2965,6 +2993,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .sum::<usize>()
                         + self.cached_line_hashes.len() * 8
                         + self.latest_spans.as_ref().map(|s| s.len() * 32).unwrap_or(0);
+                    self.editor_visual_to_logical = editor_data.visual_to_logical.clone();
+                    self.editor_chars_per_row = editor_data.chars_per_row;
 
                     if debug_large {
                         let content_lines = editor_data.editor_body_text.lines().count();
@@ -3281,8 +3311,31 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if let Some(vp) = &self.editor_viewport {
                         for block in &mut render_blocks {
                             if is_content_block(&block.id) {
-                                block.cursor_line = Some(cursor_line);
-                                block.cursor_col = Some(cursor_col);
+                                let vis_cursor_line = if self.editor_visual_to_logical.is_empty()
+                                    || self.editor_chars_per_row == 0
+                                {
+                                    cursor_line
+                                } else {
+                                    let logical_cursor = cursor_line;
+                                    self.editor_visual_to_logical
+                                        .iter()
+                                        .position(|&ll| ll == logical_cursor)
+                                        .unwrap_or(0)
+                                        + (cursor_col / self.editor_chars_per_row.max(1)).min(
+                                            self.editor_visual_to_logical
+                                                .iter()
+                                                .filter(|&&ll| ll == logical_cursor)
+                                                .count()
+                                                .saturating_sub(1),
+                                        )
+                                };
+                                let vis_cursor_col = if self.editor_chars_per_row > 0 {
+                                    cursor_col % self.editor_chars_per_row.max(1)
+                                } else {
+                                    cursor_col
+                                };
+                                block.cursor_line = Some(vis_cursor_line);
+                                block.cursor_col = Some(vis_cursor_col);
                                 block.selection_range = selection_range;
                                 let clip_w = if self.tab_state.is_editor_active() {
                                     (vp.clip_rect.2 - 100.0).max(0.0)

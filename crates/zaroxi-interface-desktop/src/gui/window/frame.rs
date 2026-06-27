@@ -327,6 +327,8 @@ pub fn compose_blocks(
                         ctx.editor_data.total_lines,
                         ctx.editor_data.visible_line_range,
                         ctx.destination,
+                        &ctx.editor_data.visual_to_logical,
+                        ctx.editor_data.total_visual_lines,
                     ));
                 }
             }

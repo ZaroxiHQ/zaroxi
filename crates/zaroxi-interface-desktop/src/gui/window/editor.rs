@@ -16,23 +16,29 @@ use super::destination::WorkbenchDestination;
 pub struct EditorContentData {
     pub tab_entries: Vec<TabEntry>,
     pub breadcrumb_label: String,
-    /// Viewport window of visible lines joined by '\n' (plus overscan above/below).
-    /// For small files this may be the full document; for large files it is
-    /// restricted to `visible_line_start..visible_line_end` to avoid O(file_size)
-    /// string materialization on the render hot path.
     pub editor_body_text: String,
     pub editor_spans: Option<Vec<(String, [f32; 4])>>,
     pub cursor_line: usize,
     pub cursor_col: usize,
     pub body_title: String,
-    /// Total logical line count (0-based count of lines in the document).
-    /// Used for gutter numbering; avoids O(N) line-counting from `editor_body_text`.
     pub total_lines: usize,
-    /// When set, `editor_body_text` contains only lines in [start, end) (with
-    /// overscan applied).  `content_line_offset` on the render block is set
-    /// to `start` so the renderer can compute the correct absolute
-    /// screen position for each visible line.
     pub visible_line_range: Option<(usize, usize)>,
+    /// When soft-wrap is active, maps visual row index (within the viewport
+    /// window) → logical line index.  Index 0 is the first VISUAL row in the
+    /// window.  Used by hit-testing, gutter, and cursor projection.
+    pub visual_to_logical: Vec<usize>,
+    /// Total visual row count within the viewport window (after wrapping).
+    /// Used as `content_line_offset` upper bound and for scroll metrics.
+    pub total_visual_lines: usize,
+    /// Characters per visual row for the current wrap width.  Zero means
+    /// no wrapping (full logical lines).  Derived from the visible editor
+    /// text width ÷ monospace character advance.
+    pub chars_per_row: usize,
+    /// When wrapping is active, the visual row index within the wrapped
+    /// content where the first visible logical line (scroll_top) begins.
+    /// Used to set `content_line_offset` on the render block so the
+    /// renderer can skip overscan rows directly.
+    pub wrap_visual_offset: usize,
 }
 
 impl Default for EditorContentData {
@@ -47,6 +53,10 @@ impl Default for EditorContentData {
             body_title: String::new(),
             total_lines: 0,
             visible_line_range: None,
+            visual_to_logical: Vec::new(),
+            total_visual_lines: 0,
+            chars_per_row: 0,
+            wrap_visual_offset: 0,
         }
     }
 }
@@ -110,10 +120,11 @@ impl EditorPanel {
             };
         }
 
-        // When viewport-windowed, content_line_offset is the absolute
-        // line number of the first line in the content String.  The
-        // renderer uses this to compute the correct screen position.
-        let content_line_offset = data.visible_line_range.map(|(start, _)| start);
+        let content_line_offset = if data.chars_per_row > 0 {
+            Some(data.wrap_visual_offset)
+        } else {
+            data.visible_line_range.map(|(start, _)| start)
+        };
 
         UiBlock {
             id: r.id.to_string(),
@@ -142,10 +153,9 @@ impl EditorPanel {
         total_lines: usize,
         visible_range: Option<(usize, usize)>,
         dest: WorkbenchDestination,
+        visual_to_logical: &[usize],
+        total_visual_lines: usize,
     ) -> UiBlock {
-        // Non-Explorer destinations have no file, so the gutter shows no line
-        // numbers — suppress entirely so non-file pages use the full content
-        // width without a phantom gutter column.
         if !dest.is_explorer() {
             return UiBlock {
                 id: r.id.to_string(),
@@ -155,7 +165,19 @@ impl EditorPanel {
                 ..Default::default()
             };
         }
-        if let Some((start, end)) = visible_range {
+        if total_visual_lines > 0 && !visual_to_logical.is_empty() {
+            zaroxi_core_engine_ui::blocks::make_gutter_block_windowed(
+                r.rect.x as f32,
+                r.rect.y as f32,
+                r.rect.width as f32,
+                r.rect.height as f32,
+                total_lines,
+                0,
+                total_visual_lines,
+                tokens,
+                visual_to_logical,
+            )
+        } else if let Some((start, end)) = visible_range {
             zaroxi_core_engine_ui::blocks::make_gutter_block_windowed(
                 r.rect.x as f32,
                 r.rect.y as f32,
@@ -165,6 +187,7 @@ impl EditorPanel {
                 start,
                 end,
                 tokens,
+                &[],
             )
         } else {
             zaroxi_core_engine_ui::blocks::make_gutter_block(

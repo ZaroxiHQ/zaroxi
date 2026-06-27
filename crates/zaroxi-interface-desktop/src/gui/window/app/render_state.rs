@@ -63,6 +63,7 @@ pub(crate) fn prepare_editor_data(
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
     buffer_version: u64,
+    wrap_chars_per_row: usize,
 ) -> EditorContentData {
     if large_file_mode {
         // Large-file fallback: avoid the O(total_lines) content hash
@@ -105,6 +106,7 @@ pub(crate) fn prepare_editor_data(
             sem,
             visible_line_range,
             rope,
+            wrap_chars_per_row,
         );
 
         if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
@@ -164,6 +166,7 @@ pub(crate) fn prepare_editor_data(
         cached_line_hashes,
         visible_line_range,
         rope,
+        wrap_chars_per_row,
     );
 
     if editor_spans_debug_enabled() {
