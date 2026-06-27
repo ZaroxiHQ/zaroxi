@@ -151,6 +151,7 @@ pub fn run_shell_window(
         cockpit_diff_hunks: Vec::new(),
         cockpit_diff_version: 0,
         parse_worker: None,
+        mapped_doc: None,
         saved_buffer_version: 0,
         frame_scheduler: super::app::FrameScheduler::new(),
         ui_node_tracker: Default::default(),

@@ -34,6 +34,7 @@ pub(crate) mod background_read;
 pub(crate) mod debug;
 mod editor_interaction;
 mod input;
+pub(crate) mod mapped_document;
 mod render_schedule;
 mod render_state;
 mod ui_nodes;
@@ -501,6 +502,9 @@ pub struct GuiApp {
     pub cockpit_diff_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
+    /// Memory-mapped document opened for large files (>10k lines).
+    /// When Some, the editor renders from this instead of the rope.
+    pub mapped_doc: Option<mapped_document::MappedDocument>,
     /// `editor_buffer.buffer_version` captured when the active file was last
     /// loaded (or saved). The document is considered modified when the live
     /// buffer version diverges from this baseline.
@@ -1449,6 +1453,7 @@ impl GuiApp {
                             (*cancelled as u8, *read_ms)
                         }
                         background_read::ReadOutcome::Head { .. } => (0, 0.0),
+                        background_read::ReadOutcome::Mapped { .. } => (0, 0.0),
                     };
                     eprintln!(
                         "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=read_stale_dropped superseded_by={} is_full={} read_skipped_before_start={} wasted_read_ms={:.2}",
@@ -1456,7 +1461,8 @@ impl GuiApp {
                     );
                 }
                 if matches!(outcome, background_read::ReadOutcome::Full { .. })
-                    && self.read_worker.as_ref().map(|w| w.latest_token()).unwrap_or(0) <= tok
+                    || matches!(outcome, background_read::ReadOutcome::Mapped { .. })
+                        && self.read_worker.as_ref().map(|w| w.latest_token()).unwrap_or(0) <= tok
                 {
                     self.read_pending = false;
                 }
@@ -1486,6 +1492,27 @@ impl GuiApp {
                             );
                         }
                     }
+                }
+                background_read::ReadOutcome::Mapped { doc, index_ms, .. } => {
+                    self.read_pending = false;
+                    self.last_upstream_open_prep_ms = index_ms;
+                    self.large_file_mode = true;
+                    let total = doc.total_lines();
+                    if file_open_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=mapped_doc_ready \
+                             lines={} mmap_bytes={} index_ms={:.1}",
+                            tok,
+                            total,
+                            doc.byte_len(),
+                            index_ms,
+                        );
+                    }
+                    // Store the mapped document; the render path will prefer it.
+                    self.mapped_doc = Some(doc);
+                    // Signal that the open burst can settle.
+                    self.open_settling = false;
+                    self.commit_deferred_open = true;
                 }
                 background_read::ReadOutcome::Full { buffer_id, read_ms, .. } => {
                     self.last_upstream_open_prep_ms = read_ms;

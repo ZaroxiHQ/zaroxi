@@ -42,12 +42,17 @@ pub struct ReadJob {
 }
 
 /// Outcomes the worker streams back for one job: first a cheap `Head` preview,
-/// then the `Full` buffer once the whole read completes.
+/// then the `Full` buffer once the whole read completes. For large files
+/// (>10 000 lines by stat estimate), a `Mapped` outcome replaces the full-rope
+/// load so the editor uses memory-mapped access instead.
 pub enum ReadOutcome {
     /// First-screenful preview lines (display only; not yet the registered buffer).
     Head { token: u64, lines: Vec<String>, complete: bool },
     /// The fully read/registered buffer, ready to activate on the UI thread.
     Full { token: u64, buffer_id: Option<BufferId>, read_ms: f32, cancelled: bool, path: PathBuf },
+    /// A memory-mapped large document (lines > 10 000 or bytes > 1 MB).
+    /// The editor renders from this instead of a rope.
+    Mapped { token: u64, doc: super::mapped_document::MappedDocument, index_ms: f32 },
 }
 
 impl ReadOutcome {
@@ -56,6 +61,7 @@ impl ReadOutcome {
         match self {
             ReadOutcome::Head { token, .. } => *token,
             ReadOutcome::Full { token, .. } => *token,
+            ReadOutcome::Mapped { token, .. } => *token,
         }
     }
 }
@@ -168,6 +174,45 @@ impl BackgroundReadWorker {
                 && !lines.is_empty()
             {
                 let _ = outcome_tx.send(ReadOutcome::Head { token: job.token, lines, complete });
+            }
+
+            // ── Full vs large-file path ──
+            // Check file size before the heavy workspace-service open so we can
+            // short-circuit huge files with a bulk-read path.
+            let is_large = std::fs::metadata(&job.path)
+                .map(|m| m.len() > 1_000_000) // 1 MB threshold
+                .unwrap_or(false);
+
+            if is_large {
+                let start = Instant::now();
+                match super::mapped_document::MappedDocument::from_path(&job.path) {
+                    Ok(doc) => {
+                        let index_ms = start.elapsed().as_secs_f32() * 1000.0;
+                        // Still register the buffer for the workspace service
+                        // (so the orchestrator knows about it), but do NOT
+                        // wait — send the mapped doc first.
+                        let req = OpenBufferRequest {
+                            session_id: job.session_id.clone(),
+                            path: job.path.clone(),
+                        };
+                        let _buffer_id = pollster::block_on(job.service.open_buffer(req))
+                            .ok()
+                            .map(|r| r.buffer_id);
+                        let _ = outcome_tx.send(ReadOutcome::Mapped {
+                            token: job.token,
+                            doc,
+                            index_ms,
+                        });
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "read-worker: MappedDocument::from_path failed for {:?}: {:?}",
+                            job.path,
+                            e
+                        );
+                    }
+                }
+                continue;
             }
 
             // ── Full buffer read/register (the heavy part) ──

@@ -5156,6 +5156,7 @@ dependencies = [
  "chrono",
  "cosmic-text",
  "log",
+ "memchr",
  "minifb",
  "once_cell",
  "pollster 0.3.0",
