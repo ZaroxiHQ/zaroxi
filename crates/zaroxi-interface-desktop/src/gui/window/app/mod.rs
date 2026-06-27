@@ -3247,6 +3247,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
                         self.mapped_doc.as_mut(),
+                        doc_buf.as_deref(),
                         self.editor_buffer.buffer_version,
                         wrap_chars_per_row,
                     );

@@ -159,6 +159,7 @@ pub fn shape_editor_content_plain(
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
     mapped_doc: Option<&mut zaroxi_core_editor_largefile::StreamedDocument>,
+    doc_buffer: Option<&zaroxi_core_editor_largefile::DocumentBuffer>,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
     let wc = match work_content {
@@ -167,61 +168,83 @@ pub fn shape_editor_content_plain(
     };
 
     let editor_body = wc.editor_body.as_ref();
-    let total_lines = mapped_doc
-        .as_ref()
-        .map(|md| md.total_lines())
-        .or_else(|| rope.map(|r| r.line_count()))
-        .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
 
-    let (editor_body_text, used_visible_range) = if let Some(doc) = mapped_doc {
+    let total_lines: usize;
+    let editor_body_text: String;
+    let used_visible_range: Option<(usize, usize)>;
+
+    // Priority 1: doc_buffers DocumentBuffer
+    if let Some(db) = doc_buffer {
+        let total = db.total_lines();
+        total_lines = total;
         if let Some((vis_start, vis_end)) = visible_line_range {
             let start = vis_start.saturating_sub(OVERSCAN_LINES);
-            let end = (vis_end + OVERSCAN_LINES).min(total_lines);
-            let text = doc.viewport_lines(start, end).join("\n");
-            let range = if text.is_empty() && start >= total_lines {
+            let end = (vis_end + OVERSCAN_LINES).min(total);
+            let lines: Vec<String> =
+                db.lines_in_range(start, end).into_iter().map(|(_, s)| s).collect();
+            editor_body_text = lines.join("\n");
+            used_visible_range = if editor_body_text.is_empty() && start >= total {
                 None
             } else {
-                Some((start, end.min(total_lines)))
+                Some((start, end.min(total)))
             };
-            (text, range)
         } else {
             let vis_lines = 50usize;
             let start = 0usize;
-            let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
-            let text = doc.viewport_lines(start, end).join("\n");
-            (text, Some((start, end)))
-        }
-    } else if let Some(r) = rope {
-        if let Some((vis_start, vis_end)) = visible_line_range {
-            let start = vis_start.saturating_sub(OVERSCAN_LINES);
-            let end = (vis_end + OVERSCAN_LINES).min(total_lines);
-            let slice = r.visible_lines(start, end);
-            let range = if slice.is_empty() && start >= total_lines {
-                None
-            } else {
-                Some((start, end.min(total_lines)))
-            };
-            (slice, range)
-        } else {
-            // No visible range: use full text only for small files.
-            // For large files (total_lines > LARGE_FILE_LINE_THRESHOLD),
-            // construct a default window so we never materialize the
-            // full 48+ MB document into a single String.
-            const LARGE: usize = 1000;
-            if total_lines > LARGE {
-                let vis_lines = 50usize; // reasonable default viewport height
-                let start = 0usize;
-                let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
-                let slice = r.visible_lines(start, end);
-                (slice, Some((start, end)))
-            } else {
-                (r.to_string(), None)
-            }
+            let end = (vis_lines + OVERSCAN_LINES).min(total);
+            let lines: Vec<String> =
+                db.lines_in_range(start, end).into_iter().map(|(_, s)| s).collect();
+            editor_body_text = lines.join("\n");
+            used_visible_range = Some((start, end));
         }
     } else {
-        // No rope: fallback to ContentView.lines (backward compat)
-        visible_line_range
-            .map(|(vis_start, vis_end)| {
+        total_lines = mapped_doc
+            .as_ref()
+            .map(|md| md.total_lines())
+            .or_else(|| rope.map(|r| r.line_count()))
+            .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
+
+        let (text, range) = if let Some(doc) = mapped_doc {
+            if let Some((vis_start, vis_end)) = visible_line_range {
+                let start = vis_start.saturating_sub(OVERSCAN_LINES);
+                let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+                let t = doc.viewport_lines(start, end).join("\n");
+                let r = if t.is_empty() && start >= total_lines {
+                    None
+                } else {
+                    Some((start, end.min(total_lines)))
+                };
+                (t, r)
+            } else {
+                let vis_lines = 50usize;
+                let start = 0usize;
+                let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
+                (doc.viewport_lines(start, end).join("\n"), Some((start, end)))
+            }
+        } else if let Some(r) = rope {
+            if let Some((vis_start, vis_end)) = visible_line_range {
+                let start = vis_start.saturating_sub(OVERSCAN_LINES);
+                let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+                let slice = r.visible_lines(start, end);
+                let rng = if slice.is_empty() && start >= total_lines {
+                    None
+                } else {
+                    Some((start, end.min(total_lines)))
+                };
+                (slice, rng)
+            } else {
+                const LARGE: usize = 1000;
+                if total_lines > LARGE {
+                    let vis_lines = 50usize;
+                    let start = 0usize;
+                    let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
+                    (r.visible_lines(start, end), Some((start, end)))
+                } else {
+                    (r.to_string(), None)
+                }
+            }
+        } else {
+            if let Some((vis_start, vis_end)) = visible_line_range {
                 let start = vis_start.saturating_sub(OVERSCAN_LINES);
                 let end = (vis_end + OVERSCAN_LINES).min(total_lines);
                 let slice = editor_body
@@ -233,16 +256,18 @@ pub fn shape_editor_content_plain(
                         }
                     })
                     .unwrap_or_default();
-                let range = if slice.is_empty() { None } else { Some((start, end)) };
-                (slice, range)
-            })
-            .unwrap_or_else(|| {
-                let text = editor_body
+                let rng = if slice.is_empty() { None } else { Some((start, end)) };
+                (slice, rng)
+            } else {
+                let t = editor_body
                     .map(|cv| cv.lines.join("\n"))
                     .unwrap_or_else(|| "No file open".to_string());
-                (text, None)
-            })
-    };
+                (t, None)
+            }
+        };
+        editor_body_text = text;
+        used_visible_range = range;
+    }
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
     let cursor_col = editor_body.map(|cv| cv.cursor_col).unwrap_or(0);
