@@ -16,6 +16,8 @@ use crate::ports::{
     Checkpoint,
     ClearSelectionRequest,
     ClearSelectionResponse,
+    CloseBufferRequest,
+    CloseBufferResponse,
     CommandKind,
     CommandRecord,
     CommandResult,
@@ -560,6 +562,69 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
             }
 
             Ok(OpenBufferResponse { buffer_id })
+        })
+    }
+
+    fn close_buffer(
+        &self,
+        req: CloseBufferRequest,
+    ) -> BoxFuture<'static, Result<CloseBufferResponse, UseCaseError>> {
+        let store = self.buffer_store.clone();
+        let sessions = self.sessions.clone();
+        let history = self.history.clone();
+        Box::pin(async move {
+            let session_exists = {
+                let s = sessions.lock().unwrap();
+                s.contains_key(&req.session_id.0)
+            };
+            if !session_exists {
+                return Err(UseCaseError::UnknownSession);
+            }
+
+            let workspace_id_opt = {
+                let mut s = sessions.lock().unwrap();
+                let info = match s.get_mut(&req.session_id.0) {
+                    Some(info) => info,
+                    None => return Err(UseCaseError::UnknownSession),
+                };
+
+                let pos = info.open_buffers.iter().position(|b| b == &req.buffer_id);
+                if pos.is_none() {
+                    return Err(UseCaseError::UnknownBuffer);
+                }
+                let pos = pos.unwrap();
+
+                info.open_buffers.remove(pos);
+                info.editor_states.remove(&req.buffer_id);
+                info.viewport_states.remove(&req.buffer_id);
+                info.pending_proposals.remove(&req.buffer_id);
+
+                let was_active =
+                    info.active_buffer.as_ref().map_or(false, |ab| ab == &req.buffer_id);
+                if was_active {
+                    if info.open_buffers.is_empty() {
+                        info.active_buffer = None;
+                    } else {
+                        let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                        info.active_buffer = Some(info.open_buffers[new_idx].clone());
+                    }
+                }
+
+                Some(info.workspace_id)
+            };
+
+            let _ = store.close_buffer(&req.buffer_id).await;
+
+            let cmd = CommandRecord::new_success(
+                CommandKind::UpdateBuffer { buffer_id: req.buffer_id.clone() },
+                Some(req.session_id.0),
+                workspace_id_opt,
+                Some(req.buffer_id.clone()),
+                Some(format!("closed {}", req.buffer_id)),
+            );
+            let _ = history.record_command(cmd).await;
+
+            Ok(CloseBufferResponse { ok: true })
         })
     }
 

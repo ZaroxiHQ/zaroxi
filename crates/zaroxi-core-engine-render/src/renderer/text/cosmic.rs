@@ -93,6 +93,13 @@ struct ShapeKey {
 /// with `ZAROXI_SHAPE_CACHE_LINES`.
 const SHAPE_CACHE_DEFAULT_CAP: usize = 2048;
 
+/// Default maximum number of unique glyph-size entries in the persistent
+/// atlas cache (`inserted_keys`). Beyond this limit, the entire atlas cache
+/// is cleared on next insertion to prevent unbounded growth across many
+/// files/views with unique glyph-size combinations. Override with
+/// `ZAROXI_ATLAS_CACHE_CAP`.
+const ATLAS_CACHE_DEFAULT_CAP: usize = 65536;
+
 /// Resolve the LRU capacity from `ZAROXI_SHAPE_CACHE_LINES` (clamped to >= 1),
 /// falling back to [`SHAPE_CACHE_DEFAULT_CAP`].
 fn shape_cache_capacity() -> std::num::NonZeroUsize {
@@ -1437,6 +1444,19 @@ impl TextRenderer for CosmicTextRenderer {
                             }
                         }
 
+                        // Evict the atlas persistent cache when it exceeds the
+                        // configured capacity, preventing unbounded growth.
+                        if self.shared_atlas.inserted_count() > ATLAS_CACHE_DEFAULT_CAP {
+                            let evicted = self.shared_atlas.clear_cache();
+                            if std::env::var("ZAROXI_DEBUG_ATLAS").as_deref() == Ok("1") {
+                                eprintln!(
+                                    "ZAROXI_ATLAS: evicted {evicted} entries \
+                                     (exceeded cap {})",
+                                    ATLAS_CACHE_DEFAULT_CAP,
+                                );
+                            }
+                        }
+
                         // Attempt atlas insertion
                         match self.shared_atlas.insert(&glyph, cache_key_bits) {
                             Some(entry) => {
@@ -1917,21 +1937,16 @@ impl TextRenderer for CosmicTextRenderer {
         self.line_shape_cache.lock().unwrap().len()
     }
 
-    fn evict_shaped_cold(&self, target_entries: usize) -> usize {
-        let mut cache = self.line_shape_cache.lock().unwrap();
-        let mut evicted = 0usize;
-        while cache.len() > target_entries {
-            if cache.pop_lru().is_none() {
-                break;
-            }
-            evicted += 1;
-        }
-        evicted
+    fn atlas_entry_count(&self) -> usize {
+        self.shared_atlas.inserted_count()
     }
 
     fn flush_glyph_cache(&self) {
         self.line_shape_cache.lock().unwrap().clear();
         self.element_cache.lock().unwrap().clear();
+        // Also clear the atlas persistent glyph cache to release stale
+        // GPU-side and CPU-side atlas entries accumulated across many files.
+        self.shared_atlas.clear_cache();
     }
 
     fn render_pass<'a>(

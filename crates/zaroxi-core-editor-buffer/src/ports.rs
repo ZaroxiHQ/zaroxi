@@ -131,6 +131,13 @@ pub trait BufferStore: Send + Sync {
         id: &BufferId,
         txn: TextEdit,
     ) -> BoxFuture<'static, Result<(), BufferError>>;
+
+    /// Close and release a buffer from the store.
+    /// Removes the buffer's content, freeing associated memory.
+    /// Returns Ok(()) on success or BufferError if the buffer was not found.
+    fn close_buffer(&self, _id: &BufferId) -> BoxFuture<'static, Result<(), BufferError>> {
+        Box::pin(async move { Err(BufferError("close_buffer not implemented".to_string())) })
+    }
 }
 
 pub type DynBufferStore = Arc<dyn BufferStore>;

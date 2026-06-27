@@ -306,6 +306,28 @@ impl Atlas {
         self.regions
     }
 
+    /// Return the number of unique glyph entries in the persistence cache.
+    pub fn inserted_count(&self) -> usize {
+        self.inserted_keys.len()
+    }
+
+    /// Clear the persistent glyph cache and reset the atlas packing position.
+    /// GPU resources are invalidated so a fresh texture is created on next upload.
+    /// Returns the number of entries evicted.
+    pub fn clear_cache(&mut self) -> usize {
+        let count = self.inserted_keys.len();
+        self.inserted_keys.clear();
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.row_height = 0;
+        self.regions = 0;
+        self.gpu_texture = None;
+        self.gpu_view = None;
+        self.gpu_sampler = None;
+        self.dirty = true;
+        count
+    }
+
     /// Return atlas dimensions.
     pub fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
@@ -351,6 +373,20 @@ impl SharedAtlas {
     pub fn dims(&self) -> (u32, u32) {
         let a = self.0.lock().unwrap();
         a.dimensions()
+    }
+
+    /// Return the number of unique glyph entries in the persistent cache.
+    pub fn inserted_count(&self) -> usize {
+        let a = self.0.lock().unwrap();
+        a.inserted_count()
+    }
+
+    /// Clear the persistent glyph cache and reset packing. GPU resources are
+    /// invalidated. Returns entries evicted. Useful to bound atlas growth after
+    /// many files/views generate unique glyph-size combinations.
+    pub fn clear_cache(&self) -> usize {
+        let mut a = self.0.lock().unwrap();
+        a.clear_cache()
     }
 
     /// Debug helper: return a copy of the raw R8 bytes for the given atlas entry rect.

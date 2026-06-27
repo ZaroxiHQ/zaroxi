@@ -70,6 +70,19 @@ pub struct OpenBufferResponse {
     pub buffer_id: BufferId,
 }
 
+/// Request to close a buffer in a session.
+#[derive(Clone, Debug)]
+pub struct CloseBufferRequest {
+    pub session_id: SessionId,
+    pub buffer_id: BufferId,
+}
+
+/// Response from closing a buffer.
+#[derive(Clone, Debug)]
+pub struct CloseBufferResponse {
+    pub ok: bool,
+}
+
 /// Request to list opened buffers for a session.
 #[derive(Clone, Debug)]
 pub struct ListBuffersRequest {
@@ -656,6 +669,15 @@ pub trait WorkspaceService: Send + Sync {
         &self,
         req: OpenBufferRequest,
     ) -> BoxFuture<'static, Result<OpenBufferResponse, UseCaseError>>;
+
+    /// Close a buffer inside an active session, removing its content from the buffer store
+    /// and unregistering it from the session's opened-buffers list.
+    fn close_buffer(
+        &self,
+        _req: CloseBufferRequest,
+    ) -> BoxFuture<'static, Result<CloseBufferResponse, UseCaseError>> {
+        Box::pin(async move { Ok(CloseBufferResponse { ok: false }) })
+    }
 
     /// List opened buffers for a session and indicate the active buffer (if any).
     fn list_open_buffers(

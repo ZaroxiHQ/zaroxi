@@ -2096,6 +2096,35 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             meta.opened_buffers.remove(pos);
                                             meta.opened_buffer_count = meta.opened_buffers.len();
                                             comp.pending_removed_buffer_ids.push(bid_str.clone());
+
+                                            // Release the buffer from the workspace service
+                                            // to free its content from memory.
+                                            let bid: crate::ports::BufferId =
+                                                crate::ports::BufferId(bid_str.clone());
+                                            if let (Some(svc), Some(sid)) =
+                                                (&self.workspace_service, &self.session_id)
+                                            {
+                                                if let Ok(resp) =
+                                                    pollster::block_on(svc.close_buffer(
+                                                        crate::ports::CloseBufferRequest {
+                                                            session_id: sid.clone(),
+                                                            buffer_id: bid.clone(),
+                                                        },
+                                                    ))
+                                                {
+                                                    if resp.ok {
+                                                        if std::env::var("ZAROXI_DEBUG_MEMORY")
+                                                            .as_deref()
+                                                            == Ok("1")
+                                                        {
+                                                            eprintln!(
+                                                                "ZAROXI_MEMORY: closed buffer {bid}"
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             if was_active {
                                                 needs_wc_rebuild = true;
                                                 if meta.opened_buffers.is_empty() {
@@ -3952,16 +3981,28 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             .text_renderer()
                                             .map(|tr| tr.shape_cache_entries())
                                             .unwrap_or(0);
+                                        let atlas_entries = core
+                                            .text_renderer()
+                                            .map(|tr| tr.atlas_entry_count())
+                                            .unwrap_or(0);
+                                        let opened_count = self
+                                            .composition
+                                            .as_ref()
+                                            .and_then(|c| c.metadata.as_ref())
+                                            .map(|m| m.opened_buffer_count)
+                                            .unwrap_or(0);
                                         eprintln!(
-                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} shape_cache_entries={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={}",
+                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} shape_cache_entries={} atlas_entries={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={} opened_buffers={}",
                                             frame_id,
                                             rss as f64 / (1024.0 * 1024.0),
                                             shape_bytes / 1024,
                                             shape_entries,
+                                            atlas_entries,
                                             gpu_bytes as usize / 1024,
                                             self.cockpit_retained_bytes / 1024,
                                             self.editor_retained_bytes / 1024,
                                             rope_bytes as usize / 1024,
+                                            opened_count,
                                         );
                                     }
                                     if let Some(tr) = core.text_renderer() {

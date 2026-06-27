@@ -141,6 +141,19 @@ impl BufferStore for InMemoryBufferStore {
             }
         })
     }
+
+    fn close_buffer(&self, id: &BufferId) -> BoxFuture<'static, Result<(), BufferError>> {
+        let key = id.0.clone();
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let mut m = inner.lock().unwrap();
+            if m.remove(&key).is_some() {
+                Ok(())
+            } else {
+                Err(BufferError("buffer not found".to_string()))
+            }
+        })
+    }
 }
 
 /// Export helpers to turn into Arc'd dyn trait objects so composition sites can easily wire adapters.

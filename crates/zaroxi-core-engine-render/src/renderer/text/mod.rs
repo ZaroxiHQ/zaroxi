@@ -331,6 +331,13 @@ pub trait TextRenderer: Send + Sync {
         0
     }
 
+    /// Current number of unique glyph entries in the persistent atlas
+    /// cache (`inserted_keys`). Used for memory trace visibility.
+    /// Default `0`.
+    fn atlas_entry_count(&self) -> usize {
+        0
+    }
+
     /// Pressure response (Elevated): evict the coldest shaped-line cache entries
     /// until at most `target_entries` remain. Returns the number evicted.
     /// Default no-op returning `0`.

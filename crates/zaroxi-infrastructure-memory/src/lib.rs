@@ -24,10 +24,29 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 // domain-level repository implementations belong in the application or domain
 // crates and should be wired at composition time by the outer layer.
 
+/// Maximum retained command and event records per store before oldest
+/// entries are trimmed. Prevents unbounded growth for long-running sessions.
+/// Override with `ZAROXI_HISTORY_CAP`.
+const DEFAULT_HISTORY_CAP: usize = 10000;
+
+fn history_cap() -> usize {
+    std::env::var("ZAROXI_HISTORY_CAP")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_HISTORY_CAP)
+}
+
 /// In-memory history/event store.
 pub struct InMemoryHistoryStore {
     cmds: std::sync::Arc<Mutex<Vec<zaroxi_application_workspace::ports::CommandRecord>>>,
     evs: std::sync::Arc<Mutex<Vec<zaroxi_application_workspace::ports::WorkspaceEvent>>>,
+}
+
+impl Default for InMemoryHistoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InMemoryHistoryStore {
@@ -49,6 +68,11 @@ impl HistoryRepository for InMemoryHistoryStore {
         Box::pin(async move {
             let mut v = inner.lock().unwrap();
             v.push(rec);
+            let cap = history_cap();
+            if v.len() > cap {
+                let trim = v.len() - cap;
+                v.drain(0..trim);
+            }
             Ok(())
         })
     }
@@ -58,6 +82,11 @@ impl HistoryRepository for InMemoryHistoryStore {
         Box::pin(async move {
             let mut v = inner.lock().unwrap();
             v.push(ev);
+            let cap = history_cap();
+            if v.len() > cap {
+                let trim = v.len() - cap;
+                v.drain(0..trim);
+            }
             Ok(())
         })
     }
@@ -73,8 +102,8 @@ impl HistoryRepository for InMemoryHistoryStore {
             // filter by session and return most recent up to limit
             let mut filtered: Vec<CommandRecord> = v
                 .iter()
+                .filter(|&c| c.session_id.as_ref().map(|s| s == &session_id.0).unwrap_or(false))
                 .cloned()
-                .filter(|c| c.session_id.as_ref().map(|s| s == &session_id.0).unwrap_or(false))
                 .collect();
             filtered.sort_by_key(|c| c.timestamp);
             if filtered.len() > limit {
@@ -94,7 +123,7 @@ impl HistoryRepository for InMemoryHistoryStore {
         Box::pin(async move {
             let v = inner.lock().unwrap();
             let mut filtered: Vec<WorkspaceEvent> =
-                v.iter().cloned().filter(|e| e.session_id == session_id).collect();
+                v.iter().filter(|&e| e.session_id == session_id).cloned().collect();
             filtered.sort_by_key(|e| e.timestamp);
             if filtered.len() > limit {
                 let start = filtered.len() - limit;
@@ -115,18 +144,32 @@ pub fn into_history_store(store: InMemoryHistoryStore) -> Arc<dyn HistoryReposit
 // Lightweight in-memory checkpoint store used for Phase 9 durability tests and harness.
 // It stores serialized checkpoint bytes under an opaque location id (UUID string).
 //
-use serde_json;
 use std::sync::Mutex as StdMutex;
 use uuid::Uuid;
+
+/// Maximum retained checkpoints before oldest entries are removed.
+const DEFAULT_CHECKPOINT_CAP: usize = 128;
 
 /// In-memory checkpoint store.
 pub struct InMemoryCheckpointStore {
     inner: std::sync::Arc<StdMutex<HashMap<String, Vec<u8>>>>,
+    /// Ordered list of checkpoint ids (FIFO), used for eviction when the cap
+    /// is exceeded.
+    order: std::sync::Arc<StdMutex<Vec<String>>>,
+}
+
+impl Default for InMemoryCheckpointStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InMemoryCheckpointStore {
     pub fn new() -> Self {
-        InMemoryCheckpointStore { inner: std::sync::Arc::new(StdMutex::new(HashMap::new())) }
+        InMemoryCheckpointStore {
+            inner: std::sync::Arc::new(StdMutex::new(HashMap::new())),
+            order: std::sync::Arc::new(StdMutex::new(Vec::new())),
+        }
     }
 
     /// Insert raw bytes under a location id (useful for tests to inject malformed data).
@@ -143,14 +186,28 @@ impl zaroxi_application_workspace::ports::DurabilityRepository for InMemoryCheck
     ) -> BoxFuture<'static, Result<String, zaroxi_application_workspace::ports::DurabilityError>>
     {
         let inner = self.inner.clone();
+        let order = self.order.clone();
         Box::pin(async move {
             // Serialize checkpoint to JSON.
             let bytes = serde_json::to_vec(&checkpoint).map_err(|e| {
                 zaroxi_application_workspace::ports::DurabilityError::Malformed(e.to_string())
             })?;
             let id = Uuid::new_v4().to_string();
-            let mut m = inner.lock().unwrap();
-            m.insert(id.clone(), bytes);
+            {
+                let mut m = inner.lock().unwrap();
+                m.insert(id.clone(), bytes);
+            }
+            {
+                let mut ord = order.lock().unwrap();
+                ord.push(id.clone());
+                while ord.len() > DEFAULT_CHECKPOINT_CAP {
+                    if let Some(old_id) = ord.first().cloned() {
+                        ord.remove(0);
+                        let mut m = inner.lock().unwrap();
+                        m.remove(&old_id);
+                    }
+                }
+            }
             Ok(id)
         })
     }
