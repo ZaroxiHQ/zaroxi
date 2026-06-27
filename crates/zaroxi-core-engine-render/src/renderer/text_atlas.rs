@@ -58,9 +58,14 @@ pub struct AtlasEntry {
 /// - Row packing with cursor_x / cursor_y / row_height.
 /// - Grows height by doubling when needed (no repacking).
 /// - Persistent GPU texture reused across frames.
+///
+/// Maximum dimensions are capped at [`ATLAS_MAX_WIDTH`] × [`ATLAS_MAX_HEIGHT`]
+/// to prevent runaway memory growth in sessions with many unique glyphs.
 pub struct Atlas {
     width: u32,
     height: u32,
+    max_width: u32,
+    max_height: u32,
     /// CPU-side backing buffer storing R8 bytes width * height
     buffer: Vec<u8>,
     cursor_x: u32,
@@ -80,13 +85,23 @@ pub struct Atlas {
     gpu_sampler: Option<wgpu::Sampler>,
 }
 
+/// Maximum atlas width in pixels (R8).
+pub const ATLAS_MAX_WIDTH: u32 = 2048;
+/// Maximum atlas height in pixels (R8).  
+pub const ATLAS_MAX_HEIGHT: u32 = 2048;
+
 impl Atlas {
     /// Create a new atlas with the given initial size (width x height).
+    /// The atlas will not exceed ATLAS_MAX_WIDTH × ATLAS_MAX_HEIGHT.
     pub fn new(width: u32, height: u32) -> Self {
-        let size = (width.checked_mul(height).unwrap_or(0)) as usize;
+        let w = width.min(ATLAS_MAX_WIDTH);
+        let h = height.min(ATLAS_MAX_HEIGHT);
+        let size = (w as usize).checked_mul(h as usize).unwrap_or(0);
         Atlas {
-            width,
-            height,
+            width: w,
+            height: h,
+            max_width: ATLAS_MAX_WIDTH,
+            max_height: ATLAS_MAX_HEIGHT,
             buffer: vec![0u8; size],
             cursor_x: 0,
             cursor_y: 0,
@@ -180,37 +195,67 @@ impl Atlas {
     }
 
     /// Ensure the atlas has enough vertical space for the given glyph height.
+    /// Doubles height until the cursor_y + glyph_height fits, capped at max_height.
     /// Returns true if the atlas height was increased.
     fn grow_to_fit(&mut self, glyph_height: u32) -> bool {
         if self.cursor_y + glyph_height <= self.height {
             return false;
         }
+        if self.cursor_y >= self.max_height {
+            // Cursor already past max — can never fit. This means the atlas is
+            // full. The caller should trigger clear_cache or evict entries.
+            return false;
+        }
         let mut new_height = self.height;
         while self.cursor_y + glyph_height > new_height {
-            let next = cmp::min(new_height.saturating_mul(2), 16384);
+            let next = cmp::min(new_height.saturating_mul(2), self.max_height);
             if next == new_height {
-                return false; // cannot grow further
+                return false; // reached max
             }
             new_height = next;
         }
+        let old_h = self.height;
         self.grow_height_to(new_height);
+        if std::env::var("ZAROXI_MEM_TRACE").as_deref() == Ok("1")
+            || std::env::var("ZAROXI_ATLAS_VERBOSE").as_deref() == Ok("1")
+        {
+            let old_kb = (self.width as usize * old_h as usize) / 1024;
+            let new_kb = (self.width as usize * new_height as usize) / 1024;
+            eprintln!(
+                "ATLAS_GROW: {w}x{old_h}→{w}x{new_h}  ({old_kb}KB→{new_kb}KB)  cursor_y={cy}  max={mx}x{my}",
+                w = self.width,
+                old_h = old_h,
+                new_h = new_height,
+                old_kb = old_kb,
+                new_kb = new_kb,
+                cy = self.cursor_y,
+                mx = self.max_width,
+                my = self.max_height,
+            );
+        }
         true
     }
 
-    /// Grow the atlas height to new_height. Copies existing buffer into new buffer.
+    /// Grow the atlas height to new_height. Drops the old buffer explicitly
+    /// so the allocator can reclaim pages before allocating the new one.
     fn grow_height_to(&mut self, new_height: u32) {
         if new_height <= self.height {
             return;
         }
         let new_size = (self.width as usize).checked_mul(new_height as usize).unwrap();
         let mut new_buf = vec![0u8; new_size];
-        for row in 0..self.height as usize {
-            let old_start = row * self.width as usize;
-            let new_start = row * self.width as usize;
-            new_buf[new_start..new_start + self.width as usize]
-                .copy_from_slice(&self.buffer[old_start..old_start + self.width as usize]);
+        let copy_rows = self.height as usize;
+        let row_bytes = self.width as usize;
+        for row in 0..copy_rows {
+            let old_start = row * row_bytes;
+            let new_start = row * row_bytes;
+            new_buf[new_start..new_start + row_bytes]
+                .copy_from_slice(&self.buffer[old_start..old_start + row_bytes]);
         }
-        self.buffer = new_buf;
+        // Drop old buffer BEFORE assigning new, so peak memory is new_size
+        // (not old_size + new_size).
+        let old = std::mem::replace(&mut self.buffer, new_buf);
+        drop(old);
         self.height = new_height;
     }
 
@@ -313,6 +358,7 @@ impl Atlas {
 
     /// Clear the persistent glyph cache and reset the atlas packing position.
     /// GPU resources are invalidated so a fresh texture is created on next upload.
+    /// The CPU buffer is shrunk back to 512×512 to release any grown memory.
     /// Returns the number of entries evicted.
     pub fn clear_cache(&mut self) -> usize {
         let count = self.inserted_keys.len();
@@ -325,6 +371,14 @@ impl Atlas {
         self.gpu_view = None;
         self.gpu_sampler = None;
         self.dirty = true;
+        // Shrink the CPU buffer back to a compact initial size so the
+        // allocator can release pages gained during atlas growth.
+        let compact_w = 512u32.min(self.max_width);
+        let compact_h = 512u32.min(self.max_height);
+        let compact_sz = (compact_w as usize * compact_h as usize);
+        self.buffer = vec![0u8; compact_sz];
+        self.width = compact_w;
+        self.height = compact_h;
         count
     }
 

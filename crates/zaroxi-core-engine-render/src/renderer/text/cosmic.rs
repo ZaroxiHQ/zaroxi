@@ -365,6 +365,10 @@ pub struct CosmicTextRenderer {
     /// can reuse it with `write_buffer` instead of allocating a new GPU buffer
     /// every frame when the instance count is unchanged or smaller.
     instance_buffer_capacity: Arc<Mutex<usize>>,
+    /// Number of font faces loaded at construction time. If this grows during
+    /// the session, cosmic-text has triggered system font loading as a shaping
+    /// fallback — a 50-100 MB RSS regression.
+    initial_face_count: usize,
 }
 
 impl CosmicTextRenderer {
@@ -385,6 +389,7 @@ impl CosmicTextRenderer {
         // locale-aware constructor so shaping still picks up locale-appropriate
         // fallback heuristics (e.g. Arabic shaping).
         let font_family: String;
+        let initial_face_count: usize;
         let mut fs = {
             let mut db = cosmic_text::fontdb::Database::new();
             match zaroxi_core_engine_font::load_project_font_bytes() {
@@ -402,6 +407,7 @@ impl CosmicTextRenderer {
                     font_family = "monospace".to_string();
                 }
             }
+            initial_face_count = db.len();
             debug!("ZAROXI_FONT: registered editor font family='{}'", font_family);
             cosmic_text::FontSystem::new_with_locale_and_db("en-US".into(), db)
         };
@@ -412,6 +418,10 @@ impl CosmicTextRenderer {
                 zaroxi_core_telemetry::rss_mb()
             );
         }
+
+        // Snapshot the face count at construction so we can detect later
+        // if cosmic-text silently loads system fonts as fallbacks.
+        let _face_snapshot = initial_face_count;
 
         // Compute the actual monospace advance from the loaded font
         // by shaping a reference string and measuring the glyph advance.
@@ -455,15 +465,24 @@ impl CosmicTextRenderer {
             atlas_meta: Arc::new(Mutex::new(None)),
             swash_cache: Arc::new(Mutex::new(swash)),
             shared_atlas: {
-                // Start atlas at 512x512 (256 KB) and let it grow
-                // on demand up to 4096 width / 16384 height.  Saves
-                // ~14 MB RSS vs a 4096x4096 pre-allocation, important
-                // for the memory budget.  Override with ZAROXI_ATLAS_SIZE.
-                let default_size: u32 = std::env::var("ZAROXI_ATLAS_SIZE")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(512);
-                SharedAtlas::new(default_size, default_size)
+                // Fixed-size atlas default (1024×1024 R8 = 1 MB) is safe
+                // and sufficient for most coding sessions.  Dynamic growth
+                // (up to 2048×2048) is opt-in via ZAROXI_ATLAS_DYNAMIC=1.
+                // The previous 4096×4096 default wasted 14 MB RSS and
+                // 512×512 dynamic growth triggered runaway doubling to
+                // 16384 height, exploding RSS ~1 GB.
+                let env_size =
+                    std::env::var("ZAROXI_ATLAS_SIZE").ok().and_then(|s| s.parse::<u32>().ok());
+                let dynamic = std::env::var("ZAROXI_ATLAS_DYNAMIC").as_deref() == Ok("1");
+                let (w, h) = if dynamic {
+                    // Dynamic: start small, let it grow on demand.
+                    (env_size.unwrap_or(512), env_size.unwrap_or(512))
+                } else {
+                    // Fixed: one-shot allocation at configurable size.
+                    let s = env_size.unwrap_or(1024);
+                    (s, s)
+                };
+                SharedAtlas::new(w, h)
             },
             atlas_bind_group: Arc::new(Mutex::new(None)),
             text_bind_layout: Arc::new(bind_layout.clone()),
@@ -490,6 +509,7 @@ impl CosmicTextRenderer {
             shape_budget_override: Arc::new(Mutex::new(None)),
             last_lines: Arc::new(Mutex::new((0, 0))),
             instance_buffer_capacity: Arc::new(Mutex::new(0)),
+            initial_face_count,
         })
     }
 
@@ -2008,5 +2028,29 @@ impl TextRenderer for CosmicTextRenderer {
 
     fn monospace_advance_x(&self) -> Option<f32> {
         Some(self.monospace_advance)
+    }
+}
+
+// ── CosmicTextRenderer own methods (not part of TextRenderer trait) ─────────
+
+impl CosmicTextRenderer {
+    /// Check if cosmic-text has silently loaded system fonts as fallbacks
+    /// mid-session. Logs a `FONT_LEAK` warning when faces increase.
+    #[allow(dead_code)]
+    fn detect_font_leak(&self, tag: &str) {
+        if !zaroxi_core_telemetry::startup_trace_enabled()
+            && !zaroxi_core_telemetry::mem_trace_enabled()
+        {
+            return;
+        }
+        let current = self.font_system.lock().unwrap().db().len();
+        if current > self.initial_face_count {
+            eprintln!(
+                "FONT_LEAK: {tag} faces={current} initial={init} rss={:.1}MB \
+                 (cosmic-text loaded system fonts as fallback)",
+                rss = zaroxi_core_telemetry::rss_mb(),
+                init = self.initial_face_count,
+            );
+        }
     }
 }

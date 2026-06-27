@@ -1086,6 +1086,16 @@ impl GuiApp {
             // Detect large-file mode from the incoming content view.
             self.large_file_mode = Self::is_large_file(&body.lines);
             let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
+            if zaroxi_core_telemetry::startup_trace_enabled() {
+                let tag =
+                    if self.large_file_mode { "after_large_file_open" } else { "after_file_open" };
+                eprintln!(
+                    "MEM_STARTUP: {tag} lines={} bytes={} rss={:.1}MB",
+                    body.lines.len(),
+                    open_bytes,
+                    zaroxi_core_telemetry::rss_mb()
+                );
+            }
             if Self::should_background_open(&body.lines) {
                 // ── Heavy file: materialize the rope OFF the UI thread ──
                 // The UI thread does only cheap bookkeeping here; the editor keeps
