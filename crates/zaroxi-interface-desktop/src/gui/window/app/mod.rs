@@ -1519,22 +1519,18 @@ impl GuiApp {
                     if let Some(ref mut comp) = self.composition {
                         let path_str = doc.path().to_string_lossy().into_owned();
                         let bid = crate::ports::BufferId(format!("buf:{}", path_str));
-                        let display = doc
-                            .path()
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .map(|s| s.to_string());
+                        let display =
+                            doc.path().file_name().and_then(|n| n.to_str()).map(|s| s.to_string());
                         comp.add_opened_buffer_direct(bid.clone(), display);
                         // Also update line_count so scrolling works — the
                         // compositor clamps scroll to line_count.
                         if let Some(ref mut meta) = comp.metadata {
-                            meta.active_buffer_details = Some(
-                                crate::desktop::ActiveBufferDetails {
+                            meta.active_buffer_details =
+                                Some(crate::desktop::ActiveBufferDetails {
                                     buffer_id: bid,
                                     line_count: total,
                                     display: None,
-                                },
-                            );
+                                });
                         }
                     }
                     // Store the mapped document; the render path will prefer it.
