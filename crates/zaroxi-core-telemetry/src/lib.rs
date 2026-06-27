@@ -8,7 +8,7 @@ pub use buffer_activity::{BufferActivity, BufferActivityTracker};
 pub use memory::{
     DEFAULT_BUDGET_MB, DEFAULT_CRITICAL_PCT, DEFAULT_ELEVATED_PCT, DEFAULT_SAMPLE_FRAMES,
     MemoryMonitor, MemoryPressureLevel, MemorySample, classify, mem_trace_enabled, read_rss_bytes,
-    read_vsz_bytes,
+    read_vsz_bytes, rss_mb, startup_trace_enabled,
 };
 
 /// Minimal telemetry API exposed to core layers.

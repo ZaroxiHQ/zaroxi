@@ -43,6 +43,10 @@ pub fn run_shell_window(
         }
     };
 
+    if zaroxi_core_telemetry::startup_trace_enabled() {
+        eprintln!("MEM_STARTUP: after_winit_init rss={:.1}MB", zaroxi_core_telemetry::rss_mb());
+    }
+
     let window_attributes = WindowAttributes::default()
         .with_title("Zaroxi - GUI Shell")
         .with_inner_size(PhysicalSize::new(shell.size.width, shell.size.height))
@@ -181,6 +185,10 @@ pub fn run_shell_window(
         startup_settle_trimmed: false,
         text_instance_buffer_version: 0,
     };
+
+    if zaroxi_core_telemetry::startup_trace_enabled() {
+        eprintln!("MEM_STARTUP: after_app_init rss={:.1}MB", zaroxi_core_telemetry::rss_mb());
+    }
 
     let run_result = event_loop.run_app(&mut app);
 

@@ -4670,6 +4670,7 @@ dependencies = [
  "zaroxi-core-engine-layout",
  "zaroxi-core-engine-scene",
  "zaroxi-core-engine-text",
+ "zaroxi-core-telemetry",
 ]
 
 [[package]]

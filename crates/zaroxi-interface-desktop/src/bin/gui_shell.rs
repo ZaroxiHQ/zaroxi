@@ -5,6 +5,9 @@ use zaroxi_interface_desktop::folder_picker::{DynFolderPicker, SystemPicker};
 use zaroxi_interface_desktop::gui::{ShellFrame, Size, run_shell_window};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if zaroxi_core_telemetry::startup_trace_enabled() {
+        eprintln!("MEM_STARTUP: process_start rss={:.1}MB", zaroxi_core_telemetry::rss_mb());
+    }
     let (service_handle, view_handle) =
         zaroxi_application_bootstrap::create_in_memory_orchestrator();
 

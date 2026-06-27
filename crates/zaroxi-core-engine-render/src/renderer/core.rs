@@ -1648,6 +1648,13 @@ impl RenderCore {
             display: None,
         });
 
+        if zaroxi_core_telemetry::startup_trace_enabled() {
+            eprintln!(
+                "MEM_STARTUP: after_wgpu_instance rss={:.1}MB",
+                zaroxi_core_telemetry::rss_mb()
+            );
+        }
+
         // Create surface from Arc<Window> — yields Surface<'static> safely.
         let surface = instance
             .create_surface(Arc::clone(&window))
@@ -1671,6 +1678,13 @@ impl RenderCore {
             })
             .await
             .map_err(|e| RenderError::Other(format!("request_device failed: {:?}", e)))?;
+
+        if zaroxi_core_telemetry::startup_trace_enabled() {
+            eprintln!(
+                "MEM_STARTUP: after_wgpu_device rss={:.1}MB",
+                zaroxi_core_telemetry::rss_mb()
+            );
+        }
 
         // Configure the persistent surface immediately.
         let surface_config =

@@ -253,6 +253,16 @@ impl MemorySample {
     }
 }
 
+/// Convenience: RSS in mebibytes, for MEM_STARTUP checkpoints.
+pub fn rss_mb() -> f64 {
+    read_rss_bytes().unwrap_or(0) as f64 / (1024.0 * 1024.0)
+}
+
+/// Whether `ZAROXI_MEM_STARTUP=1` is set.
+pub fn startup_trace_enabled() -> bool {
+    matches!(std::env::var("ZAROXI_MEM_STARTUP").as_deref(), Ok("1"))
+}
+
 fn env_u64(key: &str) -> Option<u64> {
     std::env::var(key).ok().and_then(|s| s.trim().parse::<u64>().ok())
 }

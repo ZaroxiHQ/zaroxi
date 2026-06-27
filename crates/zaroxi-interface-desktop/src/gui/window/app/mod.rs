@@ -842,6 +842,35 @@ impl GuiApp {
             }
         }
 
+        // Per-document costs
+        if let Some(ref comp) = self.composition {
+            if let Some(ref meta) = comp.metadata {
+                let doc_count = meta.opened_buffer_count;
+                if doc_count > 0 {
+                    eprintln!("  per_doc  : {doc_count} open document(s):");
+                    for item in meta.opened_buffers.iter() {
+                        let display = &item.display;
+                        let rss_delta = self.editor_buffer.char_count() as u64;
+                        let lines = self.editor_buffer.line_count();
+                        eprintln!(
+                            "            doc[{}] {}: text_kb={} lines={} (single-buffer view)",
+                            item.buffer_id,
+                            display.as_deref().unwrap_or("<none>"),
+                            rss_delta / 1024,
+                            lines,
+                        );
+                    }
+                    let est_overhead = self.editor_buffer.char_count() as f64 / 1024.0;
+                    eprintln!(
+                        "            total_doc_rope_kb={:.1}  (~{:.1} KB char data)",
+                        est_overhead, est_overhead
+                    );
+                } else {
+                    eprintln!("  per_doc  : no documents open");
+                }
+            }
+        }
+
         // wgpu device state
         eprintln!(
             "  wgpu     : power_preference=None  limits=custom_reduced_{}MB_buffer_{}px_texture",
@@ -1905,6 +1934,13 @@ impl winit::application::ApplicationHandler for GuiApp {
                     let wid = zaroxi_w.window().id();
                     debug::gui_debug_fmt!("GuiApp: created engine window on resumed id={:?}", wid);
                     self.maybe_window = Some(zaroxi_w);
+
+                    if zaroxi_core_telemetry::startup_trace_enabled() {
+                        eprintln!(
+                            "MEM_STARTUP: after_first_window rss={:.1}MB",
+                            zaroxi_core_telemetry::rss_mb()
+                        );
+                    }
 
                     self.request_render();
                     debug::gui_debug(
@@ -3644,6 +3680,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                             Ok(core) => {
                                 render_core_create_ms = _t_core.elapsed().as_secs_f32() * 1000.0;
                                 self.render_core = Some(core);
+                                if zaroxi_core_telemetry::startup_trace_enabled() {
+                                    eprintln!(
+                                        "MEM_STARTUP: after_renderer_init rss={:.1}MB",
+                                        zaroxi_core_telemetry::rss_mb()
+                                    );
+                                }
                             }
                             Err(e) => {
                                 eprintln!("GuiApp: failed to create RenderCore: {:?}", e);
@@ -3928,6 +3970,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                             Ok(perf) => {
                                 let total_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
                                 self.needs_render = false;
+                                if !self.startup_first_paint_done {
+                                    self.startup_first_paint_done = true;
+                                    if zaroxi_core_telemetry::startup_trace_enabled() {
+                                        eprintln!(
+                                            "MEM_STARTUP: after_first_frame rss={:.1}MB",
+                                            zaroxi_core_telemetry::rss_mb()
+                                        );
+                                    }
+                                }
                                 if self.cockpit_text_active && !self.cockpit_rendered_once {
                                     self.cockpit_rendered_once = true;
                                     if startup_trace {

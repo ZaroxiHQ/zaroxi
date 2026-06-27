@@ -377,29 +377,41 @@ impl CosmicTextRenderer {
     ) -> Result<Self, RenderError> {
         debug!("CosmicTextRenderer::new");
         let swash = SwashCache::new();
-        let mut fs = cosmic_text::FontSystem::new();
 
-        // Register the bundled JetBrains Mono Nerd Font so the editor
-        // renders with the intended monospace font instead of a system
-        // fallback that may produce poor spacing/clustering. Capture its family
-        // name so every text `Attrs` can pin it explicitly.
-        let font_family: String = match zaroxi_core_engine_font::load_project_font_bytes() {
-            Ok(font_bytes) => {
-                fs.db_mut().load_font_data(font_bytes);
-                let name = fs
-                    .db()
-                    .faces()
-                    .last()
-                    .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
-                    .unwrap_or_else(|| "JetBrains Mono".to_string());
-                debug!("ZAROXI_FONT: registered editor font family='{}'", name);
-                name
+        // Build a minimal font database with ONLY the bundled editor font.
+        // FontSystem::new() scans ALL system fonts via fontconfig on Linux,
+        // which can cost 30-80MB RSS.  We avoid that by constructing a custom
+        // fontdb::Database that knows only our embedded font, then using the
+        // locale-aware constructor so shaping still picks up locale-appropriate
+        // fallback heuristics (e.g. Arabic shaping).
+        let font_family: String;
+        let mut fs = {
+            let mut db = cosmic_text::fontdb::Database::new();
+            match zaroxi_core_engine_font::load_project_font_bytes() {
+                Ok(font_bytes) => {
+                    db.load_font_data(font_bytes);
+                    let name = db
+                        .faces()
+                        .last()
+                        .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+                        .unwrap_or_else(|| "JetBrains Mono".to_string());
+                    font_family = name;
+                }
+                Err(e) => {
+                    debug!("ZAROXI_FONT: project font not available: {}", e);
+                    font_family = "monospace".to_string();
+                }
             }
-            Err(e) => {
-                debug!("ZAROXI_FONT: project font not available: {}", e);
-                "monospace".to_string()
-            }
+            debug!("ZAROXI_FONT: registered editor font family='{}'", font_family);
+            cosmic_text::FontSystem::new_with_locale_and_db("en-US".into(), db)
         };
+
+        if zaroxi_core_telemetry::startup_trace_enabled() {
+            eprintln!(
+                "MEM_STARTUP: after_font_system rss={:.1}MB",
+                zaroxi_core_telemetry::rss_mb()
+            );
+        }
 
         // Compute the actual monospace advance from the loaded font
         // by shaping a reference string and measuring the glyph advance.
@@ -443,11 +455,14 @@ impl CosmicTextRenderer {
             atlas_meta: Arc::new(Mutex::new(None)),
             swash_cache: Arc::new(Mutex::new(swash)),
             shared_atlas: {
-                // Choose atlas size based on environment override or default to 4096.
+                // Start atlas at 512x512 (256 KB) and let it grow
+                // on demand up to 4096 width / 16384 height.  Saves
+                // ~14 MB RSS vs a 4096x4096 pre-allocation, important
+                // for the memory budget.  Override with ZAROXI_ATLAS_SIZE.
                 let default_size: u32 = std::env::var("ZAROXI_ATLAS_SIZE")
                     .ok()
                     .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(4096);
+                    .unwrap_or(512);
                 SharedAtlas::new(default_size, default_size)
             },
             atlas_bind_group: Arc::new(Mutex::new(None)),

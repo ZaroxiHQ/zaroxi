@@ -11,6 +11,7 @@ zaroxi-core-engine-layout = { workspace = true }
 zaroxi-core-engine-scene = { workspace = true }
 zaroxi-core-engine-text = { workspace = true }
 zaroxi-core-engine-font = { workspace = true }
+zaroxi-core-telemetry = { workspace = true }
 
 # Native rendering & windowing (workspace pins where available)
 wgpu = { workspace = true, optional = true }
