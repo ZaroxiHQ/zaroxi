@@ -1180,13 +1180,7 @@ impl GuiApp {
                 }
             }
         }
-        self.committed_active_file = wc.active_file.clone().map(|s| {
-            // Strip `buf:` prefix inserted by BufferId::from_path so the
-            // value is a plain canonical path.  This makes it match the
-            // keys in `doc_buffers` (plain paths) and any downstream
-            // `Path::new()` usage.
-            s.strip_prefix("buf:").unwrap_or(&s).to_string()
-        });
+        self.committed_active_file = wc.active_file.clone();
         if !backgrounded {
             // Synchronous / no-op commit: this token's buffer is ready now.
             self.committed_open_token = token;
@@ -3229,10 +3223,12 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let scale = z.window().scale_factor() as f32;
                         ((available_w * scale) / mono_advance).floor() as usize
                     };
-                    let doc_buf = self
+                    let active_path_str = self
                         .committed_active_file
-                        .as_ref()
-                        .and_then(|p| self.doc_buffers.get_mut(p));
+                        .as_deref()
+                        .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+                    let doc_buf =
+                        active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
                     let is_large_doc = doc_buf
                         .as_ref()
                         .map(|db| {
@@ -3436,8 +3432,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|(x, y, w, h)| format!("({:.0},{:.0},{:.0}x{:.0})", x, y, w, h))
                     );
 
-                    let editor_total_lines = self
+                    let active_path_str2 = self
                         .committed_active_file
+                        .as_deref()
+                        .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+                    let editor_total_lines = active_path_str2
                         .as_ref()
                         .and_then(|p| self.doc_buffers.get(p))
                         .map(|db| db.total_lines())
@@ -4334,14 +4333,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     // is the pure in-memory line diff. (An async
                                     // worker is the eventual home for the first
                                     // git lookup.)
+                                    let diff_path = self
+                                        .committed_active_file
+                                        .as_deref()
+                                        .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
                                     if self.editor_buffer.buffer_version
                                         != self.cockpit_diff_version
                                     {
                                         let hunks = if self.large_file_mode {
                                             Vec::new()
-                                        } else if let Some(path) =
-                                            self.committed_active_file.clone()
-                                        {
+                                        } else if let Some(path) = diff_path {
                                             let current = self.editor_buffer.to_string();
                                             match self
                                                 .git_diff_provider
