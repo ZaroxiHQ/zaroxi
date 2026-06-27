@@ -204,6 +204,12 @@ pub struct DesktopComposition {
     pub metadata: Option<DesktopMetadata>,
     pub(crate) status: Option<DesktopStatus>,
     pub(crate) pending_removed_buffer_ids: Vec<String>,
+    /// BufferIds that were added directly (not via the workspace service),
+    /// e.g. large files loaded through PieceTable.  The refresh cycle merges
+    /// these back into `opened_buffers` so they survive service-issued
+    /// metadata rebuilds.  Entries are removed when `close_opened_buffer`
+    /// processes the corresponding id.
+    pub(crate) direct_buffer_ids: Vec<crate::ports::BufferId>,
     pub(crate) revision: u64,
     pub(crate) pending_refresh_reason: Option<RefreshReason>,
     pub(crate) pending_close: Option<crate::PendingClose>,
@@ -254,6 +260,7 @@ impl DesktopComposition {
             pending_vscroll_px: 0.0,
             pending_hscroll_px: 0.0,
             pending_removed_buffer_ids: Vec::new(),
+            direct_buffer_ids: Vec::new(),
         }
     }
 
@@ -500,6 +507,8 @@ impl DesktopComposition {
                 m.opened_buffers.remove(pos);
                 m.opened_buffer_count = m.opened_buffers.len();
                 self.pending_removed_buffer_ids.push(bid_str);
+                // Also remove from directly-added tracking if present.
+                self.direct_buffer_ids.retain(|b| b != buffer_id);
 
                 if was_active {
                     m.visible_window = None;
@@ -545,6 +554,11 @@ impl DesktopComposition {
         buffer_id: crate::ports::BufferId,
         display: Option<String>,
     ) {
+        // Track this buffer as directly-added so the refresh cycle
+        // merges it back into opened_buffers after service rebuilds.
+        if !self.direct_buffer_ids.iter().any(|b| b == &buffer_id) {
+            self.direct_buffer_ids.push(buffer_id.clone());
+        }
         let md = self.metadata.get_or_insert_with(|| DesktopMetadata {
             session_id: self.session_id.clone(),
             workspace_id: self.workspace_id.clone(),

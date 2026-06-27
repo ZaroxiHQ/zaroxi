@@ -305,6 +305,23 @@ pub async fn refresh_with_service(
         }
     }
 
+    // Merge directly-added buffers (large files loaded via PieceTable)
+    // back into the opened list.  These buffers were registered through
+    // `add_opened_buffer_direct` and are unknown to the workspace service,
+    // so the service-issued rebuild above drops them.  Re-adding them
+    // ensures stable tabs for large files.
+    for direct_bid in &comp.direct_buffer_ids {
+        let key = direct_bid.to_string();
+        if !opened_list.iter().any(|it| it.buffer_id.to_string() == key) {
+            let display = direct_bid.path().map(|p| p.to_string_lossy().to_string());
+            opened_list.push(super::OpenedBufferItem {
+                buffer_id: direct_bid.clone(),
+                display,
+                active: false,
+            });
+        }
+    }
+
     let opened_count = opened_list.len();
 
     // 4) Update composition metadata and simple recorded ids.
