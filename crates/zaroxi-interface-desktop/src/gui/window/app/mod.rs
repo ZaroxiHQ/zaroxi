@@ -3205,6 +3205,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         large_file_mode,
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
+                        self.mapped_doc.as_mut(),
                         self.editor_buffer.buffer_version,
                         wrap_chars_per_row,
                     );

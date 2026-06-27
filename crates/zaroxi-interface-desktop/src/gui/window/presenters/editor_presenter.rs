@@ -158,6 +158,7 @@ pub fn shape_editor_content_plain(
     _sem: &SemanticColors,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
+    mapped_doc: Option<&mut zaroxi_core_editor_largefile::StreamedDocument>,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
     let wc = match work_content {
@@ -166,11 +167,31 @@ pub fn shape_editor_content_plain(
     };
 
     let editor_body = wc.editor_body.as_ref();
-    let total_lines = rope
-        .map(|r| r.line_count())
+    let total_lines = mapped_doc
+        .as_ref()
+        .map(|md| md.total_lines())
+        .or_else(|| rope.map(|r| r.line_count()))
         .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
 
-    let (editor_body_text, used_visible_range) = if let Some(r) = rope {
+    let (editor_body_text, used_visible_range) = if let Some(doc) = mapped_doc {
+        if let Some((vis_start, vis_end)) = visible_line_range {
+            let start = vis_start.saturating_sub(OVERSCAN_LINES);
+            let end = (vis_end + OVERSCAN_LINES).min(total_lines);
+            let text = doc.viewport_lines(start, end).join("\n");
+            let range = if text.is_empty() && start >= total_lines {
+                None
+            } else {
+                Some((start, end.min(total_lines)))
+            };
+            (text, range)
+        } else {
+            let vis_lines = 50usize;
+            let start = 0usize;
+            let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
+            let text = doc.viewport_lines(start, end).join("\n");
+            (text, Some((start, end)))
+        }
+    } else if let Some(r) = rope {
         if let Some((vis_start, vis_end)) = visible_line_range {
             let start = vis_start.saturating_sub(OVERSCAN_LINES);
             let end = (vis_end + OVERSCAN_LINES).min(total_lines);

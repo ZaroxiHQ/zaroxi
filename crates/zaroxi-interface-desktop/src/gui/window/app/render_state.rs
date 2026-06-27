@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::gui::ShellWorkContent;
 use crate::gui::window::editor::EditorContentData;
+use zaroxi_core_editor_largefile::StreamedDocument;
 use zaroxi_core_editor_rope::Rope;
 use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::theme::SemanticColors;
@@ -62,6 +63,7 @@ pub(crate) fn prepare_editor_data(
     large_file_mode: bool,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
+    mapped_doc: Option<&mut StreamedDocument>,
     buffer_version: u64,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
@@ -106,6 +108,7 @@ pub(crate) fn prepare_editor_data(
             sem,
             visible_line_range,
             rope,
+            mapped_doc,
             wrap_chars_per_row,
         );
 
