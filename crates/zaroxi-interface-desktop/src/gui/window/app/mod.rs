@@ -708,19 +708,28 @@ impl GuiApp {
     pub fn dashboard(&self) {
         let frame = GUI_FRAME_COUNTER.load(Ordering::Relaxed);
         let rss_now = zaroxi_core_telemetry::read_rss_bytes().unwrap_or(0);
+        let vsz_now = zaroxi_core_telemetry::read_vsz_bytes().unwrap_or(0);
         eprintln!("==================== ZAROXI PERFORMANCE DASHBOARD ====================");
+        eprintln!(
+            "  memory   : rss={:.1} MB  vsz={:.1} MB  (live snapshot from /proc/self)",
+            rss_now as f64 / (1024.0 * 1024.0),
+            vsz_now as f64 / (1024.0 * 1024.0),
+        );
         match &self.last_mem_sample {
             Some(s) => eprintln!(
-                "  memory   : rss={:.1} MB  pressure={}  shape_cache={} KB  gpu={} KB  rope={} KB",
-                s.rss_bytes as f64 / (1024.0 * 1024.0),
+                "  last_sample (frame {}): pressure={}  shape_cache={} KB ({} entries)  atlas_entries={}  gpu={} KB  rope={} KB  open_docs={}  total_lines={}",
+                frame,
                 s.pressure,
                 s.shape_cache_bytes / 1024,
+                s.shape_cache_entries,
+                s.atlas_entries,
                 s.gpu_bytes / 1024,
                 s.rope_bytes / 1024,
+                s.open_docs,
+                s.total_lines,
             ),
             None => eprintln!(
-                "  memory   : rss={:.1} MB  (no sample yet \u{2014} sample every {} frames)",
-                rss_now as f64 / (1024.0 * 1024.0),
+                "  last_sample: (no sample yet \u{2014} sample every {} frames)",
                 zaroxi_core_telemetry::memory::DEFAULT_SAMPLE_FRAMES,
             ),
         }
@@ -733,9 +742,117 @@ impl GuiApp {
             warm,
             cold,
         );
+        if let Some(ref comp) = self.composition {
+            if let Some(ref meta) = comp.metadata {
+                eprintln!(
+                    "  composit : opened_buffer_count={}  active_buffer={}",
+                    meta.opened_buffer_count,
+                    meta.active_buffer
+                        .as_ref()
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|| "<none>".to_string()),
+                );
+            }
+            if let Some(ref tr) = self.render_core.as_ref().and_then(|rc| rc.text_renderer()) {
+                let shape_count = tr.shape_cache_entries();
+                let atlas_count = tr.atlas_entry_count();
+                eprintln!(
+                    "  renderer : shape_cache_entries={}  atlas_glyph_entries={}",
+                    shape_count, atlas_count,
+                );
+            }
+        }
         eprintln!("  latency  : per-event TS / AI / LSP timings stream as ZAROXI_TS_TRACE,");
         eprintln!("             ZAROXI_AI_TRACE, ZAROXI_LSP_TRACE (set ZAROXI_PERF_TRACE=1)");
         eprintln!("=====================================================================");
+    }
+
+    /// Dedicated memory report (Ctrl+Shift+M) with per-subsystem breakdown
+    /// and configured limits.
+    pub fn memory_report(&self) {
+        let rss = zaroxi_core_telemetry::read_rss_bytes().unwrap_or(0);
+        let vsz = zaroxi_core_telemetry::read_vsz_bytes().unwrap_or(0);
+        let rss_mb = rss as f64 / (1024.0 * 1024.0);
+        let vsz_mb = vsz as f64 / (1024.0 * 1024.0);
+
+        eprintln!("==================== ZAROXI MEMORY REPORT ====================");
+        eprintln!(
+            "  system   : rss={:.1} MB  vsz={:.1} MB  ratio={:.1}%",
+            rss_mb,
+            vsz_mb,
+            if vsz > 0 { (rss as f64 / vsz as f64) * 100.0 } else { 0.0 }
+        );
+
+        // Glyph caches
+        if let Some(ref core) = self.render_core {
+            if let Some(tr) = core.text_renderer() {
+                let shape_bytes = tr.mem_shape_cache_bytes();
+                let shape_entries = tr.shape_cache_entries();
+                let atlas_entries = tr.atlas_entry_count();
+                let gpu_bytes = tr.mem_gpu_bytes();
+                let shape_kb = shape_bytes / 1024;
+                let gpu_kb = gpu_bytes / 1024;
+                eprintln!(
+                    "  glyphs   : line_shape_cache={} KB ({} entries)  atlas_glyph_cache={} entries  gpu_buffers={} KB",
+                    shape_kb, shape_entries, atlas_entries, gpu_kb
+                );
+                eprintln!(
+                    "            limits: atlas_cap=65536 entries  shape_cache_cap_lru=2048 lines"
+                );
+            }
+        }
+
+        // Rope / editor buffer
+        let char_count = self.editor_buffer.char_count();
+        let line_count = self.editor_buffer.line_count();
+        let rope_kb = char_count as u64 / 1024;
+        eprintln!(
+            "  rope     : current_buffer_chars={}  current_buffer_lines={}  (~{} KB char data)",
+            char_count, line_count, rope_kb
+        );
+
+        // Memory pressure
+        let budget_mb = zaroxi_core_telemetry::DEFAULT_BUDGET_MB;
+        let pressure = if budget_mb > 0 {
+            zaroxi_core_telemetry::classify(
+                rss,
+                budget_mb * 1024 * 1024,
+                zaroxi_core_telemetry::DEFAULT_ELEVATED_PCT,
+                zaroxi_core_telemetry::DEFAULT_CRITICAL_PCT,
+            )
+        } else {
+            zaroxi_core_telemetry::MemoryPressureLevel::Normal
+        };
+        eprintln!(
+            "  pressure : level={}  budget={} MB  elevated_threshold=70%  critical_threshold=90%",
+            pressure, budget_mb
+        );
+
+        // Opened buffers
+        if let Some(ref comp) = self.composition {
+            if let Some(ref meta) = comp.metadata {
+                eprintln!(
+                    "  buffers  : opened_count={}  active={}",
+                    meta.opened_buffer_count,
+                    meta.active_buffer
+                        .as_ref()
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|| "<none>".to_string())
+                );
+            }
+        }
+
+        // wgpu device state
+        eprintln!(
+            "  wgpu     : power_preference=None  limits=custom_reduced_{}MB_buffer_{}px_texture",
+            128, 4096
+        );
+        eprintln!("            max_texture_dimension_2d=4096  max_buffer_size=128MB");
+
+        // Trace hints
+        eprintln!("  trace    : set ZAROXI_MEM_TRACE=1 for per-frame sampling");
+        eprintln!("             set ZAROXI_PERF_TRACE=1 for all diagnostic streams");
+        eprintln!("====================================================================");
     }
 
     pub fn editor_cursor_col(&self) -> usize {
@@ -3951,11 +4068,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 //    not just diagnostic); trace emission self-gates.
                                 if self.mem_monitor.tick() {
                                     let rss = zaroxi_core_telemetry::read_rss_bytes().unwrap_or(0);
+                                    let vsz = zaroxi_core_telemetry::read_vsz_bytes().unwrap_or(0);
                                     let pressure = self.mem_monitor.evaluate(rss);
                                     let (shape_cache_bytes, gpu_bytes) = core
                                         .text_renderer()
                                         .map(|tr| (tr.mem_shape_cache_bytes(), tr.mem_gpu_bytes()))
                                         .unwrap_or((0, 0));
+                                    let shape_cache_entries = core
+                                        .text_renderer()
+                                        .map(|tr| tr.shape_cache_entries())
+                                        .unwrap_or(0);
+                                    let atlas_entries = core
+                                        .text_renderer()
+                                        .map(|tr| tr.atlas_entry_count())
+                                        .unwrap_or(0);
                                     let rope_bytes = self.editor_buffer.char_count() as u64;
                                     // Best-effort active-buffer feed (multi-doc
                                     // feeding is via the tracker API on open/close).
@@ -3964,7 +4090,10 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     self.buffer_tracker.set_visible(["active"]);
                                     let sample = zaroxi_core_telemetry::MemorySample {
                                         rss_bytes: rss,
+                                        vsz_bytes: vsz,
                                         shape_cache_bytes,
+                                        shape_cache_entries,
+                                        atlas_entries,
                                         rope_bytes,
                                         gpu_bytes,
                                         open_docs: self.buffer_tracker.open_count(),
@@ -3974,37 +4103,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     sample.emit();
                                     self.buffer_tracker.emit(frame_id);
                                     self.last_mem_sample = Some(sample);
-                                    // ── Memory trace ──────────────────────
-                                    if std::env::var("ZAROXI_MEM_TRACE").as_deref() == Ok("1") {
-                                        let shape_bytes = shape_cache_bytes as usize;
-                                        let shape_entries = core
-                                            .text_renderer()
-                                            .map(|tr| tr.shape_cache_entries())
-                                            .unwrap_or(0);
-                                        let atlas_entries = core
-                                            .text_renderer()
-                                            .map(|tr| tr.atlas_entry_count())
-                                            .unwrap_or(0);
-                                        let opened_count = self
-                                            .composition
-                                            .as_ref()
-                                            .and_then(|c| c.metadata.as_ref())
-                                            .map(|m| m.opened_buffer_count)
-                                            .unwrap_or(0);
-                                        eprintln!(
-                                            "ZAROXI_MEM_TRACE: frame={} rss_mb={:.0} shape_cache_kb={} shape_cache_entries={} atlas_entries={} gpu_kb={} cockpit_retained_kb={} editor_retained_kb={} rope_kb={} opened_buffers={}",
-                                            frame_id,
-                                            rss as f64 / (1024.0 * 1024.0),
-                                            shape_bytes / 1024,
-                                            shape_entries,
-                                            atlas_entries,
-                                            gpu_bytes as usize / 1024,
-                                            self.cockpit_retained_bytes / 1024,
-                                            self.editor_retained_bytes / 1024,
-                                            rope_bytes as usize / 1024,
-                                            opened_count,
-                                        );
-                                    }
                                     if let Some(tr) = core.text_renderer() {
                                         use zaroxi_core_telemetry::MemoryPressureLevel as Pl;
                                         match pressure {

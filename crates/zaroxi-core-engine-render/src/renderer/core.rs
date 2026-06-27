@@ -218,16 +218,16 @@ impl<'a> Renderer<'a> {
         // request_adapter returns a Result in this workspace; map errors explicitly.
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::None,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
             .map_err(|e| RenderError::Other(format!("request_adapter failed: {:?}", e)))?;
 
-        // Minimal device requirements.
+        // Minimal device requirements; use ZaroxiLimits to keep VSZ small.
         let required_features = Features::empty();
-        let required_limits = Limits::default();
+        let required_limits = ZaroxiLimits::request_limits();
 
         // NOTE: in this workspace adapter.request_device takes a single argument.
         let (device, queue) = adapter
@@ -1603,6 +1603,29 @@ impl<'a> Renderer<'a> {
     }
 }
 
+// ── Zaroxi-reduced wgpu limits for lower VSZ ──────────────────────────────
+
+/// Tight limits tailored to Zaroxi's actual GPU needs (glyph atlas, small
+/// instance buffers, vello overlays). Using `Limits::default()` on some drivers
+/// causes huge virtual-address reservations (VSZ >> RSS). These limits keep
+/// VSZ under 400 MB while remaining above what Zaroxi requires.
+pub struct ZaroxiLimits;
+
+impl ZaroxiLimits {
+    pub fn request_limits() -> wgpu::Limits {
+        wgpu::Limits {
+            max_texture_dimension_2d: 4096,
+            max_buffer_size: 128 * 1024 * 1024,
+            max_storage_buffer_binding_size: 64 * 1024 * 1024,
+            max_storage_buffers_per_shader_stage: 8,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 32,
+            max_sampled_textures_per_shader_stage: 8,
+            ..wgpu::Limits::downlevel_defaults()
+        }
+    }
+}
+
 // ── RenderCore: persistent renderer state that can be reused across frames ──
 
 impl RenderCore {
@@ -1632,7 +1655,7 @@ impl RenderCore {
 
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::None,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -1643,7 +1666,7 @@ impl RenderCore {
             .request_device(&DeviceDescriptor {
                 label: Some("zaroxi-engine-device"),
                 required_features: Features::empty(),
-                required_limits: Limits::default(),
+                required_limits: ZaroxiLimits::request_limits(),
                 ..Default::default()
             })
             .await

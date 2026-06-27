@@ -6,7 +6,9 @@ pub mod memory;
 
 pub use buffer_activity::{BufferActivity, BufferActivityTracker};
 pub use memory::{
-    MemoryMonitor, MemoryPressureLevel, MemorySample, mem_trace_enabled, read_rss_bytes,
+    DEFAULT_BUDGET_MB, DEFAULT_CRITICAL_PCT, DEFAULT_ELEVATED_PCT, DEFAULT_SAMPLE_FRAMES,
+    MemoryMonitor, MemoryPressureLevel, MemorySample, classify, mem_trace_enabled, read_rss_bytes,
+    read_vsz_bytes,
 };
 
 /// Minimal telemetry API exposed to core layers.

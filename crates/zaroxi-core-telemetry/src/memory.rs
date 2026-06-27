@@ -89,6 +89,26 @@ pub fn read_rss_bytes() -> Option<u64> {
     None
 }
 
+/// Read current process virtual memory size (VSZ) in bytes from
+/// `/proc/self/status`. Returns `None` on non-Linux or if unreadable.
+#[cfg(target_os = "linux")]
+pub fn read_vsz_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in status.lines() {
+        if let Some(val) = line.strip_prefix("VmSize:") {
+            // Format: "VmSize:  123456 kB"
+            let kb: u64 = val.trim().split_whitespace().next()?.parse().ok()?;
+            return Some(kb.saturating_mul(1024));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn read_vsz_bytes() -> Option<u64> {
+    None
+}
+
 /// Classify RSS against a budget and the two threshold fractions.
 pub fn classify(
     rss_bytes: u64,
@@ -187,8 +207,14 @@ impl Default for MemoryMonitor {
 pub struct MemorySample {
     /// Process resident set size (bytes).
     pub rss_bytes: u64,
+    /// Process virtual memory size (bytes).
+    pub vsz_bytes: u64,
     /// Shaped-glyph (line) cache footprint (bytes).
     pub shape_cache_bytes: u64,
+    /// Number of entries in the shaped-glyph line cache.
+    pub shape_cache_entries: usize,
+    /// Number of entries in the persistent atlas glyph cache.
+    pub atlas_entries: usize,
     /// Combined rope-buffer footprint across all open documents (bytes).
     pub rope_bytes: u64,
     /// GPU buffer footprint we manage (atlas + instance buffers, bytes).
@@ -205,10 +231,13 @@ impl MemorySample {
     /// Render the canonical `ZAROXI_MEM_TRACE` line.
     pub fn format_line(&self) -> String {
         format!(
-            "ZAROXI_MEM_TRACE: rss_mb={:.1} pressure={} shape_cache_kb={} rope_kb={} gpu_kb={} open_docs={} total_lines={}",
+            "ZAROXI_MEM_TRACE: rss_mb={:.1} vsz_mb={:.1} pressure={} shape_cache_kb={} shape_cache_entries={} atlas_entries={} rope_kb={} gpu_kb={} open_docs={} total_lines={}",
             self.rss_bytes as f64 / (1024.0 * 1024.0),
+            self.vsz_bytes as f64 / (1024.0 * 1024.0),
             self.pressure,
             self.shape_cache_bytes / 1024,
+            self.shape_cache_entries,
+            self.atlas_entries,
             self.rope_bytes / 1024,
             self.gpu_bytes / 1024,
             self.open_docs,
@@ -268,7 +297,10 @@ mod tests {
     fn format_line_has_all_fields() {
         let s = MemorySample {
             rss_bytes: 2 * 1024 * 1024,
+            vsz_bytes: 5 * 1024 * 1024,
             shape_cache_bytes: 4096,
+            shape_cache_entries: 128,
+            atlas_entries: 256,
             rope_bytes: 8192,
             gpu_bytes: 16384,
             open_docs: 3,
@@ -276,7 +308,10 @@ mod tests {
             pressure: MemoryPressureLevel::Elevated,
         };
         let line = s.format_line();
-        assert!(line.starts_with("ZAROXI_MEM_TRACE: rss_mb=2.0 pressure=elevated"));
+        assert!(line.starts_with("ZAROXI_MEM_TRACE: rss_mb=2.0"));
+        assert!(line.contains("vsz_mb=5.0"));
+        assert!(line.contains("shape_cache_entries=128"));
+        assert!(line.contains("atlas_entries=256"));
         assert!(line.contains("shape_cache_kb=4"));
         assert!(line.contains("rope_kb=8"));
         assert!(line.contains("gpu_kb=16"));

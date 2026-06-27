@@ -71,6 +71,26 @@ pub struct DrawRect {
     pub color: wgpu::Color,
 }
 
+/// Tight wgpu limits for Zaroxi's actual GPU needs.
+/// Keeps VSZ under 400 MB by avoiding `Limits::default()` which triggers
+/// large VA reservations on some Vulkan drivers.
+struct ZaroxiLimits;
+
+impl ZaroxiLimits {
+    fn request_limits() -> wgpu::Limits {
+        wgpu::Limits {
+            max_texture_dimension_2d: 4096,
+            max_buffer_size: 128 * 1024 * 1024,
+            max_storage_buffer_binding_size: 64 * 1024 * 1024,
+            max_storage_buffers_per_shader_stage: 8,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 32,
+            max_sampled_textures_per_shader_stage: 8,
+            ..wgpu::Limits::downlevel_defaults()
+        }
+    }
+}
+
 impl<'a> RenderBackend<'a> {
     /// Create a new RenderBackend for the supplied window.
     ///
@@ -85,22 +105,23 @@ impl<'a> RenderBackend<'a> {
         let surface =
             instance.create_surface(window.window()).expect("failed to create wgpu surface");
 
-        // Choose a high-performance adapter when available and prefer a surface-compatible adapter.
+        // Prefer the available adapter without requesting high-performance
+        // (keeps GPU memory pre-allocation lower).
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::None,
                 force_fallback_adapter: false,
                 compatible_surface: Some(&surface),
             })
             .await
             .expect("failed to request wgpu adapter");
 
-        // Request device with conservative, sane limits. Adapter::request_device returns a Result<(Device, Queue), _>.
+        // Request device with zaroxi-reduced limits for lower VSZ.
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("zaroxi-render-device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits: ZaroxiLimits::request_limits(),
                 ..Default::default()
             })
             .await

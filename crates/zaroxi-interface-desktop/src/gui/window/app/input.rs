@@ -294,6 +294,12 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 app.dashboard();
                 Vec::new()
             }
+            // Ctrl+Shift+M: print a focused memory breakdown (RSS, VSZ,
+            // glyph caches, buffers, wgpu limits, pressure, rope size).
+            Key::Character(c) if (c == "m" || c == "M") && app.shift_held => {
+                app.memory_report();
+                Vec::new()
+            }
             Key::Character(c) if c == "w" || c == "W" => {
                 let wc = if let Some(comp) = app.composition.as_mut() {
                     let buf_id = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
