@@ -2948,27 +2948,23 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let syntax_t = std::time::Instant::now();
-                    let wrap_chars_per_row = {
-                        let mono_advance = self
-                            .render_core
-                            .as_ref()
-                            .and_then(|core| core.text_renderer())
-                            .and_then(|tr| tr.monospace_advance_x())
-                            .map(|a| a.max(1.0))
-                            .unwrap_or(lc::CHAR_WIDTH_STUB);
-                        let available_w = if self.tab_state.is_editor_active() {
-                            editor_region
-                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
-                                .unwrap_or(600.0)
-                                .max(40.0)
-                        } else {
-                            editor_region
-                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0)
-                                .unwrap_or(600.0)
-                                .max(40.0)
-                        };
-                        (available_w / mono_advance).floor() as usize
-                    };
+                    // Soft-wrap is gated at 0 (disabled) until a full visual-line
+                    // model is implemented that correctly synchronises scroll offsets,
+                    // cursor projection, content_line_offset, and gutter windowing.
+                    // Enabling requires: visual-row-based scroll model, content_offset_y
+                    // in visual-row pixels, cursor rendering via visual-row index, and
+                    // gutter-aware viewport windowing (not logical-line OVERSCAN).
+                    let wrap_chars_per_row: usize = 0;
+                    // When re-enabling, compute:
+                    //   let mono_advance = self.render_core.as_ref()
+                    //       .and_then(|core| core.text_renderer())
+                    //       .and_then(|tr| tr.monospace_advance_x())
+                    //       .map(|a| a.max(1.0))
+                    //       .unwrap_or(lc::CHAR_WIDTH_STUB);
+                    //   let available_w = editor_region
+                    //       .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
+                    //       .unwrap_or(600.0).max(40.0);
+                    //   let wrap_chars_per_row = (available_w / mono_advance).floor() as usize;
                     let editor_data = render_state::prepare_editor_data(
                         &self.work_content,
                         &mut self.cached_editor_data,

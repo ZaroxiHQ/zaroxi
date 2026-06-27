@@ -161,6 +161,10 @@ pub fn make_gutter_block_windowed(
         clip_rect: None,
         content_offset_x: 0.0,
         content_offset_y: 0.0,
-        content_line_offset: if visual_to_logical.is_empty() { Some(start) } else { None },
+        content_line_offset: if visual_to_logical.is_empty() {
+            Some(start)
+        } else {
+            visual_to_logical.first().copied()
+        },
     }
 }
