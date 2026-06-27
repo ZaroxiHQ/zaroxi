@@ -35,6 +35,7 @@ pub(crate) fn project_editor_cursor(
     rope_total_lines: usize,
     visual_to_logical: &[usize],
     chars_per_row: usize,
+    wrap_visual_offset: usize,
 ) -> Option<(usize, usize)> {
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
@@ -68,10 +69,12 @@ pub(crate) fn project_editor_cursor(
     let first_visible = (editor_scroll_offset * max_scroll_c as f32) as usize;
 
     if !visual_to_logical.is_empty() && chars_per_row > 0 {
-        let logical_line = visual_to_logical.get(visible_line).copied().unwrap_or(0);
-        let sub_line_offset = visual_to_logical[..visible_line.min(visual_to_logical.len())]
+        let visual_row = wrap_visual_offset + visible_line;
+        let logical_line = visual_to_logical.get(visual_row).copied().unwrap_or(0);
+        let sub_line_offset = visual_to_logical
+            [wrap_visual_offset..visual_row.min(visual_to_logical.len())]
             .iter()
-            .take_while(|&&ll| ll == logical_line)
+            .filter(|&&ll| ll == logical_line)
             .count();
         let logical_col = col + sub_line_offset * chars_per_row;
         return Some((logical_line, logical_col));
@@ -127,6 +130,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
             let rope_lines = app.editor_buffer.total_lines();
             let v2l = app.editor_visual_to_logical.clone();
             let cpr = app.editor_chars_per_row;
+            let wvo = app.editor_wrap_visual_offset;
             if let Some((line, vis_col)) = project_editor_cursor(
                 phys,
                 vp,
@@ -137,6 +141,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
                 rope_lines,
                 &v2l,
                 cpr,
+                wvo,
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
@@ -158,6 +163,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
         let rope_lines = app.editor_buffer.total_lines();
         let v2l = app.editor_visual_to_logical.clone();
         let cpr = app.editor_chars_per_row;
+        let wvo = app.editor_wrap_visual_offset;
         if let Some((line, vis_col)) = project_editor_cursor(
             position,
             vp,
@@ -168,6 +174,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
             rope_lines,
             &v2l,
             cpr,
+            wvo,
         ) {
             let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
             let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(

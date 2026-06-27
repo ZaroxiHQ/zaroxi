@@ -376,6 +376,10 @@ pub struct GuiApp {
     pub editor_visual_to_logical: Vec<usize>,
     /// Characters per visual row from the most recent wrap pass.
     pub editor_chars_per_row: usize,
+    /// Visual row offset within the wrapped content window where the
+    /// scroll_top logical line begins.  Used for content_offset_y so the
+    /// renderer positions the viewport correctly.
+    pub editor_wrap_visual_offset: usize,
     pub needs_render: bool,
     pub last_explorer_ids: Vec<String>,
     /// Explorer tree vertical scroll offset, in rows (first visible row).
@@ -2948,23 +2952,21 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
 
                     let syntax_t = std::time::Instant::now();
-                    // Soft-wrap is gated at 0 (disabled) until a full visual-line
-                    // model is implemented that correctly synchronises scroll offsets,
-                    // cursor projection, content_line_offset, and gutter windowing.
-                    // Enabling requires: visual-row-based scroll model, content_offset_y
-                    // in visual-row pixels, cursor rendering via visual-row index, and
-                    // gutter-aware viewport windowing (not logical-line OVERSCAN).
-                    let wrap_chars_per_row: usize = 0;
-                    // When re-enabling, compute:
-                    //   let mono_advance = self.render_core.as_ref()
-                    //       .and_then(|core| core.text_renderer())
-                    //       .and_then(|tr| tr.monospace_advance_x())
-                    //       .map(|a| a.max(1.0))
-                    //       .unwrap_or(lc::CHAR_WIDTH_STUB);
-                    //   let available_w = editor_region
-                    //       .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
-                    //       .unwrap_or(600.0).max(40.0);
-                    //   let wrap_chars_per_row = (available_w / mono_advance).floor() as usize;
+                    let wrap_chars_per_row = {
+                        let available_w = if self.tab_state.is_editor_active() {
+                            editor_region
+                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
+                                .unwrap_or(600.0)
+                                .max(40.0)
+                        } else {
+                            editor_region
+                                .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0)
+                                .unwrap_or(600.0)
+                                .max(40.0)
+                        };
+                        let scale = z.window().scale_factor() as f32;
+                        ((available_w * scale) / mono_advance).floor() as usize
+                    };
                     let editor_data = render_state::prepare_editor_data(
                         &self.work_content,
                         &mut self.cached_editor_data,
@@ -2991,6 +2993,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         + self.latest_spans.as_ref().map(|s| s.len() * 32).unwrap_or(0);
                     self.editor_visual_to_logical = editor_data.visual_to_logical.clone();
                     self.editor_chars_per_row = editor_data.chars_per_row;
+                    self.editor_wrap_visual_offset = editor_data.wrap_visual_offset;
 
                     if debug_large {
                         let content_lines = editor_data.editor_body_text.lines().count();
@@ -3349,8 +3352,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                                 {
                                     block.content_offset_x =
                                         meta.editor_horizontal_offset_px.unwrap_or(0.0);
-                                    let off_y =
-                                        meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                                    let off_y = if self.editor_chars_per_row > 0 {
+                                        self.editor_wrap_visual_offset as f32 * lc::LINE_HEIGHT
+                                    } else {
+                                        meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT
+                                    };
                                     block.content_offset_y = off_y;
                                     if std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1") {
                                         eprintln!(
@@ -3368,7 +3374,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                         if let Some(ref comp) = self.composition
                             && let Some(meta) = &comp.metadata
                         {
-                            let off_y = meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT;
+                            let off_y = if self.editor_chars_per_row > 0 {
+                                self.editor_wrap_visual_offset as f32 * lc::LINE_HEIGHT
+                            } else {
+                                meta.editor_scroll_top_line as f32 * lc::LINE_HEIGHT
+                            };
                             for block in &mut render_blocks {
                                 if block.id == "gutter_lane" {
                                     block.clip_rect = Some(zaroxi_core_engine_render::Rect {

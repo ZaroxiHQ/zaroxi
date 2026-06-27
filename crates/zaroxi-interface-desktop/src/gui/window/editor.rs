@@ -121,7 +121,7 @@ impl EditorPanel {
         }
 
         let content_line_offset = if data.chars_per_row > 0 {
-            Some(data.wrap_visual_offset)
+            None
         } else {
             data.visible_line_range.map(|(start, _)| start)
         };

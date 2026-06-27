@@ -59,6 +59,7 @@ mod tests {
             editor_viewport: None,
             editor_visual_to_logical: Vec::new(),
             editor_chars_per_row: 0,
+            editor_wrap_visual_offset: 0,
             needs_render: true,
             last_explorer_ids: Vec::new(),
             explorer_scroll_top: 0,
