@@ -375,7 +375,7 @@ impl Atlas {
         // allocator can release pages gained during atlas growth.
         let compact_w = 512u32.min(self.max_width);
         let compact_h = 512u32.min(self.max_height);
-        let compact_sz = (compact_w as usize * compact_h as usize);
+        let compact_sz = compact_w as usize * compact_h as usize;
         self.buffer = vec![0u8; compact_sz];
         self.width = compact_w;
         self.height = compact_h;

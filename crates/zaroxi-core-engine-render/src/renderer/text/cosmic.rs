@@ -2046,7 +2046,7 @@ impl CosmicTextRenderer {
         let current = self.font_system.lock().unwrap().db().len();
         if current > self.initial_face_count {
             eprintln!(
-                "FONT_LEAK: {tag} faces={current} initial={init} rss={:.1}MB \
+                "FONT_LEAK: {tag} faces={current} initial={init} rss={rss:.1}MB \
                  (cosmic-text loaded system fonts as fallback)",
                 rss = zaroxi_core_telemetry::rss_mb(),
                 init = self.initial_face_count,
