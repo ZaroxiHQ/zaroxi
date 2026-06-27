@@ -1513,6 +1513,16 @@ impl GuiApp {
                             index_ms,
                         );
                     }
+                    // Register this file as an opened buffer in the compositor so
+                    // a tab appears in the tab bar.  The workspace service was
+                    // bypassed for large files, so we populate the metadata directly.
+                    if let Some(ref mut comp) = self.composition {
+                        let path_str = doc.path().to_string_lossy().into_owned();
+                        let bid = crate::ports::BufferId(format!("buf:{}", path_str));
+                        let display =
+                            doc.path().file_name().and_then(|n| n.to_str()).map(|s| s.to_string());
+                        comp.add_opened_buffer_direct(bid, display);
+                    }
                     // Store the mapped document; the render path will prefer it.
                     self.mapped_doc = Some(doc);
                     // Signal that the open burst can settle.
@@ -3260,7 +3270,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         text_sample: Some(status_text_sample.as_str()),
                         modified: status_modified,
                         parsing: status_parsing,
-                        readonly: false,
+                        readonly: large_file_mode,
                         selection: status_selection,
                         diagnostics: status_diagnostics,
                     };

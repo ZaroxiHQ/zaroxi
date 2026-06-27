@@ -536,6 +536,48 @@ impl DesktopComposition {
         false
     }
 
+    /// Register a buffer directly in the compositor's opened-buffer list,
+    /// bypassing the workspace service.  Used for large files where the
+    /// service is intentionally skipped to avoid loading the full file
+    /// into InMemoryBufferStore.  A tab appears immediately.
+    pub fn add_opened_buffer_direct(
+        &mut self,
+        buffer_id: crate::ports::BufferId,
+        display: Option<String>,
+    ) {
+        let md = self.metadata.get_or_insert_with(|| DesktopMetadata {
+            session_id: self.session_id.clone(),
+            workspace_id: self.workspace_id.clone(),
+            active_buffer: None,
+            opened_buffer_count: 0,
+            opened_buffers: Vec::new(),
+            active_buffer_details: None,
+            ai_projection: None,
+            diagnostics_snapshot: None,
+            visible_window: None,
+            last_command_line: None,
+            editor_viewport_line_count: None,
+            editor_scroll_top_line: 0,
+            editor_scroll_px: 0.0,
+            last_synced_window_height: None,
+            editor_horizontal_offset_px: None,
+            refresh_reason: None,
+        });
+        // Deactivate all existing tabs so only the new one is active.
+        for it in &mut md.opened_buffers {
+            it.active = false;
+        }
+        md.opened_buffers.push(super::OpenedBufferItem {
+            buffer_id: buffer_id.clone(),
+            display,
+            active: true,
+        });
+        md.opened_buffer_count = md.opened_buffers.len();
+        md.active_buffer = Some(buffer_id.clone());
+        md.active_buffer_details =
+            Some(ActiveBufferDetails { buffer_id, line_count: 0, display: None });
+    }
+
     pub fn set_status_message(&mut self, text: String) {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = Some(text);
