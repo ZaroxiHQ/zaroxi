@@ -34,7 +34,6 @@ pub(crate) mod background_read;
 pub(crate) mod debug;
 mod editor_interaction;
 mod input;
-pub(crate) mod mapped_document;
 mod render_schedule;
 mod render_state;
 mod ui_nodes;
@@ -502,9 +501,9 @@ pub struct GuiApp {
     pub cockpit_diff_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
-    /// Memory-mapped document opened for large files (>10k lines).
+    /// Streamed large-file document opened for large files (>1 MB).
     /// When Some, the editor renders from this instead of the rope.
-    pub mapped_doc: Option<mapped_document::MappedDocument>,
+    pub mapped_doc: Option<zaroxi_core_editor_largefile::StreamedDocument>,
     /// `editor_buffer.buffer_version` captured when the active file was last
     /// loaded (or saved). The document is considered modified when the live
     /// buffer version diverges from this baseline.

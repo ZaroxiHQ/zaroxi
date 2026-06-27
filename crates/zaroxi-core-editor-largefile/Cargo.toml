@@ -1,0 +1,9 @@
+[package]
+name = "zaroxi-core-editor-largefile"
+version = "0.1.0"
+edition = "2024"
+description = "Streaming large-file document access (seek+read, zero-allocate scan)"
+license = "MIT"
+
+[dependencies]
+memchr = { workspace = true }

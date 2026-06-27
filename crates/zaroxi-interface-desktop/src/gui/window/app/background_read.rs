@@ -52,7 +52,7 @@ pub enum ReadOutcome {
     Full { token: u64, buffer_id: Option<BufferId>, read_ms: f32, cancelled: bool, path: PathBuf },
     /// A memory-mapped large document (lines > 10 000 or bytes > 1 MB).
     /// The editor renders from this instead of a rope.
-    Mapped { token: u64, doc: super::mapped_document::MappedDocument, index_ms: f32 },
+    Mapped { token: u64, doc: zaroxi_core_editor_largefile::StreamedDocument, index_ms: f32 },
 }
 
 impl ReadOutcome {
@@ -185,12 +185,14 @@ impl BackgroundReadWorker {
 
             if is_large {
                 let start = Instant::now();
-                match super::mapped_document::MappedDocument::from_path(&job.path) {
-                    Ok(doc) => {
+                match zaroxi_core_editor_largefile::StreamedDocument::open(&job.path) {
+                    Ok(mut doc) => {
+                        // Index lines in this background thread (50-150 ms).
+                        // Progress is not shown via a channel yet; the head
+                        // preview already covers the first screenful.
+                        let _ = doc.index_lines(|_count| {});
                         let index_ms = start.elapsed().as_secs_f32() * 1000.0;
-                        // Still register the buffer for the workspace service
-                        // (so the orchestrator knows about it), but do NOT
-                        // wait — send the mapped doc first.
+                        // Still register the buffer for the workspace service.
                         let req = OpenBufferRequest {
                             session_id: job.session_id.clone(),
                             path: job.path.clone(),
@@ -206,7 +208,7 @@ impl BackgroundReadWorker {
                     }
                     Err(e) => {
                         log::warn!(
-                            "read-worker: MappedDocument::from_path failed for {:?}: {:?}",
+                            "read-worker: StreamedDocument::open failed for {:?}: {:?}",
                             job.path,
                             e
                         );

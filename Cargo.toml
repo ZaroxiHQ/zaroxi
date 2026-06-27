@@ -41,6 +41,7 @@ members = [
   "crates/zaroxi-core-editor-minimap",
   "crates/zaroxi-core-editor-model",
   "crates/zaroxi-core-editor-rope",
+  "crates/zaroxi-core-editor-largefile",
   "crates/zaroxi-core-editor-selection",
   "crates/zaroxi-core-editor-transaction",
   "crates/zaroxi-core-editor-view",
@@ -270,6 +271,7 @@ zaroxi-core-editor-inline-ai = { path = "crates/zaroxi-core-editor-inline-ai" }
 zaroxi-core-editor-minimap = { path = "crates/zaroxi-core-editor-minimap" }
 zaroxi-core-editor-model = { path = "crates/zaroxi-core-editor-model" }
 zaroxi-core-editor-rope = { path = "crates/zaroxi-core-editor-rope" }
+zaroxi-core-editor-largefile = { path = "crates/zaroxi-core-editor-largefile" }
 zaroxi-core-editor-selection = { path = "crates/zaroxi-core-editor-selection" }
 zaroxi-core-editor-transaction = { path = "crates/zaroxi-core-editor-transaction" }
 zaroxi-core-editor-view = { path = "crates/zaroxi-core-editor-view" }
