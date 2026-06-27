@@ -175,6 +175,12 @@ pub fn shape_editor_content_plain(
 
     // Priority 1: doc_buffers DocumentBuffer
     if let Some(db) = doc_buffer {
+        if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
+            let total = db.total_lines();
+            eprintln!(
+                "RENDER_SOURCE: doc_buffers total_lines={total} vis_range={visible_line_range:?}"
+            );
+        }
         let total = db.total_lines();
         total_lines = total;
         if let Some((vis_start, vis_end)) = visible_line_range {
@@ -198,6 +204,18 @@ pub fn shape_editor_content_plain(
             used_visible_range = Some((start, end));
         }
     } else {
+        if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
+            let source = if mapped_doc.is_some() {
+                "mapped_doc"
+            } else if rope.is_some() {
+                "rope"
+            } else {
+                "editor_body"
+            };
+            eprintln!(
+                "RENDER_SOURCE: {source} (doc_buffers miss) vis_range={visible_line_range:?}"
+            );
+        }
         total_lines = mapped_doc
             .as_ref()
             .map(|md| md.total_lines())

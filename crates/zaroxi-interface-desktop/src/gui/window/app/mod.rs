@@ -1072,6 +1072,24 @@ impl GuiApp {
             self.editor_retained_bytes = 0;
             // Reset per-file cockpit state.
             self.cockpit_minimap_symbols.clear();
+            // Clear single-value fallbacks so a new file never renders
+            // with the previous file's rope or StreamedDocument.
+            self.mapped_doc = None;
+
+            // Detect large-file mode from the file path so the render
+            // pipeline skips rope fallback (which holds the previous
+            // file's content) even when the workspace service hasn't
+            // populated body.lines yet (skipped for large files).
+            self.large_file_mode = wc
+                .active_file
+                .as_deref()
+                .map(|s| s.strip_prefix("buf:").unwrap_or(s))
+                .and_then(|path_str| {
+                    std::fs::metadata(path_str).ok().map(|m| {
+                        m.len() >= zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD
+                    })
+                })
+                .unwrap_or(false);
             self.cockpit_symbols_version = 0;
             self.cockpit_diff_hunks.clear();
             self.cockpit_diff_version = 0;
@@ -1092,8 +1110,13 @@ impl GuiApp {
         // a status-message refresh — must NOT re-populate/re-background the
         // buffer it already holds; it is a pure chrome update.
         if buffer_changed && let Some(ref body) = wc.editor_body {
-            // Detect large-file mode from the incoming content view.
-            self.large_file_mode = Self::is_large_file(&body.lines);
+            // large_file_mode was already set from file-size metadata above.
+            // Only refine it: if the content lines are available and clearly
+            // small, we can downgrade.  But never downgrade a true → false
+            // just because body.lines is empty (workspace service skipped).
+            if !self.large_file_mode {
+                self.large_file_mode = Self::is_large_file(&body.lines);
+            }
             let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
             if zaroxi_core_telemetry::startup_trace_enabled() {
                 let tag =
