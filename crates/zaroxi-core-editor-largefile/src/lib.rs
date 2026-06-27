@@ -1,21 +1,29 @@
-//! Streaming large-file document access.
+//! Large-file document access.
 //!
-//! When a file is too large to load into a `Rope` (>10 000 lines or >1 MB),
-//! this module provides a seek+read strategy: line offsets are indexed with
-//! SIMD `memchr` in a background thread, and viewport lines are fetched on
-//! demand via `File::seek` + `BufReader::read_line`.  Only the scrollable
-//! viewport touches RSS; the rest stays on disk.
+//! # Types
+//!
+//! - [`StreamedDocument`]: read-only seek+read access.  Only the visible
+//!   viewport enters RSS.  Best for viewing-only (logs, generated files).
+//! - [`PieceTable`]: editable piece-table backed large file.  Original
+//!   content loaded once into `Vec<u8>`; edits go into an append-only buffer.
+//! - [`DocumentBuffer`]: enum unifying `ropey::Rope` (small files) and
+//!   [`PieceTable`] (large files) behind a common API.
 //!
 //! # Unsafe-free design
 //!
-//! Uses only `std::fs::File`, `std::io::BufReader`, and `std::io::Seek`.
-//! No `memmap2`, no raw pointers, no unsafe.
+//! Uses only `std::fs`, `std::io`, and `memchr`.  No `memmap2`, no raw
+//! pointers, no unsafe.
 
+pub mod piece_table;
+
+use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use memchr::memchr_iter;
+
+pub use piece_table::PieceTable;
 
 /// A large file accessed via seek+read — only touched lines enter RSS.
 ///
@@ -25,7 +33,7 @@ use memchr::memchr_iter;
 ///  - per-line `String`:     ~2 KB    (viewport only)
 ///  - total overhead:        ~4.5 MB
 pub struct StreamedDocument {
-    file: File,
+    file: std::fs::File,
     line_offsets: Vec<u32>,
     total_lines: usize,
     path: PathBuf,
@@ -134,5 +142,137 @@ impl StreamedDocument {
     pub fn viewport_lines(&mut self, first: usize, last: usize) -> Vec<String> {
         let last = last.min(self.total_lines.saturating_sub(1));
         (first..=last).map(|i| self.line(i)).collect()
+    }
+}
+
+// ── DocumentBuffer — unified small + large file interface ────────────────
+
+/// Backend-agnostic document buffer.
+///
+/// Small files (<1 MB) use `ropey::Rope` for optimal frequent-edit
+/// performance.  Large files (≥1 MB) use [`PieceTable`] for lower
+/// memory overhead.  The render and edit pipelines use this enum
+/// without knowing which backend is active.
+pub enum DocumentBuffer {
+    Rope(ropey::Rope),
+    Large(PieceTable),
+}
+
+impl DocumentBuffer {
+    /// Threshold in bytes above which a file is considered large.
+    pub const LARGE_THRESHOLD: u64 = 1024 * 1024;
+
+    /// Open a file, choosing the appropriate backend based on size.
+    /// Call in a background thread — never blocks the render thread.
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let meta = std::fs::metadata(path)?;
+        if meta.len() >= Self::LARGE_THRESHOLD {
+            PieceTable::open(path).map(Self::Large)
+        } else {
+            let text = fs::read_to_string(path)?;
+            Ok(Self::Rope(ropey::Rope::from_str(&text)))
+        }
+    }
+
+    pub fn total_lines(&self) -> usize {
+        match self {
+            Self::Rope(r) => r.len_lines(),
+            Self::Large(pt) => pt.total_lines(),
+        }
+    }
+
+    pub fn total_bytes(&self) -> usize {
+        match self {
+            Self::Rope(r) => r.len_bytes(),
+            Self::Large(pt) => pt.total_bytes(),
+        }
+    }
+
+    /// Viewport lines `[first..last]` as `Vec<(line_idx, content)>`.
+    pub fn lines_in_range(&self, first: usize, last: usize) -> Vec<(usize, String)> {
+        match self {
+            Self::Rope(r) => {
+                let total = r.len_lines();
+                let last = last.min(total.saturating_sub(1));
+                (first..=last)
+                    .map(|i| {
+                        let line = r.line(i);
+                        let s = line
+                            .as_str()
+                            .unwrap_or("")
+                            .trim_end_matches('\n')
+                            .trim_end_matches('\r')
+                            .to_owned();
+                        (i, s)
+                    })
+                    .collect()
+            }
+            Self::Large(pt) => pt.lines_in_range(first, last),
+        }
+    }
+
+    /// Convert (line, col) to byte offset for edit positioning.
+    pub fn line_col_to_byte_offset(&self, line: usize, col: usize) -> usize {
+        match self {
+            Self::Rope(r) => {
+                let byte = r.line_to_byte(line.min(r.len_lines().saturating_sub(1)));
+                let line_bytes =
+                    r.line(line.min(r.len_lines().saturating_sub(1))).as_str().unwrap_or("").len();
+                (byte + col.min(line_bytes)).min(r.len_bytes())
+            }
+            Self::Large(pt) => pt.line_col_to_byte_offset(line, col),
+        }
+    }
+
+    pub fn insert(&mut self, byte_offset: usize, text: &str) {
+        match self {
+            Self::Rope(r) => {
+                let idx = r.byte_to_char(byte_offset.min(r.len_bytes()));
+                r.insert(idx, text);
+            }
+            Self::Large(pt) => pt.insert(byte_offset, text),
+        }
+    }
+
+    pub fn delete(&mut self, start: usize, end: usize) {
+        match self {
+            Self::Rope(r) => {
+                let s = r.byte_to_char(start.min(r.len_bytes()));
+                let e = r.byte_to_char(end.min(r.len_bytes()));
+                if s < e {
+                    r.remove(s..e);
+                }
+            }
+            Self::Large(pt) => pt.delete(start, end),
+        }
+    }
+
+    pub fn is_modified(&self) -> bool {
+        match self {
+            Self::Rope(_) => false,
+            Self::Large(pt) => pt.is_modified,
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        match self {
+            Self::Rope(r) => {
+                use std::io::Write;
+                let mut f = fs::File::create(path)?;
+                for chunk in r.chunks() {
+                    f.write_all(chunk.as_bytes())?;
+                }
+                f.flush()?;
+                Ok(())
+            }
+            Self::Large(pt) => pt.save(path),
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Self::Rope(_) => None,
+            Self::Large(pt) => Some(pt.path.as_path()),
+        }
     }
 }

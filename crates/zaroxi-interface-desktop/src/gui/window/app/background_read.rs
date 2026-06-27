@@ -52,7 +52,7 @@ pub enum ReadOutcome {
     Full { token: u64, buffer_id: Option<BufferId>, read_ms: f32, cancelled: bool, path: PathBuf },
     /// A memory-mapped large document (lines > 10 000 or bytes > 1 MB).
     /// The editor renders from this instead of a rope.
-    Mapped { token: u64, doc: zaroxi_core_editor_largefile::StreamedDocument, index_ms: f32 },
+    Mapped { token: u64, doc: zaroxi_core_editor_largefile::DocumentBuffer, index_ms: f32 },
 }
 
 impl ReadOutcome {
@@ -185,16 +185,9 @@ impl BackgroundReadWorker {
 
             if is_large {
                 let start = Instant::now();
-                match zaroxi_core_editor_largefile::StreamedDocument::open(&job.path) {
-                    Ok(mut doc) => {
-                        // Index lines in this background thread (50-150 ms).
-                        // Progress is not shown via a channel yet; the head
-                        // preview already covers the first screenful.
-                        let _ = doc.index_lines(|_count| {});
+                match zaroxi_core_editor_largefile::DocumentBuffer::open(&job.path) {
+                    Ok(doc) => {
                         let index_ms = start.elapsed().as_secs_f32() * 1000.0;
-                        // For large files, skip the workspace-service open
-                        // (which loads the full file into InMemoryBufferStore).
-                        // The StreamedDocument handles line access directly.
                         let _ = outcome_tx.send(ReadOutcome::Mapped {
                             token: job.token,
                             doc,
@@ -203,7 +196,7 @@ impl BackgroundReadWorker {
                     }
                     Err(e) => {
                         log::warn!(
-                            "read-worker: StreamedDocument::open failed for {:?}: {:?}",
+                            "read-worker: DocumentBuffer::open failed for {:?}: {:?}",
                             job.path,
                             e
                         );

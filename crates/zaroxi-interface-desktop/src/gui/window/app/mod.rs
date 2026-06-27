@@ -504,6 +504,12 @@ pub struct GuiApp {
     /// Streamed large-file document opened for large files (>1 MB).
     /// When Some, the editor renders from this instead of the rope.
     pub mapped_doc: Option<zaroxi_core_editor_largefile::StreamedDocument>,
+    /// Per-path document buffers; keyed by file path so the active tab's
+    /// buffer can be looked up during render/edit/save.  Uses
+    /// `DocumentBuffer` which wraps either `ropey::Rope` (small files)
+    /// or `PieceTable` (large files) behind a common API.
+    pub doc_buffers:
+        std::collections::HashMap<String, zaroxi_core_editor_largefile::DocumentBuffer>,
     /// `editor_buffer.buffer_version` captured when the active file was last
     /// loaded (or saved). The document is considered modified when the live
     /// buffer version diverges from this baseline.
@@ -1503,27 +1509,35 @@ impl GuiApp {
                     self.last_upstream_open_prep_ms = index_ms;
                     self.large_file_mode = true;
                     let total = doc.total_lines();
+                    let byte_len = doc.total_bytes();
+                    let doc_path = doc.path().map(|p| p.to_path_buf());
                     if file_open_trace_enabled() {
                         eprintln!(
                             "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=mapped_doc_ready \
-                             lines={} mmap_bytes={} index_ms={:.1}",
-                            tok,
-                            total,
-                            doc.byte_len(),
-                            index_ms,
+                             lines={} doc_bytes={} index_ms={:.1}",
+                            tok, total, byte_len, index_ms,
                         );
                     }
-                    // Register this file as an opened buffer in the compositor so
-                    // a tab appears in the tab bar.  The workspace service was
-                    // bypassed for large files, so we populate the metadata directly.
+                    // Store in per-path map; the render pipeline looks up
+                    // the active tab's buffer by path.
+                    let path_str = doc_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.doc_buffers.insert(path_str.clone(), doc);
+                    // Register as an opened buffer for the tab bar.
                     if let Some(ref mut comp) = self.composition {
-                        let path_str = doc.path().to_string_lossy().into_owned();
+                        let path_str = doc_path
+                            .as_ref()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_default();
                         let bid = crate::ports::BufferId(format!("buf:{}", path_str));
-                        let display =
-                            doc.path().file_name().and_then(|n| n.to_str()).map(|s| s.to_string());
+                        let display = doc_path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .and_then(|n| n.to_str())
+                            .map(|s| s.to_string());
                         comp.add_opened_buffer_direct(bid.clone(), display);
-                        // Also update line_count so scrolling works — the
-                        // compositor clamps scroll to line_count.
                         if let Some(ref mut meta) = comp.metadata {
                             meta.active_buffer_details =
                                 Some(crate::desktop::ActiveBufferDetails {
@@ -1533,9 +1547,6 @@ impl GuiApp {
                                 });
                         }
                     }
-                    // Store the mapped document; the render path will prefer it.
-                    self.mapped_doc = Some(doc);
-                    // Signal that the open burst can settle.
                     self.open_settling = false;
                     self.commit_deferred_open = true;
                     self.needs_render = true;
@@ -3212,6 +3223,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                         let scale = z.window().scale_factor() as f32;
                         ((available_w * scale) / mono_advance).floor() as usize
                     };
+                    let doc_buf = self
+                        .committed_active_file
+                        .as_ref()
+                        .and_then(|p| self.doc_buffers.get_mut(p));
+                    let is_large_doc = doc_buf
+                        .as_ref()
+                        .map(|db| {
+                            matches!(db, zaroxi_core_editor_largefile::DocumentBuffer::Large(_))
+                        })
+                        .unwrap_or(false);
                     let editor_data = render_state::prepare_editor_data(
                         &self.work_content,
                         &mut self.cached_editor_data,
@@ -3222,7 +3243,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                         &sem,
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
-                        large_file_mode,
+                        large_file_mode || is_large_doc,
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
                         self.mapped_doc.as_mut(),
@@ -3409,9 +3430,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                     );
 
                     let editor_total_lines = self
-                        .mapped_doc
+                        .committed_active_file
                         .as_ref()
-                        .map(|md| md.total_lines())
+                        .and_then(|p| self.doc_buffers.get(p))
+                        .map(|db| db.total_lines())
+                        .or_else(|| self.mapped_doc.as_ref().map(|md| md.total_lines()))
                         .unwrap_or_else(|| self.editor_buffer.line_count());
 
                     if let Some(ref mut comp) = self.composition {

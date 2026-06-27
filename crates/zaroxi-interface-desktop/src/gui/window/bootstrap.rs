@@ -152,6 +152,7 @@ pub fn run_shell_window(
         cockpit_diff_version: 0,
         parse_worker: None,
         mapped_doc: None,
+        doc_buffers: std::collections::HashMap::new(),
         saved_buffer_version: 0,
         frame_scheduler: super::app::FrameScheduler::new(),
         ui_node_tracker: Default::default(),

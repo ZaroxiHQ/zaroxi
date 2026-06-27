@@ -2,8 +2,9 @@
 name = "zaroxi-core-editor-largefile"
 version = "0.1.0"
 edition = "2024"
-description = "Streaming large-file document access (seek+read, zero-allocate scan)"
+description = "Large-file document access: streaming read-only (StreamedDocument) and editable piece-table (PieceTable)"
 license = "MIT"
 
 [dependencies]
 memchr = { workspace = true }
+ropey = { workspace = true }

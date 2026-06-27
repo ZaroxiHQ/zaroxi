@@ -4563,6 +4563,7 @@ name = "zaroxi-core-editor-largefile"
 version = "0.1.0"
 dependencies = [
  "memchr",
+ "ropey",
 ]
 
 [[package]]
