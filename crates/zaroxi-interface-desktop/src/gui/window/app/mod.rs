@@ -3388,7 +3388,11 @@ impl winit::application::ApplicationHandler for GuiApp {
                             .map(|(x, y, w, h)| format!("({:.0},{:.0},{:.0}x{:.0})", x, y, w, h))
                     );
 
-                    let editor_total_lines = self.editor_buffer.line_count();
+                    let editor_total_lines = self
+                        .mapped_doc
+                        .as_ref()
+                        .map(|md| md.total_lines())
+                        .unwrap_or_else(|| self.editor_buffer.line_count());
 
                     if let Some(ref mut comp) = self.composition {
                         comp.set_editor_viewport_lines(editor_visible_lines);
