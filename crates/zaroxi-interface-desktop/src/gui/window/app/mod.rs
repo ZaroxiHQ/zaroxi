@@ -1099,7 +1099,23 @@ impl GuiApp {
                     zaroxi_core_telemetry::rss_mb()
                 );
             }
-            if Self::should_background_open(&body.lines) {
+            if self.large_file_mode {
+                // Large file: skip rope population entirely.
+                // The StreamedDocument (arriving via poll_read_results)
+                // handles viewport-only line access.  Setting large_file_mode
+                // also ensures syntax/minimap/diff are all suppressed.
+                backgrounded = true;
+                if self.large_file_mode
+                    && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
+                {
+                    eprintln!(
+                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={}",
+                        body.lines.len(),
+                        body.lines.iter().map(|l| l.len()).sum::<usize>(),
+                        backgrounded,
+                    );
+                }
+            } else if Self::should_background_open(&body.lines) {
                 // ── Heavy file: materialize the rope OFF the UI thread ──
                 // The UI thread does only cheap bookkeeping here; the editor keeps
                 // showing the previous content (loading) until the worker's rope
@@ -1156,16 +1172,6 @@ impl GuiApp {
                         load_mode,
                     );
                 }
-            }
-            if self.large_file_mode
-                && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
-            {
-                eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={}",
-                    body.lines.len(),
-                    body.lines.iter().map(|l| l.len()).sum::<usize>(),
-                    backgrounded,
-                );
             }
         }
         self.committed_active_file = wc.active_file.clone();
@@ -1512,6 +1518,7 @@ impl GuiApp {
                     // Signal that the open burst can settle.
                     self.open_settling = false;
                     self.commit_deferred_open = true;
+                    self.needs_render = true;
                 }
                 background_read::ReadOutcome::Full { buffer_id, read_ms, .. } => {
                     self.last_upstream_open_prep_ms = read_ms;

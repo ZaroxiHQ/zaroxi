@@ -192,14 +192,9 @@ impl BackgroundReadWorker {
                         // preview already covers the first screenful.
                         let _ = doc.index_lines(|_count| {});
                         let index_ms = start.elapsed().as_secs_f32() * 1000.0;
-                        // Still register the buffer for the workspace service.
-                        let req = OpenBufferRequest {
-                            session_id: job.session_id.clone(),
-                            path: job.path.clone(),
-                        };
-                        let _buffer_id = pollster::block_on(job.service.open_buffer(req))
-                            .ok()
-                            .map(|r| r.buffer_id);
+                        // For large files, skip the workspace-service open
+                        // (which loads the full file into InMemoryBufferStore).
+                        // The StreamedDocument handles line access directly.
                         let _ = outcome_tx.send(ReadOutcome::Mapped {
                             token: job.token,
                             doc,
