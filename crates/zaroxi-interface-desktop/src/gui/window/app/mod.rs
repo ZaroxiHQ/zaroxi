@@ -1180,7 +1180,13 @@ impl GuiApp {
                 }
             }
         }
-        self.committed_active_file = wc.active_file.clone();
+        self.committed_active_file = wc.active_file.clone().map(|s| {
+            // Strip `buf:` prefix inserted by BufferId::from_path so the
+            // value is a plain canonical path.  This makes it match the
+            // keys in `doc_buffers` (plain paths) and any downstream
+            // `Path::new()` usage.
+            s.strip_prefix("buf:").unwrap_or(&s).to_string()
+        });
         if !backgrounded {
             // Synchronous / no-op commit: this token's buffer is ready now.
             self.committed_open_token = token;
