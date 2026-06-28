@@ -66,10 +66,10 @@ pub use render_schedule::{FrameScheduler, InvalidationFlags};
 // (`super::perf_trace_enabled()` in sibling modules, bare names in this module)
 // resolve unchanged after the helpers moved into `debug.rs`.
 pub(crate) use debug::{
-    decoration_trace_enabled, doc_lifecycle_trace_enabled, file_open_trace_enabled,
-    first_open_trace_enabled, frame_trace_enabled, open_present_trace_enabled, perf_event,
-    perf_trace_enabled, pipeline_trace_enabled, render_trace_enabled, scroll_trace_enabled,
-    settle_trace_enabled, syntax_trace_enabled,
+    caret_trace_enabled, decoration_trace_enabled, doc_lifecycle_trace_enabled,
+    file_open_trace_enabled, first_open_trace_enabled, frame_trace_enabled,
+    open_present_trace_enabled, perf_event, perf_trace_enabled, pipeline_trace_enabled,
+    render_trace_enabled, scroll_trace_enabled, settle_trace_enabled, syntax_trace_enabled,
 };
 
 use winit::window::WindowAttributes;
@@ -510,6 +510,82 @@ pub(crate) fn annotate_tabs_dirty(
     tabs
 }
 
+/// Pure scroll-follow math: given the caret's logical line, the current scroll
+/// top (first visible logical line), the visible row count, and the total line
+/// count, return the new scroll top that keeps the caret inside the viewport
+/// with the smallest movement.
+///
+/// This is the single invariant behind `ensure_caret_visible`, factored out so
+/// it can be unit-tested without a full `GuiApp`. It never returns a value that
+/// would push the caret out of view, and at EOF it clamps to the last full
+/// screen (never snapping back to line 0).
+pub(crate) fn scroll_top_to_keep_caret_visible(
+    caret_line: usize,
+    cur_top: usize,
+    visible: usize,
+    total_lines: usize,
+) -> usize {
+    let visible = visible.max(1);
+    let total = total_lines.max(1);
+    let caret = caret_line.min(total - 1);
+    let max_top = total.saturating_sub(visible);
+    let new_top = if caret < cur_top {
+        // Caret is above the window — scroll up so it becomes the first row.
+        caret
+    } else if caret >= cur_top + visible {
+        // Caret is below the window — scroll down so it becomes the last row.
+        caret + 1 - visible
+    } else {
+        // Already visible — do not move.
+        cur_top
+    };
+    new_top.min(max_top)
+}
+
+/// Pure caret→visual-row projection: map a caret's logical line to the visual
+/// row used by the renderer, honoring soft-wrap.
+///
+/// - When not wrapping (`chars_per_row == 0` or an empty window map), the caret
+///   row is the absolute logical line (the renderer offsets it by the scroll
+///   origin via `content_offset_y`).
+/// - When wrapping, the row is the caret line's first visual row within the
+///   window plus the wrapped sub-row implied by the visual column.
+///
+/// If the caret's logical line is not present in the window map (off-window or a
+/// transiently stale map), it clamps to the nearest edge — the LAST row when the
+/// caret is at/below the window, never snapping back to row 0. This is the single
+/// tested rule the render path uses; it never invents a caret position the model
+/// did not produce.
+pub(crate) fn caret_visual_row(
+    logical_cursor: usize,
+    cursor_visual_col: usize,
+    visual_to_logical: &[usize],
+    chars_per_row: usize,
+) -> usize {
+    if visual_to_logical.is_empty() || chars_per_row == 0 {
+        return logical_cursor;
+    }
+    let base = visual_to_logical.iter().position(|&ll| ll == logical_cursor).unwrap_or_else(|| {
+        let first = visual_to_logical.first().copied().unwrap_or(0);
+        if logical_cursor < first {
+            // Caret above the window → first row.
+            0
+        } else {
+            // Caret at/below the window, or a transiently incomplete map (e.g.
+            // the just-created EOF line not yet in the windowed map): place it on
+            // the row just past the last mapped line, advancing one row per
+            // logical line beyond it. This NEVER snaps back to the old/top line,
+            // so Enter-at-EOF always moves the caret downward.
+            let last = visual_to_logical.last().copied().unwrap_or(0);
+            let last_row = visual_to_logical.len().saturating_sub(1);
+            last_row + logical_cursor.saturating_sub(last)
+        }
+    });
+    let wrapped_rows_for_line =
+        visual_to_logical.iter().filter(|&&ll| ll == logical_cursor).count().saturating_sub(1);
+    base + (cursor_visual_col / chars_per_row.max(1)).min(wrapped_rows_for_line)
+}
+
 // ── Large-file thresholds ──
 
 /// Maximum line count before the background parser receives empty/plain-text
@@ -556,6 +632,67 @@ impl GuiApp {
             return db.is_modified();
         }
         self.editor_buffer.is_dirty()
+    }
+
+    /// The single shared post-move/post-edit invariant: keep the active caret's
+    /// logical line inside the editor viewport by adjusting the scroll origin
+    /// (`editor_scroll_top_line`) with the minimal movement.
+    ///
+    /// Called after every caret-affecting action (arrows, Home/End, newline,
+    /// backspace/delete across lines, paste/cut, undo/redo, mouse-click
+    /// reposition) via the shared editor redraw path. Uses the rope's
+    /// authoritative line count so it is correct immediately after edits, with no
+    /// dependence on the workspace projection's possibly-stale `line_count`.
+    ///
+    /// No-op for large-file mode (the piece-table viewport manages its own
+    /// scroll) and before the editor viewport size is known. It writes the
+    /// scroll origin directly (the single source of truth read by the renderer)
+    /// and clears any queued wheel deltas so they cannot fight the caret-follow.
+    pub(crate) fn ensure_caret_visible(&mut self) {
+        if self.large_file_mode {
+            return;
+        }
+        // Fallback visible-row count from the viewport content height, used only
+        // if the renderer has not yet published `editor_viewport_line_count`.
+        let vp_visible = self
+            .editor_viewport
+            .as_ref()
+            .map(|vp| lc::visible_lines_from_region(vp.content_rect.3));
+        let total_lines = self.editor_buffer.line_count().max(1);
+        let caret_line = self.editor_buffer.caret_line();
+        let trace = caret_trace_enabled();
+
+        let mut changed = false;
+        if let Some(comp) = self.composition.as_mut()
+            && let Some(meta) = comp.metadata.as_mut()
+        {
+            // Prefer the renderer's published visible-row count so caret-follow
+            // uses the exact same window height as the rendered visible range.
+            let Some(visible) = meta.editor_viewport_line_count.or(vp_visible).map(|v| v.max(1))
+            else {
+                return;
+            };
+            let cur_top = meta.editor_scroll_top_line;
+            let new_top =
+                scroll_top_to_keep_caret_visible(caret_line, cur_top, visible, total_lines);
+            changed = new_top != cur_top;
+            if changed {
+                meta.editor_scroll_top_line = new_top;
+                meta.editor_scroll_px = new_top as f32 * lc::LINE_HEIGHT;
+                // Drop queued wheel deltas so they don't override caret-follow.
+                comp.pending_scroll_lines = 0;
+                comp.pending_vscroll_px = 0.0;
+            }
+            if trace {
+                eprintln!(
+                    "ZAROXI_CARET_VIEWPORT: ensure_visible applied={} caret_line={} cur_top={} new_top={} visible={} total={}",
+                    changed, caret_line, cur_top, new_top, visible, total_lines,
+                );
+            }
+        }
+        if changed {
+            self.invalidate(InvalidationFlags::scroll());
+        }
     }
 
     /// Set of canonical document paths (the `buf:` prefix stripped) that
@@ -659,5 +796,130 @@ impl GuiApp {
             z.window().request_redraw();
             self.frame_scheduler.mark_redraw_requested();
         }
+    }
+}
+
+#[cfg(test)]
+mod caret_viewport_tests {
+    use super::scroll_top_to_keep_caret_visible;
+
+    // Window shows `visible` rows starting at `cur_top`; document has `total` lines.
+
+    #[test]
+    fn caret_already_visible_does_not_move() {
+        // top=10, visible=20 → window [10,30); caret 15 is inside.
+        assert_eq!(scroll_top_to_keep_caret_visible(15, 10, 20, 100), 10);
+    }
+
+    #[test]
+    fn caret_below_window_scrolls_down_minimally() {
+        // window [0,20); caret at line 25 → new top so caret is last row: 25+1-20=6.
+        assert_eq!(scroll_top_to_keep_caret_visible(25, 0, 20, 100), 6);
+    }
+
+    #[test]
+    fn caret_above_window_scrolls_up_to_caret() {
+        // window [40,60); caret at line 12 → top becomes 12.
+        assert_eq!(scroll_top_to_keep_caret_visible(12, 40, 20, 100), 12);
+    }
+
+    #[test]
+    fn down_arrow_one_past_bottom_advances_one_line() {
+        // window [0,20); caret moved to line 20 (one past bottom) → top=1.
+        assert_eq!(scroll_top_to_keep_caret_visible(20, 0, 20, 100), 1);
+    }
+
+    #[test]
+    fn eof_clamps_to_last_screen_never_zero() {
+        // 100-line doc, 20 visible, caret at last line (99) → top=80 (last screen),
+        // NOT 0. This is the regression: EOF movement must not snap to the top.
+        assert_eq!(scroll_top_to_keep_caret_visible(99, 0, 20, 100), 80);
+    }
+
+    #[test]
+    fn newline_at_eof_follows_caret_down() {
+        // Just inserted a newline at EOF: total grew to 51, caret on the new last
+        // line (50), window was [0,20) → top=31 so the new line is the last row.
+        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 20, 51), 31);
+    }
+
+    #[test]
+    fn document_shorter_than_viewport_stays_at_top() {
+        // 5 lines, 20 visible → max_top=0; caret anywhere keeps top at 0.
+        assert_eq!(scroll_top_to_keep_caret_visible(4, 0, 20, 5), 0);
+    }
+
+    #[test]
+    fn caret_line_clamped_to_total_bounds() {
+        // Defensive: caret_line beyond total is clamped to the last line.
+        assert_eq!(scroll_top_to_keep_caret_visible(999, 0, 20, 30), 10);
+    }
+
+    #[test]
+    fn zero_visible_is_treated_as_one_row() {
+        // visible=0 must not panic / divide; treated as 1.
+        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 0, 100), 50);
+    }
+
+    #[test]
+    fn start_of_file_up_does_not_underflow() {
+        // caret at line 0, already at top → stays 0 (no underflow).
+        assert_eq!(scroll_top_to_keep_caret_visible(0, 0, 20, 100), 0);
+    }
+}
+
+#[cfg(test)]
+mod caret_projection_tests {
+    use super::caret_visual_row;
+
+    #[test]
+    fn non_wrap_returns_absolute_line() {
+        // No wrap (chars_per_row=0): the caret row is the absolute logical line;
+        // the renderer offsets it by the scroll origin.
+        assert_eq!(caret_visual_row(7, 0, &[], 0), 7);
+    }
+
+    #[test]
+    fn enter_at_eof_maps_to_new_line_row() {
+        // After Enter at EOF of "abc": rope has 2 lines, window map = [0, 1],
+        // caret on the new line 1, col 0. The caret row must be 1 (the new line),
+        // NOT 0 (the old line) — the reported regression.
+        assert_eq!(caret_visual_row(1, 0, &[0, 1], 80), 1);
+    }
+
+    #[test]
+    fn wrapped_line_caret_advances_to_correct_subrow() {
+        // Window map: row 0=line0, 1=line1, 2/3/4=line2 (wrapped over 3 rows),
+        // 5=line3. Caret on line 2 at visual col 25 with 10 chars/row → sub-row
+        // 2 → base row 2 + 2 = 4.
+        let map = [0, 1, 2, 2, 2, 3];
+        assert_eq!(caret_visual_row(2, 25, &map, 10), 4);
+    }
+
+    #[test]
+    fn caret_just_below_window_advances_one_row() {
+        // Caret one logical line past the last mapped line → the next row down,
+        // never the old/top line.
+        assert_eq!(caret_visual_row(43, 0, &[40, 41, 42], 80), 3);
+    }
+
+    #[test]
+    fn stale_map_eof_new_line_does_not_snap_to_old_line() {
+        // THE regression: a transiently stale 1-entry window map ([0]) after
+        // Enter-at-EOF must NOT resolve the new line (1) to row 0 (the old line).
+        // It advances to row 1 (just below the old line).
+        assert_eq!(caret_visual_row(1, 0, &[0], 80), 1);
+    }
+
+    #[test]
+    fn caret_above_window_clamps_to_first_row() {
+        // Caret above the window → row 0.
+        assert_eq!(caret_visual_row(5, 0, &[40, 41, 42], 80), 0);
+    }
+
+    #[test]
+    fn caret_at_col0_of_found_line_is_that_lines_first_row() {
+        let map = [10, 11, 12, 13];
+        assert_eq!(caret_visual_row(12, 0, &map, 80), 2);
     }
 }

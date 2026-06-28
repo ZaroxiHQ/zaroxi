@@ -215,7 +215,33 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 return Vec::new();
             }
             Key::Named(NamedKey::Enter) => {
+                let trace = super::caret_trace_enabled();
+                let (pre_abs, pre_line, pre_col, pre_total, had_sel) = if trace {
+                    (
+                        app.editor_buffer.caret(),
+                        app.editor_cursor_line(),
+                        app.editor_cursor_col(),
+                        app.editor_buffer.line_count(),
+                        app.editor_selection_range().is_some(),
+                    )
+                } else {
+                    (0, 0, 0, 0, false)
+                };
                 app.editor_buffer.insert_newline();
+                if trace {
+                    eprintln!(
+                        "ZAROXI_CARET_VIEWPORT: enter pre_abs={} pre_line={} pre_col={} pre_total={} sel_replaced={} -> post_abs={} post_line={} post_col={} post_total={}",
+                        pre_abs,
+                        pre_line,
+                        pre_col,
+                        pre_total,
+                        had_sel,
+                        app.editor_buffer.caret(),
+                        app.editor_cursor_line(),
+                        app.editor_cursor_col(),
+                        app.editor_buffer.line_count(),
+                    );
+                }
                 sync_editor_to_service(app);
                 request_editor_redraw(app);
                 return Vec::new();
@@ -806,7 +832,14 @@ fn sync_editor_to_service(app: &mut GuiApp) {
 }
 
 /// Request a redraw for the editor after an editing operation.
+///
+/// This is the single shared post-update path for caret-affecting actions
+/// (arrows, Home/End, newline, backspace/delete, paste/cut, undo/redo): it first
+/// runs `ensure_caret_visible` so the viewport always follows the caret, then
+/// invalidates for the next frame. Keeping the ensure-visible call here means no
+/// individual handler has to remember to scroll.
 fn request_editor_redraw(app: &mut GuiApp) {
+    app.ensure_caret_visible();
     app.invalidate(super::InvalidationFlags::input());
 }
 

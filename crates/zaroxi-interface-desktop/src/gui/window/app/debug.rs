@@ -142,6 +142,15 @@ pub(crate) fn syntax_trace_enabled() -> bool {
     std::env::var("ZAROXI_SYNTAX_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether the caret/viewport trace is enabled (`ZAROXI_CARET_TRACE=1`).
+/// Drives the caret-visibility diagnostics: pre/post caret line, current scroll
+/// top, visible row count, total lines, whether `ensure_caret_visible` adjusted
+/// the scroll origin (and the from/to values), and any clamp. Pairs with the
+/// render-side caret projection to prove the caret stays in-window. Zero-cost off.
+pub(crate) fn caret_trace_enabled() -> bool {
+    std::env::var("ZAROXI_CARET_TRACE").as_deref() == Ok("1")
+}
+
 /// Whether the editor-decoration trace is enabled (`ZAROXI_DEBUG_DECORATION=1`).
 /// Drives the per-frame line-background/decoration diagnostics: which layer
 /// emitted a row band, its document line + visual row, the decoration source

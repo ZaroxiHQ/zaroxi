@@ -1053,4 +1053,81 @@ mod tests {
         assert!(buf.backspace().is_none());
         assert!(!buf.is_dirty(), "backspace at start is a no-op and must not dirty");
     }
+
+    // ── Enter / newline caret-placement contract ──
+
+    #[test]
+    fn enter_at_eof_moves_caret_to_new_line() {
+        let mut buf = EditorBufferState::from_text("abc");
+        buf.set_caret(3); // caret at EOF
+        buf.insert_newline();
+        assert_eq!(buf.to_string(), "abc\n");
+        assert_eq!(buf.line_count(), 2);
+        assert_eq!(buf.caret(), 4, "caret must advance past the inserted newline");
+        assert_eq!(buf.caret_line(), 1, "caret must be on the new line");
+        assert_eq!(buf.caret_col(), 0, "caret must be at column 0 of the new line");
+    }
+
+    #[test]
+    fn enter_in_middle_of_line_splits_and_moves_caret() {
+        let mut buf = EditorBufferState::from_text("abcdef");
+        buf.set_caret(3); // between 'c' and 'd'
+        buf.insert_newline();
+        assert_eq!(buf.to_string(), "abc\ndef");
+        assert_eq!(buf.line_count(), 2);
+        assert_eq!(buf.caret(), 4);
+        assert_eq!(buf.caret_line(), 1, "caret moves to the new second half");
+        assert_eq!(buf.caret_col(), 0, "caret at start of the second half");
+    }
+
+    #[test]
+    fn enter_at_start_of_line_inserts_blank_above_and_moves_down() {
+        let mut buf = EditorBufferState::from_text("abc");
+        buf.set_caret(0); // start of line
+        buf.insert_newline();
+        assert_eq!(buf.to_string(), "\nabc");
+        assert_eq!(buf.caret(), 1);
+        assert_eq!(buf.caret_line(), 1, "caret on the line now holding the original content");
+        assert_eq!(buf.caret_col(), 0);
+    }
+
+    #[test]
+    fn repeated_enter_keeps_advancing() {
+        let mut buf = EditorBufferState::from_text("x");
+        buf.set_caret(1); // EOF
+        buf.insert_newline();
+        assert_eq!(buf.caret_line(), 1);
+        buf.insert_newline();
+        assert_eq!(buf.caret_line(), 2);
+        buf.insert_newline();
+        assert_eq!(buf.caret_line(), 3);
+        assert_eq!(buf.caret_col(), 0);
+        assert_eq!(buf.to_string(), "x\n\n\n");
+    }
+
+    #[test]
+    fn selection_replaced_by_newline_places_caret_after_insert() {
+        let mut buf = EditorBufferState::from_text("hello world");
+        buf.set_caret(5);
+        buf.begin_selection();
+        buf.extend_selection_to(11); // select " world"
+        buf.insert_newline();
+        assert_eq!(buf.to_string(), "hello\n");
+        assert_eq!(buf.caret(), 6, "caret lands right after the inserted newline");
+        assert_eq!(buf.caret_line(), 1);
+        assert_eq!(buf.caret_col(), 0);
+    }
+
+    #[test]
+    fn no_caret_reset_to_line_start_after_enter() {
+        // After Enter, the caret must NOT collapse back to column 0 of the OLD
+        // line (the reported regression). It must be on the NEW line.
+        let mut buf = EditorBufferState::from_text("first\nsecond");
+        buf.set_caret_line_col(0, 5); // end of "first"
+        let old_line = buf.caret_line();
+        buf.insert_newline();
+        assert_ne!(buf.caret_line(), old_line, "caret must leave the old line");
+        assert_eq!(buf.caret_line(), 1);
+        assert_eq!(buf.caret_col(), 0);
+    }
 }

@@ -352,6 +352,10 @@ impl GuiApp {
 
         let cursor_line = self.editor_cursor_line();
         let cursor_col = self.editor_cursor_col();
+        // Visual (tab-expanded) caret column — the column space the rendered text
+        // and the wrap mapping use. The caret is positioned and wrap-projected
+        // from this single live value, not the raw char column.
+        let cursor_vis_col = self.editor_buffer.caret_vis_col();
         let selection_range = self.editor_selection_range();
         // Pre-compute values needed inside the render closure
         // (self is mutably borrowed via maybe_window below).
@@ -1336,29 +1340,33 @@ impl GuiApp {
             if let Some(vp) = &self.editor_viewport {
                 for block in &mut render_blocks {
                     if is_content_block(&block.id) {
-                        let vis_cursor_line = if self.editor_visual_to_logical.is_empty()
-                            || self.editor_chars_per_row == 0
-                        {
-                            cursor_line
-                        } else {
-                            let logical_cursor = cursor_line;
-                            self.editor_visual_to_logical
-                                .iter()
-                                .position(|&ll| ll == logical_cursor)
-                                .unwrap_or(0)
-                                + (cursor_col / self.editor_chars_per_row.max(1)).min(
-                                    self.editor_visual_to_logical
-                                        .iter()
-                                        .filter(|&&ll| ll == logical_cursor)
-                                        .count()
-                                        .saturating_sub(1),
-                                )
-                        };
+                        // Caret visual row/col derive from the SINGLE live source
+                        // (`editor_buffer`) via the shared, unit-tested projection
+                        // — never from the stale `editor_body.cursor_*` view-model.
+                        let vis_cursor_line = super::caret_visual_row(
+                            cursor_line,
+                            cursor_vis_col,
+                            &self.editor_visual_to_logical,
+                            self.editor_chars_per_row,
+                        );
                         let vis_cursor_col = if self.editor_chars_per_row > 0 {
-                            cursor_col % self.editor_chars_per_row.max(1)
+                            cursor_vis_col % self.editor_chars_per_row.max(1)
                         } else {
-                            cursor_col
+                            cursor_vis_col
                         };
+                        if caret_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_CARET_VIEWPORT: render_project logical_line={} vis_col={} map_len={} map_first={:?} map_last={:?} chars_per_row={} -> vis_row={} col={}",
+                                cursor_line,
+                                cursor_vis_col,
+                                self.editor_visual_to_logical.len(),
+                                self.editor_visual_to_logical.first(),
+                                self.editor_visual_to_logical.last(),
+                                self.editor_chars_per_row,
+                                vis_cursor_line,
+                                vis_cursor_col,
+                            );
+                        }
                         block.cursor_line = Some(vis_cursor_line);
                         block.cursor_col = Some(vis_cursor_col);
                         block.selection_range = selection_range;
@@ -1422,7 +1430,7 @@ impl GuiApp {
                 for block in &mut render_blocks {
                     if is_content_block(&block.id) {
                         block.cursor_line = Some(cursor_line);
-                        block.cursor_col = Some(cursor_col);
+                        block.cursor_col = Some(cursor_vis_col);
                         block.selection_range = selection_range;
                     }
                 }

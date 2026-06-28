@@ -145,6 +145,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
+                app.ensure_caret_visible();
                 app.invalidate(super::InvalidationFlags::input());
             }
         }

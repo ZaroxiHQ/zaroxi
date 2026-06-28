@@ -19,7 +19,9 @@ fn apply_wrap(
     scroll_top: usize,
 ) -> (String, Option<Vec<(String, [f32; 4])>>, Vec<usize>, usize, usize) {
     if chars_per_row == 0 || raw_text.is_empty() {
-        let logical_count = raw_text.lines().count().max(1);
+        // Count via split('\n') (not `str::lines()`) so a trailing empty line is
+        // preserved as its own logical line.
+        let logical_count = raw_text.split('\n').count().max(1);
         let v2l: Vec<usize> = (first_logical_line..first_logical_line + logical_count).collect();
         return (
             raw_text.to_string(),
@@ -65,7 +67,11 @@ fn wrap_text(
         *total_visual += raw_text.lines().count().max(1);
         return raw_text.to_string();
     }
-    let logical_lines: Vec<&str> = raw_text.lines().collect();
+    // Split on '\n' (NOT `str::lines()`) so a trailing empty line — e.g. the
+    // line created by Enter at EOF — is preserved as its own logical line and
+    // gets a visual row. A trailing '\r' (CRLF) is trimmed per line.
+    let logical_lines: Vec<&str> =
+        raw_text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
     let mut out = String::with_capacity(raw_text.len() + raw_text.len() / chars_per_row);
     for (li, logical_line) in logical_lines.iter().enumerate() {
         if li > 0 {
@@ -415,6 +421,24 @@ fn shape_editor_content_impl(
                     .unwrap_or_else(|| "No file open".to_string());
                 (text, None)
             })
+    };
+
+    // `Rope::visible_lines` strips the window's trailing newline, which drops the
+    // trailing EMPTY line (e.g. the line created by pressing Enter at EOF). When
+    // the window covers fewer text lines than its logical line span, restore the
+    // missing trailing empty line(s) so the rendered line count matches the rope's
+    // logical line range — the new line then gets a real visual row (caret +
+    // gutter), instead of the caret having to be projected onto a phantom row.
+    let editor_body_text = {
+        let mut text = editor_body_text;
+        if let Some((wstart, wend)) = used_visible_range {
+            let expected = wend.saturating_sub(wstart);
+            let have = text.split('\n').count();
+            for _ in have..expected {
+                text.push('\n');
+            }
+        }
+        text
     };
 
     let cursor_line = editor_body.map(|cv| cv.cursor_line).unwrap_or(0);
