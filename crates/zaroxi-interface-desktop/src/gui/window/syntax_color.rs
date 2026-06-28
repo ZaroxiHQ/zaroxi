@@ -33,6 +33,7 @@ fn highlight_color(h: Highlight, sem: &SemanticColors, default: [f32; 4]) -> [f3
         Highlight::Constant => to_f32(&sem.syntax_constant),
         Highlight::Variable => to_f32(&sem.syntax_variable),
         Highlight::Operator => to_f32(&sem.syntax_operator),
+        Highlight::Punctuation => to_f32(&sem.syntax_punctuation),
         Highlight::Attribute => to_f32(&sem.syntax_attribute),
         Highlight::Property => to_f32(&sem.syntax_property),
         Highlight::Namespace => to_f32(&sem.syntax_namespace),

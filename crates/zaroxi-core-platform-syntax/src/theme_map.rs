@@ -87,6 +87,7 @@ impl SemanticTokenType {
             Highlight::Constant => SemanticTokenType::Constant,
             Highlight::Attribute => SemanticTokenType::Attribute,
             Highlight::Operator => SemanticTokenType::Operator,
+            Highlight::Punctuation => SemanticTokenType::Punctuation,
             Highlight::Number => SemanticTokenType::Number,
             Highlight::Property => SemanticTokenType::Property,
             Highlight::Namespace => SemanticTokenType::Namespace,

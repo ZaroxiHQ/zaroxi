@@ -64,8 +64,11 @@ pub enum Highlight {
     Constant,
     /// Attributes, annotations, or decorators.
     Attribute,
-    /// Operators and punctuation-like operators.
+    /// Operators (arithmetic, logical, assignment, …).
     Operator,
+    /// Punctuation (brackets, delimiters): kept distinct from operators so it
+    /// can render in a muted, recessive color instead of the operator color.
+    Punctuation,
     /// Numeric literals.
     Number,
     /// Property/field-like accessors.
@@ -474,11 +477,12 @@ pub fn map_capture_name(name: &str) -> Highlight {
         | "operator.bitwise"
         | "operator.unary"
         | "operator.ternary"
-        | "operator.spread"
-        | "punctuation.bracket"
-        | "punctuation.delimiter"
-        | "punctuation.special"
-        | "punctuation" => Highlight::Operator,
+        | "operator.spread" => Highlight::Operator,
+
+        // Punctuation — brackets and delimiters render muted, not as operators.
+        "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special" | "punctuation" => {
+            Highlight::Punctuation
+        }
 
         // Numbers
         "number" | "number.float" | "number.integer" | "number.hex" | "number.octal"
