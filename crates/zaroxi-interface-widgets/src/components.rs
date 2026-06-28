@@ -171,20 +171,23 @@ pub struct DiffHunk {
     pub added: bool,
 }
 
-/// Component 2 — inline diff indicator drawn in the editor's left margin.
+/// Component 2 — inline git-diff indicator drawn in a dedicated change lane.
 ///
-/// **Vello:** added and removed lines share one minimal treatment — a crisp 3px
-/// left gutter bar (green = added via `success`, red = removed via `error`); the
-/// active hunk's bar pulses. Nothing is painted over the row's text: no full-row
-/// tint and no edge-to-edge rule. Both were tried and both made the row read as a
-/// colored horizontal band/line (and on TOML, whose `@property` keys share the
-/// `error` hue, the row collapsed into a single red streak). The gutter bar is a
-/// sufficient, unambiguous cue and keeps syntax highlighting fully legible.
+/// **Vello:** changed lines are coalesced into contiguous runs and marked in a
+/// narrow lane in the content-area left margin — between the line-number gutter
+/// (a separate region to the left) and the code text (which starts ~8px in) — so
+/// nothing ever paints over syntax glyphs or the line numbers:
+///   * added / modified runs → one cohesive rounded vertical bar (`diff_added`),
+///     2px wide (3px when the run is the active hunk);
+///   * a deletion → a short restrained tick (`diff_removed`) centred on the
+///     boundary — distinct from additions (short vs full-run) without an arrow.
+/// One unified rounded-rect primitive draws both; only height, position, and
+/// color differ. Active emphasis is a steady widening (no pulsing). No full-row
+/// tint and no edge-to-edge rule are ever drawn.
 /// **Layout:** spans the editor content rect; line height supplied. Only the
-/// leftmost 3px column is ever drawn.
-/// **Tokens:** `success` / `error` (gutter bar; pulsing alpha when active).
-/// **Animation:** active-hunk bar alpha pulses (≈1200ms triangle); static under
-/// reduce-motion.
+/// leftmost ~6px change lane is ever drawn.
+/// **Tokens:** `diff_added` / `diff_removed` — dedicated, muted, and intentionally
+/// distinct from `error` / `success` and the syntax hues.
 /// **A11y:** "Inline AI diff: A additions, R removals. Tab/Shift-Tab to navigate,
 /// Enter accept, Esc reject."
 pub struct LivingDiffLayer {
@@ -198,6 +201,23 @@ pub struct LivingDiffLayer {
     pub phase: f32,
 }
 
+/// Coalesce per-line diff hunks into contiguous same-kind runs
+/// `(added, start_line, end_line)`. Git emits one `added` marker per new line, so
+/// a multi-line added/modified block becomes ONE cohesive bar instead of N
+/// separate stripes; a removal (a single `!added` marker) stays a one-line run.
+fn coalesce_diff_runs(hunks: &[DiffHunk]) -> Vec<(bool, usize, usize)> {
+    let mut lines: Vec<(usize, bool)> = hunks.iter().map(|h| (h.line, h.added)).collect();
+    lines.sort_unstable_by_key(|&(line, _)| line);
+    let mut runs: Vec<(bool, usize, usize)> = Vec::new();
+    for (line, added) in lines {
+        match runs.last_mut() {
+            Some(run) if run.0 == added && line == run.2 + 1 => run.2 = line,
+            _ => runs.push((added, line, line)),
+        }
+    }
+    runs
+}
+
 impl ZaroxiWidget for LivingDiffLayer {
     fn layer(&self) -> WidgetLayer {
         WidgetLayer::DiffLayer
@@ -205,46 +225,65 @@ impl ZaroxiWidget for LivingDiffLayer {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
-        let glow = pulse(self.phase);
-        // Diff hunks are decorated with ONLY a crisp 3px left gutter bar in the
-        // editor's left margin (green = added via `success`, red = removed via
-        // `error`); the active hunk's bar pulses.
+
+        // The diff cue lives in its own lane in the content-area left margin —
+        // between the line-number gutter (a separate region to the left) and the
+        // code text (which starts ~8px in). `DIFF_LANE_LEFT` keeps clear padding
+        // on both sides so the marker reads as a dedicated change lane, never as
+        // something sitting on top of the line numbers or the code.
         //
-        // We deliberately draw NO full-row fill and NO full-width rule. Both were
-        // tried and both made the row read as a colored horizontal band/line:
-        //   * a full-row `error` tint is composited OVER the syntax text (the diff
-        //     overlay is a separate vello pass above the editor text), so it
-        //     re-tinted every glyph on the row toward red — and on files like TOML,
-        //     whose `@property` keys are already `syntax_property` (#d07277, the
-        //     same hue as `error`), the whole row collapsed into one red streak;
-        //   * an edge-to-edge strike rule simply looked like a stray red line.
-        // The gutter bar is sufficient, unambiguous, and never touches the text,
-        // which keeps syntax highlighting fully legible on changed rows.
-        const GUTTER_BAR_W: f64 = 3.0;
-        let decoration_trace = std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1");
-        for (i, h) in self.hunks.iter().enumerate() {
-            let y0 = r.y0 + h.line as f64 * self.line_height;
-            let y1 = y0 + self.line_height;
-            let is_active = self.active == Some(i);
-            let (kind, base) =
-                if h.added { ("added", theme.success) } else { ("removed", theme.error) };
+        // One unified primitive (a rounded vertical rect) covers both kinds:
+        //   * added / modified → a full-run bar (consecutive lines coalesced into
+        //     one cohesive marker);
+        //   * removed → a short tick centred on the deletion boundary.
+        // Only height, position, and color differ — no arrows, no special shapes.
+        const DIFF_LANE_LEFT: f64 = 3.0; // bar left edge within the ~8px content margin
+        const BAR_W: f64 = 2.0; // change-bar width (calm, editor-native)
+        const ACTIVE_BAR_W: f64 = 3.0; // steady emphasis for the active hunk (no pulsing)
+        const BAR_V_INSET: f64 = 1.5; // trims run ends for clean rounded caps
+        const DEL_TICK_FRAC: f64 = 0.5; // removed tick height, as a fraction of a line
+        // Vertical origin must match the wgpu text/gutter renderer EXACTLY so the
+        // marker lines up with the line numbers and text rows. The renderer starts
+        // content at `region.y0 + hh + content_padding`, where `hh =
+        // header_h.min(height)` (header_h = 28) and content_padding = 8
+        // (core.rs). `self.hunks` are already viewport-relative VISUAL rows and
+        // `self.line_height` is the shared editor line pitch (lc::LINE_HEIGHT),
+        // so no scroll/wrap math is done here — it was applied upstream.
+        const EDITOR_HEADER_H: f64 = 28.0;
+        const EDITOR_CONTENT_PAD: f64 = 8.0;
+        let content_top = EDITOR_HEADER_H.min(r.height()) + EDITOR_CONTENT_PAD;
 
-            let bar_color = if is_active { base.with_alpha(0.4 + 0.6 * glow) } else { base };
-            fill(scene, &Rect::new(r.x0, y0, r.x0 + GUTTER_BAR_W, y1), bar_color);
+        let lane_x = r.x0 + DIFF_LANE_LEFT;
+        let row_top = r.y0 + content_top;
+        let active_line = self.active.and_then(|i| self.hunks.get(i)).map(|h| h.line);
+        let trace = std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1");
 
-            if decoration_trace {
+        for (added, start, end) in coalesce_diff_runs(&self.hunks) {
+            let run_y0 = row_top + start as f64 * self.line_height;
+            let run_y1 = row_top + (end + 1) as f64 * self.line_height;
+            let is_active = active_line.map_or(false, |l| l >= start && l <= end);
+            let w = if is_active { ACTIVE_BAR_W } else { BAR_W };
+
+            let (top, bottom, color, kind) = if added {
+                let top = run_y0 + BAR_V_INSET;
+                let bottom = (run_y1 - BAR_V_INSET).max(top + 1.0);
+                (top, bottom, theme.diff_added, "added")
+            } else {
+                let half = self.line_height * DEL_TICK_FRAC * 0.5;
+                (run_y0 - half, run_y0 + half, theme.diff_removed, "removed")
+            };
+            let marker = RoundedRect::new(lane_x, top, lane_x + w, bottom, w * 0.5);
+            fill(scene, &marker, color);
+
+            if trace {
                 eprintln!(
-                    "ZAROXI_DEBUG_DECORATION: layer=LivingDiffLayer kind={} hunk_line={} primitive=left_bar_only full_row_tint=none text_modulation=none bar_rect=(x={:.0} y={:.0} w={:.0} h={:.0}) bar_rgba=({:.3},{:.3},{:.3},{:.3})",
-                    kind,
-                    h.line,
-                    r.x0,
-                    y0,
-                    GUTTER_BAR_W,
-                    y1 - y0,
-                    bar_color.r,
-                    bar_color.g,
-                    bar_color.b,
-                    bar_color.a,
+                    "ZAROXI_DEBUG_DECORATION: layer=LivingDiffLayer kind={kind} vis_rows={start}..={end} active={is_active} content_top={content_top:.1} line_h={:.2} lane_x={lane_x:.1} rect=(x={lane_x:.1} y={top:.1} w={w:.1} h={:.1}) rgba=({:.3},{:.3},{:.3},{:.3})",
+                    self.line_height,
+                    bottom - top,
+                    color.r,
+                    color.g,
+                    color.b,
+                    color.a,
                 );
             }
         }

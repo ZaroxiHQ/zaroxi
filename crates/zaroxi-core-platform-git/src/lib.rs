@@ -31,6 +31,21 @@ pub fn git_trace_enabled() -> bool {
     std::env::var("ZAROXI_GIT_TRACE").as_deref() == Ok("1")
 }
 
+/// Strip a single trailing line terminator (`\n`, or `\r\n`) from `s`.
+///
+/// The git baseline blob virtually always ends in `\n`, but the editor buffer's
+/// serialization may not (the open worker strips the trailing newline and the
+/// rope does not re-add it). Diffing the two verbatim then reports a phantom
+/// `Removed` hunk on the last line of every clean tracked file. Git itself treats
+/// a missing final newline specially rather than as a line edit, so normalizing
+/// both sides here keeps the change gutter free of that noise.
+fn strip_eof_newline(s: &str) -> &str {
+    match s.strip_suffix('\n') {
+        Some(t) => t.strip_suffix('\r').unwrap_or(t),
+        None => s,
+    }
+}
+
 /// The complete diff result for one file: status plus changed regions.
 #[derive(Debug, Clone, Default)]
 pub struct FileDiff {
@@ -87,15 +102,20 @@ impl GitDiffProvider {
         }
 
         let entry = self.cache.get(&key)?.as_ref()?;
-        let baseline = entry.baseline.as_deref().unwrap_or("");
-        let hunks = diff_lines(baseline, current_text);
+        let raw_baseline = entry.baseline.as_deref().unwrap_or("");
+        // Ignore EOF-newline-only differences (see `strip_eof_newline`): without
+        // this, every clean tracked file ending in a newline shows a phantom
+        // `Removed` marker on its last line.
+        let baseline = strip_eof_newline(raw_baseline);
+        let current = strip_eof_newline(current_text);
+        let hunks = diff_lines(baseline, current);
         let lines = changed_lines(&hunks);
 
         if git_trace_enabled() {
             let adds = lines.iter().filter(|c| c.added).count();
             let rems = lines.len() - adds;
             eprintln!(
-                "ZAROXI_GIT_TRACE: file={} hunks={} changed_lines={} (+{} -{}) tracked={} modified={} untracked={}",
+                "ZAROXI_GIT_TRACE: file={} hunks={} changed_lines={} (+{} -{}) tracked={} modified={} untracked={} baseline_eof_nl={} buffer_eof_nl={}",
                 key.display(),
                 hunks.len(),
                 lines.len(),
@@ -104,6 +124,8 @@ impl GitDiffProvider {
                 entry.status.tracked,
                 entry.status.modified,
                 entry.status.untracked,
+                raw_baseline.ends_with('\n'),
+                current_text.ends_with('\n'),
             );
         }
 
@@ -189,6 +211,29 @@ mod tests {
         assert_eq!(fd.hunks[0].kind, ChangeKind::Modified);
         assert_eq!(fd.hunks[0].new_start, 1);
         assert!(fd.changed_lines.iter().any(|c| c.line == 1 && c.added));
+    }
+
+    #[test]
+    fn trailing_newline_only_difference_is_clean() {
+        let Some(repo) = temp_repo() else {
+            return;
+        };
+        let file = repo.path().join("eof.txt");
+        // Committed baseline ends in a newline (the normal case).
+        std::fs::write(&file, "one\ntwo\nthree\n").unwrap();
+        assert!(git(repo.path(), &["add", "eof.txt"]));
+        assert!(git(repo.path(), &["commit", "-qm", "eof"]));
+
+        // The editor buffer serializes WITHOUT the trailing newline (the open
+        // worker strips it). This must NOT be reported as a removed last line.
+        let mut provider = GitDiffProvider::new();
+        let fd = provider.diff_file(&file, "one\ntwo\nthree").expect("file is in a repo");
+        assert!(fd.hunks.is_empty(), "EOF-newline-only diff must be clean: {:?}", fd.hunks);
+        assert!(
+            fd.changed_lines.is_empty(),
+            "no phantom removed marker on a clean file: {:?}",
+            fd.changed_lines
+        );
     }
 
     #[test]

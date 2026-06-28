@@ -12,22 +12,30 @@ use super::*;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-/// Convert absolute-line git diff hunks into the viewport-relative,
-/// visible-range-filtered hunks the cockpit `LivingDiffLayer` paints.
+/// Convert absolute-line git diff hunks into the **viewport-relative VISUAL row**
+/// hunks the cockpit `LivingDiffLayer` paints, using the SAME row-layout model as
+/// the editor text/gutter (so markers never drift relative to the line numbers or
+/// wrapped rows).
 ///
-/// `hunks` carry **absolute** 0-based document line indices. The diff layer
-/// draws each as a full-width band at `editor_top + line * line_height` with NO
-/// scroll handling, so feeding it absolute lines pins a stale full-width band
-/// (`theme.error` salmon for removals, green for additions) to a fixed screen
-/// row that ignores scrolling. This subtracts the current `scroll_top` and
-/// drops hunks outside the visible window so the band tracks its line,
-/// disappears the moment it scrolls off, and nothing is drawn for a scroll
-/// state that excludes it. Recomputed every frame, so scroll/resize always
-/// reposition or clear the band. Large-file mode and an empty set draw nothing.
+/// `hunks` carry **absolute** 0-based *logical* line indices. Two cases:
+/// - **No wrap** (`chars_per_row == 0` or no visual map): a logical line maps 1:1
+///   to a visual row, so the viewport row is `line - scroll_top` (the same
+///   line-aligned scroll the text/gutter use).
+/// - **Wrap active**: each changed logical line is mapped through
+///   `visual_to_logical` — the SAME map the gutter and cursor consume — to its
+///   visual row(s); the viewport row is `abs_visual_row - wrap_visual_offset`. An
+///   added line emits one hunk per visual row it occupies (so the bar spans the
+///   line's full wrapped extent); a removal emits a single tick at its first
+///   visual row.
 ///
-/// A free function (not a `&self` method) so the call sites — nested inside the
-/// `self.maybe_window.as_mut()` redraw block — can pass disjoint field borrows
-/// without taking a whole-`self` borrow that would clash with the window.
+/// The returned `line` is a 0-based viewport-relative VISUAL row; the diff layer
+/// only adds the shared content-top origin and `line_height`. Large-file mode and
+/// an empty set draw nothing. Recomputed every frame, so scroll/resize/wrap
+/// always reposition or clear the markers.
+///
+/// A free function (not a `&self` method) so the call sites can pass disjoint
+/// field borrows without taking a whole-`self` borrow that would clash with the
+/// window.
 #[allow(clippy::too_many_arguments)]
 fn diff_hunks_to_viewport(
     hunks: &[zaroxi_interface_widgets::components::DiffHunk],
@@ -35,6 +43,9 @@ fn diff_hunks_to_viewport(
     scroll_top: usize,
     editor_rect_height: f32,
     line_height: f32,
+    visual_to_logical: &[usize],
+    chars_per_row: usize,
+    wrap_visual_offset: usize,
     active_file: Option<&str>,
     buffer_version: u64,
     cockpit_diff_version: u64,
@@ -42,21 +53,30 @@ fn diff_hunks_to_viewport(
     if large_file_mode || hunks.is_empty() {
         return Vec::new();
     }
-    // One row of slack so a band on the last partially-visible row is kept.
+    // One row of slack so a marker on the last partially-visible row is kept.
     let visible_rows =
         if line_height > 0.0 { (editor_rect_height / line_height).ceil() as usize + 1 } else { 0 };
-    let end = scroll_top.saturating_add(visible_rows);
+    let wrapping = chars_per_row > 0 && !visual_to_logical.is_empty();
     let trace = decoration_trace_enabled();
-    let mut out = Vec::with_capacity(hunks.len());
-    for h in hunks {
-        let kept = h.line >= scroll_top && h.line < end;
+    let mut out = Vec::new();
+
+    // Map one (logical line, absolute visual row) to a viewport-relative visual
+    // row, dropping it when off-screen. `view_offset` is the scroll origin in the
+    // same units as `abs_visual` (logical lines when unwrapped, visual rows when
+    // wrapped) — matching how the text/gutter apply `content_offset_y`.
+    let mut emit = |logical: usize, added: bool, abs_visual: usize, view_offset: usize| {
+        let rel = abs_visual as isize - view_offset as isize;
+        let kept = rel >= 0 && (rel as usize) < visible_rows;
         if trace {
             eprintln!(
-                "ZAROXI_DEBUG_DECORATION: layer=diff source={} abs_line={} visual_row={} scroll_top={} visible_rows={} active_file={:?} buffer_version={} cockpit_diff_version={} kept={}",
-                if h.added { "diff_added" } else { "diff_removed" },
-                h.line,
-                h.line.wrapping_sub(scroll_top),
+                "ZAROXI_DEBUG_DECORATION: layer=diff source={} logical_line={} abs_visual_row={} viewport_row={} wrap={} scroll_top={} wrap_offset={} visible_rows={} active_file={:?} buffer_version={} cockpit_diff_version={} kept={}",
+                if added { "diff_added" } else { "diff_removed" },
+                logical,
+                abs_visual,
+                rel,
+                wrapping as u8,
                 scroll_top,
+                wrap_visual_offset,
                 visible_rows,
                 active_file,
                 buffer_version,
@@ -65,13 +85,88 @@ fn diff_hunks_to_viewport(
             );
         }
         if kept {
-            out.push(zaroxi_interface_widgets::components::DiffHunk {
-                line: h.line - scroll_top,
-                added: h.added,
-            });
+            out.push(zaroxi_interface_widgets::components::DiffHunk { line: rel as usize, added });
+        }
+    };
+
+    for h in hunks {
+        if wrapping {
+            if h.added {
+                // Span every visual row this logical line occupies.
+                for (abs_visual, &ll) in visual_to_logical.iter().enumerate() {
+                    if ll == h.line {
+                        emit(h.line, true, abs_visual, wrap_visual_offset);
+                    }
+                }
+            } else if let Some(abs_visual) = visual_to_logical.iter().position(|&ll| ll == h.line) {
+                emit(h.line, false, abs_visual, wrap_visual_offset);
+            }
+        } else {
+            // Unwrapped: logical line == visual row; scroll is line-aligned.
+            emit(h.line, h.added, h.line, scroll_top);
         }
     }
     out
+}
+
+/// Recompute the cockpit git-diff hunks for the active buffer when the buffer has
+/// advanced past the version the current hunks were computed for.
+///
+/// Called BEFORE the cockpit fingerprint/skip check so that an edit's markers
+/// rebuild in the SAME frame as the edit (the fingerprint keys on
+/// `cockpit_diff_version`; updating it first makes the skip check see the change
+/// and rebuild immediately instead of a beat late). Idempotent: a no-op once the
+/// version already matches, so calling it again later is free.
+///
+/// A disjoint-field free function so it can run while `core` is mutably borrowed.
+/// Baseline lookups are cached by the provider, so the per-edit cost is only the
+/// in-memory line diff — and large-file mode skips it entirely.
+fn refresh_cockpit_diff_hunks(
+    editor_buffer: &crate::gui::window::editor_buf::EditorBufferState,
+    large_file_mode: bool,
+    committed_active_file: Option<&str>,
+    git_diff_provider: &mut zaroxi_core_platform_git::GitDiffProvider,
+    cockpit_diff_hunks: &mut Vec<zaroxi_interface_widgets::components::DiffHunk>,
+    cockpit_diff_version: &mut u64,
+) {
+    if editor_buffer.buffer_version == *cockpit_diff_version {
+        return;
+    }
+    let diff_path = committed_active_file.map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+    let hunks = if large_file_mode || editor_buffer.char_count() == 0 {
+        // Large files skip live diff; an empty (not-yet-materialized) buffer would
+        // diff as "whole file removed", so draw nothing until content arrives.
+        Vec::new()
+    } else if let Some(path) = diff_path {
+        let current = editor_buffer.to_string();
+        match git_diff_provider.diff_file(std::path::Path::new(&path), &current) {
+            Some(fd) => fd
+                .changed_lines
+                .iter()
+                .map(|c| zaroxi_interface_widgets::components::DiffHunk {
+                    line: c.line,
+                    added: c.added,
+                })
+                .collect(),
+            None => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    if decoration_trace_enabled() {
+        eprintln!(
+            "ZAROXI_DEBUG_DECORATION: diff_recompute hunks={} buffer_version={} cockpit_diff_version={}->{} large_file={} active_file={:?} char_count={}",
+            hunks.len(),
+            editor_buffer.buffer_version,
+            *cockpit_diff_version,
+            editor_buffer.buffer_version,
+            large_file_mode,
+            committed_active_file,
+            editor_buffer.char_count(),
+        );
+    }
+    *cockpit_diff_hunks = hunks;
+    *cockpit_diff_version = editor_buffer.buffer_version;
 }
 
 /// Cheap fingerprint of the `ShellWorkContent` fields that drive widget-tree
@@ -1504,6 +1599,18 @@ impl GuiApp {
                             ai: ai_band,
                             rtl: status_rtl,
                         };
+                        // Refresh git-diff hunks BEFORE the fingerprint below so an
+                        // edit's markers rebuild THIS frame: the fingerprint keys on
+                        // `cockpit_diff_version`, so updating it first makes the skip
+                        // check see the change (otherwise the rebuild lagged a frame).
+                        refresh_cockpit_diff_hunks(
+                            &self.editor_buffer,
+                            self.large_file_mode,
+                            self.committed_active_file.as_deref(),
+                            &mut self.git_diff_provider,
+                            &mut self.cockpit_diff_hunks,
+                            &mut self.cockpit_diff_version,
+                        );
                         let fp = instrument_status_fingerprint(
                             &instrument_status,
                             (sw, sh),
@@ -1590,7 +1697,7 @@ impl GuiApp {
                                 rail_text_active: rail_style_colors.3,
                                 rail_text_muted: rail_style_colors.4,
                                 rail_divider_color: rail_style_colors.5,
-                                line_height: 18.0,
+                                line_height: lc::LINE_HEIGHT,
                                 total_lines: editor_total_lines,
                                 minimap_symbols: self.cockpit_minimap_symbols.clone(),
                                 diff_hunks: diff_hunks_to_viewport(
@@ -1602,7 +1709,10 @@ impl GuiApp {
                                         .map(|m| m.editor_scroll_top_line)
                                         .unwrap_or(0),
                                     cockpit_editor_rect.3,
-                                    18.0,
+                                    lc::LINE_HEIGHT,
+                                    &self.editor_visual_to_logical,
+                                    self.editor_chars_per_row,
+                                    self.editor_wrap_visual_offset,
                                     self.committed_active_file.as_deref(),
                                     self.editor_buffer.buffer_version,
                                     self.cockpit_diff_version,
@@ -1964,63 +2074,19 @@ impl GuiApp {
                                 self.cockpit_minimap_symbols = symbols;
                                 self.cockpit_symbols_version = self.latest_spans_version;
                             }
-                            // Refresh git diff change markers when the
-                            // buffer version advances (per edit / on open).
-                            // The provider caches the baseline so git is
-                            // invoked at most once per file; per-edit cost
-                            // is the pure in-memory line diff. (An async
-                            // worker is the eventual home for the first
-                            // git lookup.)
-                            let diff_path = self
-                                .committed_active_file
-                                .as_deref()
-                                .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
-                            if self.editor_buffer.buffer_version != self.cockpit_diff_version {
-                                let hunks = if self.large_file_mode {
-                                    Vec::new()
-                                } else if self.editor_buffer.char_count() == 0 {
-                                    // Content not materialized yet (loading
-                                    // placeholder rope). Diffing an empty
-                                    // buffer against the on-disk baseline
-                                    // reports the WHOLE file as removed,
-                                    // flashing salmon bands across the editor
-                                    // for the open-settle frames. Draw nothing
-                                    // until the document is materialized.
-                                    Vec::new()
-                                } else if let Some(path) = diff_path {
-                                    let current = self.editor_buffer.to_string();
-                                    match self
-                                        .git_diff_provider
-                                        .diff_file(std::path::Path::new(&path), &current)
-                                    {
-                                        Some(fd) => fd
-                                            .changed_lines
-                                            .iter()
-                                            .map(|c| {
-                                                zaroxi_interface_widgets::components::DiffHunk {
-                                                    line: c.line,
-                                                    added: c.added,
-                                                }
-                                            })
-                                            .collect(),
-                                        None => Vec::new(),
-                                    }
-                                } else {
-                                    Vec::new()
-                                };
-                                if decoration_trace_enabled() {
-                                    eprintln!(
-                                        "ZAROXI_DEBUG_DECORATION: diff_recompute hunks={} buffer_version={} large_file={} active_file={:?} char_count={}",
-                                        hunks.len(),
-                                        self.editor_buffer.buffer_version,
-                                        self.large_file_mode,
-                                        self.committed_active_file,
-                                        self.editor_buffer.char_count(),
-                                    );
-                                }
-                                self.cockpit_diff_hunks = hunks;
-                                self.cockpit_diff_version = self.editor_buffer.buffer_version;
-                            }
+                            // Refresh git diff change markers when the buffer
+                            // version advances (per edit / on open). Idempotent and
+                            // already run before the fingerprint above, so this is a
+                            // no-op on the common path; it guards the case where this
+                            // section is reached without the earlier refresh.
+                            refresh_cockpit_diff_hunks(
+                                &self.editor_buffer,
+                                self.large_file_mode,
+                                self.committed_active_file.as_deref(),
+                                &mut self.git_diff_provider,
+                                &mut self.cockpit_diff_hunks,
+                                &mut self.cockpit_diff_version,
+                            );
                             // ── Typed instrument-panel status model ──
                             // Context + metadata come from the shared
                             // presenter (`cockpit_context`/`cockpit_meta`);
@@ -2185,7 +2251,7 @@ impl GuiApp {
                                     rail_text_active: rail_style_colors.3,
                                     rail_text_muted: rail_style_colors.4,
                                     rail_divider_color: rail_style_colors.5,
-                                    line_height: 18.0,
+                                    line_height: lc::LINE_HEIGHT,
                                     total_lines: editor_total_lines,
                                     // Live structural symbols (function/type/
                                     // import) from tree-sitter highlight spans
@@ -2202,7 +2268,10 @@ impl GuiApp {
                                             .map(|m| m.editor_scroll_top_line)
                                             .unwrap_or(0),
                                         cockpit_editor_rect.3,
-                                        18.0,
+                                        lc::LINE_HEIGHT,
+                                        &self.editor_visual_to_logical,
+                                        self.editor_chars_per_row,
+                                        self.editor_wrap_visual_offset,
                                         self.committed_active_file.as_deref(),
                                         self.editor_buffer.buffer_version,
                                         self.cockpit_diff_version,

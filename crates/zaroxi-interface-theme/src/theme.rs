@@ -186,6 +186,12 @@ pub struct SemanticColors {
     pub error: Color,
     pub info: Color,
 
+    // Git diff gutter cues — dedicated tokens, intentionally distinct from
+    // `error`/`success` and the syntax hues, so changed-line markers read as
+    // their own editor-chrome cue rather than colliding with `syntax_property`.
+    pub diff_added: Color,
+    pub diff_removed: Color,
+
     // Focus
     pub focus_ring: Color,
 
@@ -295,6 +301,8 @@ impl SemanticColors {
             warning: Color::from_hex("#dec184"), // warning yellow
             error: Color::from_hex("#d07277"),   // error red
             info: Color::from_hex("#74ade8"),    // info blue
+            diff_added: Color::from_hex("#4ea06a"), // git added — muted green (≠ syntax_string)
+            diff_removed: Color::from_hex("#c1554e"), // git removed — muted red (≠ error/property)
 
             // Focus
             focus_ring: Color::from_rgba(0.455, 0.678, 0.910, 0.45), // Blue focus ring
@@ -430,6 +438,8 @@ impl SemanticColors {
             warning: Color::from_hex("#a48819"), // warning gold
             error: Color::from_hex("#d36151"),   // error red
             info: Color::from_hex("#5c78e2"),    // info blue
+            diff_added: Color::from_hex("#3f8f57"), // git added — muted green (≠ syntax_string)
+            diff_removed: Color::from_hex("#c0504a"), // git removed — muted red (≠ error/property)
 
             // Focus
             focus_ring: Color::from_rgba(0.36, 0.47, 0.89, 0.40), // Blue focus ring
