@@ -206,7 +206,7 @@ impl GuiApp {
         {
             if doc_lifecycle_trace_enabled() {
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 version={}",
+                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 syntax_parked=0 syntax_recompute=eager_sync version={}",
                     key,
                     stored.is_dirty(),
                     stored.buffer_version,
@@ -592,28 +592,59 @@ impl GuiApp {
                 );
             }
         }
-        // Spawn background parse worker for off-thread syntax highlighting.
-        if self.parse_worker.is_none() {
-            self.parse_worker =
-                Some(background_parse::BackgroundParseWorker::spawn(Arc::clone(&self.parser_pool)));
-        }
-        // Schedule background tree-sitter parse for syntax highlighting.
-        // For large files, the rope holds only the viewport window so
-        // `to_string()` returns viewport-scoped text — the parse is O(1).
-        if let Some(ref mut worker) = self.parse_worker {
-            let text = self.editor_buffer.to_string();
-            let version = self.editor_buffer.buffer_version;
-            let language = self.current_language;
-            if first_open_trace_enabled() {
+        // ── Eager syntax readiness at activation (open / checkout) ──
+        // Normal (non-huge) files are highlighted SYNCHRONOUSLY here so the very
+        // first visible frame for this document is already coloured: the spans
+        // are tied to the active `buffer_version`, which the strict render-side
+        // span gate requires. This is what makes syntax immediate on open and
+        // prevents the plain-text flash when a tab is checked out — syntax now
+        // follows the document through the same activation contract as its text.
+        // Large / huge files keep the off-thread (degraded) path so an expensive
+        // full parse never runs on the UI thread.
+        if self.should_eager_highlight() {
+            let applied = self.schedule_background_parse();
+            if syntax_trace_enabled() {
                 eprintln!(
-                    "ZAROXI_DEBUG_FIRST_OPEN: schedule_parse version={} text_len={} lang={:?} kind={}",
-                    version,
-                    text.len(),
-                    language,
-                    if self.large_file_mode { "large" } else { "normal" },
+                    "ZAROXI_SYNTAX_TRACE: finalize mode=eager_sync applied={} buffer_version={} spans_version={} path={:?}",
+                    applied,
+                    self.editor_buffer.buffer_version,
+                    self.latest_spans_version,
+                    self.committed_active_file,
                 );
             }
-            worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
+        } else {
+            // Spawn the background parse worker for off-thread syntax highlighting.
+            if self.parse_worker.is_none() {
+                self.parse_worker = Some(background_parse::BackgroundParseWorker::spawn(
+                    Arc::clone(&self.parser_pool),
+                ));
+            }
+            // Schedule the off-thread tree-sitter parse. For large files the rope
+            // holds only the viewport window so `to_string()` is viewport-scoped.
+            if let Some(ref mut worker) = self.parse_worker {
+                let text = self.editor_buffer.to_string();
+                let version = self.editor_buffer.buffer_version;
+                let language = self.current_language;
+                if first_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DEBUG_FIRST_OPEN: schedule_parse version={} text_len={} lang={:?} kind={}",
+                        version,
+                        text.len(),
+                        language,
+                        if self.large_file_mode { "large" } else { "normal" },
+                    );
+                }
+                worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
+            }
+            if syntax_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_SYNTAX_TRACE: finalize mode=deferred_async large_file={} huge={} buffer_version={} path={:?}",
+                    self.large_file_mode,
+                    self.is_huge_file(),
+                    self.editor_buffer.buffer_version,
+                    self.committed_active_file,
+                );
+            }
         }
     }
 
@@ -708,16 +739,30 @@ impl GuiApp {
         total > HUGE_FILE_LINE_THRESHOLD
     }
 
-    /// Recompute syntax highlighting after an edit.
+    /// Whether the active document is small enough to be highlighted
+    /// SYNCHRONOUSLY at activation (open / checkout) without risking a UI-thread
+    /// stall. Mirrors the background-open thresholds: large-file-mode,
+    /// line-heavy (huge), and byte-heavy documents are excluded and keep the
+    /// off-thread degraded path; everything else is eagerly coloured so its
+    /// first visible frame is highlighted.
+    fn should_eager_highlight(&self) -> bool {
+        !self.large_file_mode
+            && !self.is_huge_file()
+            && self.editor_buffer.char_count() <= BACKGROUND_OPEN_BYTE_THRESHOLD
+    }
+
+    /// Synchronously (re)highlight the active document for its CURRENT
+    /// `buffer_version`, storing the result in `latest_spans` /
+    /// `latest_spans_version`.
     ///
-    /// Called after every edit. For non-large files this performs a
-    /// **synchronous** re-highlight of the current buffer so `latest_spans`
-    /// stays in lockstep with the edited text. This is what keeps highlighting
-    /// visually stable while typing: previously the async worker left the old
-    /// spans (with pre-edit byte offsets) applied to the new text for a few
-    /// frames, mis-colouring everything after the edit point until the parse
-    /// landed — the visible "syntax churn". The compiled query is cached, so a
-    /// full reparse of a small file is cheap.
+    /// This is the single synchronous syntax source, shared by the edit path
+    /// (after every keystroke) AND by open/checkout activation (via
+    /// `finalize_buffer_commit`). Because it runs before the next frame and ties
+    /// the spans to the active buffer version, the strict render-side span gate
+    /// (`latest_spans_version == render_buffer_version`) accepts the result on
+    /// the very first visible frame — so syntax is immediate on open and never
+    /// disappears on tab checkout. It always reflects the in-memory edited text
+    /// (not a saved baseline). Returns `true` when non-empty spans were applied.
     ///
     /// Unified syntax policy (shared with the background worker via
     /// `background_parse::compute_spans`), keyed off the SAME threshold as
@@ -726,9 +771,10 @@ impl GuiApp {
     ///   re-highlight — enabled by default, no hidden "medium file" cutoff.
     /// - Large files (>= `LARGE_THRESHOLD`): the rope holds only the viewport,
     ///   so `to_string()` is small and the re-highlight is viewport-scoped.
+    ///
     /// The parse budget therefore equals the large-file boundary, so syntax and
     /// backend selection can never disagree silently.
-    pub(crate) fn schedule_background_parse(&mut self) {
+    pub(crate) fn schedule_background_parse(&mut self) -> bool {
         // For large files, `editor_buffer.rope()` contains only the viewport
         // window (~100 lines), so `to_string()` only tokenizes/colours the
         // visible lines.  This is intentional: piece-table full-file parsing
@@ -751,7 +797,8 @@ impl GuiApp {
         // supported language with non-empty text), so an unsupported/empty
         // parse never flashes existing colours away.
         let spans = background_parse::compute_spans(&self.parser_pool, language, &text);
-        if !spans.is_empty() {
+        let applied = !spans.is_empty();
+        if applied {
             self.latest_spans = Some(spans);
             self.latest_spans_version = version;
             // The line hash changes on every edit, so the editor cache already
@@ -759,6 +806,19 @@ impl GuiApp {
             self.cached_editor_lines_hash = 0;
             self.line_syntax_cache.clear();
         }
+        if syntax_trace_enabled() {
+            eprintln!(
+                "ZAROXI_SYNTAX_TRACE: rehighlight_sync path={:?} lang={:?} buffer_version={} spans_version={} spans={} applied={} text_bytes={}",
+                self.committed_active_file,
+                language,
+                version,
+                self.latest_spans_version,
+                self.latest_spans.as_ref().map(|s| s.len()).unwrap_or(0),
+                applied,
+                text.len(),
+            );
+        }
+        applied
     }
 
     /// Drain background *read* outcomes (Phase 8/10/11). The `Head` outcome is

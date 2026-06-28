@@ -131,6 +131,17 @@ pub(crate) fn doc_lifecycle_trace_enabled() -> bool {
     std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
 }
 
+/// Whether the syntax-activation trace is enabled (`ZAROXI_SYNTAX_TRACE=1`).
+/// Drives the syntax-ownership diagnostics: eager synchronous re-highlight on
+/// open/checkout/edit (path, language, buffer/spans version, span count,
+/// applied vs empty), and the finalize-time choice of eager-sync vs deferred
+/// off-thread highlighting for normal vs large/huge files. Pairs with the
+/// render-side `ZAROXI_DEBUG_FIRST_OPEN` span-gate line (verified vs plain) to
+/// prove whether syntax was ready on the first visible frame. Zero-cost when off.
+pub(crate) fn syntax_trace_enabled() -> bool {
+    std::env::var("ZAROXI_SYNTAX_TRACE").as_deref() == Ok("1")
+}
+
 /// Whether the editor-decoration trace is enabled (`ZAROXI_DEBUG_DECORATION=1`).
 /// Drives the per-frame line-background/decoration diagnostics: which layer
 /// emitted a row band, its document line + visual row, the decoration source

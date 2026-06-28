@@ -69,7 +69,7 @@ pub(crate) use debug::{
     decoration_trace_enabled, doc_lifecycle_trace_enabled, file_open_trace_enabled,
     first_open_trace_enabled, frame_trace_enabled, open_present_trace_enabled, perf_event,
     perf_trace_enabled, pipeline_trace_enabled, render_trace_enabled, scroll_trace_enabled,
-    settle_trace_enabled,
+    settle_trace_enabled, syntax_trace_enabled,
 };
 
 use winit::window::WindowAttributes;

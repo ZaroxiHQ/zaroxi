@@ -1,6 +1,5 @@
 AGENTS.md
 
-
 Purpose
 -------
 This file documents conventions and operational guidance for automated agents that
