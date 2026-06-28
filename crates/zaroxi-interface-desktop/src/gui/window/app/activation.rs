@@ -413,3 +413,94 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         _ => None,
     }
 }
+
+// ── Widget action dispatch (moved from app/mod.rs) ──
+
+impl super::GuiApp {
+    pub fn dispatch_activation(&mut self, id: &WidgetId) -> Option<ShellWorkContent> {
+        dispatch_activation(self, id)
+    }
+
+    pub fn handle_actions(&mut self, actions: Vec<zaroxi_core_engine_ui::WidgetAction>) {
+        let mut needs_redraw = false;
+        let mut content_changed = false;
+        for action in actions {
+            match action {
+                zaroxi_core_engine_ui::WidgetAction::StateNeedsRedraw => {
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::FocusChanged(_prev_focus) => {
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::ScrollOffsetChanged(id, offset) => {
+                    let old_offset = self.interaction.get_scroll_offset(&id);
+                    let offset_delta = offset - old_offset;
+                    self.interaction.set_scroll_offset(&id, offset);
+                    if (id == WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR })
+                        && offset_delta.abs() > 0.0001
+                    {
+                        let total_lines = self.editor_buffer.line_count().max(1) as f32;
+                        let visible = self
+                            .editor_viewport
+                            .as_ref()
+                            .map(|vp| lc::visible_lines_from_region(vp.content_rect.3) as f32)
+                            .unwrap_or(1.0);
+                        let max_scroll_lines = (total_lines - visible).max(1.0);
+                        let line_delta = (offset_delta * max_scroll_lines).round() as isize;
+                        if let Some(ref mut comp) = self.composition {
+                            comp.pending_scroll_lines += line_delta;
+                            comp.pending_refresh_reason = Some(
+                                zaroxi_application_workspace::workspace_view::RefreshReason::CursorMoved,
+                            );
+                        }
+                    }
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::Activated(ref id) => {
+                    let content = self
+                        .on_widget_activated
+                        .as_mut()
+                        .and_then(|handler| handler(id))
+                        .or_else(|| dispatch_activation(self, id));
+
+                    if let Some(ref wc) = content {
+                        let changed = self.work_content.as_ref().is_none_or(|old| {
+                            old.explorer_items != wc.explorer_items
+                                || old.active_file != wc.active_file
+                                || old.editor_body.as_ref().map(|b| &b.lines)
+                                    != wc.editor_body.as_ref().map(|b| &b.lines)
+                        });
+                        if changed {
+                            self.request_open(wc.clone());
+                            // When a file opens, switch from Welcome
+                            // to Editor mode so file-editor surfaces
+                            // (minimap, diff) are visible.
+                            if matches!(
+                                self.tab_state.active(),
+                                super::super::destination::WorkbenchTabId::Welcome
+                            ) {
+                                self.tab_state
+                                    .focus_tab(&super::super::destination::WorkbenchTabId::Editor);
+                                self.rail_selected_index = 0;
+                                self.cockpit_status_fingerprint = 0;
+                            }
+                            content_changed = true;
+                            self.pending_scroll_frac = 0.0;
+                            if let Some(ref mut comp) = self.composition {
+                                comp.reset_scroll_state();
+                            }
+                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                            self.interaction.set_scroll_offset(&editor_id, 0.0);
+                        }
+                    }
+                    needs_redraw = true;
+                }
+                zaroxi_core_engine_ui::WidgetAction::HoverChanged(_)
+                | zaroxi_core_engine_ui::WidgetAction::Nothing => {}
+            }
+        }
+        if needs_redraw || content_changed {
+            self.request_render();
+        }
+    }
+}
