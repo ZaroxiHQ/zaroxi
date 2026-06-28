@@ -114,6 +114,77 @@ pub(crate) fn first_open_trace_enabled() -> bool {
     std::env::var("ZAROXI_DEBUG_FIRST_OPEN").as_deref() == Ok("1")
 }
 
+/// Whether the editor-decoration trace is enabled (`ZAROXI_DEBUG_DECORATION=1`).
+/// Drives the per-frame line-background/decoration diagnostics: which layer
+/// emitted a row band, its document line + visual row, the decoration source
+/// kind, active file, buffer version, visible range, and whether it was kept or
+/// dropped (and why). Temporary; zero-cost when disabled.
+pub(crate) fn decoration_trace_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1")
+}
+
+/// Convert absolute-line git diff hunks into the viewport-relative,
+/// visible-range-filtered hunks the cockpit `LivingDiffLayer` paints.
+///
+/// `hunks` carry **absolute** 0-based document line indices. The diff layer
+/// draws each as a full-width band at `editor_top + line * line_height` with NO
+/// scroll handling, so feeding it absolute lines pins a stale full-width band
+/// (`theme.error` salmon for removals, green for additions) to a fixed screen
+/// row that ignores scrolling. This subtracts the current `scroll_top` and
+/// drops hunks outside the visible window so the band tracks its line,
+/// disappears the moment it scrolls off, and nothing is drawn for a scroll
+/// state that excludes it. Recomputed every frame, so scroll/resize always
+/// reposition or clear the band. Large-file mode and an empty set draw nothing.
+///
+/// A free function (not a `&self` method) so the call sites — nested inside the
+/// `self.maybe_window.as_mut()` redraw block — can pass disjoint field borrows
+/// without taking a whole-`self` borrow that would clash with the window.
+#[allow(clippy::too_many_arguments)]
+fn diff_hunks_to_viewport(
+    hunks: &[zaroxi_interface_widgets::components::DiffHunk],
+    large_file_mode: bool,
+    scroll_top: usize,
+    editor_rect_height: f32,
+    line_height: f32,
+    active_file: Option<&str>,
+    buffer_version: u64,
+    cockpit_diff_version: u64,
+) -> Vec<zaroxi_interface_widgets::components::DiffHunk> {
+    if large_file_mode || hunks.is_empty() {
+        return Vec::new();
+    }
+    // One row of slack so a band on the last partially-visible row is kept.
+    let visible_rows =
+        if line_height > 0.0 { (editor_rect_height / line_height).ceil() as usize + 1 } else { 0 };
+    let end = scroll_top.saturating_add(visible_rows);
+    let trace = decoration_trace_enabled();
+    let mut out = Vec::with_capacity(hunks.len());
+    for h in hunks {
+        let kept = h.line >= scroll_top && h.line < end;
+        if trace {
+            eprintln!(
+                "ZAROXI_DEBUG_DECORATION: layer=diff source={} abs_line={} visual_row={} scroll_top={} visible_rows={} active_file={:?} buffer_version={} cockpit_diff_version={} kept={}",
+                if h.added { "diff_added" } else { "diff_removed" },
+                h.line,
+                h.line.wrapping_sub(scroll_top),
+                scroll_top,
+                visible_rows,
+                active_file,
+                buffer_version,
+                cockpit_diff_version,
+                kept as u8,
+            );
+        }
+        if kept {
+            out.push(zaroxi_interface_widgets::components::DiffHunk {
+                line: h.line - scroll_top,
+                added: h.added,
+            });
+        }
+    }
+    out
+}
+
 /// Whether the atomic open-presentation trace is enabled
 /// (`ZAROXI_OPEN_PRESENT_TRACE=1`, also implied by `ZAROXI_OPEN_TRACE=1`). Drives
 /// the per-open snapshot lifecycle line (read_scheduled → … → presented) and the
@@ -510,6 +581,11 @@ pub struct GuiApp {
     /// Per-line change markers for the active file, derived from the git diff,
     /// consumed by the cockpit's `LivingDiffLayer`.  Recomputed only when
     /// `cockpit_diff_version` falls behind the editor buffer version.
+    ///
+    /// Stored with **absolute** 0-based document line indices. The diff layer
+    /// expects viewport-relative rows, so they are converted (and clipped to the
+    /// visible window) every frame by `diff_hunks_to_viewport` — never fed
+    /// raw, which would pin a stale band to a fixed screen row on scroll.
     pub cockpit_diff_hunks: Vec<zaroxi_interface_widgets::components::DiffHunk>,
     /// `editor_buffer.buffer_version` the `cockpit_diff_hunks` were computed for.
     pub cockpit_diff_version: u64,
@@ -4253,7 +4329,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         line_height: 18.0,
                                         total_lines: editor_total_lines,
                                         minimap_symbols: self.cockpit_minimap_symbols.clone(),
-                                        diff_hunks: self.cockpit_diff_hunks.clone(),
+                                        diff_hunks: diff_hunks_to_viewport(
+                                            &self.cockpit_diff_hunks,
+                                            self.large_file_mode,
+                                            self.composition
+                                                .as_ref()
+                                                .and_then(|c| c.metadata.as_ref())
+                                                .map(|m| m.editor_scroll_top_line)
+                                                .unwrap_or(0),
+                                            cockpit_editor_rect.3,
+                                            18.0,
+                                            self.committed_active_file.as_deref(),
+                                            self.editor_buffer.buffer_version,
+                                            self.cockpit_diff_version,
+                                        ),
                                         viewport: super::cockpit::cursor_viewport(
                                             cur_line,
                                             editor_total_lines,
@@ -4637,6 +4726,15 @@ impl winit::application::ApplicationHandler for GuiApp {
                                     {
                                         let hunks = if self.large_file_mode {
                                             Vec::new()
+                                        } else if self.editor_buffer.char_count() == 0 {
+                                            // Content not materialized yet (loading
+                                            // placeholder rope). Diffing an empty
+                                            // buffer against the on-disk baseline
+                                            // reports the WHOLE file as removed,
+                                            // flashing salmon bands across the editor
+                                            // for the open-settle frames. Draw nothing
+                                            // until the document is materialized.
+                                            Vec::new()
                                         } else if let Some(path) = diff_path {
                                             let current = self.editor_buffer.to_string();
                                             match self
@@ -4658,12 +4756,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                                         } else {
                                             Vec::new()
                                         };
-                                        eprintln!(
-                                            "ZAROXI_COCKPIT_DIFF: hunks={} buffer_version={} large_file={}",
-                                            hunks.len(),
-                                            self.editor_buffer.buffer_version,
-                                            self.large_file_mode,
-                                        );
+                                        if decoration_trace_enabled() {
+                                            eprintln!(
+                                                "ZAROXI_DEBUG_DECORATION: diff_recompute hunks={} buffer_version={} large_file={} active_file={:?} char_count={}",
+                                                hunks.len(),
+                                                self.editor_buffer.buffer_version,
+                                                self.large_file_mode,
+                                                self.committed_active_file,
+                                                self.editor_buffer.char_count(),
+                                            );
+                                        }
                                         self.cockpit_diff_hunks = hunks;
                                         self.cockpit_diff_version =
                                             self.editor_buffer.buffer_version;
@@ -4847,7 +4949,20 @@ impl winit::application::ApplicationHandler for GuiApp {
                                             minimap_symbols: self.cockpit_minimap_symbols.clone(),
                                             // Live git change markers (added/modified/
                                             // removed) for the active file.
-                                            diff_hunks: self.cockpit_diff_hunks.clone(),
+                                            diff_hunks: diff_hunks_to_viewport(
+                                                &self.cockpit_diff_hunks,
+                                                self.large_file_mode,
+                                                self.composition
+                                                    .as_ref()
+                                                    .and_then(|c| c.metadata.as_ref())
+                                                    .map(|m| m.editor_scroll_top_line)
+                                                    .unwrap_or(0),
+                                                cockpit_editor_rect.3,
+                                                18.0,
+                                                self.committed_active_file.as_deref(),
+                                                self.editor_buffer.buffer_version,
+                                                self.cockpit_diff_version,
+                                            ),
                                             // Cursor-centered viewport band for the
                                             // minimap thumb, from live editor state.
                                             viewport: super::cockpit::cursor_viewport(
