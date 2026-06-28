@@ -254,6 +254,14 @@ impl DocumentBuffer {
         }
     }
 
+    /// Clear the modified flag after the buffer's contents have been persisted
+    /// to disk. A no-op for the `Rope` variant (which never reports modified).
+    pub fn mark_saved(&mut self) {
+        if let Self::Large(pt) = self {
+            pt.is_modified = false;
+        }
+    }
+
     pub fn save(&self, path: &Path) -> io::Result<()> {
         match self {
             Self::Rope(r) => {

@@ -242,6 +242,7 @@ impl winit::application::ApplicationHandler for GuiApp {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();
+                self.cmd_held = modifiers.state().super_key();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {

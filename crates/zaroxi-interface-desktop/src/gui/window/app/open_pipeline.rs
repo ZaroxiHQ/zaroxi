@@ -105,6 +105,11 @@ impl GuiApp {
             Some(p) => p,
             None => return,
         };
+        // Capture the OUTGOING document identity + backend BEFORE large_file_mode
+        // is recomputed for the incoming file. Used by the per-document
+        // checkout/checkin below to park the active document's edits + history.
+        let prev_large_file_mode = self.large_file_mode;
+        let prev_active_file = self.committed_active_file.clone();
         // Record for status-model latency probes.
         let now = std::time::Instant::now();
         self.last_open_started_at = Some(now);
@@ -152,6 +157,64 @@ impl GuiApp {
                 })
             })
             .unwrap_or(false);
+
+        // ── Authoritative per-document checkout / checkin (the tab-switch fix) ──
+        // On a real file switch, park the OUTGOING active normal document so its
+        // unsaved edits + undo/redo history travel with it, and if the INCOMING
+        // document is already open, restore it from the in-memory store instead
+        // of rebuilding its text from (stale) disk content. This is the single
+        // mechanism that keeps unsaved edits alive across tab switches. Large
+        // files are excluded — their canonical content lives in `doc_buffers`.
+        let new_doc_key: Option<String> =
+            wc.active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+        let active_file_changed = prev_active_file.as_deref() != wc.active_file.as_deref();
+        let mut restored_from_store = false;
+        // Check IN the outgoing normal document on a real switch (keep its edits
+        // + undo/redo history).
+        if active_file_changed
+            && !prev_large_file_mode
+            && let Some(prev_key) =
+                prev_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string())
+        {
+            // Only park a document that holds materialized content; skip the
+            // transient empty loading placeholder that carries no edits.
+            let has_content = self.editor_buffer.char_count() > 0;
+            if has_content || self.open_documents.contains_key(&prev_key) {
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: checkin path={} dirty={} has_undo={} chars={} version={}",
+                        prev_key,
+                        self.editor_buffer.is_dirty(),
+                        self.editor_buffer.can_undo(),
+                        self.editor_buffer.char_count(),
+                        self.editor_buffer.buffer_version,
+                    );
+                }
+                self.open_documents.insert(prev_key, self.editor_buffer.clone());
+            }
+        }
+        // Check OUT the incoming normal document whenever we hold its parked
+        // state. A parked entry exists only for an INACTIVE document (the
+        // single-copy invariant: a document lives either in `editor_buffer` when
+        // active or in `open_documents` when parked, never both), so restoring is
+        // always correct here — it never clobbers live edits, and it covers the
+        // two-phase explorer open (loading placeholder → ready) as well as direct
+        // tab switches. `remove` re-establishes the single-copy invariant.
+        if !self.large_file_mode
+            && let Some(key) = new_doc_key.as_deref()
+            && let Some(stored) = self.open_documents.remove(key)
+        {
+            if doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 version={}",
+                    key,
+                    stored.is_dirty(),
+                    stored.buffer_version,
+                );
+            }
+            self.editor_buffer = stored;
+            restored_from_store = true;
+        }
 
         if buffer_changed {
             self.latest_spans = None;
@@ -208,7 +271,8 @@ impl GuiApp {
         // loading→ready transition, mirroring the large-file unconditional
         // hydration so normal and large files share one first-open contract.
         let body_has_content = wc.editor_body.as_ref().map_or(false, |b| !b.lines.is_empty());
-        let needs_rope_materialize = wc.editor_body.is_some()
+        let needs_rope_materialize = !restored_from_store
+            && wc.editor_body.is_some()
             && (buffer_changed
                 || (!self.large_file_mode
                     && body_has_content
@@ -333,13 +397,31 @@ impl GuiApp {
                 }
             }
         }
+        // ── Restored-document finalization ──
+        // We checked out an already-open normal document from the in-memory
+        // store, so no rebuild from disk content ran. Re-arm the first paint and
+        // a fresh syntax parse for the restored text. `finalize_buffer_commit`
+        // no longer touches the dirty baseline, so the parked dirty state +
+        // undo/redo history are preserved exactly as they were.
+        // ── Restored-document finalization ──
+        // We checked out an already-open normal document from the in-memory
+        // store, so no rebuild from disk content ran. Re-arm the first paint and
+        // a fresh syntax parse for the restored text. `finalize_buffer_commit`
+        // no longer touches the dirty baseline, so the parked dirty state +
+        // undo/redo history are preserved exactly as they were. The view-model
+        // (`work_content.editor_body`) is reconciled to the rope at the end of
+        // this commit for all edited/restored documents.
+        if restored_from_store {
+            self.finalize_buffer_commit(true);
+        }
         // ── Loading-state commit: buffer changed but no content yet ──
         // The explorer click path returns a ShellWorkContent with
         // editor_body=None as instant loading chrome.  The rope must be
         // cleared so the renderer does not fall back to the previous
         // file's rope content.  Without this, the editor shows the old
-        // file's text under the new file's tab label.
-        if buffer_changed && wc.editor_body.is_none() {
+        // file's text under the new file's tab label. A restored document is
+        // never cleared — its edited content is the source of truth.
+        if buffer_changed && wc.editor_body.is_none() && !restored_from_store {
             // Clear the rope to a single empty line so the renderer
             // shows a clean empty editor instead of old file content.
             self.editor_buffer.replace_content("");
@@ -370,7 +452,6 @@ impl GuiApp {
                         body.cursor_line,
                         body.cursor_col,
                     );
-                    self.saved_buffer_version = self.editor_buffer.buffer_version;
                 }
                 // Schedule initial syntax parse on the viewport slice.
                 self.finalize_buffer_commit(true);
@@ -390,6 +471,28 @@ impl GuiApp {
             }
         }
         self.committed_active_file = wc.active_file.clone();
+        // ── View-model reconciliation for edited/restored normal documents ──
+        // When the rope was NOT (re)built from `wc.editor_body` this commit
+        // (`needs_rope_materialize == false`) but the active normal document has
+        // unsaved edits, the freshly built `work_content.editor_body.lines` carry
+        // the document's stale on-disk text. Bring them in line with the
+        // authoritative rope so any `body.lines` consumer sees the edited content.
+        // The renderer reads the rope directly, so this is belt-and-braces; it is
+        // skipped on the common fresh-open path (rope already equals body).
+        if !self.large_file_mode
+            && !needs_rope_materialize
+            && self.editor_buffer.is_dirty()
+            && self.work_content.as_ref().and_then(|w| w.editor_body.as_ref()).is_some()
+        {
+            let lines = self.editor_buffer.lines_expanded();
+            let cursor_line = self.editor_buffer.caret_line();
+            let cursor_col = self.editor_buffer.caret_vis_col();
+            if let Some(body) = self.work_content.as_mut().and_then(|w| w.editor_body.as_mut()) {
+                body.lines = lines;
+                body.cursor_line = cursor_line;
+                body.cursor_col = cursor_col;
+            }
+        }
         if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
             eprintln!(
                 "ZAROXI_DEBUG_LARGE_FILE: commit_open token={} backgrounded={} large_file_mode={} committed_active_file={:?} visible_loading={}",
@@ -442,8 +545,11 @@ impl GuiApp {
     /// burst for a real buffer change, and kick off background syntax for
     /// non-large files.
     fn finalize_buffer_commit(&mut self, buffer_changed: bool) {
-        // The freshly loaded content is the saved baseline for dirty tracking.
-        self.saved_buffer_version = self.editor_buffer.buffer_version;
+        // The dirty baseline is owned by `EditorBufferState`: a fresh load via
+        // `populate_from_lines` / `install_rope` already marked the content saved
+        // (clean) and cleared stale undo history, and a restore from the document
+        // store deliberately keeps its parked dirty state. So this function must
+        // NOT touch the saved baseline.
         // Enter open-settling so the next frame shapes the freshly-visible
         // viewport in one burst. Only for a genuine buffer change.
         self.open_settling = buffer_changed;

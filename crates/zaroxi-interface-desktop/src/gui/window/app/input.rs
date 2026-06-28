@@ -99,14 +99,14 @@ pub(crate) fn classify_editor_key(app: &GuiApp, logical_key: &Key) -> Option<&'s
         | Key::Named(NamedKey::Delete)
         | Key::Named(NamedKey::Enter)
         | Key::Named(NamedKey::Space) => Some("edit"),
-        Key::Character(text) if !app.ctrl_held => {
+        Key::Character(text) if !app.ctrl_held && !app.cmd_held => {
             if text.is_empty() || text.chars().any(|c| c.is_control() && c != '\t') {
                 None
             } else {
                 Some("edit")
             }
         }
-        Key::Named(NamedKey::Tab) if !app.ctrl_held => Some("edit"),
+        Key::Named(NamedKey::Tab) if !app.ctrl_held && !app.cmd_held => Some("edit"),
         _ => None,
     }
 }
@@ -147,7 +147,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 q.push(' ');
                 set_explorer_search(app, q);
             }
-            Key::Character(text) if !app.ctrl_held => {
+            Key::Character(text) if !app.ctrl_held && !app.cmd_held => {
                 if !text.is_empty() && !text.chars().any(|c| c.is_control()) {
                     let mut q = current_explorer_query(app);
                     q.push_str(text.as_str());
@@ -228,7 +228,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             }
 
             // Printable characters
-            Key::Character(text) if !app.ctrl_held => {
+            Key::Character(text) if !app.ctrl_held && !app.cmd_held => {
                 // Skip control characters and empty text
                 if text.is_empty() || text.chars().any(|c| c.is_control() && c != '\t') {
                     return Vec::new();
@@ -240,7 +240,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             }
 
             // Tab in editor (insert tab character)
-            Key::Named(NamedKey::Tab) if !app.ctrl_held => {
+            Key::Named(NamedKey::Tab) if !app.ctrl_held && !app.cmd_held => {
                 app.editor_buffer.insert_text("\t");
                 sync_editor_to_service(app);
                 request_editor_redraw(app);
@@ -288,7 +288,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 Vec::new()
             }
         }
-        ref key if app.ctrl_held => match key {
+        ref key if app.ctrl_held || app.cmd_held => match key {
             // Ctrl+Shift+P: print the consolidated performance dashboard.
             Key::Character(c) if (c == "p" || c == "P") && app.shift_held => {
                 app.dashboard();
@@ -301,6 +301,7 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 Vec::new()
             }
             Key::Character(c) if c == "w" || c == "W" => {
+                let closed_path = active_document_path(app);
                 let wc = if let Some(comp) = app.composition.as_mut() {
                     let buf_id = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
                     if let Some(ref id) = buf_id {
@@ -316,6 +317,17 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                     None
                 };
                 if let Some(wc) = wc {
+                    // Drop the closed document's parked in-memory state so a later
+                    // reopen reads fresh from disk (closing is an explicit discard,
+                    // not a tab switch). Clearing the active rope also prevents the
+                    // commit_open check-in from re-parking the closed document.
+                    if let Some(p) = closed_path {
+                        app.open_documents.remove(&p);
+                        if super::debug::doc_lifecycle_trace_enabled() {
+                            eprintln!("ZAROXI_DOC_LIFECYCLE: close evicted path={}", p);
+                        }
+                    }
+                    app.editor_buffer.replace_content("");
                     app.request_open(wc);
                     app.invalidate(super::InvalidationFlags::content());
                 }
@@ -349,25 +361,161 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 }
                 Vec::new()
             }
-            Key::Character(c) if c == "z" => {
-                super::debug::gui_debug_fmt!(
-                    "ZAROXI_UNDO: undo at cursor line={} col={}",
-                    app.editor_cursor_line(),
-                    app.editor_cursor_col()
-                );
+            // Ctrl/Cmd+S: save the active document to disk.
+            Key::Character(c) if c == "s" || c == "S" => {
+                apply_save(app);
                 Vec::new()
             }
-            Key::Character(c) if c == "y" => {
-                super::debug::gui_debug_fmt!(
-                    "ZAROXI_REDO: redo at cursor line={} col={}",
-                    app.editor_cursor_line(),
-                    app.editor_cursor_col()
-                );
+            // Ctrl/Cmd+Z: undo. Ctrl/Cmd+Shift+Z: redo.
+            Key::Character(c) if c == "z" || c == "Z" => {
+                if app.shift_held {
+                    apply_redo(app);
+                } else {
+                    apply_undo(app);
+                }
+                Vec::new()
+            }
+            // Ctrl/Cmd+Y: redo (Windows/Linux convention).
+            Key::Character(c) if c == "y" || c == "Y" => {
+                apply_redo(app);
                 Vec::new()
             }
             _ => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+/// Canonical filesystem path of the active document (the `buf:` prefix
+/// stripped), or `None` when no document is active.
+fn active_document_path(app: &GuiApp) -> Option<String> {
+    app.committed_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string())
+}
+
+/// Save the active document to disk. Normal files write the rope's current
+/// in-memory text; large files persist their canonical `doc_buffers` content.
+/// On success the dirty flag is cleared; on failure the edits are preserved and
+/// the error is surfaced. Targets the active document identity, never a stale
+/// path. This is the single Save command, routed from the keyboard dispatcher.
+fn apply_save(app: &mut GuiApp) {
+    let Some(path_str) = active_document_path(app) else {
+        eprintln!("ZAROXI_SAVE: no active document to save");
+        return;
+    };
+    let path = std::path::Path::new(&path_str);
+    if super::debug::doc_lifecycle_trace_enabled() {
+        eprintln!(
+            "ZAROXI_DOC_LIFECYCLE: save_start path={} large_file={} dirty={}",
+            path_str,
+            app.large_file_mode,
+            app.document_modified(),
+        );
+    }
+
+    let result: std::io::Result<()> = if app.large_file_mode {
+        match app.doc_buffers.get_mut(&path_str) {
+            Some(db) => {
+                let r = db.save(path);
+                if r.is_ok() {
+                    db.mark_saved();
+                }
+                r
+            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no document buffer for the active large file",
+            )),
+        }
+    } else {
+        std::fs::write(path, app.editor_buffer.to_string())
+    };
+
+    match result {
+        Ok(()) => {
+            if !app.large_file_mode {
+                app.editor_buffer.mark_saved();
+            }
+            // Repaint so the dirty cue (tab marker / status bar) clears.
+            app.invalidate(super::InvalidationFlags::content());
+            if super::debug::doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: save_success path={} dirty={}",
+                    path_str,
+                    app.document_modified(),
+                );
+            }
+        }
+        Err(e) => {
+            // Visible error; edits remain in memory (dirty stays set).
+            eprintln!("ZAROXI_SAVE: save FAILED path={} error={}", path_str, e);
+            if super::debug::doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: save_failure path={} error={} dirty_preserved={}",
+                    path_str,
+                    e,
+                    app.document_modified(),
+                );
+            }
+        }
+    }
+}
+
+/// Undo the most recent edit on the active document's in-memory history.
+/// True in-memory history (never a disk reload). Large files (piece-table
+/// backed) have no rope-snapshot history, so undo is a capability-checked no-op.
+fn apply_undo(app: &mut GuiApp) {
+    if app.large_file_mode {
+        if super::debug::doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: undo skipped reason=large_file_unsupported path={:?}",
+                active_document_path(app),
+            );
+        }
+        return;
+    }
+    let applied = app.editor_buffer.undo();
+    if super::debug::doc_lifecycle_trace_enabled() {
+        eprintln!(
+            "ZAROXI_DOC_LIFECYCLE: undo applied={} path={:?} dirty={} line={} col={}",
+            applied,
+            active_document_path(app),
+            app.document_modified(),
+            app.editor_cursor_line(),
+            app.editor_cursor_col(),
+        );
+    }
+    if applied {
+        sync_editor_to_service(app);
+        request_editor_redraw(app);
+    }
+}
+
+/// Redo the most recently undone edit on the active document's in-memory
+/// history. Capability-checked no-op for large files.
+fn apply_redo(app: &mut GuiApp) {
+    if app.large_file_mode {
+        if super::debug::doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: redo skipped reason=large_file_unsupported path={:?}",
+                active_document_path(app),
+            );
+        }
+        return;
+    }
+    let applied = app.editor_buffer.redo();
+    if super::debug::doc_lifecycle_trace_enabled() {
+        eprintln!(
+            "ZAROXI_DOC_LIFECYCLE: redo applied={} path={:?} dirty={} line={} col={}",
+            applied,
+            active_document_path(app),
+            app.document_modified(),
+            app.editor_cursor_line(),
+            app.editor_cursor_col(),
+        );
+    }
+    if applied {
+        sync_editor_to_service(app);
+        request_editor_redraw(app);
     }
 }
 

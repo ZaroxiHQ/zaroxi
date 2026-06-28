@@ -66,9 +66,10 @@ pub use render_schedule::{FrameScheduler, InvalidationFlags};
 // (`super::perf_trace_enabled()` in sibling modules, bare names in this module)
 // resolve unchanged after the helpers moved into `debug.rs`.
 pub(crate) use debug::{
-    decoration_trace_enabled, file_open_trace_enabled, first_open_trace_enabled,
-    frame_trace_enabled, open_present_trace_enabled, perf_event, perf_trace_enabled,
-    pipeline_trace_enabled, render_trace_enabled, scroll_trace_enabled, settle_trace_enabled,
+    decoration_trace_enabled, doc_lifecycle_trace_enabled, file_open_trace_enabled,
+    first_open_trace_enabled, frame_trace_enabled, open_present_trace_enabled, perf_event,
+    perf_trace_enabled, pipeline_trace_enabled, render_trace_enabled, scroll_trace_enabled,
+    settle_trace_enabled,
 };
 
 use winit::window::WindowAttributes;
@@ -127,6 +128,10 @@ pub struct GuiApp {
     pub cached_settings_popup: Option<zaroxi_interface_widgets::PopupMenu>,
     pub shift_held: bool,
     pub ctrl_held: bool,
+    /// Whether the platform "command" modifier (Super/Cmd on macOS) is held.
+    /// Edit shortcuts (Save/Undo/Redo/clipboard) accept either Ctrl or Cmd so
+    /// the same bindings work on Linux/Windows (Ctrl) and macOS (Cmd).
+    pub cmd_held: bool,
     /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
     /// pressure-based shaped-glyph cache eviction.
     pub mem_monitor: zaroxi_core_telemetry::MemoryMonitor,
@@ -307,10 +312,17 @@ pub struct GuiApp {
     /// or `PieceTable` (large files) behind a common API.
     pub doc_buffers:
         std::collections::HashMap<String, zaroxi_core_editor_largefile::DocumentBuffer>,
-    /// `editor_buffer.buffer_version` captured when the active file was last
-    /// loaded (or saved). The document is considered modified when the live
-    /// buffer version diverges from this baseline.
-    pub saved_buffer_version: u64,
+    /// Authoritative per-document state for **inactive** normal (Rope-backed)
+    /// editable files, keyed by canonical file path (the `buf:` prefix stripped).
+    ///
+    /// The single ACTIVE document's state lives in `editor_buffer`; every other
+    /// open normal document is parked here with its full state — text, caret,
+    /// selection, dirty baseline, and undo/redo history. On a tab switch the
+    /// outgoing document is checked IN here and the incoming one is checked OUT
+    /// into `editor_buffer`, so unsaved edits and history survive tab switching
+    /// without ever reloading from disk. Large files use `doc_buffers` instead
+    /// and are never parked here.
+    pub open_documents: std::collections::HashMap<String, EditorBufferState>,
     /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
     /// owns the pacing/cadence and outstanding-redraw bookkeeping.
     pub frame_scheduler: FrameScheduler,
@@ -479,6 +491,25 @@ pub(crate) const OPEN_ATOMIC_FIRST_PAINT_BUDGET_MS: f32 = 100_000.0;
 /// frame under the hard cap) completes well within it.
 const OPEN_BURST_MAX_FRAMES: u32 = 600;
 
+/// Prefix a leading dot to the label of any file tab whose document is dirty.
+/// Kept as a free function so it can be applied at render time over a disjoint
+/// `tab_state` borrow without holding a whole-`self` borrow. `dirty_paths` holds
+/// canonical paths with the `buf:` prefix already stripped.
+pub(crate) fn annotate_tabs_dirty(
+    mut tabs: Vec<super::destination::UnifiedTab>,
+    dirty_paths: &std::collections::HashSet<String>,
+) -> Vec<super::destination::UnifiedTab> {
+    for tab in tabs.iter_mut() {
+        if let super::destination::WorkbenchTabId::FileBuffer(bid) = &tab.id {
+            let key = bid.strip_prefix("buf:").unwrap_or(bid);
+            if dirty_paths.contains(key) {
+                tab.title = format!("● {}", tab.title);
+            }
+        }
+    }
+    tabs
+}
+
 // ── Large-file thresholds ──
 
 /// Maximum line count before the background parser receives empty/plain-text
@@ -512,8 +543,46 @@ impl GuiApp {
     }
 
     /// Whether the active document has unsaved edits since it was loaded/saved.
-    fn document_modified(&self) -> bool {
-        self.editor_buffer.buffer_version != self.saved_buffer_version
+    ///
+    /// Normal (Rope-backed) files track dirtiness on the authoritative
+    /// `EditorBufferState`. Large files keep their canonical content in
+    /// `doc_buffers` (PieceTable), whose `is_modified()` is the source of truth.
+    pub fn document_modified(&self) -> bool {
+        if self.large_file_mode
+            && let Some(key) =
+                self.committed_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s))
+            && let Some(db) = self.doc_buffers.get(key)
+        {
+            return db.is_modified();
+        }
+        self.editor_buffer.is_dirty()
+    }
+
+    /// Set of canonical document paths (the `buf:` prefix stripped) that
+    /// currently have unsaved edits, gathered from the single authoritative
+    /// source for each document: the active `editor_buffer`, parked
+    /// `open_documents` entries, and (for large files) `doc_buffers`. Computed
+    /// once per frame before the render borrow so the tab strip can be annotated
+    /// without holding a whole-`self` borrow.
+    pub(crate) fn dirty_doc_paths(&self) -> std::collections::HashSet<String> {
+        let mut dirty = std::collections::HashSet::new();
+        if self.document_modified()
+            && let Some(key) =
+                self.committed_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s))
+        {
+            dirty.insert(key.to_string());
+        }
+        for (key, doc) in &self.open_documents {
+            if doc.is_dirty() {
+                dirty.insert(key.clone());
+            }
+        }
+        for (key, db) in &self.doc_buffers {
+            if db.is_modified() {
+                dirty.insert(key.clone());
+            }
+        }
+        dirty
     }
 
     /// Compact selection summary for the status bar, when a selection is active.

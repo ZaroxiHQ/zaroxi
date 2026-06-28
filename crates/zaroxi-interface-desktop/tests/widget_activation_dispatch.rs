@@ -35,6 +35,7 @@ mod tests {
             theme_mode: ZaroxiTheme::Dark,
             shift_held: false,
             ctrl_held: false,
+            cmd_held: false,
             mem_monitor: zaroxi_core_telemetry::MemoryMonitor::from_env(),
             buffer_tracker: zaroxi_core_telemetry::BufferActivityTracker::new(),
             last_mem_sample: None,
@@ -106,7 +107,6 @@ mod tests {
             cockpit_diff_hunks: Vec::new(),
             cockpit_diff_version: 0,
             parse_worker: None,
-            saved_buffer_version: 0,
             frame_scheduler: FrameScheduler::new(),
             ui_node_tracker: Default::default(),
             open_settling: false,
@@ -145,6 +145,7 @@ mod tests {
             settings_dropdown: zaroxi_interface_widgets::SettingsDropdownState::default(),
             cached_settings_popup: None,
             doc_buffers: std::collections::HashMap::new(),
+            open_documents: std::collections::HashMap::new(),
         }
     }
 

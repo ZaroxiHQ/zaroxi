@@ -390,6 +390,11 @@ impl GuiApp {
         // the explorer presenter can size ellipsis / highlight columns.
         let mono_advance = self.monospace_advance_x().unwrap_or(lc::CHAR_WIDTH_STUB);
 
+        // Dirty-document paths, captured before the window borrow so the tab
+        // strip can be annotated with an unsaved-state cue over a disjoint
+        // `tab_state` borrow (a whole-`self` call is impossible here).
+        let dirty_doc_paths = self.dirty_doc_paths();
+
         if let Some(z) = self.maybe_window.as_mut() {
             let (sw, sh) = z.size();
             if sw == 0 || sh == 0 {
@@ -1642,7 +1647,10 @@ impl GuiApp {
                                 })
                                 .unwrap_or_default();
                             self.tab_state.sync_file_tabs(&file_tabs);
-                            let workbench_tabs = self.tab_state.projected_tabs();
+                            let workbench_tabs = super::annotate_tabs_dirty(
+                                self.tab_state.projected_tabs(),
+                                &dirty_doc_paths,
+                            );
                             let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
                                 workbench_tabs
                                     .iter()
@@ -1783,7 +1791,10 @@ impl GuiApp {
                         // ── Tab hit rects (recomputed every frame so resize
                         // always produces correct hit geometry) ─────
                         self.tab_hit_rects = {
-                            let wb = self.tab_state.projected_tabs();
+                            let wb = super::annotate_tabs_dirty(
+                                self.tab_state.projected_tabs(),
+                                &dirty_doc_paths,
+                            );
                             let closables: Vec<bool> = wb.iter().map(|t| t.closable).collect();
                             self.tab_state.ensure_active_visible(
                                 cockpit_tab_strip_rect.2,
@@ -2190,7 +2201,10 @@ impl GuiApp {
                                     })
                                     .unwrap_or_default();
                                 self.tab_state.sync_file_tabs(&file_tabs);
-                                let workbench_tabs = self.tab_state.projected_tabs();
+                                let workbench_tabs = super::annotate_tabs_dirty(
+                                    self.tab_state.projected_tabs(),
+                                    &dirty_doc_paths,
+                                );
                                 let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
                                     workbench_tabs
                                         .iter()

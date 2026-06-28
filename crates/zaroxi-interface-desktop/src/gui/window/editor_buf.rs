@@ -8,7 +8,27 @@
 /// matching the workspace service's `TextEdit` semantics.
 use zaroxi_core_editor_rope::Rope;
 
+/// Maximum number of undo entries retained per document. Bounds memory on a
+/// long editing session; the oldest entry is evicted when the cap is reached.
+const UNDO_HISTORY_LIMIT: usize = 500;
+
+/// One reversible point in a document's edit history. Stores the full text plus
+/// caret/selection so undo/redo restores both content and cursor exactly. This
+/// is true in-memory history — never a disk reload.
+#[derive(Clone, Debug)]
+struct EditSnapshot {
+    text: String,
+    caret: usize,
+    selection_anchor: Option<usize>,
+}
+
 /// The canonical caret/selection model for the editor.
+///
+/// This is the **authoritative per-document state** for a normal (Rope-backed)
+/// editable file: text, caret/selection, dirty baseline, and undo/redo history
+/// all live here together so a document's full state can be parked while its tab
+/// is inactive and restored intact when the tab is re-activated — surviving tab
+/// switches without any reload from disk.
 #[derive(Clone, Debug)]
 pub struct EditorBufferState {
     /// Rope-backed text buffer.
@@ -28,6 +48,19 @@ pub struct EditorBufferState {
     /// Monotonically increasing buffer version. Incremented on every edit.
     /// Used by the background parse pipeline to detect stale results.
     pub buffer_version: u64,
+    /// `buffer_version` captured at the last load or save. The document is dirty
+    /// (has unsaved edits) when `buffer_version != saved_version`. Travels with
+    /// the document state so dirty status is correct across tab switches.
+    saved_version: u64,
+    /// Reversible pre-edit snapshots, newest last. Popped by `undo`.
+    undo_stack: Vec<EditSnapshot>,
+    /// States undone away, newest last. Popped by `redo`; cleared on a fresh edit.
+    redo_stack: Vec<EditSnapshot>,
+    /// Whether the previous edit was a single-character type at a contiguous
+    /// caret, so a run of typing coalesces into one undo entry.
+    typing_run: bool,
+    /// Caret position immediately after the last coalesced typing keystroke.
+    last_type_caret: usize,
 }
 
 impl EditorBufferState {
@@ -41,6 +74,11 @@ impl EditorBufferState {
             selection_active: false,
             last_edit_line_range: None,
             buffer_version: 0,
+            saved_version: 0,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            typing_run: false,
+            last_type_caret: 0,
         }
     }
 
@@ -55,6 +93,11 @@ impl EditorBufferState {
             selection_active: false,
             last_edit_line_range: None,
             buffer_version: 0,
+            saved_version: 0,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            typing_run: false,
+            last_type_caret: 0,
         }
     }
 
@@ -115,6 +158,113 @@ impl EditorBufferState {
     /// Clear the tracked edit range after it has been consumed by sync logic.
     pub fn clear_edit_line_range(&mut self) {
         self.last_edit_line_range = None;
+    }
+
+    // ── Dirty tracking & undo/redo history ──
+
+    /// Whether the document has unsaved edits since it was last loaded or saved.
+    pub fn is_dirty(&self) -> bool {
+        self.buffer_version != self.saved_version
+    }
+
+    /// Mark the current content as the saved baseline (clears the dirty flag).
+    /// Called after a successful save or a fresh load from disk.
+    pub fn mark_saved(&mut self) {
+        self.saved_version = self.buffer_version;
+    }
+
+    /// Reset the saved baseline to the current version and drop all history.
+    /// Used when the buffer is (re)loaded from disk so the freshly loaded
+    /// content is clean and has no stale undo entries from a previous document.
+    fn reset_history_to_clean(&mut self) {
+        self.saved_version = self.buffer_version;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.typing_run = false;
+        self.last_type_caret = 0;
+    }
+
+    /// True when the document currently has an undoable edit on the stack.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// True when a redo state is available.
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+
+    /// Snapshot the current state onto the undo stack and clear the redo stack.
+    /// A fresh edit always invalidates any redo history.
+    fn push_undo_snapshot(&mut self) {
+        let snap = EditSnapshot {
+            text: self.rope.to_string(),
+            caret: self.caret,
+            selection_anchor: self.selection_anchor,
+        };
+        self.undo_stack.push(snap);
+        if self.undo_stack.len() > UNDO_HISTORY_LIMIT {
+            self.undo_stack.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    /// Record a pre-edit checkpoint before a mutation. When `is_typing` is set
+    /// (a single non-newline character inserted with no selection) and the
+    /// previous edit was a contiguous typing keystroke, the keystroke coalesces
+    /// into the existing undo entry so a run of typing is undone as one unit.
+    fn record_undo_checkpoint(&mut self, is_typing: bool) {
+        let continue_run = is_typing && self.typing_run && self.caret == self.last_type_caret;
+        if !continue_run {
+            self.push_undo_snapshot();
+        }
+        self.typing_run = is_typing;
+    }
+
+    /// Undo the most recent edit (or coalesced typing run). Returns true if a
+    /// state was restored. True in-memory history — never reloads from disk.
+    pub fn undo(&mut self) -> bool {
+        let Some(prev) = self.undo_stack.pop() else {
+            return false;
+        };
+        let current = EditSnapshot {
+            text: self.rope.to_string(),
+            caret: self.caret,
+            selection_anchor: self.selection_anchor,
+        };
+        self.redo_stack.push(current);
+        self.restore_snapshot(prev);
+        true
+    }
+
+    /// Redo the most recently undone edit. Returns true if a state was restored.
+    pub fn redo(&mut self) -> bool {
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        let current = EditSnapshot {
+            text: self.rope.to_string(),
+            caret: self.caret,
+            selection_anchor: self.selection_anchor,
+        };
+        self.undo_stack.push(current);
+        self.restore_snapshot(next);
+        true
+    }
+
+    /// Restore a snapshot's text + caret, bumping the version and forcing a full
+    /// re-sync (`last_edit_line_range = None`) since arbitrary lines may shift.
+    fn restore_snapshot(&mut self, snap: EditSnapshot) {
+        self.buffer_version += 1;
+        self.rope = Rope::new(&snap.text);
+        let max = self.rope.char_count();
+        self.caret = snap.caret.min(max);
+        self.selection_anchor = snap.selection_anchor.map(|a| a.min(max));
+        self.selection_active = false;
+        let (_, col) = self.rope.char_index_to_line_col(self.caret);
+        self.preferred_column = col;
+        self.last_edit_line_range = None;
+        self.typing_run = false;
     }
 
     // ── Tab expansion ──
@@ -321,6 +471,12 @@ impl EditorBufferState {
     /// Insert text at the current caret, replacing any selection first.
     /// Returns (start_index, inserted_text) for workspace transaction.
     pub fn insert_text(&mut self, text: &str) -> Option<(usize, String)> {
+        let will_change = !text.is_empty() || self.sorted_selection().is_some();
+        let is_typing =
+            text.chars().count() == 1 && !text.contains('\n') && self.sorted_selection().is_none();
+        if will_change {
+            self.record_undo_checkpoint(is_typing);
+        }
         self.buffer_version += 1;
         let mut selection_range: Option<(usize, usize)> = None;
         // Replace selection if present
@@ -352,6 +508,10 @@ impl EditorBufferState {
             None => Some((insert_line, insert_end)),
         };
 
+        if is_typing {
+            self.last_type_caret = self.caret;
+        }
+
         Some((insert_pos, text.to_string()))
     }
 
@@ -363,6 +523,11 @@ impl EditorBufferState {
     /// Delete one character before the caret, or the current selection.
     /// Returns the delete range and removed text.
     pub fn backspace(&mut self) -> Option<(usize, usize)> {
+        let will_mutate = self.sorted_selection().is_some() || self.caret > 0;
+        if !will_mutate {
+            return None;
+        }
+        self.record_undo_checkpoint(false);
         self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
@@ -396,6 +561,11 @@ impl EditorBufferState {
     /// Delete one character after the caret, or the current selection.
     /// Returns the delete range.
     pub fn delete_forward(&mut self) -> Option<(usize, usize)> {
+        let will_mutate = self.sorted_selection().is_some() || self.caret < self.rope.char_count();
+        if !will_mutate {
+            return None;
+        }
+        self.record_undo_checkpoint(false);
         self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
@@ -500,6 +670,7 @@ impl EditorBufferState {
         self.caret = new_caret;
         self.preferred_column = old_col;
         self.last_edit_line_range = None; // full rebuild needed
+        self.reset_history_to_clean();
     }
 
     /// Populate the buffer from ContentView data (when a file is opened).
@@ -515,6 +686,7 @@ impl EditorBufferState {
         self.selection_anchor = None;
         self.selection_active = false;
         self.last_edit_line_range = None; // full replacement
+        self.reset_history_to_clean();
     }
 
     /// Install a pre-built rope (e.g. materialized off-thread by the background
@@ -530,6 +702,7 @@ impl EditorBufferState {
         self.selection_anchor = None;
         self.selection_active = false;
         self.last_edit_line_range = None; // full replacement
+        self.reset_history_to_clean();
     }
 }
 
@@ -784,5 +957,100 @@ mod tests {
         buf.set_caret_line_vis_col(0, 2); // click in middle of tab visual space
         assert_eq!(buf.caret(), 1); // raw index → tab character
         assert_eq!(buf.caret_col(), 1); // raw column at tab
+    }
+
+    #[test]
+    fn fresh_buffer_is_clean() {
+        let buf = EditorBufferState::from_text("hello");
+        assert!(!buf.is_dirty());
+        assert!(!buf.can_undo());
+        assert!(!buf.can_redo());
+    }
+
+    #[test]
+    fn edit_marks_dirty_and_save_clears_it() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.set_caret(5);
+        buf.insert_text("!");
+        assert!(buf.is_dirty(), "typing must mark the document dirty");
+        buf.mark_saved();
+        assert!(!buf.is_dirty(), "save must clear the dirty flag");
+    }
+
+    #[test]
+    fn undo_restores_previous_text_and_caret() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.set_caret(5);
+        buf.insert_text(" world");
+        assert_eq!(buf.to_string(), "hello world");
+        assert!(buf.undo());
+        assert_eq!(buf.to_string(), "hello");
+        assert_eq!(buf.caret(), 5);
+    }
+
+    #[test]
+    fn redo_reapplies_undone_edit() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.set_caret(5);
+        buf.insert_text(" world");
+        buf.undo();
+        assert_eq!(buf.to_string(), "hello");
+        assert!(buf.redo());
+        assert_eq!(buf.to_string(), "hello world");
+    }
+
+    #[test]
+    fn typing_run_coalesces_into_one_undo() {
+        let mut buf = EditorBufferState::from_text("");
+        for c in ["a", "b", "c"] {
+            buf.insert_text(c);
+        }
+        assert_eq!(buf.to_string(), "abc");
+        // One contiguous typing run → a single undo reverts all of it.
+        assert!(buf.undo());
+        assert_eq!(buf.to_string(), "");
+        assert!(!buf.can_undo());
+    }
+
+    #[test]
+    fn fresh_edit_clears_redo_stack() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.set_caret(5);
+        buf.insert_text("!");
+        buf.undo();
+        assert!(buf.can_redo());
+        buf.insert_text("?");
+        assert!(!buf.can_redo(), "a fresh edit must invalidate redo history");
+    }
+
+    #[test]
+    fn undo_restores_saved_baseline_text() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.mark_saved();
+        buf.set_caret(5);
+        buf.insert_text("X");
+        assert!(buf.is_dirty());
+        buf.undo();
+        // Undo restores the exact saved text. (Version-based dirty still reports
+        // dirty until re-saved; text correctness is the mandatory guarantee.)
+        assert_eq!(buf.to_string(), "hello");
+    }
+
+    #[test]
+    fn populate_from_lines_resets_history_and_clean() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.insert_text("x");
+        assert!(buf.can_undo());
+        buf.populate_from_lines(&["new".to_string()], 0, 0);
+        assert!(!buf.is_dirty(), "freshly loaded content is clean");
+        assert!(!buf.can_undo(), "load clears stale undo history");
+    }
+
+    #[test]
+    fn no_op_backspace_does_not_dirty() {
+        let mut buf = EditorBufferState::from_text("hello");
+        buf.set_caret(0);
+        assert!(buf.backspace().is_none());
+        assert!(!buf.is_dirty(), "backspace at start is a no-op and must not dirty");
     }
 }

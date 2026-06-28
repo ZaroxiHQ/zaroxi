@@ -10,6 +10,7 @@
 # CI: run `cargo metadata --workspace` to validate dependency graph and
 # `cargo check -p <crate>` as part of the verification pipeline.
 
+
 [workspace]
 resolver = "2"
 

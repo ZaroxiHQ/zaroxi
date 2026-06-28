@@ -122,6 +122,15 @@ pub(crate) fn first_open_trace_enabled() -> bool {
     std::env::var("ZAROXI_DEBUG_FIRST_OPEN").as_deref() == Ok("1")
 }
 
+/// Whether the document-lifecycle trace is enabled (`ZAROXI_DOC_LIFECYCLE=1`).
+/// Drives the per-document state diagnostics: tab-switch check-in / check-out
+/// (whether in-memory edited state was retained instead of reloaded from disk),
+/// dirty-flag transitions, undo/redo push/pop, save start/success/failure, and
+/// which document a shortcut targeted. Temporary; zero-cost when disabled.
+pub(crate) fn doc_lifecycle_trace_enabled() -> bool {
+    std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+}
+
 /// Whether the editor-decoration trace is enabled (`ZAROXI_DEBUG_DECORATION=1`).
 /// Drives the per-frame line-background/decoration diagnostics: which layer
 /// emitted a row band, its document line + visual row, the decoration source
