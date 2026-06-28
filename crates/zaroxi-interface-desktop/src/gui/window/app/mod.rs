@@ -1628,9 +1628,15 @@ impl GuiApp {
     /// landed — the visible "syntax churn". The compiled query is cached, so a
     /// full reparse of a small file is cheap.
     ///
-    /// Size-aware policy:
-    /// - Small files (<1000 lines, <100KB): synchronous re-highlight.
-    /// - Large/huge files: skip parsing entirely; plain-text fallback.
+    /// Unified syntax policy (shared with the background worker via
+    /// `background_parse::compute_spans`), keyed off the SAME threshold as
+    /// backend selection (`DocumentBuffer::LARGE_THRESHOLD`):
+    /// - Rope-backed normal files (size < `LARGE_THRESHOLD`): full-document
+    ///   re-highlight — enabled by default, no hidden "medium file" cutoff.
+    /// - Large files (>= `LARGE_THRESHOLD`): the rope holds only the viewport,
+    ///   so `to_string()` is small and the re-highlight is viewport-scoped.
+    /// The parse budget therefore equals the large-file boundary, so syntax and
+    /// backend selection can never disagree silently.
     pub(crate) fn schedule_background_parse(&mut self) {
         // For large files, `editor_buffer.rope()` contains only the viewport
         // window (~100 lines), so `to_string()` only tokenizes/colours the

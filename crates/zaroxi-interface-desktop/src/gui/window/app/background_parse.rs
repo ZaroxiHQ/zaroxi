@@ -7,31 +7,91 @@ use zaroxi_core_platform_syntax::highlight::{HighlightEngine, HighlightSpan};
 use zaroxi_core_platform_syntax::language::LanguageId;
 use zaroxi_core_platform_syntax::parser::ParserPool;
 
-/// Maximum text bytes to send to the background parse worker.
-/// Beyond this threshold, full-document tree-sitter parsing is too
-/// slow to be useful and we drop the snapshot without parsing.
-const MAX_PARSE_TEXT_BYTES: usize = 100_000;
-
-/// Parse `text` with `language` and return highlight spans, or an empty vector
-/// when the language is plain text, the grammar is unavailable, parsing fails,
-/// or the text exceeds the parse budget.
+/// Maximum text bytes the syntax parser will accept, **derived from the backend
+/// large-file boundary** (`DocumentBuffer::LARGE_THRESHOLD`) so syntax policy
+/// and backend selection share ONE threshold and can never disagree:
+///   - Rope-backed *normal* files (size < `LARGE_THRESHOLD`) hold their FULL
+///     text in the rope, so `to_string()` is always within budget → full-
+///     document syntax is enabled by default.
+///   - *Large* files (size >= `LARGE_THRESHOLD`) are PieceTable-backed and the
+///     rope holds only the viewport window, so `to_string()` is small → the
+///     parse is viewport-scoped (the explicit reduced large-file policy).
 ///
-/// Shared by the background worker and the synchronous first-paint highlight on
-/// file open. The compiled query is cached process-wide (see
-/// `HighlightEngine`), so repeated calls are cheap.
-pub fn compute_spans(pool: &ParserPool, language: LanguageId, text: &str) -> Vec<HighlightSpan> {
-    if language == LanguageId::PlainText || text.len() > MAX_PARSE_TEXT_BYTES {
-        return Vec::new();
+/// There is intentionally NO separate, lower "medium file" cutoff. The previous
+/// hard-coded 100 KB constant was exactly such a hidden second threshold: it
+/// left rope-backed mid-size files (e.g. a ~124 KB Rust source) rendered as
+/// plain text even though `large_file_mode == false` — syntax and backend
+/// silently disagreed, which is the bug this unifies away.
+const MAX_PARSE_TEXT_BYTES: usize =
+    zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD as usize;
+
+/// Whether the syntax-policy decision trace is enabled (`ZAROXI_DEBUG_SYNTAX=1`,
+/// also implied by `ZAROXI_DEBUG_PARSE_PIPELINE=1`). Prints exactly one policy/
+/// outcome reason per parse so an empty-span result is never silent.
+fn syntax_trace_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_SYNTAX").as_deref() == Ok("1")
+        || std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1")
+}
+
+/// Compute highlight spans AND the single authoritative policy/outcome reason.
+///
+/// Returns exactly one of:
+///   - `enabled`                        — spans produced for the snapshot
+///   - `disabled_by_language_detection` — plain text / no grammar for the language
+///   - `disabled_by_budget_policy`      — text exceeds the (large-file) byte budget
+///   - `parse_failed`                   — grammar unavailable or tree-sitter parse failed
+///   - `empty_result_unexpected`        — a supported language parsed but produced
+///                                        zero spans (a bug path worth flagging)
+fn highlight_with_reason(
+    pool: &ParserPool,
+    language: LanguageId,
+    text: &str,
+) -> (Vec<HighlightSpan>, &'static str) {
+    if language == LanguageId::PlainText {
+        return (Vec::new(), "disabled_by_language_detection");
+    }
+    if text.len() > MAX_PARSE_TEXT_BYTES {
+        return (Vec::new(), "disabled_by_budget_policy");
     }
     let mut parser = match pool.acquire(&language) {
         Some(p) => p,
-        None => return Vec::new(),
+        None => return (Vec::new(), "parse_failed"),
     };
-    let spans = match parser.parse(text, None) {
-        Some(tree) => HighlightEngine::new().highlight(language, text, &tree).unwrap_or_default(),
+    let tree = parser.parse(text, None);
+    let spans = match tree.as_ref() {
+        Some(t) => HighlightEngine::new().highlight(language, text, t).unwrap_or_default(),
         None => Vec::new(),
     };
     pool.release(&language, parser);
+    let reason = if tree.is_none() {
+        "parse_failed"
+    } else if spans.is_empty() {
+        "empty_result_unexpected"
+    } else {
+        "enabled"
+    };
+    (spans, reason)
+}
+
+/// Parse `text` with `language` and return highlight spans (synchronous path:
+/// first-paint / edit-time re-highlight). Empty when the language is plain text,
+/// the grammar is unavailable, parsing fails, or the text exceeds the
+/// (large-file) parse budget.
+///
+/// Shared with the background worker. The compiled query is cached process-wide
+/// (see `HighlightEngine`), so repeated calls are cheap.
+pub fn compute_spans(pool: &ParserPool, language: LanguageId, text: &str) -> Vec<HighlightSpan> {
+    let (spans, reason) = highlight_with_reason(pool, language, text);
+    if syntax_trace_enabled() {
+        eprintln!(
+            "ZAROXI_DEBUG_SYNTAX: syntax={} path=sync lang={:?} text_bytes={} budget={} span_count={}",
+            reason,
+            language,
+            text.len(),
+            MAX_PARSE_TEXT_BYTES,
+            spans.len(),
+        );
+    }
     spans
 }
 
@@ -126,11 +186,21 @@ impl BackgroundParseWorker {
                     );
                 }
                 self.completed_result = Some(result);
-            } else if debug_pipeline {
-                eprintln!(
-                    "ZAROXI_DEBUG_PARSE_PIPELINE: result_rejected v={} (stale, current={})",
-                    result.version, self.last_sent_version,
-                );
+            } else {
+                if syntax_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DEBUG_SYNTAX: syntax=cancelled v={} current={} span_count={} reason=superseded_by_newer_version",
+                        result.version,
+                        self.last_sent_version,
+                        result.spans.len(),
+                    );
+                }
+                if debug_pipeline {
+                    eprintln!(
+                        "ZAROXI_DEBUG_PARSE_PIPELINE: result_rejected v={} (stale, current={})",
+                        result.version, self.last_sent_version,
+                    );
+                }
             }
         }
         self.completed_result.as_ref()
@@ -161,63 +231,25 @@ impl BackgroundParseWorker {
                 );
             }
 
-            // Defence-in-depth: reject snapshots whose text payload exceeds
-            // the parse budget.  The caller-level guard in
-            // `schedule_background_parse` should already prevent these, but
-            // a stale snapshot from before the guard was tightened could
-            // still be in the channel.
-            if snapshot.text.len() > MAX_PARSE_TEXT_BYTES {
-                if debug_pipeline {
-                    eprintln!(
-                        "ZAROXI_DEBUG_PARSE_PIPELINE: worker_task DROPPED text_bytes={} (exceeds max={})",
-                        snapshot.text.len(),
-                        MAX_PARSE_TEXT_BYTES,
-                    );
-                }
-                let _ = result_tx.send(ParseResult {
-                    version: snapshot.version,
-                    spans: Vec::new(),
-                    incremental: false,
-                    duration_us: start.elapsed().as_micros() as u64,
-                });
-                continue;
-            }
-
-            if lang == LanguageId::PlainText {
-                let _ = result_tx.send(ParseResult {
-                    version: snapshot.version,
-                    spans: Vec::new(),
-                    incremental: false,
-                    duration_us: start.elapsed().as_micros() as u64,
-                });
-                continue;
-            }
-
-            let mut parser = match pool.acquire(&lang) {
-                Some(p) => p,
-                None => {
-                    let _ = result_tx.send(ParseResult {
-                        version: snapshot.version,
-                        spans: Vec::new(),
-                        incremental: false,
-                        duration_us: start.elapsed().as_micros() as u64,
-                    });
-                    continue;
-                }
-            };
-
-            let tree = parser.parse(&snapshot.text, None);
-            let spans: Vec<HighlightSpan> = match tree.as_ref() {
-                Some(t) => {
-                    let engine = HighlightEngine::new();
-                    engine.highlight(lang, &snapshot.text, t).unwrap_or_default()
-                }
-                None => Vec::new(),
-            };
-
-            pool.release(&lang, parser);
-
+            // Single source of truth for the syntax policy + outcome. The byte
+            // budget here is the SAME constant as the backend large-file
+            // boundary, so a rope-backed normal file is never rejected and a
+            // large file's (already viewport-scoped) text always parses.
+            let (spans, reason) = highlight_with_reason(&pool, lang, &snapshot.text);
             let dur = start.elapsed().as_micros() as u64;
+
+            if syntax_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DEBUG_SYNTAX: syntax={} path=worker v={} lang={:?} text_bytes={} budget={} span_count={} dur_us={}",
+                    reason,
+                    snapshot.version,
+                    lang,
+                    snapshot.text.len(),
+                    MAX_PARSE_TEXT_BYTES,
+                    spans.len(),
+                    dur,
+                );
+            }
             if debug_pipeline {
                 eprintln!(
                     "ZAROXI_DEBUG_PARSE_PIPELINE: worker_done v={} dur_us={} span_count={}",
