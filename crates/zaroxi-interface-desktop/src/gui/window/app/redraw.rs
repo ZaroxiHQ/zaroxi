@@ -364,6 +364,106 @@ impl GuiApp {
                 );
             }
 
+            // ── Per-region theme dump (ZAROXI_THEME_REGION_DUMP=1) ──
+            // Diagnostic: for each major surface prints the intended semantic
+            // token, its intended sRGB hex, and the final RGBA handed to the
+            // renderer — plus the value the OLD sRGB swapchain would have
+            // re-encoded to. With the non-sRGB surface, `displayed_rgb` equals
+            // the sent value (verbatim), proving no whitening is introduced.
+            // Guarded: silent unless the env var is set; fires once per launch.
+            if !self.first_render_shown
+                && std::env::var("ZAROXI_THEME_REGION_DUMP").as_deref() == Ok("1")
+            {
+                // What a `*UnormSrgb` swapchain would have produced (the bug).
+                fn srgb8(c: f32) -> u8 {
+                    let v =
+                        if c <= 0.0031308 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+                    (v.clamp(0.0, 1.0) * 255.0).round() as u8
+                }
+                let regions: [(&str, zaroxi_interface_theme::Color, [f32; 4]); 14] = [
+                    ("app_background", sem.app_background, tokens.app_background.to_array()),
+                    (
+                        "editor_background",
+                        sem.editor_background,
+                        tokens.editor_content_background.to_array(),
+                    ),
+                    (
+                        "sidebar_background",
+                        sem.sidebar_background,
+                        tokens.sidebar_background.to_array(),
+                    ),
+                    ("panel_background", sem.panel_background, tokens.panel_background.to_array()),
+                    (
+                        "tab_strip_background",
+                        sem.tab_strip_background,
+                        tokens.tab_strip_background.to_array(),
+                    ),
+                    (
+                        "tab_active_background",
+                        sem.tab_active_background,
+                        tokens.tab_active_background.to_array(),
+                    ),
+                    (
+                        "tab_inactive_background",
+                        sem.tab_background,
+                        tokens.tab_inactive_background.to_array(),
+                    ),
+                    (
+                        "assistant_panel_background",
+                        sem.assistant_panel_background,
+                        tokens.assistant_panel_background.to_array(),
+                    ),
+                    (
+                        "status_bar_background",
+                        sem.status_bar_background,
+                        tokens.status_bar_background.to_array(),
+                    ),
+                    (
+                        "title_bar_background",
+                        sem.title_bar_background,
+                        tokens.titlebar_background.to_array(),
+                    ),
+                    (
+                        "editor_gutter_background",
+                        sem.editor_gutter_background,
+                        tokens.editor_gutter_bg.to_array(),
+                    ),
+                    (
+                        "editor_line_highlight",
+                        sem.editor_line_highlight,
+                        tokens.editor_line_highlight.to_array(),
+                    ),
+                    ("editor_selection", sem.editor_selection, tokens.editor_selection.to_array()),
+                    (
+                        "border",
+                        sem.border,
+                        [sem.border.r, sem.border.g, sem.border.b, sem.border.a],
+                    ),
+                ];
+                debug::gui_debug_fmt!(
+                    "ZAROXI_THEME_REGION_DUMP: theme={:?} resolved={:?} (surface=non-sRGB Unorm → sent == displayed)",
+                    self.theme_mode,
+                    variant
+                );
+                for (name, intended, final_rgba) in regions.iter() {
+                    debug::gui_debug_fmt!(
+                        "ZAROXI_THEME_REGION_DUMP: region={:<26} token_hex={} sent_rgba=[{:.3},{:.3},{:.3},{:.3}] displayed=#{:02x}{:02x}{:02x} (old_sRGB_would_be=#{:02x}{:02x}{:02x})",
+                        name,
+                        intended.to_hex(),
+                        final_rgba[0],
+                        final_rgba[1],
+                        final_rgba[2],
+                        final_rgba[3],
+                        (final_rgba[0] * 255.0).round() as u8,
+                        (final_rgba[1] * 255.0).round() as u8,
+                        (final_rgba[2] * 255.0).round() as u8,
+                        srgb8(final_rgba[0]),
+                        srgb8(final_rgba[1]),
+                        srgb8(final_rgba[2]),
+                    );
+                }
+            }
+
             if let Some(ref mut comp) = self.composition {
                 comp.apply_pending_scrolls();
             }

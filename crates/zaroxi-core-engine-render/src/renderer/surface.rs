@@ -24,13 +24,23 @@ pub(crate) fn configure_surface(
 ) -> Result<SurfaceConfiguration, RenderError> {
     let caps = surface.get_capabilities(adapter);
 
+    // Surface format: choose a NON-sRGB (`*Unorm`) swapchain format.
+    //
+    // The engine receives colors as 8-bit sRGB-encoded values (hex / 255 — see
+    // `ThemeColor::from_hex`), i.e. already display-ready. A `*UnormSrgb`
+    // surface would make the GPU apply a second linear→sRGB encode on write,
+    // which BRIGHTENS every fill and COMPRESSES the dark range so distinct dark
+    // surfaces collapse toward one gray (e.g. editor `#282c33` would display as
+    // ~`#737980`). Selecting a non-sRGB `Unorm` surface presents the authored
+    // colors verbatim, so the dark palette reads correctly with full hierarchy.
     let format = caps
         .formats
         .iter()
         .copied()
-        .find(|f| matches!(f, TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb))
-        .or_else(|| caps.formats.get(0).copied())
-        .unwrap_or(TextureFormat::Bgra8UnormSrgb);
+        .find(|f| matches!(f, TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm))
+        .or_else(|| caps.formats.iter().copied().find(|f| !f.is_srgb()))
+        .or_else(|| caps.formats.first().copied())
+        .unwrap_or(TextureFormat::Bgra8Unorm);
 
     let config = SurfaceConfiguration {
         usage: TextureUsages::RENDER_ATTACHMENT,
