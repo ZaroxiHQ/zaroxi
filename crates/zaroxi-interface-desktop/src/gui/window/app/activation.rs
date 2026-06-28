@@ -88,6 +88,9 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         }
         WidgetId::TextInput { .. } => None,
         WidgetId::Tab { index } => {
+            if super::first_open_trace_enabled() {
+                eprintln!("ZAROXI_DEBUG_FIRST_OPEN: activation=tab tab_index={}", *index);
+            }
             if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
                 eprintln!(
                     "ZAROXI_DEBUG_TAB_CLICK: tab_index={} items_len={}",
@@ -308,10 +311,92 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 // Switch from Welcome to Editor mode immediately so the tab
                 // strip reflects the file-editor selection even while the
                 // background read is still in flight.
+                //
+                // Build a loading-chrome work-content with the correct
+                // active_file for the new file.  Using `comp.build_work_content()`
+                // directly would carry a stale active_file from the previously
+                // active document and prevent `handle_actions` from calling
+                // `request_open` (the `changed` check would see matching
+                // active_files).  The stale active_file would also cause
+                // `commit_open` to skip `buffer_changed` processing and reuse
+                // the old large_file_mode.
+                comp.clear_direct_active();
+                // Preserve the current explorer state so the tree does not
+                // flicker or rebuild when opening a file.
+                let exp_items = comp.format_cached_explorer_items();
+                // Snapshot ALL current explorer UI state from work_content so the
+                // explorer subtree is byte-identical across the loading commit.
+                //
+                // The explorer renders from `explorer_panel_items` and the widget
+                // tree fingerprint keys on `explorer_panel_items.len()`. Building
+                // the loading chrome with `explorer_panel_items = None` blanks the
+                // explorer panel for the loading frame and forces a full widget
+                // tree rebuild (panel gone → panel back), which is the visible
+                // "explorer disappears and comes back" flicker on file open. By
+                // carrying the existing panel items/title/empty fields unchanged,
+                // opening a file only mutates editor/tab/active-document state and
+                // the explorer subtree is left untouched.
+                let (
+                    exp_scroll,
+                    exp_query,
+                    exp_active,
+                    exp_has_ws,
+                    exp_panel_items,
+                    exp_panel_title,
+                    exp_empty_button,
+                    exp_empty_message,
+                    exp_ext_sidebar,
+                ) = app
+                    .work_content
+                    .as_ref()
+                    .map(|wc| {
+                        (
+                            wc.explorer_scroll_top,
+                            wc.explorer_search_query.clone(),
+                            wc.explorer_search_active,
+                            wc.explorer_has_workspace,
+                            wc.explorer_panel_items.clone(),
+                            wc.explorer_panel_title.clone(),
+                            wc.explorer_empty_button.clone(),
+                            wc.explorer_empty_message.clone(),
+                            wc.extension_sidebar_items.clone(),
+                        )
+                    })
+                    .unwrap_or((0, String::new(), false, false, None, None, None, None, None));
+                let loading_wc = crate::gui::ShellWorkContent {
+                    editor_body: None,
+                    editor_tabs: None,
+                    editor_breadcrumb: None,
+                    explorer_items: exp_items,
+                    explorer_panel_items: exp_panel_items,
+                    explorer_panel_title: exp_panel_title,
+                    explorer_empty_button: exp_empty_button,
+                    explorer_empty_message: exp_empty_message,
+                    explorer_scroll_top: exp_scroll,
+                    explorer_search_query: exp_query,
+                    explorer_search_active: exp_active,
+                    explorer_has_workspace: exp_has_ws,
+                    active_file: Some(format!("buf:{}", path.to_string_lossy())),
+                    suppress_empty_state: false,
+                    terminal_tabs: None,
+                    ai_panel_content: None,
+                    syntax_highlights: None,
+                    editor_non_file_tabs: None,
+                    active_tab_index: None,
+                    extension_sidebar_items: exp_ext_sidebar,
+                };
+                if super::first_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DEBUG_FIRST_OPEN: activation=explorer file={} read_token={} preserved_panel_items={}",
+                        path.display(),
+                        token,
+                        loading_wc.explorer_panel_items.as_ref().map(|v| v.len()).unwrap_or(0),
+                    );
+                }
                 app.tab_state.focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
                 app.rail_selected_index = 0;
                 app.cockpit_status_fingerprint = 0;
-                return Some(comp.build_work_content());
+                return Some(loading_wc);
             }
             // Rail activation: switch active panel / open command
             match index {

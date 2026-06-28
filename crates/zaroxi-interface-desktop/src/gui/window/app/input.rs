@@ -404,22 +404,6 @@ fn sync_editor_to_service(app: &mut GuiApp) {
         let old_len = body.lines.len();
         let structural_edit = old_len != total;
 
-        // Detect large-file mode on-the-fly (editor buffer may have grown
-        // beyond thresholds during editing without going through set_work_content).
-        let byte_count: usize = body.lines.iter().map(|l| l.len() + 1).sum();
-        if total > super::LARGE_FILE_LINE_THRESHOLD || byte_count > super::LARGE_FILE_BYTE_THRESHOLD
-        {
-            if !app.large_file_mode
-                && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
-            {
-                eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} (detected during sync)",
-                    total, byte_count,
-                );
-            }
-            app.large_file_mode = true;
-        }
-
         if structural_edit {
             // Structural edit: line count changed. For large files, use
             // the incremental range to update only affected lines from

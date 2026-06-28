@@ -63,58 +63,24 @@ pub(crate) fn prepare_editor_data(
     large_file_mode: bool,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
-    doc_buffer: Option<&DocumentBuffer>,
+    _doc_buffer: Option<&DocumentBuffer>,
     buffer_version: u64,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
-    if large_file_mode {
-        let mut lines_hash = buffer_version.wrapping_add(1);
-
-        if let Some((start, end)) = visible_line_range {
-            lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
-            lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
-        }
-
-        if should_use_editor_cache(lines_hash, *cached_editor_lines_hash) {
-            if let Some(cached) = cached_editor_data {
-                return cached.clone();
-            }
-        }
-
-        cached_line_hashes.clear();
-        line_syntax_cache.clear();
-
-        let _ = spans;
-        let data = super::super::presenters::shape_editor_content_plain(
-            work_content,
-            sem,
-            visible_line_range,
-            rope,
-            doc_buffer,
-            wrap_chars_per_row,
-        );
-
-        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-            eprintln!(
-                "ZAROXI_DEBUG_LARGE_FILE: prepare lines={} bytes={} hash={:016x} has_spans={} visible_range={:?}",
-                data.total_lines,
-                data.editor_body_text.len(),
-                lines_hash,
-                data.editor_spans.is_some(),
-                data.visible_line_range,
-            );
-        }
-
-        *cached_editor_data = Some(data.clone());
-        *cached_editor_lines_hash = lines_hash;
-        *cached_editor_spans_version = spans_version;
-        return data;
-    }
-
+    // Single path for both Rope and PieceTable backends.
+    // For large files the rope holds only the viewport window, so
+    // content hashing and per-line hashing are O(1).  For small files
+    // the rope holds the full document.  Syntax spans apply equally.
     let mut lines_hash = compute_lines_hash(work_content);
     if let Some((start, end)) = visible_line_range {
         lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
         lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
+    }
+    // Mix buffer_version so edits always invalidate the cache for
+    // large files (where the content hash computed from the viewport
+    // window may not change on a mid-viewport edit).
+    if large_file_mode {
+        lines_hash = lines_hash.wrapping_mul(31).wrapping_add(buffer_version);
     }
     let per_line_hashes = compute_per_line_hashes(work_content);
 
@@ -125,15 +91,19 @@ pub(crate) fn prepare_editor_data(
         if let Some(cached) = cached_editor_data {
             if editor_spans_debug_enabled() {
                 eprintln!(
-                    "ZAROXI_DEBUG_EDITOR_SPANS: cache_hit spans_version={} has_spans={}",
+                    "ZAROXI_DEBUG_EDITOR_SPANS: cache_hit spans_version={} has_spans={} large_file_mode={}",
                     spans_version,
                     cached.editor_spans.is_some(),
+                    large_file_mode,
                 );
             }
             return cached.clone();
         }
     }
 
+    // Always use the incremental shaper since both backends now
+    // have a viewport-sized rope supporting per-line hashes and
+    // syntax highlighting within the visible window.
     let data = super::super::presenters::shape_editor_content_incremental(
         work_content,
         sem,
@@ -148,10 +118,22 @@ pub(crate) fn prepare_editor_data(
 
     if editor_spans_debug_enabled() {
         eprintln!(
-            "ZAROXI_DEBUG_EDITOR_SPANS: rebuild spans_in={} spans_version={} editor_spans_segments={:?} visible_range={:?}",
+            "ZAROXI_DEBUG_EDITOR_SPANS: rebuild spans_in={} spans_version={} editor_spans_segments={:?} visible_range={:?} large_file_mode={}",
             spans.len(),
             spans_version,
             data.editor_spans.as_ref().map(|s| s.len()),
+            data.visible_line_range,
+            large_file_mode,
+        );
+    }
+
+    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_DEBUG_LARGE_FILE: prepare lines={} bytes={} hash={:016x} has_spans={} visible_range={:?}",
+            data.total_lines,
+            data.editor_body_text.len(),
+            lines_hash,
+            data.editor_spans.is_some(),
             data.visible_line_range,
         );
     }

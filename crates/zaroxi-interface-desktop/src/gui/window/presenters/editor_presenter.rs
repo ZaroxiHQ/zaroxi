@@ -153,6 +153,7 @@ fn wrap_spans(
     out
 }
 
+#[allow(dead_code)]
 pub fn shape_editor_content_plain(
     work_content: &Option<ShellWorkContent>,
     _sem: &SemanticColors,
@@ -424,34 +425,84 @@ fn shape_editor_content_impl(
         .unwrap_or_default();
 
     // Apply the latest stored highlight spans (full-document, byte offsets).
+    //
+    // Spans MUST be derived from the SAME text snapshot that is rendered
+    // (`editor_body_text`) AND that the background worker parsed
+    // (`EditorBufferState::to_string()`). Otherwise the document-global byte
+    // offsets carried by `spans` land on the wrong characters and paint broad
+    // wrong-color blocks. When a Rope is present it is that single source of
+    // truth, so the visible window text and its base byte offset are taken from
+    // the Rope here — NOT from `cv.lines`, which is tab-expanded after edits and
+    // would drift from the parsed byte offsets. `cv.lines` is used only as a
+    // fallback when no Rope is available (e.g. unit tests).
+    //
     // When a viewport window is active we colorize ONLY the visible (overscanned)
-    // rows, rebasing the document-global spans into the window. This bounds the
-    // per-frame styled-run vector (and its clone cost) to the viewport rather
-    // than the whole document. When no spans are available (parse pending,
-    // unsupported language, or large-file mode) we leave `editor_spans = None`
-    // so the renderer falls back to plain text.
-    let editor_spans: Option<Vec<(String, [f32; 4])>> = editor_body.and_then(|cv| {
-        if cv.lines.is_empty() || spans.is_empty() {
-            return None;
-        }
-
+    // rows, rebasing the document-global spans into the window so the per-frame
+    // styled-run vector is bounded to the viewport. When no spans are available
+    // (parse pending, unsupported language, or large-file mode) we leave
+    // `editor_spans = None` so the renderer falls back to plain text rather than
+    // corrupted color.
+    let editor_spans: Option<Vec<(String, [f32; 4])>> = if spans.is_empty() {
+        None
+    } else if let Some(r) = rope {
+        // Reuse the exact text that will be rendered (`editor_body_text`) as the
+        // span source so the colored runs and the plain fallback are byte-for-byte
+        // the same window the parser saw.
         match used_visible_range {
             Some((start, end)) => {
-                let n = cv.lines.len();
-                let start = start.min(n);
-                let end = end.min(n);
-                if start >= end {
-                    return None;
+                if start >= end || editor_body_text.is_empty() {
+                    None
+                } else {
+                    let window_lines: Vec<String> =
+                        editor_body_text.split('\n').map(|s| s.to_string()).collect();
+                    // Absolute byte offset of the first window line within the
+                    // full document (== `rope.to_string()`): the bytes of lines
+                    // [0..start] joined by '\n'. `visible_lines(0, start)` drops
+                    // the trailing newline, so add 1 for the '\n' preceding line
+                    // `start` (only when start > 0).
+                    let window_base_byte =
+                        if start == 0 { 0 } else { r.visible_lines(0, start).len() + 1 };
+                    Some(syntax_color::colorize_window(&window_lines, window_base_byte, spans, sem))
                 }
-                let window = &cv.lines[start..end];
-                // Absolute byte offset of the first window line (lines joined by
-                // '\n', matching the parsed source).
-                let window_base_byte: usize = cv.lines[..start].iter().map(|l| l.len() + 1).sum();
-                Some(syntax_color::colorize_window(window, window_base_byte, spans, sem))
             }
             None => {
-                if incremental {
-                    if let Some(ref mut cache) = line_syntax_cache {
+                // Full (small-file) colorize from the same rendered snapshot. The
+                // prepare_editor_data cache bounds this to content/spans changes,
+                // so a non-incremental pass over a <LARGE document is cheap and
+                // avoids per-line-hash drift between cv.lines and the rope.
+                if editor_body_text.is_empty() {
+                    None
+                } else {
+                    let all_lines: Vec<String> =
+                        editor_body_text.split('\n').map(|s| s.to_string()).collect();
+                    Some(syntax_color::colorize_source(&all_lines, sem, spans))
+                }
+            }
+        }
+    } else {
+        // No Rope (tests / detached presenter): fall back to the editor_body
+        // lines snapshot. This preserves the incremental per-line cache path.
+        editor_body.and_then(|cv| {
+            if cv.lines.is_empty() {
+                return None;
+            }
+            match used_visible_range {
+                Some((start, end)) => {
+                    let n = cv.lines.len();
+                    let start = start.min(n);
+                    let end = end.min(n);
+                    if start >= end {
+                        return None;
+                    }
+                    let window = &cv.lines[start..end];
+                    // Absolute byte offset of the first window line (lines joined
+                    // by '\n', matching the parsed source).
+                    let window_base_byte: usize =
+                        cv.lines[..start].iter().map(|l| l.len() + 1).sum();
+                    Some(syntax_color::colorize_window(window, window_base_byte, spans, sem))
+                }
+                None => {
+                    if incremental && let Some(ref mut cache) = line_syntax_cache {
                         return Some(syntax_color::colorize_source_incremental(
                             &cv.lines,
                             sem,
@@ -461,11 +512,11 @@ fn shape_editor_content_impl(
                             cached_line_hashes,
                         ));
                     }
+                    Some(syntax_color::colorize_source(&cv.lines, sem, spans))
                 }
-                Some(syntax_color::colorize_source(&cv.lines, sem, spans))
             }
-        }
-    });
+        })
+    };
 
     if std::env::var("ZAROXI_DEBUG_EDITOR_SPANS").as_deref() == Ok("1") {
         eprintln!(

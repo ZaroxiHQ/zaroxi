@@ -104,6 +104,16 @@ pub(crate) fn file_open_trace_enabled() -> bool {
         || std::env::var("ZAROXI_OPEN_TRACE").as_deref() == Ok("1")
 }
 
+/// Whether the first-open materialization trace is enabled
+/// (`ZAROXI_DEBUG_FIRST_OPEN=1`). Drives the shared first-open contract
+/// diagnostics: activation source (explorer vs tab), file kind (normal vs
+/// large), rope/window materialization, editor_data text/line length, parse
+/// request length/version, parse application, and explorer subtree rebuild
+/// reason. Temporary; guarded so it is zero-cost when disabled.
+pub(crate) fn first_open_trace_enabled() -> bool {
+    std::env::var("ZAROXI_DEBUG_FIRST_OPEN").as_deref() == Ok("1")
+}
+
 /// Whether the atomic open-presentation trace is enabled
 /// (`ZAROXI_OPEN_PRESENT_TRACE=1`, also implied by `ZAROXI_OPEN_TRACE=1`). Drives
 /// the per-open snapshot lifecycle line (read_scheduled → … → presented) and the
@@ -685,13 +695,6 @@ const OPEN_BURST_MAX_FRAMES: u32 = 600;
 
 // ── Large-file thresholds ──
 
-/// Maximum line count before entering large-file mode (skips full-document
-/// syntax highlighting to avoid tree-sitter O(n) parse stalls per keystroke).
-const LARGE_FILE_LINE_THRESHOLD: usize = 1000;
-
-/// Maximum byte count before entering large-file mode.
-const LARGE_FILE_BYTE_THRESHOLD: usize = 100_000;
-
 /// Maximum line count before the background parser receives empty/plain-text
 /// snapshots instead of full-file text.  Above this threshold full-tree-sitter
 /// parsing is too slow to be useful and we degrade to viewport-only plain text.
@@ -1058,9 +1061,37 @@ impl GuiApp {
         // When the file being shown changes (or its detected language changes),
         // drop spans from the previous buffer so stale highlights are never
         // reused, and discard any pending worker result for the old buffer.
+        //
+        // Also trigger a content-change when transitioning from loading state
+        // (editor_body=None) to ready state (editor_body=Some).  Without this,
+        // the loading→ready transition after a background read would see the
+        // same `active_file` path and skip rope population, leaving the editor
+        // permanently empty unless the user clicks the tab again.
+        let body_loading_to_ready =
+            self.work_content.as_ref().and_then(|old| old.editor_body.as_ref()).is_none()
+                && wc.editor_body.is_some();
         let buffer_changed = self.committed_active_file.as_deref() != wc.active_file.as_deref()
-            || detected_language != self.current_language;
+            || detected_language != self.current_language
+            || body_loading_to_ready;
         self.current_language = detected_language;
+
+        // Recompute large-file mode from the ACTUAL file metadata on every
+        // commit.  Must run unconditionally — NOT gated on buffer_changed —
+        // because the explorer click path returns `comp.build_work_content()`
+        // which may carry a stale active_file from the previous document.
+        // Without this, a medium file can inherit large_file_mode from the
+        // preceding large file and render the wrong content.
+        self.large_file_mode = wc
+            .active_file
+            .as_deref()
+            .map(|s| s.strip_prefix("buf:").unwrap_or(s))
+            .and_then(|path_str| {
+                std::fs::metadata(path_str).ok().map(|m| {
+                    m.len() >= zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD
+                })
+            })
+            .unwrap_or(false);
+
         if buffer_changed {
             self.latest_spans = None;
             self.latest_spans_version = 0;
@@ -1082,20 +1113,6 @@ impl GuiApp {
             // Reset per-file cockpit state.
             self.cockpit_minimap_symbols.clear();
 
-            // Detect large-file mode from the file path so the render
-            // pipeline skips rope fallback (which holds the previous
-            // file's content) even when the workspace service hasn't
-            // populated body.lines yet (skipped for large files).
-            self.large_file_mode = wc
-                .active_file
-                .as_deref()
-                .map(|s| s.strip_prefix("buf:").unwrap_or(s))
-                .and_then(|path_str| {
-                    std::fs::metadata(path_str).ok().map(|m| {
-                        m.len() >= zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD
-                    })
-                })
-                .unwrap_or(false);
             self.cockpit_symbols_version = 0;
             self.cockpit_diff_hunks.clear();
             self.cockpit_diff_version = 0;
@@ -1110,61 +1127,75 @@ impl GuiApp {
         }
 
         let mut backgrounded = false;
-        // Only (re)materialize the editor buffer when the active file actually
-        // changed. A same-file commit — e.g. the instant "loading" chrome ack
-        // returned by `dispatch_activation` before the off-thread read lands, or
-        // a status-message refresh — must NOT re-populate/re-background the
-        // buffer it already holds; it is a pure chrome update.
-        if buffer_changed && let Some(ref body) = wc.editor_body {
-            // large_file_mode was already set from file-size metadata above.
-            // Only refine it: if the content lines are available and clearly
-            // small, we can downgrade.  But never downgrade a true → false
-            // just because body.lines is empty (workspace service skipped).
-            if !self.large_file_mode {
-                self.large_file_mode = Self::is_large_file(&body.lines);
+        // ── Shared first-open materialization gate (Rope + PieceTable) ──
+        // Large files hydrate the rope unconditionally from `doc_buffers` in the
+        // block further below (the canonical PieceTable rebuild). Normal,
+        // Rope-backed files have no such unconditional hydration, so they must
+        // (re)materialize the rope HERE whenever real content arrives for the
+        // active document.
+        //
+        // This must NOT be gated on `buffer_changed` alone. The explorer click
+        // path commits an instant *loading* placeholder (`editor_body = None`)
+        // which clears the rope to a single empty line AND sets
+        // `committed_active_file` to the new file. When the off-thread read then
+        // lands and `request_open` is called with the real body, the follow-up
+        // `commit_open` sees a matching `committed_active_file` (and the dead
+        // `body_loading_to_ready` guard never fires because `request_open`
+        // already overwrote `work_content`), so `buffer_changed` is FALSE and the
+        // empty placeholder rope would survive until a second tab click. The
+        // `char_count() == 0` clause materializes the real content on that
+        // loading→ready transition, mirroring the large-file unconditional
+        // hydration so normal and large files share one first-open contract.
+        let body_has_content = wc.editor_body.as_ref().map_or(false, |b| !b.lines.is_empty());
+        let needs_rope_materialize = wc.editor_body.is_some()
+            && (buffer_changed
+                || (!self.large_file_mode
+                    && body_has_content
+                    && self.editor_buffer.char_count() == 0));
+        if first_open_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DEBUG_FIRST_OPEN: commit token={} kind={} buffer_changed={} body_present={} body_has_content={} rope_char_count={} needs_materialize={} active_file={:?}",
+                token,
+                if self.large_file_mode { "large" } else { "normal" },
+                buffer_changed,
+                wc.editor_body.is_some(),
+                body_has_content,
+                self.editor_buffer.char_count(),
+                needs_rope_materialize,
+                wc.active_file,
+            );
+        }
+        if needs_rope_materialize && let Some(ref body) = wc.editor_body {
+            // Loading→ready upgrade for the SAME active document (buffer_changed
+            // is false): the per-file cache/spans reset in the `buffer_changed`
+            // block above did NOT run, so stale highlight spans from the previous
+            // content are still "latest" and would paint the freshly materialized
+            // text with the wrong colors. Drop them here so the editor renders
+            // plain text until a fresh parse of the new content lands.
+            if !buffer_changed && !self.large_file_mode {
+                self.latest_spans = None;
+                self.latest_spans_version = 0;
+                if let Some(ref mut worker) = self.parse_worker {
+                    worker.clear_result();
+                }
+                self.line_syntax_cache.clear();
+                self.cached_line_hashes.clear();
+                self.cached_editor_data = None;
+                self.cached_editor_lines_hash = 0;
+                self.cached_editor_spans_version = 0;
             }
             let open_bytes: usize = body.lines.iter().map(|l| l.len()).sum();
-            if zaroxi_core_telemetry::startup_trace_enabled() {
-                let tag =
-                    if self.large_file_mode { "after_large_file_open" } else { "after_file_open" };
-                eprintln!(
-                    "MEM_STARTUP: {tag} lines={} bytes={} rss={:.1}MB",
-                    body.lines.len(),
-                    open_bytes,
-                    zaroxi_core_telemetry::rss_mb()
-                );
-            }
             if self.large_file_mode {
-                // Large file: populate a viewport-sized rope from doc_buffers
-                // so caret tracking and editing work on the visible content.
-                // The full file lives in doc_buffers (PieceTable); the rope
-                // is a local edit window around the viewport.
+                // Large file: populate rope from doc_buffers below
+                // (unconditional block after this one).
                 backgrounded = true;
-                if let Some(ref active_path) = wc.active_file
-                    && let Some(path) = active_path.strip_prefix("buf:")
-                    && let Some(db) = self.doc_buffers.get(path)
-                {
-                    let total = db.total_lines();
-                    let window = 100usize.min(total);
-                    let vp = db.lines_in_range(0, window.saturating_sub(1));
-                    let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
-                    if !lines.is_empty() {
-                        self.editor_buffer.populate_from_lines(
-                            &lines,
-                            body.cursor_line,
-                            body.cursor_col,
-                        );
-                        self.saved_buffer_version = self.editor_buffer.buffer_version;
-                    }
-                }
                 if self.large_file_mode
                     && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
                 {
                     eprintln!(
-                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={} rope_lines={}",
+                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded=true rope_lines={}",
                         body.lines.len(),
                         body.lines.iter().map(|l| l.len()).sum::<usize>(),
-                        backgrounded,
                         self.editor_buffer.line_count(),
                     );
                 }
@@ -1211,7 +1242,21 @@ impl GuiApp {
                     body.cursor_col,
                 );
                 let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
-                self.finalize_buffer_commit(buffer_changed);
+                // Materializing real content is always a content change for the
+                // editor (even on the loading→ready transition where
+                // `buffer_changed` is false), so arm the first-paint / parse
+                // burst unconditionally here.
+                self.finalize_buffer_commit(true);
+                if first_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DEBUG_FIRST_OPEN: materialized_rope token={} lines={} rope_lines={} rope_chars={} buffer_changed={}",
+                        token,
+                        body.lines.len(),
+                        self.editor_buffer.line_count(),
+                        self.editor_buffer.char_count(),
+                        buffer_changed,
+                    );
+                }
                 if perf_trace_enabled() || pipeline_trace_enabled() {
                     // load_mode: 'degraded' large files render plain + viewport-only;
                     // 'full' files get background syntax.
@@ -1225,6 +1270,62 @@ impl GuiApp {
                         load_mode,
                     );
                 }
+            }
+        }
+        // ── Loading-state commit: buffer changed but no content yet ──
+        // The explorer click path returns a ShellWorkContent with
+        // editor_body=None as instant loading chrome.  The rope must be
+        // cleared so the renderer does not fall back to the previous
+        // file's rope content.  Without this, the editor shows the old
+        // file's text under the new file's tab label.
+        if buffer_changed && wc.editor_body.is_none() {
+            // Clear the rope to a single empty line so the renderer
+            // shows a clean empty editor instead of old file content.
+            self.editor_buffer.replace_content("");
+            self.visible_loading_state = true;
+        }
+        // ── Unconditional large-file materialization ──
+        // For PieceTable-backed files, the rope must be repopulated from
+        // doc_buffers on EVERY commit — not only when buffer_changed is
+        // true.  `request_open` updates `work_content` synchronously (before
+        // this function runs), which means the `body_loading_to_ready` check
+        // inside `buffer_changed` may already see the committed body.  The
+        // rope population is a rebuild from the canonical source, not a
+        // one-time init, so it must be unconditional.
+        if self.large_file_mode
+            && let Some(ref body) = wc.editor_body
+        {
+            if let Some(ref active_path) = wc.active_file
+                && let Some(path) = active_path.strip_prefix("buf:")
+                && let Some(db) = self.doc_buffers.get(path)
+            {
+                let total = db.total_lines();
+                let window = 100usize.min(total);
+                let vp = db.lines_in_range(0, window.saturating_sub(1));
+                let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
+                if !lines.is_empty() {
+                    self.editor_buffer.populate_from_lines(
+                        &lines,
+                        body.cursor_line,
+                        body.cursor_col,
+                    );
+                    self.saved_buffer_version = self.editor_buffer.buffer_version;
+                }
+                // Schedule initial syntax parse on the viewport slice.
+                self.finalize_buffer_commit(true);
+            }
+            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_LARGE_FILE: hydrating_rope_from_doc_buffers rope_lines={} doc_hit={} buff_changed={}",
+                    self.editor_buffer.line_count(),
+                    self.doc_buffers.contains_key(
+                        wc.active_file
+                            .as_deref()
+                            .and_then(|s| s.strip_prefix("buf:"))
+                            .unwrap_or("")
+                    ),
+                    buffer_changed,
+                );
             }
         }
         self.committed_active_file = wc.active_file.clone();
@@ -1329,19 +1430,22 @@ impl GuiApp {
             self.parse_worker =
                 Some(background_parse::BackgroundParseWorker::spawn(Arc::clone(&self.parser_pool)));
         }
-        // Large/huge files skip full-document tree-sitter parsing entirely —
-        // viewport-only plain-text fallback is already active via large_file_mode.
-        if self.large_file_mode {
-            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: finalize_buffer_commit SKIPPED bg parse (large_file_mode lines={})",
-                    self.editor_buffer.line_count(),
-                );
-            }
-        } else if let Some(ref mut worker) = self.parse_worker {
+        // Schedule background tree-sitter parse for syntax highlighting.
+        // For large files, the rope holds only the viewport window so
+        // `to_string()` returns viewport-scoped text — the parse is O(1).
+        if let Some(ref mut worker) = self.parse_worker {
             let text = self.editor_buffer.to_string();
             let version = self.editor_buffer.buffer_version;
             let language = self.current_language;
+            if first_open_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DEBUG_FIRST_OPEN: schedule_parse version={} text_len={} lang={:?} kind={}",
+                    version,
+                    text.len(),
+                    language,
+                    if self.large_file_mode { "large" } else { "normal" },
+                );
+            }
             worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
         }
     }
@@ -1420,17 +1524,6 @@ impl GuiApp {
         self.invalidate(InvalidationFlags::content());
     }
 
-    /// Check whether a file exceeds large-file thresholds and should
-    /// enter reduced-feature mode to avoid perf stalls and crashes.
-    fn is_large_file(lines: &[String]) -> bool {
-        let line_count = lines.len();
-        if line_count > LARGE_FILE_LINE_THRESHOLD {
-            return true;
-        }
-        let byte_count: usize = lines.iter().map(|l| l.len() + 1).sum();
-        byte_count > LARGE_FILE_BYTE_THRESHOLD
-    }
-
     /// Whether this file is heavy enough that its rope should be materialized on
     /// the background open worker (off the UI thread) rather than synchronously.
     fn should_background_open(lines: &[String]) -> bool {
@@ -1463,16 +1556,11 @@ impl GuiApp {
     /// - Small files (<1000 lines, <100KB): synchronous re-highlight.
     /// - Large/huge files: skip parsing entirely; plain-text fallback.
     pub(crate) fn schedule_background_parse(&mut self) {
-        if self.large_file_mode {
-            if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_DEBUG_LARGE_FILE: schedule_bg_parse SKIPPED (large_file_mode lines={})",
-                    self.editor_buffer.line_count(),
-                );
-            }
-            return;
-        }
-
+        // For large files, `editor_buffer.rope()` contains only the viewport
+        // window (~100 lines), so `to_string()` only tokenizes/colours the
+        // visible lines.  This is intentional: piece-table full-file parsing
+        // would be O(file_size), but viewport-scoped highlighting is O(1)
+        // and covers the rendered area.
         let text = self.editor_buffer.to_string();
         let version = self.editor_buffer.buffer_version;
         let language = self.current_language;
@@ -1752,6 +1840,15 @@ impl GuiApp {
                         version,
                         spans.len(),
                         self.current_language,
+                    );
+                }
+                if first_open_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DEBUG_FIRST_OPEN: parse_applied version={} span_count={} kind={} active_file={:?}",
+                        version,
+                        spans.len(),
+                        if self.large_file_mode { "large" } else { "normal" },
+                        self.committed_active_file,
                     );
                 }
                 self.latest_spans = Some(spans);
@@ -3031,6 +3128,30 @@ impl winit::application::ApplicationHandler for GuiApp {
                         };
                     let rebuild_tree = self.last_widget_tree_size != (sw, sh) || content_changed;
 
+                    if rebuild_tree && first_open_trace_enabled() {
+                        // Isolate the rebuild reason so we can prove a file open
+                        // only mutates editor/tab state and never the explorer
+                        // subtree (which would be a flicker regression).
+                        let (explorer_changed, editor_changed, file_changed) =
+                            match (&self.last_widget_tree_fingerprint, &new_fingerprint) {
+                                (Some(old), Some(new)) => (
+                                    old.explorer_empty_button != new.explorer_empty_button
+                                        || old.explorer_items_len != new.explorer_items_len
+                                        || old.explorer_scroll_top != new.explorer_scroll_top,
+                                    old.editor_lines_len != new.editor_lines_len,
+                                    old.active_file != new.active_file,
+                                ),
+                                _ => (true, true, true),
+                            };
+                        eprintln!(
+                            "ZAROXI_DEBUG_FIRST_OPEN: rebuild_tree reason size_changed={} explorer_changed={} editor_changed={} active_file_changed={}",
+                            self.last_widget_tree_size != (sw, sh),
+                            explorer_changed,
+                            editor_changed,
+                            file_changed,
+                        );
+                    }
+
                     self.last_widget_tree_size = (sw, sh);
                     if new_fingerprint.is_some() {
                         self.last_widget_tree_fingerprint = new_fingerprint;
@@ -3306,6 +3427,22 @@ impl winit::application::ApplicationHandler for GuiApp {
                     }
                     let doc_buf =
                         active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
+                    if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
+                        let source_label = if doc_buf.is_some() {
+                            "doc_buffers"
+                        } else if large_file_mode {
+                            "large_file_no_doc"
+                        } else {
+                            "rope"
+                        };
+                        eprintln!(
+                            "ZAROXI_DEBUG_RENDER_SOURCE: source={} active_file={:?} rope_lines={} large_file_mode={}",
+                            source_label,
+                            self.committed_active_file,
+                            self.editor_buffer.line_count(),
+                            large_file_mode,
+                        );
+                    }
                     // Invalidate cached editor data if the active file
                     // identity changed since the last frame. This is a
                     // belt-and-suspenders check: the content hash should
@@ -3314,6 +3451,14 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if self.cached_editor_active_file.as_deref()
                         != self.committed_active_file.as_deref()
                     {
+                        let prev = self.cached_editor_active_file.as_deref().unwrap_or("<none>");
+                        let cur = self.committed_active_file.as_deref().unwrap_or("<none>");
+                        if std::env::var("ZAROXI_DEBUG_STALE_RENDER").as_deref() == Ok("1") {
+                            eprintln!(
+                                "ZAROXI_DEBUG_STALE_RENDER: identity_mismatch prev={} cur={} clearing_cache",
+                                prev, cur,
+                            );
+                        }
                         self.cached_editor_data = None;
                         self.cached_editor_lines_hash = 0;
                         self.cached_editor_spans_version = 0;
@@ -3324,13 +3469,61 @@ impl winit::application::ApplicationHandler for GuiApp {
                             matches!(db, zaroxi_core_editor_largefile::DocumentBuffer::Large(_))
                         })
                         .unwrap_or(false);
+                    // ── Strict syntax-snapshot gate ──
+                    // Highlight spans are parsed from `editor_buffer.to_string()`
+                    // at a specific `buffer_version` (full-document byte offsets).
+                    // They may be applied ONLY when they describe the EXACT rope
+                    // snapshot this frame renders — i.e. the stored spans' version
+                    // equals the current buffer version. Every other case means the
+                    // spans were computed from different text than what is on screen
+                    // now and would paint wrong colors (the transient open flash):
+                    //   - first parse still in flight after open (spans=None),
+                    //   - loading→ready materialization bumped the version,
+                    //   - large-file doc_buffers (re)hydration bumped the version,
+                    //   - a superseded async parse carrying an older version.
+                    // The synchronous re-highlight on edit (`schedule_background_parse`)
+                    // keeps `latest_spans_version == buffer_version` while typing, so
+                    // settled editing keeps its colors; only genuinely unverified
+                    // snapshots fall through to plain text. Plain-during-settle is
+                    // always preferred over wrong colors; correct colors appear on the
+                    // next frame once a parse for the current version lands.
+                    let render_buffer_version = self.editor_buffer.buffer_version;
+                    let syntax_snapshot_verified = self.latest_spans.is_some()
+                        && self.latest_spans_version == render_buffer_version;
+                    let spans_for_render: &[HighlightSpan] = if syntax_snapshot_verified {
+                        self.latest_spans.as_deref().unwrap_or(&[])
+                    } else {
+                        &[]
+                    };
+                    let spans_version_for_render =
+                        if syntax_snapshot_verified { self.latest_spans_version } else { 0 };
+                    if first_open_trace_enabled() {
+                        let reason = if self.latest_spans.is_none() {
+                            "no_spans_yet"
+                        } else if self.latest_spans_version != render_buffer_version {
+                            "version_mismatch"
+                        } else {
+                            "ok"
+                        };
+                        eprintln!(
+                            "ZAROXI_DEBUG_FIRST_OPEN: span_gate verified={} reason={} render_plain_text={} latest_spans_len={} latest_spans_version={} render_buffer_version={} kind={} active_file={:?}",
+                            syntax_snapshot_verified,
+                            reason,
+                            !syntax_snapshot_verified,
+                            self.latest_spans.as_ref().map(|s| s.len()).unwrap_or(0),
+                            self.latest_spans_version,
+                            render_buffer_version,
+                            if large_file_mode { "large" } else { "normal" },
+                            self.committed_active_file,
+                        );
+                    }
                     let editor_data = render_state::prepare_editor_data(
                         &self.work_content,
                         &mut self.cached_editor_data,
                         &mut self.cached_editor_lines_hash,
                         &mut self.cached_editor_spans_version,
-                        self.latest_spans.as_deref().unwrap_or(&[]),
-                        self.latest_spans_version,
+                        spans_for_render,
+                        spans_version_for_render,
                         &sem,
                         &mut self.line_syntax_cache,
                         &mut self.cached_line_hashes,
@@ -3363,6 +3556,19 @@ impl winit::application::ApplicationHandler for GuiApp {
                             content_lines,
                             editor_data.editor_body_text.len(),
                             editor_data.visible_line_range,
+                        );
+                    }
+                    if first_open_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DEBUG_FIRST_OPEN: render_frame frame={} kind={} active_file={:?} editor_data_total={} editor_data_content_lines={} editor_data_bytes={} has_spans={} spans_version={}",
+                            frame_id,
+                            if large_file_mode { "large" } else { "normal" },
+                            self.committed_active_file,
+                            editor_data.total_lines,
+                            editor_data.editor_body_text.lines().count(),
+                            editor_data.editor_body_text.len(),
+                            editor_data.editor_spans.is_some(),
+                            self.latest_spans_version,
                         );
                     }
                     let mut explorer_data =
