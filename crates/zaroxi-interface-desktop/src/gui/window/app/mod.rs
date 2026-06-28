@@ -510,36 +510,84 @@ pub(crate) fn annotate_tabs_dirty(
     tabs
 }
 
-/// Pure scroll-follow math: given the caret's logical line, the current scroll
-/// top (first visible logical line), the visible row count, and the total line
-/// count, return the new scroll top that keeps the caret inside the viewport
-/// with the smallest movement.
+/// Guard bands (in visual rows) kept between the caret and the viewport edges so
+/// the caret never rides the extreme top/bottom row while scrolling. The caret
+/// is held inside `[top_guard, visible-1-bottom_guard]`.
+pub(crate) const EDITOR_TOP_GUARD: usize = 2;
+pub(crate) const EDITOR_BOTTOM_GUARD: usize = 2;
+
+/// Pure guard-band core: given the caret's CURRENT on-screen visual row (which
+/// may be negative if above the window or `>= visible` if below), return the
+/// TARGET on-screen visual row it should occupy. When the caret is already
+/// inside the band the target equals its current row (no scroll). The guards are
+/// clamped so the band stays non-empty in short viewports.
 ///
-/// This is the single invariant behind `ensure_caret_visible`, factored out so
-/// it can be unit-tested without a full `GuiApp`. It never returns a value that
-/// would push the caret out of view, and at EOF it clamps to the last full
-/// screen (never snapping back to line 0).
+/// This is the single source of truth for the follow band, shared by both the
+/// wrapped (visual) and unwrapped (logical) follow paths.
+pub(crate) fn caret_band_target_row(
+    on_screen_row: isize,
+    visible_rows: usize,
+    top_guard: usize,
+    bottom_guard: usize,
+) -> isize {
+    let visible = visible_rows.max(1) as isize;
+    let half = (visible - 1) / 2;
+    let tg = (top_guard as isize).min(half).max(0);
+    let bg = (bottom_guard as isize).min(half).max(0);
+    let bottom_limit = (visible - 1 - bg).max(tg);
+    on_screen_row.clamp(tg, bottom_limit)
+}
+
+/// Logical-line guard-band follow (no soft-wrap, 1:1 visual==logical). Returns
+/// the new scroll top that keeps the caret inside the band with minimal motion.
+/// With `top_guard == bottom_guard == 0` this reduces to "caret pinned to the
+/// nearest edge" (the old contract).
 pub(crate) fn scroll_top_to_keep_caret_visible(
     caret_line: usize,
     cur_top: usize,
     visible: usize,
     total_lines: usize,
+    top_guard: usize,
+    bottom_guard: usize,
 ) -> usize {
     let visible = visible.max(1);
     let total = total_lines.max(1);
     let caret = caret_line.min(total - 1);
+    let on_screen = caret as isize - cur_top as isize;
+    let target = caret_band_target_row(on_screen, visible, top_guard, bottom_guard);
+    let new_top = (caret as isize - target).max(0) as usize;
     let max_top = total.saturating_sub(visible);
-    let new_top = if caret < cur_top {
-        // Caret is above the window — scroll up so it becomes the first row.
-        caret
-    } else if caret >= cur_top + visible {
-        // Caret is below the window — scroll down so it becomes the last row.
-        caret + 1 - visible
-    } else {
-        // Already visible — do not move.
-        cur_top
-    };
     new_top.min(max_top)
+}
+
+/// Visual-row guard-band follow for soft-wrapped content.
+///
+/// `caret_idx` is the caret's index in the current window's visual→logical map
+/// (`caret_visual_row(...)`); `wrap_visual_offset` is how many overscan rows
+/// precede the first on-screen row. The caret's on-screen visual row is therefore
+/// `caret_idx - wrap_visual_offset`. We pick the new scroll top as the logical
+/// line that, placed at the window top, lands the caret on the band target row —
+/// derived purely from the actual rendered rows, so wrapped lines follow by
+/// visual row, not by logical line. Returns the new scroll top (logical line).
+pub(crate) fn scroll_top_visual_band(
+    caret_idx: usize,
+    wrap_visual_offset: usize,
+    visual_to_logical: &[usize],
+    visible_rows: usize,
+    top_guard: usize,
+    bottom_guard: usize,
+) -> usize {
+    if visual_to_logical.is_empty() {
+        return 0;
+    }
+    let on_screen = caret_idx as isize - wrap_visual_offset as isize;
+    let target = caret_band_target_row(on_screen, visible_rows, top_guard, bottom_guard);
+    // The window top should sit `target` visual rows above the caret. The map is
+    // monotonic non-decreasing, so `map[caret_idx - target] <= map[caret_idx] ==
+    // caret_line`, guaranteeing the caret stays visible (top never passes it).
+    let new_top_idx =
+        (caret_idx as isize - target).clamp(0, visual_to_logical.len() as isize - 1) as usize;
+    visual_to_logical[new_top_idx]
 }
 
 /// Pure caret→visual-row projection: map a caret's logical line to the visual
@@ -660,6 +708,14 @@ impl GuiApp {
             .map(|vp| lc::visible_lines_from_region(vp.content_rect.3));
         let total_lines = self.editor_buffer.line_count().max(1);
         let caret_line = self.editor_buffer.caret_line();
+        let caret_vis_col = self.editor_buffer.caret_vis_col();
+        // Visual-row follow inputs from the LAST rendered window (single source of
+        // truth: the live caret + the current wrap map — never `editor_body`).
+        let cp = self.editor_chars_per_row;
+        let wrap_offset = self.editor_wrap_visual_offset;
+        let map = &self.editor_visual_to_logical;
+        // The caret's visual row within the current window (index into the map).
+        let caret_idx = caret_visual_row(caret_line, caret_vis_col, map, cp);
         let trace = caret_trace_enabled();
 
         let mut changed = false;
@@ -673,8 +729,29 @@ impl GuiApp {
                 return;
             };
             let cur_top = meta.editor_scroll_top_line;
-            let new_top =
-                scroll_top_to_keep_caret_visible(caret_line, cur_top, visible, total_lines);
+            // Caret's CURRENT on-screen visual row (negative = above the window).
+            let on_screen = caret_idx as isize - wrap_offset as isize;
+            // Visual-row guard-band follow when soft-wrap is active (always in the
+            // GUI); logical-line band as a fallback for the no-wrap/test path.
+            let new_top = if cp > 0 && !map.is_empty() {
+                scroll_top_visual_band(
+                    caret_idx,
+                    wrap_offset,
+                    map,
+                    visible,
+                    EDITOR_TOP_GUARD,
+                    EDITOR_BOTTOM_GUARD,
+                )
+            } else {
+                scroll_top_to_keep_caret_visible(
+                    caret_line,
+                    cur_top,
+                    visible,
+                    total_lines,
+                    EDITOR_TOP_GUARD,
+                    EDITOR_BOTTOM_GUARD,
+                )
+            };
             changed = new_top != cur_top;
             if changed {
                 meta.editor_scroll_top_line = new_top;
@@ -685,8 +762,17 @@ impl GuiApp {
             }
             if trace {
                 eprintln!(
-                    "ZAROXI_CARET_VIEWPORT: ensure_visible applied={} caret_line={} cur_top={} new_top={} visible={} total={}",
-                    changed, caret_line, cur_top, new_top, visible, total_lines,
+                    "ZAROXI_CARET_VIEWPORT: ensure_visible applied={} caret_line={} caret_idx={} on_screen_row={} cur_top={} new_top={} visible={} wrap_offset={} cp={} total={}",
+                    changed,
+                    caret_line,
+                    caret_idx,
+                    on_screen,
+                    cur_top,
+                    new_top,
+                    visible,
+                    wrap_offset,
+                    cp,
+                    total_lines,
                 );
             }
         }
@@ -801,70 +887,167 @@ impl GuiApp {
 
 #[cfg(test)]
 mod caret_viewport_tests {
-    use super::scroll_top_to_keep_caret_visible;
+    use super::{
+        EDITOR_BOTTOM_GUARD, EDITOR_TOP_GUARD, caret_band_target_row,
+        scroll_top_to_keep_caret_visible, scroll_top_visual_band,
+    };
 
-    // Window shows `visible` rows starting at `cur_top`; document has `total` lines.
+    // Window shows `visible` rows starting at `cur_top`; document has `total`
+    // lines. The first group uses guards (0,0) → the caret pins to the nearest
+    // edge (the pre-band contract), so these baseline invariants are unchanged.
 
     #[test]
     fn caret_already_visible_does_not_move() {
-        // top=10, visible=20 → window [10,30); caret 15 is inside.
-        assert_eq!(scroll_top_to_keep_caret_visible(15, 10, 20, 100), 10);
+        assert_eq!(scroll_top_to_keep_caret_visible(15, 10, 20, 100, 0, 0), 10);
     }
 
     #[test]
     fn caret_below_window_scrolls_down_minimally() {
-        // window [0,20); caret at line 25 → new top so caret is last row: 25+1-20=6.
-        assert_eq!(scroll_top_to_keep_caret_visible(25, 0, 20, 100), 6);
+        assert_eq!(scroll_top_to_keep_caret_visible(25, 0, 20, 100, 0, 0), 6);
     }
 
     #[test]
     fn caret_above_window_scrolls_up_to_caret() {
-        // window [40,60); caret at line 12 → top becomes 12.
-        assert_eq!(scroll_top_to_keep_caret_visible(12, 40, 20, 100), 12);
+        assert_eq!(scroll_top_to_keep_caret_visible(12, 40, 20, 100, 0, 0), 12);
     }
 
     #[test]
     fn down_arrow_one_past_bottom_advances_one_line() {
-        // window [0,20); caret moved to line 20 (one past bottom) → top=1.
-        assert_eq!(scroll_top_to_keep_caret_visible(20, 0, 20, 100), 1);
+        assert_eq!(scroll_top_to_keep_caret_visible(20, 0, 20, 100, 0, 0), 1);
     }
 
     #[test]
     fn eof_clamps_to_last_screen_never_zero() {
-        // 100-line doc, 20 visible, caret at last line (99) → top=80 (last screen),
-        // NOT 0. This is the regression: EOF movement must not snap to the top.
-        assert_eq!(scroll_top_to_keep_caret_visible(99, 0, 20, 100), 80);
+        // EOF movement must not snap to the top.
+        assert_eq!(scroll_top_to_keep_caret_visible(99, 0, 20, 100, 0, 0), 80);
     }
 
     #[test]
     fn newline_at_eof_follows_caret_down() {
-        // Just inserted a newline at EOF: total grew to 51, caret on the new last
-        // line (50), window was [0,20) → top=31 so the new line is the last row.
-        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 20, 51), 31);
+        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 20, 51, 0, 0), 31);
     }
 
     #[test]
     fn document_shorter_than_viewport_stays_at_top() {
-        // 5 lines, 20 visible → max_top=0; caret anywhere keeps top at 0.
-        assert_eq!(scroll_top_to_keep_caret_visible(4, 0, 20, 5), 0);
+        assert_eq!(scroll_top_to_keep_caret_visible(4, 0, 20, 5, 0, 0), 0);
     }
 
     #[test]
     fn caret_line_clamped_to_total_bounds() {
-        // Defensive: caret_line beyond total is clamped to the last line.
-        assert_eq!(scroll_top_to_keep_caret_visible(999, 0, 20, 30), 10);
+        assert_eq!(scroll_top_to_keep_caret_visible(999, 0, 20, 30, 0, 0), 10);
     }
 
     #[test]
     fn zero_visible_is_treated_as_one_row() {
-        // visible=0 must not panic / divide; treated as 1.
-        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 0, 100), 50);
+        assert_eq!(scroll_top_to_keep_caret_visible(50, 0, 0, 100, 0, 0), 50);
     }
 
     #[test]
     fn start_of_file_up_does_not_underflow() {
-        // caret at line 0, already at top → stays 0 (no underflow).
-        assert_eq!(scroll_top_to_keep_caret_visible(0, 0, 20, 100), 0);
+        assert_eq!(scroll_top_to_keep_caret_visible(0, 0, 20, 100, 0, 0), 0);
+    }
+
+    // ── Guard-band core (visual rows) ──
+
+    #[test]
+    fn band_target_inside_is_unchanged() {
+        // visible=30, guards 2/2 → band rows [2, 27]; caret at row 10 stays.
+        assert_eq!(caret_band_target_row(10, 30, 2, 2), 10);
+    }
+
+    #[test]
+    fn band_target_below_clamps_to_bottom_guard() {
+        // caret at/below the bottom → row 27 (= visible-1-bottom_guard), not 29.
+        assert_eq!(caret_band_target_row(40, 30, 2, 2), 27);
+        assert_eq!(caret_band_target_row(29, 30, 2, 2), 27);
+    }
+
+    #[test]
+    fn band_target_above_clamps_to_top_guard() {
+        // caret above the window → row 2 (= top_guard), not 0.
+        assert_eq!(caret_band_target_row(-5, 30, 2, 2), 2);
+        assert_eq!(caret_band_target_row(0, 30, 2, 2), 2);
+    }
+
+    #[test]
+    fn band_guards_shrink_in_short_viewport() {
+        // visible=3 → half=1, guards clamp to 1; band collapses to the middle row.
+        assert_eq!(caret_band_target_row(0, 3, 2, 2), 1);
+        assert_eq!(caret_band_target_row(2, 3, 2, 2), 1);
+    }
+
+    // ── Logical-line band follow ──
+
+    #[test]
+    fn band_keeps_caret_off_bottom_edge_moving_down() {
+        // visible=20, guards 2/2 → bottom band row = 17. Caret moved to line 20
+        // (just below the window) → new_top=3, so caret sits at row 17 (two rows
+        // above the hard bottom edge), not pinned to row 19.
+        let top = scroll_top_to_keep_caret_visible(20, 0, 20, 100, 2, 2);
+        assert_eq!(top, 3);
+        assert_eq!(20 - top, 17); // on-screen row == visible-1-bottom_guard
+    }
+
+    #[test]
+    fn band_keeps_caret_off_top_edge_moving_up() {
+        // Caret at the top edge of the window (line 10, top 10) → scroll up so the
+        // caret sits at row top_guard (2), keeping two lines above visible.
+        let top = scroll_top_to_keep_caret_visible(10, 10, 20, 100, 2, 2);
+        assert_eq!(top, 8);
+        assert_eq!(10 - top, 2); // on-screen row == top_guard
+    }
+
+    #[test]
+    fn band_no_scroll_when_inside_band() {
+        // Caret comfortably inside the band → no scroll.
+        assert_eq!(scroll_top_to_keep_caret_visible(10, 5, 20, 100, 2, 2), 5);
+    }
+
+    // ── Visual-row band follow (wrap-aware, map-driven) ──
+
+    #[test]
+    fn visual_band_unwrapped_keeps_caret_in_band() {
+        // 1:1 map (no line wraps), scroll_top=10 so wrap_offset=10 (overscan
+        // above). Caret at line 30 → map index 30, on-screen row 20 (below the
+        // 20-row window) → scroll so it lands at row 17 → new top = line 13.
+        let map: Vec<usize> = (0..60).collect();
+        let top = scroll_top_visual_band(30, 10, &map, 20, 2, 2);
+        assert_eq!(top, 13);
+    }
+
+    #[test]
+    fn visual_band_unwrapped_no_move_when_in_band() {
+        let map: Vec<usize> = (0..60).collect();
+        // caret at line 20, top 10 → on-screen row 10 (inside band) → no move.
+        assert_eq!(scroll_top_visual_band(20, 10, &map, 20, 2, 2), 10);
+    }
+
+    #[test]
+    fn visual_band_wrapped_follows_by_visual_row() {
+        // Line 2 wraps across 3 visual rows (map indices 2,3,4). Window top at
+        // row 0 (line 0). Caret on line 4 (map index 6) is below a small 5-row
+        // window → follow by VISUAL row picks logical line 2 as the new top so the
+        // caret lands inside the band (not by naive logical-line arithmetic).
+        let map = [0usize, 1, 2, 2, 2, 3, 4];
+        let top = scroll_top_visual_band(6, 0, &map, 5, 1, 1);
+        // bottom band row = 5-1-1 = 3; new_top_idx = 6 - 3 = 3 → map[3] = line 2.
+        assert_eq!(top, 2);
+    }
+
+    #[test]
+    fn visual_band_wrapped_upward_uses_top_guard() {
+        // Caret above the band in a wrapped window → top moves up by visual rows.
+        let map = [0usize, 1, 2, 2, 2, 3, 4];
+        // wrap_offset=4 (window top at map idx 4 = line 2's last wrap row); caret
+        // on line 0 (idx 0) → on-screen row 0-4=-4 → target=top_guard(1) →
+        // new_top_idx = 0-1 clamped to 0 → map[0] = line 0.
+        assert_eq!(scroll_top_visual_band(0, 4, &map, 5, 1, 1), 0);
+    }
+
+    #[test]
+    fn visual_band_guard_constants_are_two() {
+        assert_eq!(EDITOR_TOP_GUARD, 2);
+        assert_eq!(EDITOR_BOTTOM_GUARD, 2);
     }
 }
 
