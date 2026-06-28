@@ -158,7 +158,6 @@ pub fn shape_editor_content_plain(
     _sem: &SemanticColors,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
-    mapped_doc: Option<&mut zaroxi_core_editor_largefile::StreamedDocument>,
     doc_buffer: Option<&zaroxi_core_editor_largefile::DocumentBuffer>,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
@@ -173,7 +172,7 @@ pub fn shape_editor_content_plain(
     let editor_body_text: String;
     let used_visible_range: Option<(usize, usize)>;
 
-    // Priority 1: doc_buffers DocumentBuffer
+    // Priority 1: doc_buffers DocumentBuffer (modern path)
     if let Some(db) = doc_buffer {
         if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
             let total = db.total_lines();
@@ -205,41 +204,16 @@ pub fn shape_editor_content_plain(
         }
     } else {
         if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
-            let source = if mapped_doc.is_some() {
-                "mapped_doc"
-            } else if rope.is_some() {
-                "rope"
-            } else {
-                "editor_body"
-            };
+            let source = if rope.is_some() { "rope" } else { "editor_body" };
             eprintln!(
                 "RENDER_SOURCE: {source} (doc_buffers miss) vis_range={visible_line_range:?}"
             );
         }
-        total_lines = mapped_doc
-            .as_ref()
-            .map(|md| md.total_lines())
-            .or_else(|| rope.map(|r| r.line_count()))
+        total_lines = rope
+            .map(|r| r.line_count())
             .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
 
-        let (text, range) = if let Some(doc) = mapped_doc {
-            if let Some((vis_start, vis_end)) = visible_line_range {
-                let start = vis_start.saturating_sub(OVERSCAN_LINES);
-                let end = (vis_end + OVERSCAN_LINES).min(total_lines);
-                let t = doc.viewport_lines(start, end).join("\n");
-                let r = if t.is_empty() && start >= total_lines {
-                    None
-                } else {
-                    Some((start, end.min(total_lines)))
-                };
-                (t, r)
-            } else {
-                let vis_lines = 50usize;
-                let start = 0usize;
-                let end = (vis_lines + OVERSCAN_LINES).min(total_lines);
-                (doc.viewport_lines(start, end).join("\n"), Some((start, end)))
-            }
-        } else if let Some(r) = rope {
+        let (text, range) = if let Some(r) = rope {
             if let Some((vis_start, vis_end)) = visible_line_range {
                 let start = vis_start.saturating_sub(OVERSCAN_LINES);
                 let end = (vis_end + OVERSCAN_LINES).min(total_lines);

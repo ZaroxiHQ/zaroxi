@@ -592,6 +592,44 @@ impl DesktopComposition {
             Some(ActiveBufferDetails { buffer_id, line_count: 0, display: None });
     }
 
+    /// Activate an already-registered direct buffer (e.g. large-file tab
+    /// click).  Only modifies the active flag; does not add duplicates
+    /// or reset `active_buffer_details.line_count`.
+    pub fn set_direct_buffer_active(&mut self, buffer_id: crate::ports::BufferId) {
+        let Some(md) = self.metadata.as_mut() else {
+            return;
+        };
+        // If this buffer is already the active one, do nothing.
+        if md.active_buffer.as_ref() == Some(&buffer_id) {
+            return;
+        }
+        // Only act on direct (non-service) buffers.
+        if !self.direct_buffer_ids.iter().any(|b| b == &buffer_id) {
+            return;
+        }
+        // Mark this buffer active in the opened list; deactivate others.
+        for it in &mut md.opened_buffers {
+            it.active = it.buffer_id == buffer_id;
+        }
+        md.active_buffer = Some(buffer_id);
+    }
+
+    /// Clear any active direct buffer so the service-reported active
+    /// buffer wins on the next refresh.  Used when switching to a
+    /// service-backed buffer from a direct (large-file) buffer.
+    pub fn clear_direct_active(&mut self) {
+        if let Some(ref mut md) = self.metadata {
+            if let Some(ref active) = md.active_buffer {
+                if self.direct_buffer_ids.contains(active) {
+                    md.active_buffer = None;
+                    for it in &mut md.opened_buffers {
+                        it.active = false;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn set_status_message(&mut self, text: String) {
         if let Some(m) = self.metadata.as_mut() {
             m.last_command_line = Some(text);

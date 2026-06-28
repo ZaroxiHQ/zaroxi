@@ -13,6 +13,10 @@ pub async fn set_active_buffer_and_get_shell_context(
     workspace_id: Option<zaroxi_kernel_types::Id>,
     buffer_id: crate::ports::BufferId,
 ) -> Result<ShellActionResult, String> {
+    // When activating a service-backed buffer, clear any previously
+    // active direct (large-file) buffer so the service-reported active
+    // wins the authoritative_active computation in refresh_with_service.
+    comp.clear_direct_active();
     ws::set_active_buffer_and_get_shell_context(
         comp,
         service,

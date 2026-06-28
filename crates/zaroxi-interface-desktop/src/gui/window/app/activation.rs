@@ -88,10 +88,57 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         }
         WidgetId::TextInput { .. } => None,
         WidgetId::Tab { index } => {
+            if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_TAB_CLICK: tab_index={} items_len={}",
+                    *index,
+                    comp.latest_opened_buffers_summary().items.len(),
+                );
+            }
             let items = comp.latest_opened_buffers_summary().items;
             if *index < items.len() {
                 let entry = items.get(*index)?;
                 let buffer_id = entry.buffer_id.clone();
+                if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
+                    let is_direct = comp.direct_buffer_ids.iter().any(|b| *b == buffer_id);
+                    let disp = entry.display.as_deref().unwrap_or("<none>");
+                    eprintln!(
+                        "ZAROXI_DEBUG_TAB_CLICK: buffer_id={} display={} is_direct={} items={}",
+                        buffer_id,
+                        disp,
+                        is_direct,
+                        items.len(),
+                    );
+                }
+                // Large-file (direct) buffers are not known to the workspace
+                // service.  Activate them locally through the composition.
+                if comp.direct_buffer_ids.iter().any(|b| *b == buffer_id) {
+                    if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_DEBUG_TAB_CLICK: direct_buffer activation for={}",
+                            buffer_id,
+                        );
+                    }
+                    comp.set_direct_buffer_active(buffer_id.clone());
+                    app.tab_state
+                        .focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
+                    app.rail_selected_index = 0;
+                    app.cockpit_status_fingerprint = 0;
+                    return Some(comp.build_work_content());
+                }
+                // Service-backed buffer: clear any previously-active direct
+                // buffer so the service-reported active wins in the refresh
+                // inside set_active_buffer_and_get_shell_context.
+                if let Some(ref mut md) = comp.metadata {
+                    if let Some(ref active) = md.active_buffer {
+                        if comp.direct_buffer_ids.contains(active) {
+                            md.active_buffer = None;
+                            for it in &mut md.opened_buffers {
+                                it.active = false;
+                            }
+                        }
+                    }
+                }
                 let result =
                     pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
                         comp,
@@ -99,8 +146,15 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                         view.clone(),
                         session,
                         app.workspace_id,
-                        buffer_id,
+                        buffer_id.clone(),
                     ));
+                if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_DEBUG_TAB_CLICK: service_activation result={:?} buffer_id={}",
+                        result.as_ref().map(|_| "ok").unwrap_or("err"),
+                        buffer_id,
+                    );
+                }
                 return result.ok().map(|_| comp.build_work_content());
             }
             // Non-file tab — switch rail destination.

@@ -123,6 +123,7 @@ mod tests {
             visible_loading_state: false,
             open_request_at: None,
             last_upstream_open_prep_ms: 0.0,
+            cached_editor_active_file: None,
             read_worker: None,
             read_token: 0,
             read_pending: false,
@@ -143,6 +144,7 @@ mod tests {
             settings_hit_rects: Vec::new(),
             settings_dropdown: zaroxi_interface_widgets::SettingsDropdownState::default(),
             cached_settings_popup: None,
+            doc_buffers: std::collections::HashMap::new(),
         }
     }
 

@@ -368,6 +368,10 @@ pub struct GuiApp {
     /// cache key so stored plain-text content is never reused after highlight
     /// spans arrive (see `render_state::prepare_editor_data`).
     pub cached_editor_spans_version: u64,
+    /// Active file identity the cached editor data was shaped for. Ensures
+    /// cross-file cache pollution is impossible — the cache is invalidated
+    /// when the active document identity changes.
+    pub cached_editor_active_file: Option<String>,
     pub layout_controller: ShellLayoutController,
     pub editor_viewport: Option<EditorViewport>,
     /// Visual-to-logical line mapping from the most recent editor content
@@ -501,9 +505,6 @@ pub struct GuiApp {
     pub cockpit_diff_version: u64,
     /// Background parse worker for off-thread tree-sitter parsing.
     pub parse_worker: Option<background_parse::BackgroundParseWorker>,
-    /// Streamed large-file document opened for large files (>1 MB).
-    /// When Some, the editor renders from this instead of the rope.
-    pub mapped_doc: Option<zaroxi_core_editor_largefile::StreamedDocument>,
     /// Per-path document buffers; keyed by file path so the active tab's
     /// buffer can be looked up during render/edit/save.  Uses
     /// `DocumentBuffer` which wraps either `ropey::Rope` (small files)
@@ -1070,11 +1071,16 @@ impl GuiApp {
             self.line_syntax_cache.clear();
             self.cached_line_hashes.clear();
             self.editor_retained_bytes = 0;
+            // Invalidate the shaped editor-data cache so the next frame
+            // rebuilds with the new file's content.  Without this,
+            // the cache can return stale content from the previous file
+            // when the content hash + spans version happen to match.
+            self.cached_editor_data = None;
+            self.cached_editor_lines_hash = 0;
+            self.cached_editor_spans_version = 0;
+            self.cached_editor_active_file = None;
             // Reset per-file cockpit state.
             self.cockpit_minimap_symbols.clear();
-            // Clear single-value fallbacks so a new file never renders
-            // with the previous file's rope or StreamedDocument.
-            self.mapped_doc = None;
 
             // Detect large-file mode from the file path so the render
             // pipeline skips rope fallback (which holds the previous
@@ -1129,19 +1135,37 @@ impl GuiApp {
                 );
             }
             if self.large_file_mode {
-                // Large file: skip rope population entirely.
-                // The StreamedDocument (arriving via poll_read_results)
-                // handles viewport-only line access.  Setting large_file_mode
-                // also ensures syntax/minimap/diff are all suppressed.
+                // Large file: populate a viewport-sized rope from doc_buffers
+                // so caret tracking and editing work on the visible content.
+                // The full file lives in doc_buffers (PieceTable); the rope
+                // is a local edit window around the viewport.
                 backgrounded = true;
+                if let Some(ref active_path) = wc.active_file
+                    && let Some(path) = active_path.strip_prefix("buf:")
+                    && let Some(db) = self.doc_buffers.get(path)
+                {
+                    let total = db.total_lines();
+                    let window = 100usize.min(total);
+                    let vp = db.lines_in_range(0, window.saturating_sub(1));
+                    let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
+                    if !lines.is_empty() {
+                        self.editor_buffer.populate_from_lines(
+                            &lines,
+                            body.cursor_line,
+                            body.cursor_col,
+                        );
+                        self.saved_buffer_version = self.editor_buffer.buffer_version;
+                    }
+                }
                 if self.large_file_mode
                     && std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1")
                 {
                     eprintln!(
-                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={}",
+                        "ZAROXI_DEBUG_LARGE_FILE: large_file_mode ON lines={} bytes={} backgrounded={} rope_lines={}",
                         body.lines.len(),
                         body.lines.iter().map(|l| l.len()).sum::<usize>(),
                         backgrounded,
+                        self.editor_buffer.line_count(),
                     );
                 }
             } else if Self::should_background_open(&body.lines) {
@@ -1204,7 +1228,24 @@ impl GuiApp {
             }
         }
         self.committed_active_file = wc.active_file.clone();
-        if !backgrounded {
+        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_DEBUG_LARGE_FILE: commit_open token={} backgrounded={} large_file_mode={} committed_active_file={:?} visible_loading={}",
+                token,
+                backgrounded,
+                self.large_file_mode,
+                self.committed_active_file,
+                self.visible_loading_state,
+            );
+        }
+        // Large files: the content lives in doc_buffers, not the rope.
+        // The mapped doc is already ready in doc_buffers by the time this
+        // commit runs (Mapped handler inserts before calling request_open).
+        if self.large_file_mode {
+            self.committed_open_token = token;
+            self.visible_loading_state = false;
+            self.background_open_pending = false;
+        } else if !backgrounded {
             // Synchronous / no-op commit: this token's buffer is ready now.
             self.committed_open_token = token;
             self.visible_loading_state = false;
@@ -1534,6 +1575,11 @@ impl GuiApp {
                     let total = doc.total_lines();
                     let byte_len = doc.total_bytes();
                     let doc_path = doc.path().map(|p| p.to_path_buf());
+                    let path_str = doc_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let bid = crate::ports::BufferId(format!("buf:{}", path_str));
                     if file_open_trace_enabled() {
                         eprintln!(
                             "ZAROXI_FILE_OPEN_TRACE: read_token={} stage=mapped_doc_ready \
@@ -1543,18 +1589,9 @@ impl GuiApp {
                     }
                     // Store in per-path map; the render pipeline looks up
                     // the active tab's buffer by path.
-                    let path_str = doc_path
-                        .as_ref()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_default();
                     self.doc_buffers.insert(path_str.clone(), doc);
                     // Register as an opened buffer for the tab bar.
                     if let Some(ref mut comp) = self.composition {
-                        let path_str = doc_path
-                            .as_ref()
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        let bid = crate::ports::BufferId(format!("buf:{}", path_str));
                         let display = doc_path
                             .as_ref()
                             .and_then(|p| p.file_name())
@@ -1564,11 +1601,16 @@ impl GuiApp {
                         if let Some(ref mut meta) = comp.metadata {
                             meta.active_buffer_details =
                                 Some(crate::desktop::ActiveBufferDetails {
-                                    buffer_id: bid,
+                                    buffer_id: bid.clone(),
                                     line_count: total,
                                     display: None,
                                 });
                         }
+                        // Feed through the normal request_open/commit_open
+                        // path so committed_active_file is set and the
+                        // render pipeline can look up doc_buffers.
+                        let wc = comp.build_work_content();
+                        self.request_open(wc);
                     }
                     self.open_settling = false;
                     self.commit_deferred_open = true;
@@ -3250,8 +3292,32 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .committed_active_file
                         .as_deref()
                         .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+                    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                        let keys: Vec<&String> = self.doc_buffers.keys().collect();
+                        eprintln!(
+                            "ZAROXI_DEBUG_LARGE_FILE: render_lookup committed_active_file={:?} lookup_key={:?} doc_buf_hit={} doc_buffers_keys={:?}",
+                            self.committed_active_file,
+                            active_path_str,
+                            active_path_str
+                                .as_ref()
+                                .map_or(false, |p| self.doc_buffers.contains_key(p.as_str())),
+                            keys,
+                        );
+                    }
                     let doc_buf =
                         active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
+                    // Invalidate cached editor data if the active file
+                    // identity changed since the last frame. This is a
+                    // belt-and-suspenders check: the content hash should
+                    // already differ, but identity-check guarantees no
+                    // cross-file pollution regardless of hash collision.
+                    if self.cached_editor_active_file.as_deref()
+                        != self.committed_active_file.as_deref()
+                    {
+                        self.cached_editor_data = None;
+                        self.cached_editor_lines_hash = 0;
+                        self.cached_editor_spans_version = 0;
+                    }
                     let is_large_doc = doc_buf
                         .as_ref()
                         .map(|db| {
@@ -3271,7 +3337,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         large_file_mode || is_large_doc,
                         visible_line_range,
                         Some(self.editor_buffer.rope()),
-                        self.mapped_doc.as_mut(),
                         doc_buf.as_deref(),
                         self.editor_buffer.buffer_version,
                         wrap_chars_per_row,
@@ -3287,6 +3352,8 @@ impl winit::application::ApplicationHandler for GuiApp {
                     self.editor_visual_to_logical = editor_data.visual_to_logical.clone();
                     self.editor_chars_per_row = editor_data.chars_per_row;
                     self.editor_wrap_visual_offset = editor_data.wrap_visual_offset;
+                    // Track which file the cached editor data is for.
+                    self.cached_editor_active_file = self.committed_active_file.clone();
 
                     if debug_large {
                         let content_lines = editor_data.editor_body_text.lines().count();
@@ -3463,7 +3530,6 @@ impl winit::application::ApplicationHandler for GuiApp {
                         .as_ref()
                         .and_then(|p| self.doc_buffers.get(p))
                         .map(|db| db.total_lines())
-                        .or_else(|| self.mapped_doc.as_ref().map(|md| md.total_lines()))
                         .unwrap_or_else(|| self.editor_buffer.line_count());
 
                     if let Some(ref mut comp) = self.composition {

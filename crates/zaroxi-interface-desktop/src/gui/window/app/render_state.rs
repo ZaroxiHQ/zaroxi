@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::gui::ShellWorkContent;
 use crate::gui::window::editor::EditorContentData;
 use zaroxi_core_editor_largefile::DocumentBuffer;
-use zaroxi_core_editor_largefile::StreamedDocument;
 use zaroxi_core_editor_rope::Rope;
 use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_interface_theme::theme::SemanticColors;
@@ -64,26 +63,13 @@ pub(crate) fn prepare_editor_data(
     large_file_mode: bool,
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
-    mapped_doc: Option<&mut StreamedDocument>,
     doc_buffer: Option<&DocumentBuffer>,
     buffer_version: u64,
     wrap_chars_per_row: usize,
 ) -> EditorContentData {
     if large_file_mode {
-        // Large-file fallback: avoid the O(total_lines) content hash
-        // (`compute_lines_hash_fast` walks/seeks the rope every frame and is
-        // catastrophic at hundreds of thousands of lines). The editor buffer's
-        // monotonic `buffer_version` is an O(1) change signal: identical version
-        // + identical viewport range ⇒ the cached windowed data is still valid,
-        // so static frames skip all per-frame document work.
         let mut lines_hash = buffer_version.wrapping_add(1);
 
-        // Mix the viewport range into the hash so the cache invalidates on
-        // scroll.  Without this, scroll operations leave the content hash
-        // unchanged (line lengths are constant) and the cache returns stale
-        // EditorContentData with the wrong visible_line_range and
-        // content_line_offset, causing the editor to render the viewport
-        // slice at absolute line 0 regardless of scroll position.
         if let Some((start, end)) = visible_line_range {
             lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
             lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
@@ -98,19 +84,12 @@ pub(crate) fn prepare_editor_data(
         cached_line_hashes.clear();
         line_syntax_cache.clear();
 
-        // Phase 1 large-file policy: large files are rendered as plain text.
-        // The background parser is not run for them (see
-        // `GuiApp::schedule_background_parse`), so no spans exist and the
-        // plain shaper is used unconditionally here.  This is an explicit,
-        // documented limitation — syntax highlighting for large files is
-        // deferred to a later phase.
         let _ = spans;
         let data = super::super::presenters::shape_editor_content_plain(
             work_content,
             sem,
             visible_line_range,
             rope,
-            mapped_doc,
             doc_buffer,
             wrap_chars_per_row,
         );
@@ -133,20 +112,12 @@ pub(crate) fn prepare_editor_data(
     }
 
     let mut lines_hash = compute_lines_hash(work_content);
-    // Mix the viewport range into the cache key: `editor_spans` (and the body
-    // text) are now viewport-windowed, so a scroll must invalidate the cache to
-    // re-window. Without this the renderer would draw a stale window at the new
-    // scroll offset.
     if let Some((start, end)) = visible_line_range {
         lines_hash = lines_hash.wrapping_mul(31).wrapping_add(start as u64);
         lines_hash = lines_hash.wrapping_mul(31).wrapping_add(end as u64);
     }
     let per_line_hashes = compute_per_line_hashes(work_content);
 
-    // The editor cache is keyed on BOTH content (lines_hash) AND the highlight
-    // spans version. Without the spans-version key, content that was shaped as
-    // plain text *before* the background parse result arrived would be reused
-    // even after spans are stored, leaving the editor permanently uncolored.
     let cache_valid = should_use_editor_cache(lines_hash, *cached_editor_lines_hash)
         && spans_version == *cached_editor_spans_version;
 

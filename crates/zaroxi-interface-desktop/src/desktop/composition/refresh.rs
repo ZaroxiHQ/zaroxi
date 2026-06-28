@@ -310,14 +310,22 @@ pub async fn refresh_with_service(
     // `add_opened_buffer_direct` and are unknown to the workspace service,
     // so the service-issued rebuild above drops them.  Re-adding them
     // ensures stable tabs for large files.
+    // Preserve the active status from the current metadata's active_buffer
+    // so large-file tabs stay highlighted across refreshes.
+    let direct_active = comp
+        .metadata
+        .as_ref()
+        .and_then(|m| m.active_buffer.clone())
+        .filter(|b| comp.direct_buffer_ids.contains(b));
     for direct_bid in &comp.direct_buffer_ids {
         let key = direct_bid.to_string();
         if !opened_list.iter().any(|it| it.buffer_id.to_string() == key) {
             let display = direct_bid.path().map(|p| p.to_string_lossy().to_string());
+            let is_active = direct_active.as_ref().map(|a| a == direct_bid).unwrap_or(false);
             opened_list.push(super::OpenedBufferItem {
                 buffer_id: direct_bid.clone(),
                 display,
-                active: false,
+                active: is_active,
             });
         }
     }
@@ -325,12 +333,25 @@ pub async fn refresh_with_service(
     let opened_count = opened_list.len();
 
     // 4) Update composition metadata and simple recorded ids.
-    // Compute authoritative active buffer: prefer service-provided opened-buffer active marker when present.
-    // `opened_list` is already built above and is authoritative when `service` was provided.
+    // Compute authoritative active buffer: prefer the direct-buffer active
+    // (large files), then service-provided opened-buffer active marker, then
+    // presenter-derived active.
     let current_opened_active = opened_list.iter().find(|i| i.active).map(|i| i.buffer_id.clone());
 
-    // Determine authoritative active buffer for metadata and details: service (opened list) wins, else presenter-derived active.
-    let authoritative_active = current_opened_active.clone().or(active_buf_opt.clone());
+    // Determine authoritative active buffer for metadata and details.
+    // Direct buffers take priority over service-derived buffers, preserving
+    // large-file tab selection across refreshes.
+    let authoritative_active =
+        direct_active.or(current_opened_active.clone()).or(active_buf_opt.clone());
+
+    // Deduplicate per-item active flags: exactly one item may be active.
+    // Without this, the service-reported active AND the direct-buffer active
+    // can both carry `active: true`, producing double-highlighted tabs.
+    if let Some(ref auth) = authoritative_active {
+        for it in &mut opened_list {
+            it.active = &it.buffer_id == auth;
+        }
+    }
 
     // Compute a tiny active-buffer details projection using the authoritative active buffer.
     let active_buffer_details: Option<super::ActiveBufferDetails> =

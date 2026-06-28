@@ -385,6 +385,14 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 fn sync_editor_to_service(app: &mut GuiApp) {
     let cursor_line = app.editor_cursor_line();
     let cursor_col = app.editor_buffer.caret_vis_col();
+    // Capture body line count before sync for structural-edit delta
+    // computation in the large-file sync block.
+    let pre_sync_body_line_count = app
+        .work_content
+        .as_ref()
+        .and_then(|wc| wc.editor_body.as_ref())
+        .map(|b| b.lines.len())
+        .unwrap_or(0);
 
     if let Some(ref mut wc) = app.work_content
         && let Some(ref mut body) = wc.editor_body
@@ -529,6 +537,131 @@ fn sync_editor_to_service(app: &mut GuiApp) {
             // Full rebuild when no incremental range is available
             let new_lines = app.editor_buffer.lines_expanded();
             body.lines = new_lines;
+        }
+    }
+
+    // For large files, sync edits from the rope back to doc_buffers
+    // so the PieceTable stays in sync with user edits.
+    if app.large_file_mode {
+        if let Some(ref edit_range) = app.editor_buffer.last_edit_line_range() {
+            let key = app
+                .committed_active_file
+                .as_deref()
+                .and_then(|s| s.strip_prefix("buf:"))
+                .map(|s| s.to_string());
+            if let Some(path_str) = key {
+                if let Some(db) = app.doc_buffers.get_mut(&path_str) {
+                    let total = db.total_lines();
+                    let (first, last_excl) = *edit_range;
+                    let new_line_count = app.editor_buffer.line_count();
+                    let structural = new_line_count != total;
+                    let tab_width = crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH;
+
+                    if structural {
+                        // Structural edit: compute old/new ranges and do a
+                        // single splice in doc_buffers.  The rope line count
+                        // delta tells us whether lines were inserted or deleted.
+                        let delta = pre_sync_body_line_count as isize - new_line_count as isize;
+                        let old_range_lines = if delta > 0 {
+                            // Deletion: old had more lines.
+                            (last_excl.saturating_sub(first)) + delta as usize
+                        } else {
+                            // Insertion / no-op: old range was 1 line.
+                            1usize
+                        };
+                        let old_last = (first + old_range_lines).min(total);
+                        let new_last = last_excl.min(new_line_count).max(first);
+
+                        let old_lines: Vec<String> = if first < total {
+                            db.lines_in_range(first, old_last.saturating_sub(1))
+                                .into_iter()
+                                .map(|(_, s)| s)
+                                .collect()
+                        } else {
+                            vec![]
+                        };
+                        let new_lines: Vec<String> = (first..new_last)
+                            .map(|i| {
+                                let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                                crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
+                                    &raw, tab_width,
+                                )
+                            })
+                            .collect();
+
+                        let old_text = old_lines.join("\n");
+                        let new_text = new_lines.join("\n");
+
+                        let byte_start = if first < total {
+                            db.line_col_to_byte_offset(first, 0)
+                        } else {
+                            db.total_bytes()
+                        };
+                        let old_byte_len = old_text.len();
+
+                        if old_byte_len > 0 {
+                            db.delete(byte_start, byte_start + old_byte_len);
+                        }
+                        if !new_text.is_empty() {
+                            if first >= total {
+                                db.insert(byte_start, &format!("\n{}", new_text));
+                            } else {
+                                db.insert(byte_start, &new_text);
+                            }
+                        }
+
+                        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                            eprintln!(
+                                "ZAROXI_DEBUG_LARGE_FILE: structural_splice first={} old_last={} new_last={} delta={} old_text_len={} new_text_len={} rope_lines={} doc_linesOLD={} doc_linesNEW={}",
+                                first,
+                                old_last,
+                                new_last,
+                                delta,
+                                old_text.len(),
+                                new_text.len(),
+                                new_line_count,
+                                total,
+                                db.total_lines(),
+                            );
+                        }
+                    } else {
+                        // Content-only edit: iterate affected lines.
+                        let old_last = last_excl.min(total).max(first);
+                        let mut i = first;
+                        while i < old_last {
+                            let new_raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                            let new_expanded =
+                                crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
+                                    &new_raw, tab_width,
+                                );
+                            let old = db
+                                .lines_in_range(i, i)
+                                .into_iter()
+                                .next()
+                                .map(|(_, s)| s)
+                                .unwrap_or_default();
+                            if old != new_expanded {
+                                let byte_start = db.line_col_to_byte_offset(i, 0);
+                                let old_byte_len = old.len();
+                                if old_byte_len > 0 {
+                                    db.delete(byte_start, byte_start + old_byte_len);
+                                }
+                                if !new_expanded.is_empty() {
+                                    db.insert(byte_start, &new_expanded);
+                                }
+                            }
+                            i += 1;
+                        }
+
+                        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                            eprintln!(
+                                "ZAROXI_DEBUG_LARGE_FILE: content_edit_synced first={} last={} rope_lines={} doc_lines={}",
+                                first, old_last, new_line_count, total,
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
