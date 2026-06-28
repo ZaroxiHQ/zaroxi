@@ -41,6 +41,36 @@ fn highlight_color(h: Highlight, sem: &SemanticColors, default: [f32; 4]) -> [f3
     }
 }
 
+/// Whether the decoration trace is enabled, evaluated once per process so the
+/// per-token tracer below is a single atomic load (zero-cost) when disabled.
+fn decoration_trace_on() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1"))
+}
+
+/// Bounded, guarded per-token foreground-color dump (`ZAROXI_DEBUG_DECORATION=1`).
+///
+/// Proves the color each syntax token receives, with NO diff/row modulation
+/// applied — text color comes purely from the highlight→`syntax_*` mapping and is
+/// independent of diff state. This is the evidence that, e.g., TOML `@property`
+/// keys resolve to `syntax_property` (#d07277, the exact same hue as the diff
+/// `error` red) while `@operator` (`=`) is cyan. Capped to a handful of runs so
+/// it never floods a whole document.
+fn maybe_trace_token_color(highlight: Highlight, text: &str, color: [f32; 4]) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static TRACED: AtomicUsize = AtomicUsize::new(0);
+    const MAX: usize = 24;
+    if !decoration_trace_on() || TRACED.fetch_add(1, Ordering::Relaxed) >= MAX {
+        return;
+    }
+    let snippet: String = text.chars().take(16).collect();
+    eprintln!(
+        "ZAROXI_DEBUG_DECORATION: syntax_token highlight={highlight:?} text_modulation=none rgba=({:.3},{:.3},{:.3},{:.3}) text={snippet:?}",
+        color[0], color[1], color[2], color[3],
+    );
+}
+
 /// Colorize editor source lines by applying the supplied (full-document)
 /// highlight spans.  Returns per-line colored spans as `(text, [r, g, b, a])`,
 /// including `"\n"` separators between lines (matching the renderer's
@@ -134,10 +164,9 @@ fn extract_line_spans(
             if seg_start < seg_end && seg_start >= pos {
                 let text = &source[seg_start..seg_end];
                 if !text.is_empty() {
-                    out.push((
-                        text.to_string(),
-                        highlight_color(span.highlight, sem, *default_color),
-                    ));
+                    let color = highlight_color(span.highlight, sem, *default_color);
+                    maybe_trace_token_color(span.highlight, text, color);
+                    out.push((text.to_string(), color));
                 }
             }
             pos = seg_end.max(pos);

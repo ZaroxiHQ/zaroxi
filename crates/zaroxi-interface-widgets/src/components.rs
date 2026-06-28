@@ -171,14 +171,20 @@ pub struct DiffHunk {
     pub added: bool,
 }
 
-/// Component 2 — translucent diff overlay drawn ON the buffer.
+/// Component 2 — inline diff indicator drawn in the editor's left margin.
 ///
-/// **Vello:** added lines = soft green tint + left-border glow bar; removed
-/// lines = red tint + a struck-through line. The active hunk's glow pulses.
-/// **Layout:** spans the editor content rect; line height supplied.
-/// **Tokens:** `diff_added_bg/border`, `diff_removed_bg/strike`, `ai_highlight`.
-/// **Animation:** active-hunk glow alpha pulses (≈1200ms triangle); static under
-/// reduce-motion. Removed lines fade — represented by `phase` on the strike alpha.
+/// **Vello:** added and removed lines share one minimal treatment — a crisp 3px
+/// left gutter bar (green = added via `success`, red = removed via `error`); the
+/// active hunk's bar pulses. Nothing is painted over the row's text: no full-row
+/// tint and no edge-to-edge rule. Both were tried and both made the row read as a
+/// colored horizontal band/line (and on TOML, whose `@property` keys share the
+/// `error` hue, the row collapsed into a single red streak). The gutter bar is a
+/// sufficient, unambiguous cue and keeps syntax highlighting fully legible.
+/// **Layout:** spans the editor content rect; line height supplied. Only the
+/// leftmost 3px column is ever drawn.
+/// **Tokens:** `success` / `error` (gutter bar; pulsing alpha when active).
+/// **Animation:** active-hunk bar alpha pulses (≈1200ms triangle); static under
+/// reduce-motion.
 /// **A11y:** "Inline AI diff: A additions, R removals. Tab/Shift-Tab to navigate,
 /// Enter accept, Esc reject."
 pub struct LivingDiffLayer {
@@ -200,22 +206,46 @@ impl ZaroxiWidget for LivingDiffLayer {
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
         let glow = pulse(self.phase);
+        // Diff hunks are decorated with ONLY a crisp 3px left gutter bar in the
+        // editor's left margin (green = added via `success`, red = removed via
+        // `error`); the active hunk's bar pulses.
+        //
+        // We deliberately draw NO full-row fill and NO full-width rule. Both were
+        // tried and both made the row read as a colored horizontal band/line:
+        //   * a full-row `error` tint is composited OVER the syntax text (the diff
+        //     overlay is a separate vello pass above the editor text), so it
+        //     re-tinted every glyph on the row toward red — and on files like TOML,
+        //     whose `@property` keys are already `syntax_property` (#d07277, the
+        //     same hue as `error`), the whole row collapsed into one red streak;
+        //   * an edge-to-edge strike rule simply looked like a stray red line.
+        // The gutter bar is sufficient, unambiguous, and never touches the text,
+        // which keeps syntax highlighting fully legible on changed rows.
+        const GUTTER_BAR_W: f64 = 3.0;
+        let decoration_trace = std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1");
         for (i, h) in self.hunks.iter().enumerate() {
             let y0 = r.y0 + h.line as f64 * self.line_height;
             let y1 = y0 + self.line_height;
             let is_active = self.active == Some(i);
-            if h.added {
-                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.success);
-                let border_color = if is_active {
-                    theme.success.with_alpha(0.4 + 0.6 * glow)
-                } else {
-                    theme.success
-                };
-                fill(scene, &Rect::new(r.x0, y0, r.x0 + 3.0, y1), border_color);
-            } else {
-                fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.error);
-                let mid = (y0 + y1) * 0.5;
-                stroke(scene, 1.5, &Line::new((r.x0 + 4.0, mid), (r.x1 - 4.0, mid)), theme.error);
+            let (kind, base) =
+                if h.added { ("added", theme.success) } else { ("removed", theme.error) };
+
+            let bar_color = if is_active { base.with_alpha(0.4 + 0.6 * glow) } else { base };
+            fill(scene, &Rect::new(r.x0, y0, r.x0 + GUTTER_BAR_W, y1), bar_color);
+
+            if decoration_trace {
+                eprintln!(
+                    "ZAROXI_DEBUG_DECORATION: layer=LivingDiffLayer kind={} hunk_line={} primitive=left_bar_only full_row_tint=none text_modulation=none bar_rect=(x={:.0} y={:.0} w={:.0} h={:.0}) bar_rgba=({:.3},{:.3},{:.3},{:.3})",
+                    kind,
+                    h.line,
+                    r.x0,
+                    y0,
+                    GUTTER_BAR_W,
+                    y1 - y0,
+                    bar_color.r,
+                    bar_color.g,
+                    bar_color.b,
+                    bar_color.a,
+                );
             }
         }
     }

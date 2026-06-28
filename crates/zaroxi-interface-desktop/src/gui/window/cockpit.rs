@@ -342,16 +342,42 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
 
     let mut tree = WidgetTree::new();
 
-    // Inline AI diff overlay (above editor text, below cursor).
-    tree.push(
-        Box::new(LivingDiffLayer {
-            hunks: inputs.diff_hunks.clone(),
-            line_height,
-            active: None,
-            phase: inputs.phase,
-        }),
-        regions.editor,
-    );
+    // Inline AI diff overlay (above editor text, below cursor). Editor-only:
+    // gated by `file_editor_active` (mirrors the prediction gutter / minimap
+    // below) so that a NON-file destination occupying the same `regions.editor`
+    // rect — Settings, Extensions, Welcome, generic placeholders — never has the
+    // active buffer's diff hunks painted as a full-width band over its rows.
+    // Previously this push was unconditional, so the editor's stale diff hunks
+    // leaked onto the Settings page (and any other editor-region panel).
+    let diff_decoration_trace = std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1");
+    if inputs.file_editor_active && !inputs.diff_hunks.is_empty() {
+        if diff_decoration_trace {
+            eprintln!(
+                "ZAROXI_DEBUG_DECORATION: layer=LivingDiffLayer push=editor file_editor_active=true hunk_count={} editor_rect=(x={:.0} y={:.0} w={:.0} h={:.0})",
+                inputs.diff_hunks.len(),
+                regions.editor.location.x,
+                regions.editor.location.y,
+                regions.editor.size.width,
+                regions.editor.size.height,
+            );
+        }
+        tree.push(
+            Box::new(LivingDiffLayer {
+                hunks: inputs.diff_hunks.clone(),
+                line_height,
+                active: None,
+                phase: inputs.phase,
+            }),
+            regions.editor,
+        );
+    } else if diff_decoration_trace {
+        eprintln!(
+            "ZAROXI_DEBUG_DECORATION: layer=LivingDiffLayer push=skipped file_editor_active={} hunk_count={} reason={}",
+            inputs.file_editor_active,
+            inputs.diff_hunks.len(),
+            if !inputs.file_editor_active { "non_editor_destination" } else { "no_hunks" },
+        );
+    }
 
     // AI prediction gutter (right side) — file-editor only.
     if inputs.file_editor_active {
