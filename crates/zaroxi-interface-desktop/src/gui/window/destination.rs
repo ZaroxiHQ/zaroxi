@@ -305,7 +305,18 @@ impl WorkbenchTabState {
                 is_active_buffer: *is_active,
             });
         }
+        let prev_entries = self.entries.len();
         self.entries = new_files.drain(..).chain(self.entries.drain(..)).collect();
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: tab_sync file_tabs={} non_file_tabs={} total={} prev_non_file={} active={:?}",
+                titles.len(),
+                self.entries.len().saturating_sub(titles.len()),
+                self.entries.len(),
+                prev_entries,
+                self.active,
+            );
+        }
     }
 
     /// Open or focus a non-file tab. Deduplicates by id; if the tab already
@@ -336,6 +347,16 @@ impl WorkbenchTabState {
         };
         let was_file = self.entries[pos].is_file();
         let was_active = &self.active == id;
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: tab_close id={:?} was_file={} was_active={} pos={} entries_before={}",
+                id,
+                was_file,
+                was_active,
+                pos,
+                self.entries.len(),
+            );
+        }
         self.entries.remove(pos);
         if was_active {
             // Prefer successor at same slot, then predecessor, then Editor.
@@ -345,6 +366,14 @@ impl WorkbenchTabState {
                 .or_else(|| pos.checked_sub(1).and_then(|p| self.entries.get(p)))
                 .map(|e| e.stable_id())
                 .unwrap_or(WorkbenchTabId::Editor);
+            if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: tab_close_fallback active_was={:?} active_now={:?} entries_after={}",
+                    id,
+                    fallback,
+                    self.entries.len(),
+                );
+            }
             self.active = fallback;
         }
         was_file || was_active

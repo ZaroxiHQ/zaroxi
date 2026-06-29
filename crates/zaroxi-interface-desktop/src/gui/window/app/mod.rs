@@ -698,7 +698,24 @@ impl GuiApp {
     /// and clears any queued wheel deltas so they cannot fight the caret-follow.
     pub(crate) fn ensure_caret_visible(&mut self) {
         if self.large_file_mode {
-            return;
+            let path = self.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"));
+            if path.is_some_and(|p| self.doc_buffers.contains_key(p)) {
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: ensure_caret_skipped reason=large_file_mode active_doc={:?} doc_buf_hit=true",
+                        self.committed_active_file,
+                    );
+                }
+                return;
+            }
+            if doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: ensure_caret_stale_large_file_mode_cleared active_doc={:?} doc_buf_keys={:?}",
+                    self.committed_active_file,
+                    self.doc_buffers.keys().collect::<Vec<_>>(),
+                );
+            }
+            self.large_file_mode = false;
         }
         // Fallback visible-row count from the viewport content height, used only
         // if the renderer has not yet published `editor_viewport_line_count`.

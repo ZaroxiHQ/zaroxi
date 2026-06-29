@@ -470,6 +470,22 @@ impl GuiApp {
                 );
             }
         }
+        if doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: active_doc_changed prev={:?} new={:?} large_file_mode={} doc_buf_hit={} open_doc_hit={}",
+                prev_active_file,
+                self.committed_active_file.as_deref().or(wc.active_file.as_deref()),
+                self.large_file_mode,
+                wc.active_file
+                    .as_deref()
+                    .and_then(|s| s.strip_prefix("buf:"))
+                    .is_some_and(|p| self.doc_buffers.contains_key(p)),
+                wc.active_file
+                    .as_deref()
+                    .and_then(|s| s.strip_prefix("buf:"))
+                    .is_some_and(|p| self.open_documents.contains_key(p)),
+            );
+        }
         self.committed_active_file = wc.active_file.clone();
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit
@@ -900,6 +916,12 @@ impl GuiApp {
                         .as_ref()
                         .map(|p| p.to_string_lossy().into_owned())
                         .unwrap_or_default();
+                    if file_open_trace_enabled() || doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: register_backend path={} kind=piece_table lines={} bytes={}",
+                            path_str, total, byte_len,
+                        );
+                    }
                     let bid = crate::ports::BufferId(format!("buf:{}", path_str));
                     if file_open_trace_enabled() {
                         eprintln!(

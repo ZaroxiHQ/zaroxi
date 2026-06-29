@@ -897,8 +897,12 @@ impl GuiApp {
                     keys,
                 );
             }
+            let doc_buf_keys: Vec<String> =
+                self.doc_buffers.keys().cloned().collect();
             let doc_buf = active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
-            if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1") {
+            if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1")
+                || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+            {
                 let source_label = if doc_buf.is_some() {
                     "doc_buffers"
                 } else if large_file_mode {
@@ -907,11 +911,12 @@ impl GuiApp {
                     "rope"
                 };
                 eprintln!(
-                    "ZAROXI_DEBUG_RENDER_SOURCE: source={} active_file={:?} rope_lines={} large_file_mode={}",
+                    "ZAROXI_DOC_LIFECYCLE: render_source source={} active_file={:?} rope_lines={} large_file_mode={} doc_buffers_keys={:?}",
                     source_label,
                     self.committed_active_file,
                     self.editor_buffer.line_count(),
                     large_file_mode,
+                    doc_buf_keys,
                 );
             }
             // Invalidate cached editor data if the active file

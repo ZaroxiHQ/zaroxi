@@ -139,6 +139,11 @@ impl GuiApp {
                                     meta.opened_buffer_count = meta.opened_buffers.len();
                                     comp.pending_removed_buffer_ids.push(bid_str.clone());
 
+                                    // Clean up direct-buffer tracking so the
+                                    // refresh cycle can never resurrect a
+                                    // closed large-file tab.
+                                    comp.direct_buffer_ids.retain(|b| b.to_string() != *bid_str);
+
                                     // Release the buffer from the workspace service
                                     // to free its content from memory.
                                     let bid: crate::ports::BufferId =
@@ -234,6 +239,23 @@ impl GuiApp {
                                 self.cached_editor_data = None;
                                 self.cached_editor_lines_hash = 0;
                                 self.cached_editor_spans_version = 0;
+                            }
+                        }
+                        // Clean up per-path doc_buffers entry + reset
+                        // large_file_mode when the closed file was the
+                        // last large document (or the only one). The
+                        // next commit_open will recompute from the
+                        // active file's real metadata.
+                        if let Some(key) = bid_str.strip_prefix("buf:") {
+                            if self.doc_buffers.remove(key).is_some()
+                                && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+                            {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: unregister path={key} backend=piece_table reason=tab_closed"
+                                );
+                            }
+                            if self.doc_buffers.is_empty() {
+                                self.large_file_mode = false;
                             }
                         }
                         // After closing a file tab, switch to file-editor

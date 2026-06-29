@@ -162,6 +162,23 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 
     // ── Editor editing commands (only when editor has focus/content) ──
     if editor_focused(app) {
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
+            let key_label = match logical_key {
+                Key::Named(n) => format!("{:?}", n),
+                Key::Character(c) => format!("\"{c}\""),
+                _ => "<?>".to_string(),
+            };
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: key_event key={} target_doc={:?} large_file_mode={} doc_buf_hit={}",
+                key_label,
+                app.committed_active_file,
+                app.large_file_mode,
+                app.committed_active_file
+                    .as_deref()
+                    .and_then(|s| s.strip_prefix("buf:"))
+                    .is_some_and(|p| app.doc_buffers.contains_key(p)),
+            );
+        }
         match logical_key {
             // Cursor movement
             Key::Named(NamedKey::ArrowLeft) => {
@@ -839,6 +856,15 @@ fn sync_editor_to_service(app: &mut GuiApp) {
 /// invalidates for the next frame. Keeping the ensure-visible call here means no
 /// individual handler has to remember to scroll.
 fn request_editor_redraw(app: &mut GuiApp) {
+    if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_DOC_LIFECYCLE: editor_input target_doc={:?} large_file_mode={} caret_line={} doc_buf_keys={:?}",
+            app.committed_active_file,
+            app.large_file_mode,
+            app.editor_buffer.caret_line(),
+            app.doc_buffers.keys().collect::<Vec<_>>(),
+        );
+    }
     app.ensure_caret_visible();
     app.invalidate(super::InvalidationFlags::input());
 }
