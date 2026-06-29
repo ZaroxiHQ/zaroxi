@@ -254,6 +254,13 @@ impl GuiApp {
                                     "ZAROXI_DOC_LIFECYCLE: unregister path={key} backend=piece_table reason=tab_closed"
                                 );
                             }
+                            if self.large_file_view_states.remove(key).is_some()
+                                && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+                            {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: view_state_removed path={key} reason=tab_closed"
+                                );
+                            }
                             if self.doc_buffers.is_empty() {
                                 self.large_file_mode = false;
                             }

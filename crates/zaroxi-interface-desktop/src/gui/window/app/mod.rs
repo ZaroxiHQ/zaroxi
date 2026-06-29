@@ -102,6 +102,24 @@ use zaroxi_kernel_types::Id;
 
 pub type WidgetActivationHandler = Box<dyn FnMut(&WidgetId) -> Option<ShellWorkContent>>;
 
+/// Per-document view-local state saved and restored across tab switches for
+/// large (PieceTable-backed) files.  Contains only metadata — no rope content
+/// — so RAM stays bounded regardless of navigation depth within the file.
+/// On check-out the caret is restored and the rope is lazily re-extended
+/// from the PieceTable to cover the saved scroll position.
+#[derive(Clone, Debug)]
+pub struct DocumentViewState {
+    pub caret_line: usize,
+    pub caret_col: usize,
+    pub scroll_top: usize,
+}
+
+impl DocumentViewState {
+    pub fn from_editor_and_scroll(buf: &EditorBufferState, scroll_top: usize) -> Self {
+        Self { caret_line: buf.caret_line(), caret_col: buf.caret_col(), scroll_top }
+    }
+}
+
 pub struct GuiApp {
     pub window_attributes: WindowAttributes,
     pub title: String,
@@ -323,6 +341,11 @@ pub struct GuiApp {
     /// without ever reloading from disk. Large files use `doc_buffers` instead
     /// and are never parked here.
     pub open_documents: std::collections::HashMap<String, EditorBufferState>,
+    /// Per-document view-state cache for large (PieceTable-backed) files.
+    /// Captured on check-in (tab away) and restored on check-out (tab return)
+    /// so scroll position and caret survive tab switches without keeping the
+    /// full rope in memory.  Keyed by canonical file path (buf: prefix stripped).
+    pub large_file_view_states: std::collections::HashMap<String, DocumentViewState>,
     /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
     /// owns the pacing/cadence and outstanding-redraw bookkeeping.
     pub frame_scheduler: FrameScheduler,

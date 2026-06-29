@@ -471,6 +471,22 @@ impl super::GuiApp {
                                     != wc.editor_body.as_ref().map(|b| &b.lines)
                         });
                         if changed {
+                            // Detect whether this is a fresh open or
+                            // a reactivation of an already-open document.
+                            // When the document already has cached state
+                            // (parked in open_documents / large_file_view_states),
+                            // skip the scroll/caret reset — the commit_open
+                            // checkout path will restore the prior position.
+                            let is_reactivation = wc
+                                .active_file
+                                .as_deref()
+                                .and_then(|s| s.strip_prefix("buf:"))
+                                .map(|key| {
+                                    self.open_documents.contains_key(key)
+                                        || self.large_file_view_states.contains_key(key)
+                                })
+                                .unwrap_or(false);
+
                             self.request_open(wc.clone());
                             // When a file opens, switch from Welcome
                             // to Editor mode so file-editor surfaces
@@ -485,12 +501,18 @@ impl super::GuiApp {
                                 self.cockpit_status_fingerprint = 0;
                             }
                             content_changed = true;
-                            self.pending_scroll_frac = 0.0;
-                            if let Some(ref mut comp) = self.composition {
-                                comp.reset_scroll_state();
+                            // Only reset scroll/caret for genuinely new
+                            // opens.  Reactivations restore their prior
+                            // viewport via the commit_open checkout path.
+                            if !is_reactivation {
+                                self.pending_scroll_frac = 0.0;
+                                if let Some(ref mut comp) = self.composition {
+                                    comp.reset_scroll_state();
+                                }
+                                let editor_id =
+                                    WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
+                                self.interaction.set_scroll_offset(&editor_id, 0.0);
                             }
-                            let editor_id = WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
-                            self.interaction.set_scroll_offset(&editor_id, 0.0);
                         }
                     }
                     needs_redraw = true;

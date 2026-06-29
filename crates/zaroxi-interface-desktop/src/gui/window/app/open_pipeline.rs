@@ -159,54 +159,125 @@ impl GuiApp {
             .unwrap_or(false);
 
         // ── Authoritative per-document checkout / checkin (the tab-switch fix) ──
-        // On a real file switch, park the OUTGOING active normal document so its
-        // unsaved edits + undo/redo history travel with it, and if the INCOMING
-        // document is already open, restore it from the in-memory store instead
-        // of rebuilding its text from (stale) disk content. This is the single
-        // mechanism that keeps unsaved edits alive across tab switches. Large
-        // files are excluded — their canonical content lives in `doc_buffers`.
+        // On a real file switch, park the OUTGOING active document so its state
+        // survives the switch, and if the INCOMING document is already open,
+        // restore it from the in-memory store instead of rebuilding from scratch.
+        //
+        // Normal files: full EditorBufferState clone (rope + caret + undo/redo).
+        // Large files:  lightweight DocumentViewState (caret + scroll only);
+        //               the rope mirror is NOT retained — it is repopulated from
+        //               the PieceTable on demand when the tab returns.
         let new_doc_key: Option<String> =
             wc.active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
         let active_file_changed = prev_active_file.as_deref() != wc.active_file.as_deref();
         let mut restored_from_store = false;
-        // Check IN the outgoing normal document on a real switch (keep its edits
-        // + undo/redo history).
+        // Check IN the outgoing document on a real switch.
         if active_file_changed
-            && !prev_large_file_mode
             && let Some(prev_key) =
                 prev_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string())
         {
-            // Only park a document that holds materialized content; skip the
-            // transient empty loading placeholder that carries no edits.
             let has_content = self.editor_buffer.char_count() > 0;
-            if has_content || self.open_documents.contains_key(&prev_key) {
-                if doc_lifecycle_trace_enabled() {
-                    eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkin path={} dirty={} has_undo={} chars={} version={}",
-                        prev_key,
-                        self.editor_buffer.is_dirty(),
-                        self.editor_buffer.can_undo(),
-                        self.editor_buffer.char_count(),
-                        self.editor_buffer.buffer_version,
-                    );
+            if has_content
+                || self.open_documents.contains_key(&prev_key)
+                || self.large_file_view_states.contains_key(&prev_key)
+            {
+                if prev_large_file_mode {
+                    // Large files: save only view-state metadata (no rope).
+                    let scroll_top = self
+                        .composition
+                        .as_ref()
+                        .and_then(|c| c.metadata.as_ref())
+                        .map(|m| m.editor_scroll_top_line)
+                        .unwrap_or(0);
+                    let vs =
+                        DocumentViewState::from_editor_and_scroll(&self.editor_buffer, scroll_top);
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: checkin path={} kind=large_file caret={} scroll={}",
+                            prev_key, vs.caret_line, vs.scroll_top,
+                        );
+                    }
+                    // Trim the rope to free RAM — the canonical content is in
+                    // the PieceTable.  Keep a minimal 1-line stub so the
+                    // buffer isn't empty.  Do this BEFORE moving `vs` / `prev_key`
+                    // into the map so the fields are still accessible.
+                    let keep = self.editor_buffer.line_count().min(1usize);
+                    if let Some(db) = self.doc_buffers.get(&prev_key)
+                        && db.total_lines() > 0
+                    {
+                        let stub = db.lines_in_range(0, keep.saturating_sub(1));
+                        let lines: Vec<String> = stub.into_iter().map(|(_, s)| s).collect();
+                        let cl = vs.caret_line.min(lines.len().saturating_sub(1));
+                        self.editor_buffer.populate_from_lines(&lines, cl, vs.caret_col);
+                        if doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: trim path={} reason=inactive lines_after={}",
+                                prev_key,
+                                lines.len(),
+                            );
+                        }
+                    }
+                    self.large_file_view_states.insert(prev_key, vs);
+                } else {
+                    // Normal files: full editor-buffer clone.
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: checkin path={} dirty={} has_undo={} chars={} version={}",
+                            prev_key,
+                            self.editor_buffer.is_dirty(),
+                            self.editor_buffer.can_undo(),
+                            self.editor_buffer.char_count(),
+                            self.editor_buffer.buffer_version,
+                        );
+                    }
+                    self.open_documents.insert(prev_key, self.editor_buffer.clone());
                 }
-                self.open_documents.insert(prev_key, self.editor_buffer.clone());
             }
         }
-        // Check OUT the incoming normal document whenever we hold its parked
-        // state. A parked entry exists only for an INACTIVE document (the
-        // single-copy invariant: a document lives either in `editor_buffer` when
-        // active or in `open_documents` when parked, never both), so restoring is
-        // always correct here — it never clobbers live edits, and it covers the
-        // two-phase explorer open (loading placeholder → ready) as well as direct
-        // tab switches. `remove` re-establishes the single-copy invariant.
-        if !self.large_file_mode
+        // Check OUT the incoming document whenever we hold its parked state.
+        // A parked entry exists only for an INACTIVE document (single-copy
+        // invariant), so restoring is always correct — it never clobbers
+        // live edits.  `remove` re-establishes the invariant.
+        if self.large_file_mode
+            && let Some(key) = new_doc_key.as_deref()
+            && let Some(vs) = self.large_file_view_states.remove(key)
+        {
+            // Large file: restore caret + scroll from view-state cache,
+            // then repopulate the rope from the PieceTable lazily.
+            if doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: checkout path={} kind=large_file caret={} scroll={}",
+                    key, vs.caret_line, vs.scroll_top,
+                );
+            }
+            // Repopulate rope from PieceTable covering the saved scroll
+            // position so the renderer has content immediately.
+            if let Some(db) = self.doc_buffers.get(key) {
+                let total = db.total_lines();
+                let end_needed = vs.scroll_top.saturating_add(200).min(total);
+                let vp = db.lines_in_range(0, end_needed.saturating_sub(1));
+                let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
+                if !lines.is_empty() {
+                    self.editor_buffer.populate_from_lines(&lines, vs.caret_line, vs.caret_col);
+                }
+                // Restore scroll position in composition metadata so the
+                // first render frame shows the correct viewport.
+                if let Some(ref mut comp) = self.composition {
+                    if let Some(ref mut meta) = comp.metadata {
+                        meta.editor_scroll_top_line = vs.scroll_top;
+                        meta.editor_scroll_px = vs.scroll_top as f32 * lc::LINE_HEIGHT;
+                    }
+                }
+                restored_from_store = true;
+            }
+        } else if !self.large_file_mode
             && let Some(key) = new_doc_key.as_deref()
             && let Some(stored) = self.open_documents.remove(key)
         {
+            // Normal file: full editor-buffer restore.
             if doc_lifecycle_trace_enabled() {
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 syntax_parked=0 syntax_recompute=eager_sync version={}",
+                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 version={}",
                     key,
                     stored.is_dirty(),
                     stored.buffer_version,
@@ -428,13 +499,11 @@ impl GuiApp {
             self.visible_loading_state = true;
         }
         // ── Unconditional large-file materialization ──
-        // For PieceTable-backed files, the rope must be repopulated from
-        // doc_buffers on EVERY commit — not only when buffer_changed is
-        // true.  `request_open` updates `work_content` synchronously (before
-        // this function runs), which means the `body_loading_to_ready` check
-        // inside `buffer_changed` may already see the committed body.  The
-        // rope population is a rebuild from the canonical source, not a
-        // one-time init, so it must be unconditional.
+        // For PieceTable-backed files on FIRST open (not a reactivation),
+        // the rope must be populated from doc_buffers.  When the document
+        // was already open and the view state was restored above via the
+        // checkout path, this block is skipped — the rope was already
+        // populated covering the restored scroll position.
         //
         // The initial window is viewport-sized (~200 lines, enough for the
         // first visible screenful plus overscan).  The rope is extended
@@ -442,6 +511,7 @@ impl GuiApp {
         // `repopulate_large_file_rope`, which fetches additional lines from
         // the PieceTable without resetting the rope start (line 0).
         if self.large_file_mode
+            && !restored_from_store
             && let Some(ref body) = wc.editor_body
         {
             if let Some(ref active_path) = wc.active_file
