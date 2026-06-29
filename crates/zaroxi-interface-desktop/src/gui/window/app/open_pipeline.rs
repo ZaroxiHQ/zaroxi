@@ -435,6 +435,12 @@ impl GuiApp {
         // inside `buffer_changed` may already see the committed body.  The
         // rope population is a rebuild from the canonical source, not a
         // one-time init, so it must be unconditional.
+        //
+        // The initial window is viewport-sized (~200 lines, enough for the
+        // first visible screenful plus overscan).  The rope is extended
+        // on demand when the user scrolls past the current window via
+        // `repopulate_large_file_rope`, which fetches additional lines from
+        // the PieceTable without resetting the rope start (line 0).
         if self.large_file_mode
             && let Some(ref body) = wc.editor_body
         {
@@ -443,8 +449,10 @@ impl GuiApp {
                 && let Some(db) = self.doc_buffers.get(path)
             {
                 let total = db.total_lines();
-                let window = 100usize.min(total);
-                let vp = db.lines_in_range(0, window.saturating_sub(1));
+                // Initial window: viewport-sized, not capped at 100.
+                // The rope-extend path on scroll handles demand past this.
+                let initial = 200usize.min(total);
+                let vp = db.lines_in_range(0, initial.saturating_sub(1));
                 let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
                 if !lines.is_empty() {
                     self.editor_buffer.populate_from_lines(

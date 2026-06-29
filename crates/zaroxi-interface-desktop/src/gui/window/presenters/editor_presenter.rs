@@ -335,6 +335,7 @@ pub fn shape_editor_content_incremental(
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
     wrap_chars_per_row: usize,
+    total_lines_override: Option<usize>,
 ) -> EditorContentData {
     shape_editor_content_impl(
         work_content,
@@ -347,6 +348,7 @@ pub fn shape_editor_content_incremental(
         visible_line_range,
         rope,
         wrap_chars_per_row,
+        total_lines_override,
     )
 }
 
@@ -361,6 +363,7 @@ fn shape_editor_content_impl(
     visible_line_range: Option<(usize, usize)>,
     rope: Option<&Rope>,
     wrap_chars_per_row: usize,
+    total_lines_override: Option<usize>,
 ) -> EditorContentData {
     let wc = match work_content {
         Some(w) => w,
@@ -368,9 +371,10 @@ fn shape_editor_content_impl(
     };
 
     let editor_body = wc.editor_body.as_ref();
-    let total_lines = rope
-        .map(|r| r.line_count())
-        .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0));
+    let total_lines = total_lines_override.unwrap_or_else(|| {
+        rope.map(|r| r.line_count())
+            .unwrap_or_else(|| editor_body.map(|cv| cv.lines.len()).unwrap_or(0))
+    });
 
     let (editor_body_text, used_visible_range) = if let Some(r) = rope {
         if let Some((vis_start, vis_end)) = visible_line_range {

@@ -66,6 +66,7 @@ pub(crate) fn prepare_editor_data(
     _doc_buffer: Option<&DocumentBuffer>,
     buffer_version: u64,
     wrap_chars_per_row: usize,
+    total_lines_override: Option<usize>,
 ) -> EditorContentData {
     // Single path for both Rope and PieceTable backends.
     // For large files the rope holds only the viewport window, so
@@ -114,6 +115,7 @@ pub(crate) fn prepare_editor_data(
         visible_line_range,
         rope,
         wrap_chars_per_row,
+        total_lines_override,
     );
 
     if editor_spans_debug_enabled() {

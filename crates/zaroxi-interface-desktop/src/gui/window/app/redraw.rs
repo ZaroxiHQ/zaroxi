@@ -399,6 +399,21 @@ impl GuiApp {
         // `tab_state` borrow (a whole-`self` call is impossible here).
         let dirty_doc_paths = self.dirty_doc_paths();
 
+        // For large files, ensure the rope extends far enough to cover the
+        // current scroll position before the render borrow locks self.
+        // The ensure_caret_visible path also extends on caret movement;
+        // this handles mouse-wheel / scrollbar-driven scroll changes.
+        if self.large_file_mode {
+            let scroll_end = self
+                .composition
+                .as_ref()
+                .and_then(|c| c.metadata.as_ref())
+                .map(|m| m.editor_scroll_top_line)
+                .unwrap_or(0)
+                .saturating_add(200);
+            self.repopulate_large_file_rope(scroll_end);
+        }
+
         if let Some(z) = self.maybe_window.as_mut() {
             let (sw, sh) = z.size();
             if sw == 0 || sh == 0 {
@@ -897,8 +912,7 @@ impl GuiApp {
                     keys,
                 );
             }
-            let doc_buf_keys: Vec<String> =
-                self.doc_buffers.keys().cloned().collect();
+            let doc_buf_keys: Vec<String> = self.doc_buffers.keys().cloned().collect();
             let doc_buf = active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
             if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1")
                 || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
@@ -1005,6 +1019,20 @@ impl GuiApp {
                 doc_buf.as_deref(),
                 self.editor_buffer.buffer_version,
                 wrap_chars_per_row,
+                // For large files the rope holds only the loaded prefix,
+                // not the full document.  Total lines come from the
+                // PieceTable backend so the scrollbar, caret-follow, and
+                // render culling use the correct document size.
+                if large_file_mode || is_large_doc {
+                    Some(
+                        doc_buf
+                            .as_ref()
+                            .map(|db| db.total_lines())
+                            .unwrap_or_else(|| self.editor_buffer.line_count()),
+                    )
+                } else {
+                    None
+                },
             );
             // Estimate retained editor bytes for memory trace.
             self.editor_retained_bytes = self

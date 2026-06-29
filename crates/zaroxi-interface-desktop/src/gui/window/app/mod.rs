@@ -682,6 +682,50 @@ impl GuiApp {
         self.editor_buffer.is_dirty()
     }
 
+    /// For large files, ensure the rope covers at least `min_lines_needed` lines
+    /// (absolute, 0-based) by fetching additional lines from the PieceTable.
+    /// The rope always starts at line 0 so caret positions remain absolute.
+    /// Called before rendering when the scroll position demands more lines than
+    /// the rope currently holds. Preserves the caret position across extensions.
+    pub(crate) fn repopulate_large_file_rope(&mut self, min_lines_needed: usize) {
+        if !self.large_file_mode {
+            return;
+        }
+        let path = match self.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"))
+        {
+            Some(p) => p.to_string(),
+            None => return,
+        };
+        let db = match self.doc_buffers.get(&path) {
+            Some(db) => db,
+            None => return,
+        };
+        let total = db.total_lines();
+        let needed = min_lines_needed.min(total);
+        let current = self.editor_buffer.line_count().max(1);
+        if current >= needed {
+            return;
+        }
+        let (caret_line, caret_col) =
+            (self.editor_buffer.caret_line(), self.editor_buffer.caret_col());
+        let vp = db.lines_in_range(current, needed.saturating_sub(1));
+        let mut new_lines: Vec<String> = self.editor_buffer.lines_expanded();
+        for (_, s) in vp {
+            new_lines.push(s);
+        }
+        self.editor_buffer.populate_from_lines(&new_lines, caret_line, caret_col);
+        if doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: rope_extend path={} from={} to={} total={} caret_line={}",
+                path,
+                current,
+                new_lines.len(),
+                total,
+                caret_line,
+            );
+        }
+    }
+
     /// The single shared post-move/post-edit invariant: keep the active caret's
     /// logical line inside the editor viewport by adjusting the scroll origin
     /// (`editor_scroll_top_line`) with the minimal movement.
@@ -692,38 +736,29 @@ impl GuiApp {
     /// authoritative line count so it is correct immediately after edits, with no
     /// dependence on the workspace projection's possibly-stale `line_count`.
     ///
-    /// No-op for large-file mode (the piece-table viewport manages its own
-    /// scroll) and before the editor viewport size is known. It writes the
-    /// scroll origin directly (the single source of truth read by the renderer)
-    /// and clears any queued wheel deltas so they cannot fight the caret-follow.
+    /// For large files the total line count comes from the PieceTable backend
+    /// via doc_buffers, and the rope is extended on demand as scrolling brings
+    /// new lines into view. It writes the scroll origin directly (the single
+    /// source of truth read by the renderer) and clears any queued wheel deltas
+    /// so they cannot fight the caret-follow.
     pub(crate) fn ensure_caret_visible(&mut self) {
-        if self.large_file_mode {
-            let path = self.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"));
-            if path.is_some_and(|p| self.doc_buffers.contains_key(p)) {
-                if doc_lifecycle_trace_enabled() {
-                    eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: ensure_caret_skipped reason=large_file_mode active_doc={:?} doc_buf_hit=true",
-                        self.committed_active_file,
-                    );
-                }
-                return;
-            }
-            if doc_lifecycle_trace_enabled() {
-                eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: ensure_caret_stale_large_file_mode_cleared active_doc={:?} doc_buf_keys={:?}",
-                    self.committed_active_file,
-                    self.doc_buffers.keys().collect::<Vec<_>>(),
-                );
-            }
-            self.large_file_mode = false;
-        }
         // Fallback visible-row count from the viewport content height, used only
         // if the renderer has not yet published `editor_viewport_line_count`.
         let vp_visible = self
             .editor_viewport
             .as_ref()
             .map(|vp| lc::visible_lines_from_region(vp.content_rect.3));
-        let total_lines = self.editor_buffer.line_count().max(1);
+        let total_lines = if self.large_file_mode {
+            self.committed_active_file
+                .as_deref()
+                .and_then(|s| s.strip_prefix("buf:"))
+                .and_then(|p| self.doc_buffers.get(p))
+                .map(|db| db.total_lines())
+                .unwrap_or_else(|| self.editor_buffer.line_count())
+                .max(1)
+        } else {
+            self.editor_buffer.line_count().max(1)
+        };
         let caret_line = self.editor_buffer.caret_line();
         let caret_vis_col = self.editor_buffer.caret_vis_col();
         // Visual-row follow inputs from the LAST rendered window (single source of
@@ -776,6 +811,13 @@ impl GuiApp {
                 // Drop queued wheel deltas so they don't override caret-follow.
                 comp.pending_scroll_lines = 0;
                 comp.pending_vscroll_px = 0.0;
+            }
+            // For large files, ensure the rope has enough lines for the new
+            // scroll position so the renderer can provide content.
+            if self.large_file_mode && changed {
+                let overscan = 100usize;
+                let end_line = new_top.saturating_add(visible).saturating_add(overscan);
+                self.repopulate_large_file_rope(end_line);
             }
             if trace {
                 eprintln!(
