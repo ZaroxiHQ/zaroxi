@@ -65,6 +65,8 @@ impl GuiApp {
         self.open_token += 1;
         let token = self.open_token;
         self.file_switch_count += 1;
+        self.activation_seq += 1;
+        let seq = self.activation_seq;
         // Supersede any not-yet-committed open: its heavy load never runs.
         if let Some((stale_token, _)) = self.pending_open.take()
             && file_open_trace_enabled()
@@ -72,6 +74,12 @@ impl GuiApp {
             eprintln!(
                 "ZAROXI_FILE_OPEN_TRACE: token={} stage=cancelled cancelled=1 superseded_by={} commit_skipped_stale=1 t_ms=0.00",
                 stale_token, token,
+            );
+        }
+        if doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: request_open seq={} active_file={:?} prev_active_file={:?}",
+                seq, wc.active_file, self.committed_active_file,
             );
         }
         // Loading state only when the active file actually changes (not for a
@@ -105,6 +113,27 @@ impl GuiApp {
             Some(p) => p,
             None => return,
         };
+        // ── Guard: suppress stale recomputation ──
+        // If another activation request arrived after this one was queued,
+        // the superseding request already dropped this pending_open via
+        // `request_open`.  The remaining case is a redundant activation
+        // of the same file that arrived after the identical commit already
+        // ran (e.g. tab-click on the already-active tab).  Skip it.
+        if self.last_committed_activation_seq >= self.activation_seq {
+            if doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: commit_open_skipped reason=stale_recomputation last_seq={} current_seq={}",
+                    self.last_committed_activation_seq, self.activation_seq,
+                );
+            }
+            return;
+        }
+        if doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: commit_open_begin seq={} prev_active={:?} new_active={:?}",
+                self.activation_seq, self.committed_active_file, wc.active_file,
+            );
+        }
         // Capture the OUTGOING document identity + backend BEFORE large_file_mode
         // is recomputed for the incoming file. Used by the per-document
         // checkout/checkin below to park the active document's edits + history.
@@ -158,20 +187,28 @@ impl GuiApp {
             })
             .unwrap_or(false);
 
-        // ── Authoritative per-document checkout / checkin (the tab-switch fix) ──
-        // On a real file switch, park the OUTGOING active document so its state
-        // survives the switch, and if the INCOMING document is already open,
-        // restore it from the in-memory store instead of rebuilding from scratch.
+        // ── Unified per-document view-state lifecycle ──
         //
-        // Normal files: full EditorBufferState clone (rope + caret + undo/redo).
-        // Large files:  lightweight DocumentViewState (caret + scroll only);
-        //               the rope mirror is NOT retained — it is repopulated from
-        //               the PieceTable on demand when the tab returns.
+        // Two independent stores, both keyed by canonical file path:
+        //   document_view_states — view metadata (caret + scroll), shared by
+        //       both backends.  Lightweight — no rope content.
+        //   open_documents — full EditorBufferState clone for NORMAL files
+        //       only (rope + caret + undo/redo).  Large files use the
+        //       PieceTable in doc_buffers as their canonical source and
+        //       repopulate the rope on demand.
+        //
+        // On every tab switch:
+        //   Check IN from prev_key: save view state + content into stores.
+        //   Check OUT to new_key:    restore view state + content from stores.
+        //
+        // The scroll position lives separately in DesktopMetadata and MUST
+        // be restored explicitly after checkout, because refresh_with_service
+        // always rebuilds metadata with editor_scroll_top_line = 0.
         let new_doc_key: Option<String> =
             wc.active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
         let active_file_changed = prev_active_file.as_deref() != wc.active_file.as_deref();
         let mut restored_from_store = false;
-        // Check IN the outgoing document on a real switch.
+        // ── Check IN: save outgoing document ──
         if active_file_changed
             && let Some(prev_key) =
                 prev_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string())
@@ -179,28 +216,28 @@ impl GuiApp {
             let has_content = self.editor_buffer.char_count() > 0;
             if has_content
                 || self.open_documents.contains_key(&prev_key)
-                || self.large_file_view_states.contains_key(&prev_key)
+                || self.document_view_states.contains_key(&prev_key)
             {
+                // ── Unified view state: save for ALL backends ──
+                let scroll_top = self
+                    .composition
+                    .as_ref()
+                    .and_then(|c| c.metadata.as_ref())
+                    .map(|m| m.editor_scroll_top_line)
+                    .unwrap_or(0);
+                let vs = DocumentViewState::from_editor_and_scroll(&self.editor_buffer, scroll_top);
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: checkin path={} kind={} caret={} scroll={}",
+                        prev_key,
+                        if prev_large_file_mode { "piece_table" } else { "rope" },
+                        vs.caret_line,
+                        vs.scroll_top,
+                    );
+                }
                 if prev_large_file_mode {
-                    // Large files: save only view-state metadata (no rope).
-                    let scroll_top = self
-                        .composition
-                        .as_ref()
-                        .and_then(|c| c.metadata.as_ref())
-                        .map(|m| m.editor_scroll_top_line)
-                        .unwrap_or(0);
-                    let vs =
-                        DocumentViewState::from_editor_and_scroll(&self.editor_buffer, scroll_top);
-                    if doc_lifecycle_trace_enabled() {
-                        eprintln!(
-                            "ZAROXI_DOC_LIFECYCLE: checkin path={} kind=large_file caret={} scroll={}",
-                            prev_key, vs.caret_line, vs.scroll_top,
-                        );
-                    }
-                    // Trim the rope to free RAM — the canonical content is in
-                    // the PieceTable.  Keep a minimal 1-line stub so the
-                    // buffer isn't empty.  Do this BEFORE moving `vs` / `prev_key`
-                    // into the map so the fields are still accessible.
+                    // Large file: trim rope to free RAM.  PieceTable holds
+                    // canonical content; repopulation happens on demand.
                     let keep = self.editor_buffer.line_count().min(1usize);
                     if let Some(db) = self.doc_buffers.get(&prev_key)
                         && db.total_lines() > 0
@@ -217,74 +254,138 @@ impl GuiApp {
                             );
                         }
                     }
-                    self.large_file_view_states.insert(prev_key, vs);
                 } else {
-                    // Normal files: full editor-buffer clone.
+                    // Normal file: full EditorBufferState clone.
                     if doc_lifecycle_trace_enabled() {
                         eprintln!(
-                            "ZAROXI_DOC_LIFECYCLE: checkin path={} dirty={} has_undo={} chars={} version={}",
+                            "ZAROXI_DOC_LIFECYCLE: checkin_content path={} dirty={} chars={} version={}",
                             prev_key,
                             self.editor_buffer.is_dirty(),
-                            self.editor_buffer.can_undo(),
                             self.editor_buffer.char_count(),
                             self.editor_buffer.buffer_version,
                         );
                     }
-                    self.open_documents.insert(prev_key, self.editor_buffer.clone());
+                    self.open_documents.insert(prev_key.clone(), self.editor_buffer.clone());
                 }
+                self.document_view_states.insert(prev_key.clone(), vs);
             }
         }
-        // Check OUT the incoming document whenever we hold its parked state.
-        // A parked entry exists only for an INACTIVE document (single-copy
-        // invariant), so restoring is always correct — it never clobbers
-        // live edits.  `remove` re-establishes the invariant.
-        if self.large_file_mode
-            && let Some(key) = new_doc_key.as_deref()
-            && let Some(vs) = self.large_file_view_states.remove(key)
-        {
-            // Large file: restore caret + scroll from view-state cache,
-            // then repopulate the rope from the PieceTable lazily.
+        // ── Check OUT: restore incoming document ──
+        // Unified view-state restoration: apply to BOTH backends.
+        let mut vs_from_store: Option<DocumentViewState> = None;
+        if let Some(key) = new_doc_key.as_deref() {
+            vs_from_store = self.document_view_states.remove(key);
+        }
+        if let Some(ref vs) = vs_from_store {
             if doc_lifecycle_trace_enabled() {
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout path={} kind=large_file caret={} scroll={}",
-                    key, vs.caret_line, vs.scroll_top,
+                    "ZAROXI_DOC_LIFECYCLE: checkout_view path={} kind={} caret={} scroll={}",
+                    new_doc_key.as_deref().unwrap_or("?"),
+                    if self.large_file_mode { "piece_table" } else { "rope" },
+                    vs.caret_line,
+                    vs.scroll_top,
                 );
             }
-            // Repopulate rope from PieceTable covering the saved scroll
-            // position so the renderer has content immediately.
-            if let Some(db) = self.doc_buffers.get(key) {
+        }
+
+        // Backend-specific content restoration.
+        //
+        // PieceTable (large-file) path: ALWAYS rebuild rope from
+        // doc_buffers[path], regardless of whether a cached view state
+        // exists.  The PieceTable is the sole authority for large-file
+        // content.  Cached view state only determines the scroll/caret
+        // origin; the content always comes from the live PieceTable.
+        //
+        // Rope (normal-file) path: restore from open_documents[path]
+        // which holds the full EditorBufferState clone with edits +
+        // undo/redo history.
+        if self.large_file_mode {
+            // Large file: always rebuild rope from the canonical PieceTable.
+            let caret_line = vs_from_store.as_ref().map_or(0, |v| v.caret_line);
+            let caret_col = vs_from_store.as_ref().map_or(0, |v| v.caret_col);
+            let scroll_top = vs_from_store.as_ref().map_or(0, |v| v.scroll_top);
+            let found = if let Some(key) = new_doc_key.as_deref()
+                && let Some(db) = self.doc_buffers.get(key)
+            {
                 let total = db.total_lines();
-                let end_needed = vs.scroll_top.saturating_add(200).min(total);
+                let end_needed = scroll_top.saturating_add(200).min(total).max(1);
                 let vp = db.lines_in_range(0, end_needed.saturating_sub(1));
                 let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
                 if !lines.is_empty() {
-                    self.editor_buffer.populate_from_lines(&lines, vs.caret_line, vs.caret_col);
+                    self.editor_buffer.populate_from_lines(&lines, caret_line, caret_col);
                 }
-                // Restore scroll position in composition metadata so the
-                // first render frame shows the correct viewport.
-                if let Some(ref mut comp) = self.composition {
-                    if let Some(ref mut meta) = comp.metadata {
-                        meta.editor_scroll_top_line = vs.scroll_top;
-                        meta.editor_scroll_px = vs.scroll_top as f32 * lc::LINE_HEIGHT;
-                    }
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=piece_table total_lines={} loaded_lines={} caret={} scroll={} cached_view={}",
+                        key,
+                        total,
+                        lines.len(),
+                        caret_line,
+                        scroll_top,
+                        vs_from_store.is_some(),
+                    );
                 }
-                restored_from_store = true;
+                true
+            } else {
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: checkout_miss path={} reason=doc_buffers_missing backend=piece_table",
+                        new_doc_key.as_deref().unwrap_or("?"),
+                    );
+                }
+                false
+            };
+            if found {
+                restored_from_store = vs_from_store.is_some();
             }
-        } else if !self.large_file_mode
-            && let Some(key) = new_doc_key.as_deref()
-            && let Some(stored) = self.open_documents.remove(key)
-        {
-            // Normal file: full editor-buffer restore.
-            if doc_lifecycle_trace_enabled() {
+        } else {
+            // Normal file: FULL editor-buffer restore from open_documents.
+            // HARD GATE: never attempt open_documents lookup for large files.
+            if let Some(key) = new_doc_key.as_deref()
+                && let Some(stored) = self.open_documents.remove(key)
+            {
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=open_documents dirty={} version={}",
+                        key,
+                        stored.is_dirty(),
+                        stored.buffer_version,
+                    );
+                }
+                self.editor_buffer = stored;
+                restored_from_store = true;
+            } else if doc_lifecycle_trace_enabled() && new_doc_key.is_some() {
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout path={} dirty={} disk_reload_skipped=1 reused_in_memory=1 version={}",
-                    key,
-                    stored.is_dirty(),
-                    stored.buffer_version,
+                    "ZAROXI_DOC_LIFECYCLE: checkout_fresh path={} authority=none will_rebuild_from_disk",
+                    new_doc_key.as_deref().unwrap_or("?"),
                 );
             }
-            self.editor_buffer = stored;
-            restored_from_store = true;
+        }
+
+        // ── Apply restored view state to composition metadata ──
+        // Must run AFTER content restoration so the editor_buffer caret
+        // is already correct.  Overrides the zero scroll set by the
+        // refresh_with_service metadata rebuild.
+        // Also sets the guard flag so later code can detect that this
+        // commit already dealt with a reactivated document.
+        if let Some(ref vs) = vs_from_store {
+            if let Some(ref mut comp) = self.composition {
+                if let Some(ref mut meta) = comp.metadata {
+                    meta.editor_scroll_top_line = vs.scroll_top;
+                    meta.editor_scroll_px = vs.scroll_top as f32 * lc::LINE_HEIGHT;
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: scroll_restored key={} scroll={}",
+                            new_doc_key.as_deref().unwrap_or("?"),
+                            vs.scroll_top,
+                        );
+                    }
+                }
+            }
+            self.restored_view_state_this_activation = true;
+        } else {
+            // Not a reactivation: clear any stale flag from a previous cycle.
+            self.restored_view_state_this_activation = false;
         }
 
         if buffer_changed {
@@ -564,7 +665,23 @@ impl GuiApp {
                     .is_some_and(|p| self.open_documents.contains_key(p)),
             );
         }
+        if self.large_file_mode
+            && doc_lifecycle_trace_enabled()
+            && let Some(path) = self
+                .committed_active_file
+                .as_deref()
+                .or(wc.active_file.as_deref())
+                .and_then(|s| s.strip_prefix("buf:"))
+        {
+            let rope_lines = self.editor_buffer.line_count();
+            let pt_lines = self.doc_buffers.get(path).map(|db| db.total_lines()).unwrap_or(0);
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: large_file_state path={} rope_lines={} piece_table_total={} large_file_mode={} restored={}",
+                path, rope_lines, pt_lines, self.large_file_mode, restored_from_store,
+            );
+        }
         self.committed_active_file = wc.active_file.clone();
+        self.last_committed_activation_seq = self.activation_seq;
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit
         // (`needs_rope_materialize == false`) but the active normal document has

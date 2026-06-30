@@ -146,7 +146,10 @@ mod tests {
             cached_settings_popup: None,
             doc_buffers: std::collections::HashMap::new(),
             open_documents: std::collections::HashMap::new(),
-            large_file_view_states: std::collections::HashMap::new(),
+            document_view_states: std::collections::HashMap::new(),
+            restored_view_state_this_activation: false,
+            activation_seq: 0,
+            last_committed_activation_seq: 0,
         }
     }
 

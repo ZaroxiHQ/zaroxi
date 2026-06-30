@@ -341,11 +341,23 @@ pub struct GuiApp {
     /// without ever reloading from disk. Large files use `doc_buffers` instead
     /// and are never parked here.
     pub open_documents: std::collections::HashMap<String, EditorBufferState>,
-    /// Per-document view-state cache for large (PieceTable-backed) files.
-    /// Captured on check-in (tab away) and restored on check-out (tab return)
-    /// so scroll position and caret survive tab switches without keeping the
-    /// full rope in memory.  Keyed by canonical file path (buf: prefix stripped).
-    pub large_file_view_states: std::collections::HashMap<String, DocumentViewState>,
+    /// Per-document view-state cache for BOTH normal (Rope-backed) and large
+    /// (PieceTable-backed) files.  Captured on check-in (tab away) and
+    /// restored on check-out (tab return) so scroll position and caret survive
+    /// tab switches.  Keyed by canonical file path (buf: prefix stripped).
+    pub document_view_states: std::collections::HashMap<String, DocumentViewState>,
+    /// Set to `true` exactly once when a reactivation restores view state from
+    /// the per-document cache.  Consumed by `commit_open` and `handle_actions`
+    /// to prevent the refresh/scroll-reset paths from overwriting the restored
+    /// scroll position.  Cleared at the end of `commit_open`.
+    pub restored_view_state_this_activation: bool,
+    /// Monotonically increasing activation sequence number, bumped on every
+    /// `request_open`.  Used for diagnostics to trace the activation order.
+    pub activation_seq: u64,
+    /// `activation_seq` of the last `commit_open` that actually changed the
+    /// active document.  Used to suppress double-processing of stale
+    /// reactivations that arrive after the document was already committed.
+    pub last_committed_activation_seq: u64,
     /// Redraw coalescing + frame pacing. `needs_render` is the dirty flag; this
     /// owns the pacing/cadence and outstanding-redraw bookkeeping.
     pub frame_scheduler: FrameScheduler,
@@ -732,7 +744,11 @@ impl GuiApp {
         let (caret_line, caret_col) =
             (self.editor_buffer.caret_line(), self.editor_buffer.caret_col());
         let vp = db.lines_in_range(current, needed.saturating_sub(1));
-        let mut new_lines: Vec<String> = self.editor_buffer.lines_expanded();
+        let mut new_lines: Vec<String> = Vec::with_capacity(current + vp.len());
+        for i in 0..current {
+            let raw = self.editor_buffer.rope().line(i).unwrap_or_default();
+            new_lines.push(raw);
+        }
         for (_, s) in vp {
             new_lines.push(s);
         }

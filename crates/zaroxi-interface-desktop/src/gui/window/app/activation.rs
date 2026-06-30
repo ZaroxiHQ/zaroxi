@@ -474,18 +474,23 @@ impl super::GuiApp {
                             // Detect whether this is a fresh open or
                             // a reactivation of an already-open document.
                             // When the document already has cached state
-                            // (parked in open_documents / large_file_view_states),
+                            // (parked in open_documents / document_view_states),
                             // skip the scroll/caret reset — the commit_open
                             // checkout path will restore the prior position.
+                            //
+                            // Also skip reset if a prior commit_open already
+                            // restored view state this frame (triggered by an
+                            // earlier activation of the same document).
                             let is_reactivation = wc
                                 .active_file
                                 .as_deref()
                                 .and_then(|s| s.strip_prefix("buf:"))
                                 .map(|key| {
                                     self.open_documents.contains_key(key)
-                                        || self.large_file_view_states.contains_key(key)
+                                        || self.document_view_states.contains_key(key)
                                 })
-                                .unwrap_or(false);
+                                .unwrap_or(false)
+                                || self.restored_view_state_this_activation;
 
                             self.request_open(wc.clone());
                             // When a file opens, switch from Welcome
@@ -513,6 +518,9 @@ impl super::GuiApp {
                                     WidgetId::Scrollbar { index: lc::SCROLLBAR_ID_EDITOR };
                                 self.interaction.set_scroll_offset(&editor_id, 0.0);
                             }
+                            // Clear the guard after consuming it so it
+                            // doesn't suppress resets for future opens.
+                            self.restored_view_state_this_activation = false;
                         }
                     }
                     needs_redraw = true;

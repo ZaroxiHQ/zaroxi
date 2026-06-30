@@ -730,7 +730,6 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                     let (first, last_excl) = *edit_range;
                     let new_line_count = app.editor_buffer.line_count();
                     let structural = new_line_count != total;
-                    let tab_width = crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH;
 
                     if structural {
                         // Structural edit: compute old/new ranges and do a
@@ -758,9 +757,7 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                         let new_lines: Vec<String> = (first..new_last)
                             .map(|i| {
                                 let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
-                                crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
-                                    &raw, tab_width,
-                                )
+                                raw
                             })
                             .collect();
 
@@ -801,28 +798,26 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                         }
                     } else {
                         // Content-only edit: iterate affected lines.
+                        // Compare and insert RAW content (no tab expansion)
+                        // so the PieceTable stays byte-identical to the rope.
                         let old_last = last_excl.min(total).max(first);
                         let mut i = first;
                         while i < old_last {
                             let new_raw = app.editor_buffer.rope().line(i).unwrap_or_default();
-                            let new_expanded =
-                                crate::gui::window::editor_buf::EditorBufferState::expand_tabs(
-                                    &new_raw, tab_width,
-                                );
                             let old = db
                                 .lines_in_range(i, i)
                                 .into_iter()
                                 .next()
                                 .map(|(_, s)| s)
                                 .unwrap_or_default();
-                            if old != new_expanded {
+                            if old != new_raw {
                                 let byte_start = db.line_col_to_byte_offset(i, 0);
                                 let old_byte_len = old.len();
                                 if old_byte_len > 0 {
                                     db.delete(byte_start, byte_start + old_byte_len);
                                 }
-                                if !new_expanded.is_empty() {
-                                    db.insert(byte_start, &new_expanded);
+                                if !new_raw.is_empty() {
+                                    db.insert(byte_start, &new_raw);
                                 }
                             }
                             i += 1;
