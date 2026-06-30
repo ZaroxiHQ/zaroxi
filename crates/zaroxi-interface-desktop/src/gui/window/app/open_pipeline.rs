@@ -7,6 +7,28 @@ atomic first-paint [`OpenPresentation`] bookkeeping.
 
 use super::*;
 
+/// Explicit open intent driven by the explorer or tab strip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenIntent {
+    /// Single-click in explorer — reuse the single shared preview tab.
+    Preview,
+    /// Double-click in explorer — create a persistent pinned tab.
+    Pinned,
+    /// Click on an already-open pinned tab — activate existing, restore view state.
+    ActivateExisting,
+}
+
+/// Tracks the one shared preview tab in the editor strip.
+#[derive(Debug, Clone)]
+pub struct PreviewTabState {
+    /// Canonical file path (no `buf:` prefix).
+    pub file_path: String,
+    /// Workspace buffer id string (e.g. `buf:/path/to/file`).
+    pub buffer_id: String,
+    /// Display label shown in the tab.
+    pub display: String,
+}
+
 /// Phase 11 — atomic first-paint open presentation.
 ///
 /// Tracks one open's path from the explorer click to the single, coherent first
@@ -101,6 +123,20 @@ impl GuiApp {
         self.work_content = Some(wc.clone());
         self.pending_open = Some((token, wc));
         self.invalidate(InvalidationFlags::content());
+    }
+
+    /// Whether a file at the given canonical path (no `buf:` prefix) is
+    /// already open in a persistent (pinned) buffer tab.
+    fn is_path_in_opened_buffers(&self, canonical_path: &str) -> bool {
+        self.composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .map(|m| {
+                m.opened_buffers.iter().any(|b| {
+                    b.buffer_id.to_string().strip_prefix("buf:").unwrap_or("") == canonical_path
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// Stages B–E — commit the newest pending open. Runs once per frame from the
@@ -287,6 +323,93 @@ impl GuiApp {
                 self.document_view_states.insert(prev_key.clone(), vs);
             }
         }
+        // ── Preview-tab handling ─────────────────────────────────────
+        // Only consume the open intent when this commit carries actual
+        // editor content (not the loading-chrome placeholder that is
+        // immediately superseded by the background-read result).
+        let is_loading_chrome = wc.editor_body.is_none();
+        let intent = if is_loading_chrome { None } else { self.open_intent.take() };
+        let incoming_path = new_doc_key.clone();
+        if let Some(ref act_path) = incoming_path {
+            if doc_lifecycle_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: commit_open_intent path={} intent={:?} preview_tab={:?}",
+                    act_path,
+                    intent,
+                    self.preview_tab.as_ref().map(|p| &p.file_path),
+                );
+            }
+            match intent {
+                Some(OpenIntent::Preview) => {
+                    // If the file is already pinned, switch to ActivateExisting.
+                    if self.is_path_in_opened_buffers(act_path) {
+                        // Don't open a duplicate preview — just activate the pinned tab.
+                    } else {
+                        // Save existing preview tab's view state before replacing.
+                        if let Some(ref prev) = self.preview_tab {
+                            if prev.file_path != *act_path {
+                                let saved_scroll = self
+                                    .composition
+                                    .as_ref()
+                                    .and_then(|c| c.metadata.as_ref())
+                                    .map(|m| m.editor_scroll_top_line)
+                                    .unwrap_or(0);
+                                let vs = DocumentViewState::from_editor_and_scroll(
+                                    &self.editor_buffer,
+                                    saved_scroll,
+                                );
+                                self.document_view_states.insert(prev.file_path.clone(), vs);
+                                if doc_lifecycle_trace_enabled() {
+                                    eprintln!(
+                                        "ZAROXI_DOC_LIFECYCLE: preview_save old={} scroll={}",
+                                        prev.file_path, saved_scroll,
+                                    );
+                                }
+                            }
+                        }
+                        // Set new preview tab.
+                        let display =
+                            wc.editor_body.as_ref().map(|b| b.title.clone()).unwrap_or_else(|| {
+                                act_path.rsplit('/').next().unwrap_or(act_path).to_string()
+                            });
+                        self.preview_tab = Some(PreviewTabState {
+                            file_path: act_path.clone(),
+                            buffer_id: wc.active_file.clone().unwrap_or_default(),
+                            display,
+                        });
+                        if doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: preview_set path={} display={}",
+                                act_path,
+                                self.preview_tab
+                                    .as_ref()
+                                    .map(|p| &p.display)
+                                    .unwrap_or(&String::new()),
+                            );
+                        }
+                    }
+                }
+                Some(OpenIntent::Pinned) => {
+                    // Double-click: promote current preview or open as pinned.
+                    if let Some(ref prev) = self.preview_tab {
+                        if prev.file_path == *act_path {
+                            // Promote the preview to a pinned tab.
+                            if doc_lifecycle_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: preview_promote path={}",
+                                    act_path
+                                );
+                            }
+                            self.preview_tab = None;
+                        }
+                    }
+                }
+                Some(OpenIntent::ActivateExisting) | None => {
+                    // Normal activation or tab click — just restore view state.
+                }
+            }
+        }
+
         // ── Check OUT: restore incoming document ──
         // Unified view-state restoration: apply to BOTH backends.
         let mut vs_from_store: Option<DocumentViewState> = None;

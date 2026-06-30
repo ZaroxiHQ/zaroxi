@@ -913,6 +913,22 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                 }
             }
         }
+
+        // Auto-promote preview tab to pinned on first edit.
+        if app.preview_tab.is_some() {
+            let path_edited =
+                app.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"));
+            let preview_path = app.preview_tab.as_ref().map(|p| p.file_path.as_str());
+            if path_edited == preview_path {
+                if super::debug::doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: preview_autopromote path={}",
+                        path_edited.unwrap_or("?"),
+                    );
+                }
+                app.preview_tab = None;
+            }
+        }
     }
 
     app.editor_buffer.clear_edit_line_range();

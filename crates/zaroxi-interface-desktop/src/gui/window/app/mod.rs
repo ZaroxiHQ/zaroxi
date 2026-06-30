@@ -301,6 +301,15 @@ pub struct GuiApp {
     /// Buffer version the `latest_spans` correspond to.  Used to detect when a
     /// fresh parse result has arrived and to avoid re-applying the same result.
     pub latest_spans_version: u64,
+    /// Explicit open intent from the most recent `request_open`.
+    pub open_intent: Option<open_pipeline::OpenIntent>,
+    /// The single shared preview tab state.  When set, the preview tab
+    /// occupies the first slot in the tab strip.  Replaced when a different
+    /// file is previewed; promoted to a pinned tab on edit or double-click.
+    pub preview_tab: Option<open_pipeline::PreviewTabState>,
+    /// Last explorer click: `(timestamp, explorer_index, open_token)` for
+    /// double-click detection.
+    pub last_explorer_click: Option<(std::time::Instant, usize, u64)>,
     /// Structural minimap symbols (function/type/import) derived from
     /// `latest_spans`, consumed by the cockpit's `SemanticMinimap`.  Recomputed
     /// only when `cockpit_symbols_version` falls behind `latest_spans_version`

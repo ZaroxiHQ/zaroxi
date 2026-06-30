@@ -16,6 +16,7 @@ use zaroxi_core_engine_ui::layout_constants as lc;
 
 use super::DocumentViewState;
 use super::GuiApp;
+use super::open_pipeline;
 
 /// Dispatch a WidgetId activation to DesktopComposition domain actions.
 /// Used by the explorer CTA button and by the standard activation handler.
@@ -117,6 +118,7 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 // Large-file (direct) buffers are not known to the workspace
                 // service.  Activate them locally through the composition.
                 if comp.direct_buffer_ids.iter().any(|b| *b == buffer_id) {
+                    app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
                     if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
                         eprintln!(
                             "ZAROXI_DEBUG_TAB_CLICK: direct_buffer activation for={}",
@@ -132,17 +134,10 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 }
                 // Service-backed buffer: clear any previously-active direct
                 // buffer so the service-reported active wins in the refresh
-                // inside set_active_buffer_and_get_shell_context.
-                if let Some(ref mut md) = comp.metadata {
-                    if let Some(ref active) = md.active_buffer {
-                        if comp.direct_buffer_ids.contains(active) {
-                            md.active_buffer = None;
-                            for it in &mut md.opened_buffers {
-                                it.active = false;
-                            }
-                        }
-                    }
-                }
+                // cycle.  Then set the active buffer in the service and
+                // refresh the shell context synchronously.
+                comp.clear_direct_active();
+                app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
                 let result =
                     pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
                         comp,
@@ -206,18 +201,25 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                     return app.explorer_actions.as_mut()?.toggle_directory(comp, resolved);
                 }
                 // ── Phase 8: async file open ──
-                // Instead of `block_on`'ing the disk read on the UI thread (~1 s
-                // for huge files) before `request_open`, resolve the path
-                // cheaply, schedule a tokened background read, and return instant
-                // loading chrome. `GuiApp::poll_read_results` activates the buffer
-                // and calls `request_open` once the read lands. Stale reads (a
-                // newer file clicked) are dropped by read token.
+                // Detect single vs double-click for preview/pinned intent.
+                let now = std::time::Instant::now();
+                let click_idx = resolved;
+                let is_double = app.last_explorer_click.map_or(false, |(t, idx, _)| {
+                    now.duration_since(t).as_millis() < 400 && idx == click_idx
+                });
+                // Determine intent: single-click = Preview, double-click = Pinned.
+                // If the file is already in a pinned tab, override to ActivateExisting.
+                let raw_intent = if is_double {
+                    open_pipeline::OpenIntent::Pinned
+                } else {
+                    open_pipeline::OpenIntent::Preview
+                };
+                app.last_explorer_click = Some((now, click_idx, app.open_token));
                 let service = app.workspace_service.clone()?;
                 let session = app.session_id.clone()?;
                 let item_id = comp.get_explorer_item_id_at(resolved)?;
                 let path = comp.maybe_explorer.as_ref()?.get_entry_path(&item_id)?;
-                // Dedup: if this file is already open, focus the existing tab
-                // instead of opening a duplicate.
+                // Dedup check: if this file is already open, override intent.
                 {
                     let summary = comp.latest_opened_buffers_summary();
                     let path_str = path.to_string_lossy();
@@ -227,16 +229,20 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                         let active = summary.active.as_ref();
                         if active != Some(&existing.buffer_id) {
                             let buffer_id = existing.buffer_id.clone();
-                            let service = app.workspace_service.clone()?;
+                            if super::doc_lifecycle_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent=ActivateExisting reason=already_pinned buffer={}",
+                                    click_idx, buffer_id,
+                                );
+                            }
                             let view = app.workspace_view.clone()?;
-                            let session = app.session_id.clone()?;
                             let workspace_id = app.workspace_id;
                             let _ = pollster::block_on(
                                 crate::actions::set_active_buffer_and_get_shell_context(
                                     comp,
-                                    service,
+                                    service.clone(),
                                     view,
-                                    session,
+                                    session.clone(),
                                     workspace_id,
                                     buffer_id,
                                 ),
@@ -247,12 +253,30 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                             );
                             app.rail_selected_index = 0;
                             app.cockpit_status_fingerprint = 0;
+                            app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
                             app.request_open(wc);
                             app.needs_render = true;
+                            return None;
+                        } else {
+                            app.open_intent = None;
+                            return None;
                         }
-                        return None;
+                    } else {
+                        app.open_intent = Some(raw_intent);
+                        if super::doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent={:?} is_double={} reason=new_file",
+                                click_idx, raw_intent, is_double,
+                            );
+                        }
                     }
                 }
+                // Instead of `block_on`'ing the disk read on the UI thread (~1 s
+                // for huge files) before `request_open`, resolve the path
+                // cheaply, schedule a tokened background read, and return instant
+                // loading chrome. `GuiApp::poll_read_results` activates the buffer
+                // and calls `request_open` once the read lands. Stale reads (a
+                // newer file clicked) are dropped by read token.
                 let display_name = path
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())

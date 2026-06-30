@@ -150,6 +150,9 @@ mod tests {
             restored_view_state_this_activation: false,
             activation_seq: 0,
             last_committed_activation_seq: 0,
+            open_intent: None,
+            preview_tab: None,
+            last_explorer_click: None,
         }
     }
 

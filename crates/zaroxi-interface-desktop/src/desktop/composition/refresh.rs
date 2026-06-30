@@ -536,8 +536,17 @@ pub async fn refresh_with_service(
         visible_window: visible_window_opt.clone(),
         last_command_line: last_command_line.clone(),
         editor_viewport_line_count: None,
-        editor_scroll_top_line: 0,
-        editor_scroll_px: 0.0,
+        // Preserve the live scroll position from the previous metadata frame.
+        // `refresh_with_service` runs asynchronously and must not clobber the
+        // user's active scroll/caret state with zero.  The authoritative
+        // restore path is `commit_open`; this default only applies when there
+        // was no prior metadata (initial refresh).
+        editor_scroll_top_line: comp
+            .metadata
+            .as_ref()
+            .map(|m| m.editor_scroll_top_line)
+            .unwrap_or(0),
+        editor_scroll_px: comp.metadata.as_ref().map(|m| m.editor_scroll_px).unwrap_or(0.0),
         last_synced_window_height: None,
         editor_horizontal_offset_px: None,
         refresh_reason: Some(reason.clone()),
