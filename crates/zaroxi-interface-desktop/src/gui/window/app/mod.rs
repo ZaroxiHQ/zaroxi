@@ -752,14 +752,24 @@ impl GuiApp {
         for (_, s) in vp {
             new_lines.push(s);
         }
+        // Save and restore pre_edit_line_count — repopulate is a
+        // rope extension (not an edit) and must not zero the
+        // pre-edit count that the next user mutation depends on.
+        let saved_pre_edit = self.editor_buffer.pre_edit_line_count;
         self.editor_buffer.populate_from_lines(&new_lines, caret_line, caret_col);
+        self.editor_buffer.pre_edit_line_count = saved_pre_edit;
         if doc_lifecycle_trace_enabled() {
+            let rope_after = self.editor_buffer.line_count();
+            let ws = self.editor_buffer.window_start_line;
             eprintln!(
-                "ZAROXI_DOC_LIFECYCLE: rope_extend path={} from={} to={} total={} caret_line={}",
+                "ZAROXI_DOC_LIFECYCLE: rope_extend path={} source=piece_table_full window_start={} from={} to={} total={} rope_after={} rope_full={} caret_line={}",
                 path,
+                ws,
                 current,
                 new_lines.len(),
                 total,
+                rope_after,
+                rope_after >= total.min(200),
                 caret_line,
             );
         }

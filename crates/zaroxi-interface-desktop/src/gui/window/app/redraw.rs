@@ -924,12 +924,16 @@ impl GuiApp {
                 } else {
                     "rope"
                 };
+                let pt_total = doc_buf.as_ref().map(|db| db.total_lines());
+                let rope_lines = self.editor_buffer.line_count();
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: render_source source={} active_file={:?} rope_lines={} large_file_mode={} doc_buffers_keys={:?}",
+                    "ZAROXI_DOC_LIFECYCLE: render_source source={} active_file={:?} rope_lines={} pt_total={:?} large_file_mode={} rope_is_derived_viewport={} doc_buffers_keys={:?}",
                     source_label,
                     self.committed_active_file,
-                    self.editor_buffer.line_count(),
+                    rope_lines,
+                    pt_total,
                     large_file_mode,
+                    large_file_mode && pt_total.map_or(false, |t| rope_lines < t),
                     doc_buf_keys,
                 );
             }

@@ -239,6 +239,7 @@ impl GuiApp {
                     // Large file: trim rope to free RAM.  PieceTable holds
                     // canonical content; repopulation happens on demand.
                     let keep = self.editor_buffer.line_count().min(1usize);
+                    let rope_before_trim = self.editor_buffer.line_count();
                     if let Some(db) = self.doc_buffers.get(&prev_key)
                         && db.total_lines() > 0
                     {
@@ -247,10 +248,13 @@ impl GuiApp {
                         let cl = vs.caret_line.min(lines.len().saturating_sub(1));
                         self.editor_buffer.populate_from_lines(&lines, cl, vs.caret_col);
                         if doc_lifecycle_trace_enabled() {
+                            let pt_total = db.total_lines();
                             eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: trim path={} reason=inactive lines_after={}",
+                                "ZAROXI_DOC_LIFECYCLE: trim path={} reason=inactive lines_after={} pt_total={} rope_before_trim={} source=piece_table",
                                 prev_key,
                                 lines.len(),
+                                pt_total,
+                                rope_before_trim,
                             );
                         }
                     }
@@ -315,14 +319,21 @@ impl GuiApp {
                     self.editor_buffer.populate_from_lines(&lines, caret_line, caret_col);
                 }
                 if doc_lifecycle_trace_enabled() {
+                    let rope_after = self.editor_buffer.line_count();
+                    let ws = self.editor_buffer.window_start_line;
+                    let is_full_window = lines.len() >= total.min(200);
                     eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=piece_table total_lines={} loaded_lines={} caret={} scroll={} cached_view={}",
+                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=piece_table_full total_lines={} loaded_lines={} rope_after={} window_start={} rope_full_window={} caret={} scroll={} cached_view={} viewport_slice_used={}",
                         key,
                         total,
                         lines.len(),
+                        rope_after,
+                        ws,
+                        is_full_window,
                         caret_line,
                         scroll_top,
                         vs_from_store.is_some(),
+                        !is_full_window,
                     );
                 }
                 true
@@ -634,6 +645,17 @@ impl GuiApp {
                 }
                 // Schedule initial syntax parse on the viewport slice.
                 self.finalize_buffer_commit(true);
+                if doc_lifecycle_trace_enabled() {
+                    let ws = self.editor_buffer.window_start_line;
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: first_open_hydrate path={} source=piece_table_full window_start={} total={} loaded={} rope_after={}",
+                        path,
+                        ws,
+                        total,
+                        lines.len(),
+                        self.editor_buffer.line_count(),
+                    );
+                }
             }
             if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                 eprintln!(

@@ -45,6 +45,16 @@ pub struct EditorBufferState {
     /// After an edit, records the (first_changed_line, last_changed_line_exclusive)
     /// so incremental sync can avoid rebuilding the entire file list.
     last_edit_line_range: Option<(usize, usize)>,
+    /// Rope line count immediately BEFORE the most recent edit mutation.
+    /// Captured before the rope is modified so the large-file PieceTable sync
+    /// can compute the correct structural delta even when the rope holds only
+    /// a viewport window.
+    pub pre_edit_line_count: usize,
+    /// For large files this is always 0 — the rope window always starts at
+    /// PieceTable line 0.  Making this explicit documents the invariant that
+    /// `rope line N` ⟷ `PieceTable line N` and prevents accidental offset
+    /// accumulation from future patch misuse.
+    pub window_start_line: usize,
     /// Monotonically increasing buffer version. Incremented on every edit.
     /// Used by the background parse pipeline to detect stale results.
     pub buffer_version: u64,
@@ -73,6 +83,8 @@ impl EditorBufferState {
             preferred_column: 0,
             selection_active: false,
             last_edit_line_range: None,
+            pre_edit_line_count: 0,
+            window_start_line: 0,
             buffer_version: 0,
             saved_version: 0,
             undo_stack: Vec::new(),
@@ -92,6 +104,8 @@ impl EditorBufferState {
             preferred_column: 0,
             selection_active: false,
             last_edit_line_range: None,
+            pre_edit_line_count: 0,
+            window_start_line: 0,
             buffer_version: 0,
             saved_version: 0,
             undo_stack: Vec::new(),
@@ -264,6 +278,8 @@ impl EditorBufferState {
         let (_, col) = self.rope.char_index_to_line_col(self.caret);
         self.preferred_column = col;
         self.last_edit_line_range = None;
+        self.pre_edit_line_count = 0;
+        self.window_start_line = 0;
         self.typing_run = false;
     }
 
@@ -477,6 +493,7 @@ impl EditorBufferState {
         if will_change {
             self.record_undo_checkpoint(is_typing);
         }
+        self.pre_edit_line_count = self.rope.line_count();
         self.buffer_version += 1;
         let mut selection_range: Option<(usize, usize)> = None;
         // Replace selection if present
@@ -528,6 +545,7 @@ impl EditorBufferState {
             return None;
         }
         self.record_undo_checkpoint(false);
+        self.pre_edit_line_count = self.rope.line_count();
         self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
@@ -566,6 +584,7 @@ impl EditorBufferState {
             return None;
         }
         self.record_undo_checkpoint(false);
+        self.pre_edit_line_count = self.rope.line_count();
         self.buffer_version += 1;
         if let Some((start, end)) = self.sorted_selection() {
             let (sl, _) = self.rope.char_index_to_line_col(start);
@@ -670,6 +689,8 @@ impl EditorBufferState {
         self.caret = new_caret;
         self.preferred_column = old_col;
         self.last_edit_line_range = None; // full rebuild needed
+        self.pre_edit_line_count = 0;
+        self.window_start_line = 0;
         self.reset_history_to_clean();
     }
 
@@ -686,6 +707,8 @@ impl EditorBufferState {
         self.selection_anchor = None;
         self.selection_active = false;
         self.last_edit_line_range = None; // full replacement
+        self.pre_edit_line_count = 0;
+        self.window_start_line = 0;
         self.reset_history_to_clean();
     }
 
@@ -702,6 +725,7 @@ impl EditorBufferState {
         self.selection_anchor = None;
         self.selection_active = false;
         self.last_edit_line_range = None; // full replacement
+        self.pre_edit_line_count = 0;
         self.reset_history_to_clean();
     }
 }

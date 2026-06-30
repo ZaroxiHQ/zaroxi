@@ -458,6 +458,15 @@ fn apply_save(app: &mut GuiApp) {
     let result: std::io::Result<()> = if app.large_file_mode {
         match app.doc_buffers.get_mut(&path_str) {
             Some(db) => {
+                if super::debug::doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: save_authority path={} source=piece_table pt_lines={} pt_bytes={} rope_lines={}",
+                        path_str,
+                        db.total_lines(),
+                        db.total_bytes(),
+                        app.editor_buffer.line_count(),
+                    );
+                }
                 let r = db.save(path);
                 if r.is_ok() {
                     db.mark_saved();
@@ -470,6 +479,14 @@ fn apply_save(app: &mut GuiApp) {
             )),
         }
     } else {
+        if super::debug::doc_lifecycle_trace_enabled() {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: save_authority path={} source=rope rope_lines={} rope_chars={}",
+                path_str,
+                app.editor_buffer.line_count(),
+                app.editor_buffer.char_count(),
+            );
+        }
         std::fs::write(path, app.editor_buffer.to_string())
     };
 
@@ -584,6 +601,12 @@ fn sync_editor_to_service(app: &mut GuiApp) {
         .and_then(|wc| wc.editor_body.as_ref())
         .map(|b| b.lines.len())
         .unwrap_or(0);
+    // For large files, the authoritative pre-edit line count comes from
+    // the rope itself (recorded BEFORE the edit mutation), not from the
+    // stale body.lines that may not have been synced yet after a tab
+    // switch.  This prevents wrong delta calculations that corrupt the
+    // PieceTable on the first edit after checkout.
+    let pre_edit_rope_line_count = app.editor_buffer.pre_edit_line_count;
 
     if let Some(ref mut wc) = app.work_content
         && let Some(ref mut body) = wc.editor_body
@@ -729,13 +752,28 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                     let total = db.total_lines();
                     let (first, last_excl) = *edit_range;
                     let new_line_count = app.editor_buffer.line_count();
-                    let structural = new_line_count != total;
+                    // For large files the rope holds only the viewport
+                    // window, so its line count will never equal the
+                    // PieceTable total.  Structural detection must
+                    // compare the rope's own line count before/after
+                    // the edit, not against the full document total.
+                    let structural = if pre_edit_rope_line_count > 0 {
+                        pre_edit_rope_line_count != new_line_count
+                    } else {
+                        new_line_count != total
+                    };
 
                     if structural {
                         // Structural edit: compute old/new ranges and do a
                         // single splice in doc_buffers.  The rope line count
                         // delta tells us whether lines were inserted or deleted.
-                        let delta = pre_sync_body_line_count as isize - new_line_count as isize;
+                        // For large files use the rope's own pre-edit line
+                        // count — never the stale body.lines snaphot.
+                        let delta = if pre_edit_rope_line_count > 0 {
+                            pre_edit_rope_line_count as isize - new_line_count as isize
+                        } else {
+                            pre_sync_body_line_count as isize - new_line_count as isize
+                        };
                         let old_range_lines = if delta > 0 {
                             // Deletion: old had more lines.
                             (last_excl.saturating_sub(first)) + delta as usize
@@ -782,6 +820,30 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                             }
                         }
 
+                        if super::debug::doc_lifecycle_trace_enabled() {
+                            let ws = app.editor_buffer.window_start_line;
+                            let pt_after = db.total_lines();
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=1 path={} window_start={} local_first={} local_last_excl={} abs_old_last={} abs_new_last={} old_range_lines={} delta={} rope_pre={} rope_post={} pt_before={} pt_after={} source={}",
+                                path_str,
+                                ws,
+                                first,
+                                last_excl,
+                                old_last,
+                                new_last,
+                                old_range_lines,
+                                delta,
+                                pre_edit_rope_line_count,
+                                new_line_count,
+                                total,
+                                pt_after,
+                                if pre_edit_rope_line_count > 0 {
+                                    "rope_pre_edit"
+                                } else {
+                                    "body_lines"
+                                },
+                            );
+                        }
                         if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                             eprintln!(
                                 "ZAROXI_DEBUG_LARGE_FILE: structural_splice first={} old_last={} new_last={} delta={} old_text_len={} new_text_len={} rope_lines={} doc_linesOLD={} doc_linesNEW={}",
@@ -823,6 +885,24 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                             i += 1;
                         }
 
+                        if super::debug::doc_lifecycle_trace_enabled() {
+                            let ws = app.editor_buffer.window_start_line;
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=0 path={} window_start={} local_first={} abs_last={} rope_pre={} rope_post={} pt_total={} source={}",
+                                path_str,
+                                ws,
+                                first,
+                                old_last,
+                                pre_edit_rope_line_count,
+                                new_line_count,
+                                total,
+                                if pre_edit_rope_line_count > 0 {
+                                    "rope_pre_edit"
+                                } else {
+                                    "body_lines"
+                                },
+                            );
+                        }
                         if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                             eprintln!(
                                 "ZAROXI_DEBUG_LARGE_FILE: content_edit_synced first={} last={} rope_lines={} doc_lines={}",

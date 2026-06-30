@@ -279,7 +279,14 @@ pub fn explorer_visible_rows(panel_height: f32, has_title: bool) -> usize {
     (usable / EXPLORER_ROW_H).floor().max(0.0) as usize
 }
 
+/// Number of full-height lines that fit in the renderer's content area
+/// for a region of height `region_h`. Mirrors the renderer's inner
+/// content-rect calculation so any last-line clipping / gutter mismatch
+/// is avoided: the renderer applies `content_padding = 8.0` on each
+/// side, so we must use the same value here.
 pub fn visible_lines_from_region(region_h: f32) -> usize {
-    let usable_h = region_h - CONTENT_HEADER_H - CONTENT_PAD_Y * 2.0;
+    // Must match the renderer's content_padding (renderer/core.rs:570).
+    const RENDER_CONTENT_PADDING: f32 = 8.0;
+    let usable_h = region_h - CONTENT_HEADER_H - RENDER_CONTENT_PADDING * 2.0;
     (usable_h / LINE_HEIGHT).max(1.0) as usize
 }
