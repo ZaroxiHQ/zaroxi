@@ -209,30 +209,43 @@ impl GuiApp {
         let active_file_changed = prev_active_file.as_deref() != wc.active_file.as_deref();
         let mut restored_from_store = false;
         // ── Check IN: save outgoing document ──
-        if active_file_changed
-            && let Some(prev_key) =
-                prev_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string())
-        {
+        // If handle_actions already saved the outgoing view state (early
+        // check-in triggered by reset_scroll_state), reuse that saved
+        // entry instead of re-reading the now-zeroed metadata scroll.
+        let prev_key: Option<String> =
+            prev_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+        // Detect whether handle_actions already saved the outgoing
+        // view state (early check-in before reset_scroll_state).
+        let early_checkin_scroll: Option<usize> = {
+            let k = prev_key.as_deref().unwrap_or("");
+            self.document_view_states.get(k).map(|vs| vs.scroll_top)
+        };
+        if active_file_changed && let Some(prev_key) = prev_key {
             let has_content = self.editor_buffer.char_count() > 0;
             if has_content
                 || self.open_documents.contains_key(&prev_key)
                 || self.document_view_states.contains_key(&prev_key)
             {
                 // ── Unified view state: save for ALL backends ──
-                let scroll_top = self
-                    .composition
-                    .as_ref()
-                    .and_then(|c| c.metadata.as_ref())
-                    .map(|m| m.editor_scroll_top_line)
-                    .unwrap_or(0);
+                // Prefer the scroll saved by the early check-in in
+                // handle_actions; otherwise read from live metadata.
+                let scroll_top = early_checkin_scroll.unwrap_or_else(|| {
+                    self.composition
+                        .as_ref()
+                        .and_then(|c| c.metadata.as_ref())
+                        .map(|m| m.editor_scroll_top_line)
+                        .unwrap_or(0)
+                });
+                let early_saved = early_checkin_scroll.is_some();
                 let vs = DocumentViewState::from_editor_and_scroll(&self.editor_buffer, scroll_top);
                 if doc_lifecycle_trace_enabled() {
                     eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkin path={} kind={} caret={} scroll={}",
+                        "ZAROXI_DOC_LIFECYCLE: checkin path={} kind={} caret={} scroll={} early_checkin={}",
                         prev_key,
                         if prev_large_file_mode { "piece_table" } else { "rope" },
                         vs.caret_line,
                         vs.scroll_top,
+                        early_saved,
                     );
                 }
                 if prev_large_file_mode {
@@ -673,9 +686,10 @@ impl GuiApp {
         }
         if doc_lifecycle_trace_enabled() {
             eprintln!(
-                "ZAROXI_DOC_LIFECYCLE: active_doc_changed prev={:?} new={:?} large_file_mode={} doc_buf_hit={} open_doc_hit={}",
+                "ZAROXI_DOC_LIFECYCLE: active_doc_changed prev={:?} new={:?} committed_before={:?} large_file_mode={} doc_buf_hit={} open_doc_hit={}",
                 prev_active_file,
-                self.committed_active_file.as_deref().or(wc.active_file.as_deref()),
+                wc.active_file.as_deref(),
+                self.committed_active_file.as_deref(),
                 self.large_file_mode,
                 wc.active_file
                     .as_deref()

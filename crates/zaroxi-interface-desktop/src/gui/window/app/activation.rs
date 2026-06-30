@@ -14,6 +14,7 @@ use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::WidgetId;
 use zaroxi_core_engine_ui::layout_constants as lc;
 
+use super::DocumentViewState;
 use super::GuiApp;
 
 /// Dispatch a WidgetId activation to DesktopComposition domain actions.
@@ -509,7 +510,44 @@ impl super::GuiApp {
                             // Only reset scroll/caret for genuinely new
                             // opens.  Reactivations restore their prior
                             // viewport via the commit_open checkout path.
+                            //
+                            // CRITICAL: save the outgoing document's view
+                            // state BEFORE resetting scroll to 0.  If we
+                            // reset first, commit_open reads `scroll_top=0`
+                            // from the cleared metadata and corrupts the
+                            // outgoing document's saved state with a
+                            // zero-scroll — causing the previous file to
+                            // always reopen at the top on the next tab
+                            // switch back.
                             if !is_reactivation {
+                                let saved_scroll = self
+                                    .composition
+                                    .as_ref()
+                                    .and_then(|c| c.metadata.as_ref())
+                                    .map(|m| m.editor_scroll_top_line)
+                                    .unwrap_or(0);
+                                let outgoing_key = self
+                                    .committed_active_file
+                                    .as_deref()
+                                    .and_then(|s| s.strip_prefix("buf:"))
+                                    .map(|s| s.to_string());
+                                if let Some(ref prev_key) = outgoing_key {
+                                    let vs = DocumentViewState::from_editor_and_scroll(
+                                        &self.editor_buffer,
+                                        saved_scroll,
+                                    );
+                                    if super::doc_lifecycle_trace_enabled() {
+                                        eprintln!(
+                                            "ZAROXI_DOC_LIFECYCLE: early_checkin scroll_saved={} key={}",
+                                            saved_scroll, prev_key,
+                                        );
+                                    }
+                                    self.document_view_states.insert(prev_key.clone(), vs);
+                                    if !self.large_file_mode {
+                                        self.open_documents
+                                            .insert(prev_key.clone(), self.editor_buffer.clone());
+                                    }
+                                }
                                 self.pending_scroll_frac = 0.0;
                                 if let Some(ref mut comp) = self.composition {
                                     comp.reset_scroll_state();
