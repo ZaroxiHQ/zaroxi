@@ -968,7 +968,7 @@ fn pointer_over_sidebar(app: &GuiApp) -> bool {
 }
 
 /// True when the pointer currently sits over the tab strip region.
-fn pointer_over_tab_strip(app: &GuiApp) -> bool {
+pub(crate) fn pointer_over_tab_strip(app: &GuiApp) -> bool {
     pointer_over_region(app, zaroxi_core_engine_style::PanelRole::ContentTabStrip)
 }
 

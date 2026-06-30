@@ -10,6 +10,122 @@ use super::*;
 use winit::event::ElementState;
 
 impl GuiApp {
+    /// Close a file tab by buffer-id string.  Removes the buffer from
+    /// composition metadata, releases it from the workspace service,
+    /// cleans up large-file direct-buffer tracking, and selects an
+    /// appropriate fallback active tab.  Used by both close-button
+    /// clicks (left mouse) and middle-click.
+    pub(crate) fn close_file_tab(&mut self, bid_str: &str) {
+        {
+            let Some(ref mut comp) = self.composition else { return };
+            let Some(meta) = comp.metadata.as_mut() else { return };
+            let Some(pos) =
+                meta.opened_buffers.iter().position(|it| it.buffer_id.to_string() == bid_str)
+            else {
+                return;
+            };
+            let was_active =
+                meta.active_buffer.as_ref().map(|a| a.to_string() == bid_str).unwrap_or(false);
+            meta.opened_buffers.remove(pos);
+            meta.opened_buffer_count = meta.opened_buffers.len();
+            comp.pending_removed_buffer_ids.push(bid_str.to_string());
+            comp.direct_buffer_ids.retain(|b| b.to_string() != bid_str);
+            let bid: crate::ports::BufferId = crate::ports::BufferId(bid_str.to_string());
+            if let (Some(svc), Some(sid)) = (&self.workspace_service, &self.session_id) {
+                if let Ok(resp) =
+                    pollster::block_on(svc.close_buffer(crate::ports::CloseBufferRequest {
+                        session_id: sid.clone(),
+                        buffer_id: bid.clone(),
+                    }))
+                {
+                    if resp.ok && std::env::var("ZAROXI_DEBUG_MEMORY").as_deref() == Ok("1") {
+                        eprintln!("ZAROXI_MEMORY: closed buffer {bid}");
+                    }
+                }
+            }
+            let sd = self.session_id.clone();
+            if was_active {
+                if meta.opened_buffers.is_empty() {
+                    meta.active_buffer = None;
+                    meta.active_buffer_details = None;
+                    meta.visible_window = None;
+                    self.tab_state
+                        .open_or_focus_non_file(super::super::destination::WorkbenchTabId::Welcome);
+                } else {
+                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                    let fallback = &meta.opened_buffers[new_idx];
+                    meta.active_buffer = Some(fallback.buffer_id.clone());
+                    meta.active_buffer_details = Some(crate::desktop::ActiveBufferDetails {
+                        buffer_id: fallback.buffer_id.clone(),
+                        display: fallback.display.clone(),
+                        line_count: 0,
+                    });
+                    meta.opened_buffers[new_idx].active = true;
+                }
+                if let Some(ref view) = self.workspace_view {
+                    if let Some(ref session) = sd {
+                        if let Some(ref bid_ref) = meta.active_buffer {
+                            let req = crate::ports::GetVisibleLinesRequest {
+                                session_id: session.clone(),
+                                buffer_id: bid_ref.clone(),
+                            };
+                            if let Ok(resp) = pollster::block_on(view.get_visible_lines(req)) {
+                                let lines_vec: Vec<String> =
+                                    resp.window.lines.iter().map(|vl| vl.text.clone()).collect();
+                                meta.visible_window =
+                                    Some(crate::desktop::projections::VisibleWindowBasic {
+                                        top_line: resp.window.top_line as usize,
+                                        total_lines: resp.window.total_lines as usize,
+                                        lines: lines_vec,
+                                        cursor_line: resp
+                                            .window
+                                            .lines
+                                            .iter()
+                                            .find(|vl| vl.is_cursor_line)
+                                            .map(|vl| vl.line_number as usize),
+                                        cursor_column: resp
+                                            .window
+                                            .lines
+                                            .iter()
+                                            .find(|vl| vl.is_cursor_line)
+                                            .and_then(|vl| vl.cursor_column.map(|c| c as usize)),
+                                        selection_present: resp
+                                            .window
+                                            .lines
+                                            .iter()
+                                            .any(|vl| vl.selection_intersects),
+                                    });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Clean up per-path doc_buffers + document_view_states.
+        if self.doc_buffers.remove(bid_str).is_some()
+            && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+        {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: unregister path={bid_str} backend=piece_table reason=tab_closed"
+            );
+        }
+        self.document_view_states.remove(bid_str);
+        if self.doc_buffers.is_empty() {
+            self.large_file_mode = false;
+        }
+        self.tab_state
+            .close_tab(&super::super::destination::WorkbenchTabId::FileBuffer(bid_str.to_string()));
+        if let Some(ref mut comp) = self.composition {
+            let wc = comp.build_work_content();
+            self.request_open(wc);
+            self.tab_state.focus_tab(&super::super::destination::WorkbenchTabId::Editor);
+            self.rail_selected_index = 0;
+        }
+        self.rail_selected_index = self.tab_state.active().destination().rail_index();
+        self.cockpit_status_fingerprint = 0;
+        self.needs_render = true;
+    }
+
     /// Route a left mouse press/release to rail / sidebar / settings / tab
     /// strip / editor-surface behaviour.
     pub(super) fn on_mouse_left(&mut self, state: ElementState) {
@@ -39,7 +155,7 @@ impl GuiApp {
                 && y < ay + ah
             {
                 self.tab_state.scroll_offset = (self.tab_state.scroll_offset
-                    - zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0)
+                    - zaroxi_interface_widgets::FILE_TAB_W * 2.0)
                     .max(0.0);
                 self.cockpit_status_fingerprint = 0;
                 self.needs_render = true;
@@ -51,7 +167,7 @@ impl GuiApp {
                 && y >= ay
                 && y < ay + ah
             {
-                self.tab_state.scroll_offset += zaroxi_interface_widgets::WORKBENCH_TAB_W * 2.0;
+                self.tab_state.scroll_offset += zaroxi_interface_widgets::FILE_TAB_W * 2.0;
                 self.cockpit_status_fingerprint = 0;
                 self.needs_render = true;
                 return;
@@ -108,195 +224,10 @@ impl GuiApp {
                 );
                 if is_close {
                     if let super::super::destination::WorkbenchTabId::FileBuffer(ref bid_str) = id {
-                        debug::zft(
-                            "close_begin",
-                            format_args!(
-                                "clicked={bid_str}  tab_active={:?}  meta_active={:?}",
-                                self.tab_state.active(),
-                                self.composition.as_ref().and_then(|c| c
-                                    .metadata
-                                    .as_ref()
-                                    .and_then(|m| m.active_buffer.as_ref().map(|b| b.to_string()))),
-                            ),
-                        );
-                        let mut needs_wc_rebuild = false;
-                        // Track whether the last file was just closed
-                        // so the tab-mode switch can be gated correctly.
-                        let mut opened_empty_after_close = false;
-                        if let Some(ref mut comp) = self.composition {
-                            if let Some(meta) = comp.metadata.as_mut() {
-                                if let Some(pos) = meta
-                                    .opened_buffers
-                                    .iter()
-                                    .position(|it| it.buffer_id.to_string() == *bid_str)
-                                {
-                                    let was_active = meta
-                                        .active_buffer
-                                        .as_ref()
-                                        .map(|a| a.to_string() == *bid_str)
-                                        .unwrap_or(false);
-                                    meta.opened_buffers.remove(pos);
-                                    meta.opened_buffer_count = meta.opened_buffers.len();
-                                    comp.pending_removed_buffer_ids.push(bid_str.clone());
-
-                                    // Clean up direct-buffer tracking so the
-                                    // refresh cycle can never resurrect a
-                                    // closed large-file tab.
-                                    comp.direct_buffer_ids.retain(|b| b.to_string() != *bid_str);
-
-                                    // Release the buffer from the workspace service
-                                    // to free its content from memory.
-                                    let bid: crate::ports::BufferId =
-                                        crate::ports::BufferId(bid_str.clone());
-                                    if let (Some(svc), Some(sid)) =
-                                        (&self.workspace_service, &self.session_id)
-                                    {
-                                        if let Ok(resp) = pollster::block_on(svc.close_buffer(
-                                            crate::ports::CloseBufferRequest {
-                                                session_id: sid.clone(),
-                                                buffer_id: bid.clone(),
-                                            },
-                                        )) {
-                                            if resp.ok {
-                                                if std::env::var("ZAROXI_DEBUG_MEMORY").as_deref()
-                                                    == Ok("1")
-                                                {
-                                                    eprintln!("ZAROXI_MEMORY: closed buffer {bid}");
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if was_active {
-                                        needs_wc_rebuild = true;
-                                        if meta.opened_buffers.is_empty() {
-                                            meta.active_buffer = None;
-                                            meta.active_buffer_details = None;
-                                            meta.visible_window = None;
-                                            opened_empty_after_close = true;
-                                            self.tab_state.open_or_focus_non_file(
-                                                super::super::destination::WorkbenchTabId::Welcome,
-                                            );
-                                        } else {
-                                            let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                                            let fallback = &meta.opened_buffers[new_idx];
-                                            meta.active_buffer = Some(fallback.buffer_id.clone());
-                                            meta.active_buffer_details =
-                                                Some(crate::desktop::ActiveBufferDetails {
-                                                    buffer_id: fallback.buffer_id.clone(),
-                                                    display: fallback.display.clone(),
-                                                    line_count: 0,
-                                                });
-                                            meta.opened_buffers[new_idx].active = true;
-                                        }
-                                        // Try to sync-fetch the fallback's visible lines
-                                        // so build_work_content produces real content.
-                                        if let Some(ref bid) = meta.active_buffer {
-                                            if let Some(ref view) = self.workspace_view {
-                                                if let Some(ref session) = self.session_id {
-                                                    let req =
-                                                        crate::ports::GetVisibleLinesRequest {
-                                                            session_id: session.clone(),
-                                                            buffer_id: bid.clone(),
-                                                        };
-                                                    if let Ok(resp) = pollster::block_on(
-                                                        view.get_visible_lines(req),
-                                                    ) {
-                                                        let mut lines_vec: Vec<String> =
-                                                            Vec::with_capacity(
-                                                                resp.window.lines.len(),
-                                                            );
-                                                        for vl in resp.window.lines.iter() {
-                                                            lines_vec.push(vl.text.clone());
-                                                        }
-                                                        let cursor_info = resp
-                                                            .window
-                                                            .lines
-                                                            .iter()
-                                                            .find(|vl| vl.is_cursor_line);
-                                                        meta.visible_window =
-                                                                    Some(crate::desktop::projections::VisibleWindowBasic {
-                                                                        top_line: resp.window.top_line as usize,
-                                                                        total_lines: resp.window.total_lines as usize,
-                                                                        lines: lines_vec,
-                                                                        cursor_line: cursor_info.map(|vl| vl.line_number as usize),
-                                                                        cursor_column: cursor_info.and_then(|vl| vl.cursor_column.map(|c| c as usize)),
-                                                                        selection_present: resp.window.lines.iter().any(|vl| vl.selection_intersects),
-                                                                    });
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if needs_wc_rebuild {
-                                let wc = comp.build_work_content();
-                                self.request_open(wc);
-                                // Hard-invalidate editor text caches so
-                                // stale shaped text from the closed file
-                                // cannot survive into the next present.
-                                self.cached_editor_data = None;
-                                self.cached_editor_lines_hash = 0;
-                                self.cached_editor_spans_version = 0;
-                            }
-                        }
-                        // Clean up per-path doc_buffers entry + reset
-                        // large_file_mode when the closed file was the
-                        // last large document (or the only one). The
-                        // next commit_open will recompute from the
-                        // active file's real metadata.
-                        if let Some(key) = bid_str.strip_prefix("buf:") {
-                            if self.doc_buffers.remove(key).is_some()
-                                && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
-                            {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: unregister path={key} backend=piece_table reason=tab_closed"
-                                );
-                            }
-                            if self.document_view_states.remove(key).is_some()
-                                && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
-                            {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: view_state_removed path={key} reason=tab_closed"
-                                );
-                            }
-                            if self.doc_buffers.is_empty() {
-                                self.large_file_mode = false;
-                            }
-                        }
-                        // After closing a file tab, switch to file-editor
-                        // mode — but only when at least one file remains.
-                        // If the last file was just closed, Welcome is
-                        // already active via open_or_focus_non_file above.
-                        if !opened_empty_after_close {
-                            self.tab_state
-                                .focus_tab(&super::super::destination::WorkbenchTabId::Editor);
-                        }
-                        self.rail_selected_index =
-                            self.tab_state.active().destination().rail_index();
-                        self.cockpit_status_fingerprint = 0;
-                        self.needs_render = true;
-                        debug::zft(
-                            "close_end",
-                            format_args!(
-                                "tab_active={:?}  meta_active={:?}  visible_window={}",
-                                self.tab_state.active(),
-                                self.composition.as_ref().and_then(|c| c
-                                    .metadata
-                                    .as_ref()
-                                    .and_then(|m| m.active_buffer.as_ref().map(|b| b.to_string()))),
-                                self.composition
-                                    .as_ref()
-                                    .and_then(|c| c.metadata.as_ref())
-                                    .map(|m| m.visible_window.is_some())
-                                    .unwrap_or(false),
-                            ),
-                        );
+                        debug::zft("close_begin", format_args!("clicked={bid_str}"));
+                        self.close_file_tab(bid_str);
                     } else {
                         self.close_tab(&id);
-                        // If closing Welcome left no tabs at all,
-                        // recreate Welcome immediately.
                         if self.tab_state.entries().is_empty() {
                             self.tab_state.open_or_focus_non_file(
                                 super::super::destination::WorkbenchTabId::Welcome,

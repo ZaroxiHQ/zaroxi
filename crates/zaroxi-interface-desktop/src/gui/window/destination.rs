@@ -426,9 +426,13 @@ impl WorkbenchTabState {
 
     /// Project the canonical tab list into a `Vec<UnifiedTab>` for cockpit
     /// consumption and hit-test layout.
+    /// Project only file tabs for the primary editor tab strip.
+    /// Non-file destinations (Settings, Extensions, AI Assistant) are
+    /// accessed exclusively through the activity rail.
     pub fn projected_tabs(&self) -> Vec<UnifiedTab> {
         self.entries
             .iter()
+            .filter(|e| e.is_file())
             .map(|e| {
                 let id = e.stable_id();
                 let editor_active = self.active.is_editor();
@@ -438,9 +442,15 @@ impl WorkbenchTabState {
                         editor_active
                             && matches!(e, WorkbenchTabEntry::File { is_active_buffer: true, .. })
                     }
-                    _ => id == self.active,
+                    _ => false,
                 };
-                UnifiedTab { title: e.title().to_string(), active, closable: e.closable(), id }
+                UnifiedTab {
+                    title: e.title().to_string(),
+                    active,
+                    closable: e.closable(),
+                    id,
+                    kind: zaroxi_interface_widgets::TabKind::File,
+                }
             })
             .collect()
     }
@@ -632,6 +642,8 @@ pub struct UnifiedTab {
     /// Stable tab identity. File tabs use `FileBuffer(id_string)`, non-file
     /// tabs use `DestinationRoot` / `SettingsSection` / etc.
     pub id: WorkbenchTabId,
+    /// Which zone this tab belongs to.
+    pub kind: zaroxi_interface_widgets::TabKind,
 }
 
 /// Format a file path into a compact, filename-first tab label.
@@ -678,13 +690,14 @@ pub fn format_file_tab_label(path: &str, all_paths: &[&str]) -> String {
     if parent.is_empty() { format!("../{basename}") } else { format!("{parent}/{basename}") }
 }
 
-/// Project the unified tab strip from the file buffers (as `(label, is_active)`
-/// pairs) followed by the open non-file workbench tabs. File tabs are only
-/// highlighted when the editor itself is the active tab.
+/// Project the primary editor tab strip — file tabs only.
+/// Non-file destinations (Settings, Extensions, AI Assistant) are accessed
+/// exclusively through the activity rail and do NOT appear in the tab strip.
+/// Welcome is rendered as an editor-surface empty state, not as a tab.
 pub fn build_unified_tabs(
     file_tabs: &[(String, String, bool)],
     active_tab: &WorkbenchTabId,
-    non_file_tabs: &[WorkbenchTab],
+    _non_file_tabs: &[WorkbenchTab],
 ) -> Vec<UnifiedTab> {
     let mut out = Vec::new();
     let editor_active = active_tab.is_editor();
@@ -696,14 +709,7 @@ pub fn build_unified_tabs(
             active: editor_active && *is_active,
             closable: true,
             id: WorkbenchTabId::FileBuffer(bid.clone()),
-        });
-    }
-    for t in non_file_tabs {
-        out.push(UnifiedTab {
-            title: t.title.clone(),
-            active: active_tab == &t.id,
-            closable: true,
-            id: t.id.clone(),
+            kind: zaroxi_interface_widgets::TabKind::File,
         });
     }
     out
@@ -800,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn unified_tabs_orders_files_then_non_file_and_flags_active() {
+    fn unified_tabs_only_file_tabs_and_flags_active() {
         let files = vec![
             ("src/main.rs".to_string(), "buf_1".to_string(), true),
             ("src/lib.rs".to_string(), "buf_2".to_string(), false),
@@ -816,21 +822,19 @@ mod tests {
             },
         ];
 
-        // Editor active: the active file tab is highlighted, no non-file tab is.
+        // Editor active: only file tabs, active file is highlighted.
         let tabs = build_unified_tabs(&files, &WorkbenchTabId::Editor, &non_file);
-        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs.len(), 2);
         assert_eq!(tabs[0].title, "main.rs");
         assert!(tabs[0].active && tabs[0].closable);
         assert!(matches!(tabs[0].id, WorkbenchTabId::FileBuffer(_)));
         assert!(!tabs[1].active); // lib.rs not the active buffer
-        assert!(!tabs[2].active && tabs[2].closable); // Settings tab
-        assert!(!tabs[3].active && tabs[3].closable); // extension tab
 
-        // A non-file tab active: no file tab is highlighted, that tab is.
+        // Non-file tab active: editor tab strip still only shows file tabs.
         let ext = WorkbenchTabId::ExtensionDetail("zaroxi.git".to_string());
         let tabs = build_unified_tabs(&files, &ext, &non_file);
+        assert_eq!(tabs.len(), 2);
         assert!(!tabs[0].active && !tabs[1].active);
-        assert!(tabs[3].active);
     }
 
     #[test]

@@ -236,6 +236,36 @@ impl winit::application::ApplicationHandler for GuiApp {
             WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
                 self.on_mouse_left(state);
             }
+            WindowEvent::MouseInput { state, button, .. }
+                if button == MouseButton::Middle && state == ElementState::Released =>
+            {
+                let target_bid: Option<String> = {
+                    if let Some((x, y)) = self.interaction.cursor_pos_f32() {
+                        if super::input::pointer_over_tab_strip(self) {
+                            self.tab_hit_rects
+                                .iter()
+                                .find(|h| {
+                                    let (tx, ty, tw, th) = h.rect;
+                                    x >= tx && x < tx + tw && y >= ty && y < ty + th
+                                })
+                                .and_then(|h| match &h.id {
+                                    super::super::destination::WorkbenchTabId::FileBuffer(s) => {
+                                        Some(s.clone())
+                                    }
+                                    _ => None,
+                                })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                if let Some(bid_str) = target_bid {
+                    self.close_file_tab(&bid_str);
+                    self.needs_render = true;
+                }
+            }
             WindowEvent::RedrawRequested => {
                 self.on_redraw_requested();
             }

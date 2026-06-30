@@ -1703,6 +1703,8 @@ impl GuiApp {
                                         title: t.title.clone(),
                                         active: t.active,
                                         closable: t.closable,
+                                        kind: t.kind,
+                                        is_preview: false,
                                     })
                                     .collect();
                             let (dp_settings, dp_extensions, dp_placeholder) =
@@ -1840,14 +1842,23 @@ impl GuiApp {
                                 self.tab_state.projected_tabs(),
                                 &dirty_doc_paths,
                             );
-                            let closables: Vec<bool> = wb.iter().map(|t| t.closable).collect();
+                            let layout_tabs: Vec<zaroxi_interface_widgets::CockpitTab> = wb
+                                .iter()
+                                .map(|t| zaroxi_interface_widgets::CockpitTab {
+                                    title: t.title.clone(),
+                                    active: t.active,
+                                    closable: t.closable,
+                                    kind: t.kind,
+                                    is_preview: false,
+                                })
+                                .collect();
                             self.tab_state.ensure_active_visible(
                                 cockpit_tab_strip_rect.2,
-                                zaroxi_interface_widgets::WORKBENCH_TAB_W,
+                                zaroxi_interface_widgets::FILE_TAB_W,
                             );
                             let layout_res = zaroxi_interface_widgets::workbench_tab_layout(
                                 cockpit_tab_strip_rect,
-                                &closables,
+                                &layout_tabs,
                                 self.tab_state.scroll_offset,
                             );
                             self.tab_arrow_left_rect = layout_res.arrow_left;
@@ -2257,6 +2268,8 @@ impl GuiApp {
                                             title: t.title.clone(),
                                             active: t.active,
                                             closable: t.closable,
+                                            kind: t.kind,
+                                            is_preview: false,
                                         })
                                         .collect();
                                 let (dp_settings, dp_extensions, dp_placeholder) =

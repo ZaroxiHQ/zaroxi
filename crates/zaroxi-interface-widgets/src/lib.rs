@@ -18,11 +18,11 @@ pub mod widget;
 pub use components::{
     ActivityItem, ActivityRail, AiBand, AiMode, AiPredictionGutter, CockpitTab, CommandPalette,
     ContextBand, ContextCanvas, DestinationPlaceholder, ExtensionEntry, ExtensionsPanel,
-    HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind, MetaChips,
-    PaletteItem, PopupMenu, PredictionCell, RelatedPanel, SemanticMinimap, SettingsDropdownState,
-    SettingsPanel, SettingsRow, SettingsRowHit, SettingsRowKind, SettingsSection, StatusBar,
-    StatusMarker, StatusMetrics, SymbolKind, TabLayoutResult, WORKBENCH_TAB_W, WorkbenchTabStrip,
-    settings_popup, workbench_tab_layout,
+    FILE_TAB_W, HealthBand, InstrumentStatus, LayoutBucket, LivingDiffLayer, LspStatus, MarkerKind,
+    MetaChips, PaletteItem, PopupMenu, PredictionCell, RelatedPanel, SemanticMinimap,
+    SettingsDropdownState, SettingsPanel, SettingsRow, SettingsRowHit, SettingsRowKind,
+    SettingsSection, StatusBar, StatusMarker, StatusMetrics, SymbolKind, TabKind, TabLayoutResult,
+    WorkbenchTabStrip, settings_popup, workbench_tab_layout,
 };
 
 pub use zaroxi_domain_settings::{FontPreference, Settings, SettingsAction, ThemePreference};
