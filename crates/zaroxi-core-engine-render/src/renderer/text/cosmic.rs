@@ -130,6 +130,10 @@ fn hash_line_command(cmd: &TextCommand, font_size_physical: f32, device_scale: f
     }
     mix(&mut h, font_size_physical.to_bits() as u64);
     mix(&mut h, device_scale.to_bits() as u64);
+    // Include italic in the cache key so italic/non-italic variants of the same
+    // text produce different shaped-glyph caches. Without this, promoting a
+    // preview tab to pinned would reuse the italic-shaped glyphs.
+    mix(&mut h, cmd.italic as u64);
     for ch in cmd.color {
         mix(&mut h, ch.to_bits() as u64);
     }

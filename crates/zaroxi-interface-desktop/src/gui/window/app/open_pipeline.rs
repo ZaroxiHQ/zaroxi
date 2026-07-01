@@ -1009,6 +1009,25 @@ impl GuiApp {
             );
         }
         self.committed_active_file = wc.active_file.clone();
+        // ── Null-active guard ─────────────────────────────────────
+        // If the incoming WC has no active_file but EditorGroup has an
+        // active file editor, reconcile — never clear committed_active_file
+        // while a file tab is actively selected.  This protects against
+        // null-active WCs produced by build_work_content() when the
+        // workspace service metadata lacks the active buffer (common for
+        // large-file preview opens and UI-button refresh cycles).
+        if self.committed_active_file.is_none() {
+            if let Some(eg_path) = self.editor_group.active_path() {
+                let buf_path = format!("buf:{}", eg_path);
+                if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_VISIBLE_TAB_MODEL: null_active_blocked reason=editor_group_active_exists path={}",
+                        eg_path,
+                    );
+                }
+                self.committed_active_file = Some(buf_path);
+            }
+        }
         self.last_committed_activation_seq = self.activation_seq;
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit
@@ -1464,20 +1483,18 @@ impl GuiApp {
                     // Store in per-path map; the render pipeline looks up
                     // the active tab's buffer by path.
                     self.doc_buffers.insert(path_str.clone(), doc);
-                    // Register as an opened buffer for the tab bar ONLY
-                    // for pinned opens.  Preview opens keep the file out
-                    // of the persistent tab list — the single shared
-                    // editor_group.preview is the sole tab-strip source for preview.
-                    let is_preview = self.open_intent == Some(OpenIntent::Preview);
-                    if !is_preview {
-                        if let Some(ref mut comp) = self.composition {
-                            let display = doc_path
-                                .as_ref()
-                                .and_then(|p| p.file_name())
-                                .and_then(|n| n.to_str())
-                                .map(|s| s.to_string());
-                            comp.add_opened_buffer_direct(bid.clone(), display);
-                        }
+                    // Always register large files in opened_buffers so
+                    // build_work_content() finds a valid active_buffer.
+                    // EditorGroup is the sole authority for tab membership
+                    // (preview vs pinned); opened_buffers is now a content
+                    // registry only, not a tab-strip source.
+                    if let Some(ref mut comp) = self.composition {
+                        let display = doc_path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .and_then(|n| n.to_str())
+                            .map(|s| s.to_string());
+                        comp.add_opened_buffer_direct(bid.clone(), display);
                     }
                     if let Some(ref mut comp) = self.composition {
                         if let Some(ref mut meta) = comp.metadata {

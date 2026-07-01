@@ -957,6 +957,7 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                     }
                 }
                 let _ = app.editor_group.promote_preview_to_pinned();
+                app.cockpit_status_fingerprint = 0;
             }
         }
     }
