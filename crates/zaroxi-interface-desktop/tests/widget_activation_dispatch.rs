@@ -124,6 +124,7 @@ mod tests {
             open_request_at: None,
             last_upstream_open_prep_ms: 0.0,
             cached_editor_active_file: None,
+            content_generation: 0,
             active_rope_owner_path: None,
             owner_reload_attempted_for: None,
             pending_owner_rehydrate: false,

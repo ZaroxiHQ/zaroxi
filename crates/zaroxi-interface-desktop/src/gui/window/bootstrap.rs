@@ -102,6 +102,7 @@ pub fn run_shell_window(
         cached_editor_lines_hash: 0,
         cached_editor_spans_version: 0,
         cached_editor_active_file: None,
+        content_generation: 0,
         active_rope_owner_path: None,
         owner_reload_attempted_for: None,
         pending_owner_rehydrate: false,

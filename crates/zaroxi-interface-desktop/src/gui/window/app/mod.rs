@@ -187,6 +187,12 @@ pub struct GuiApp {
     /// cross-file cache pollution is impossible — the cache is invalidated
     /// when the active document identity changes.
     pub cached_editor_active_file: Option<String>,
+    /// Monotonic epoch bumped on every TRUE editor content-owner switch
+    /// (canonical active path changes). Folded into the editor render cache
+    /// key so no shaped/drawn payload from a previous owner can ever be
+    /// reused after a file switch — "same geometry" alone can never satisfy
+    /// the key. Same-path transitions (preview→pin) do NOT bump it.
+    pub content_generation: u64,
     /// Canonical path (no `buf:` prefix) of the document whose content the
     /// live `editor_buffer` (rope) currently holds.  This is the render
     /// source's owner: the renderer may present rope content ONLY when this

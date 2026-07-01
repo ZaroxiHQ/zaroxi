@@ -945,63 +945,86 @@ impl GuiApp {
             if let Some(active) = active_path_str.as_deref()
                 && self.tab_state.is_editor_active()
             {
-                let owner_ok = self.active_rope_owner_path.as_deref() == Some(active);
+                let owner = self.active_rope_owner_path.as_deref();
+                let owner_ok = owner == Some(active);
                 if owner_ok {
                     // Owner agrees again: clear any spent reload marker.
                     if self.owner_reload_attempted_for.as_deref() == Some(active) {
                         self.owner_reload_attempted_for = None;
                     }
                 } else {
+                    // The rope does not own the active document. Two cases:
+                    //   FOREIGN  — owner is Some(other): the rope literally
+                    //              holds another file's text. This MUST NOT be
+                    //              painted for even one frame, INCLUDING during
+                    //              a loading state (the loading window is
+                    //              exactly when cross-file bleed was visible).
+                    //   EMPTY    — owner is None: the rope was already blanked;
+                    //              a loading placeholder is safe, no bleed risk.
+                    let foreign = owner.is_some();
                     let loading = self.visible_loading_state
                         || self.background_open_pending
                         || self.read_pending;
-                    if !loading {
-                        if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
-                            || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
-                        {
-                            eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: content_owner_mismatch active={} rope_owner={} large_file_mode={}",
-                                active,
-                                self.active_rope_owner_path.as_deref().unwrap_or("<none>"),
-                                large_file_mode,
-                            );
-                        }
-                        // NOTE: only disjoint-field access is permitted here —
-                        // the window (`z`) holds a `&mut self.maybe_window`
-                        // borrow, so no whole-`self` method may be called.
-                        if large_file_mode && self.doc_buffers.contains_key(active) {
-                            // Rebuild the viewport window from the canonical
-                            // PieceTable (owner-correct source), inline so we
-                            // touch only disjoint fields.
-                            let lines: Vec<String> = if let Some(db) = self.doc_buffers.get(active)
-                            {
-                                let end = 200usize.min(db.total_lines());
-                                db.lines_in_range(0, end.saturating_sub(1))
-                                    .into_iter()
-                                    .map(|(_, s)| s)
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            };
-                            if lines.is_empty() {
-                                self.editor_buffer.replace_content("");
-                                self.active_rope_owner_path = None;
-                            } else {
-                                self.editor_buffer.populate_from_lines(&lines, 0, 0);
-                                self.active_rope_owner_path = Some(active.to_string());
-                            }
+                    if (foreign || !loading)
+                        && (std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+                            || std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1")
+                            || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1"))
+                    {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: content_owner_mismatch active={} rope_owner={} foreign={} loading={} large_file_mode={}",
+                            active,
+                            owner.unwrap_or("<none>"),
+                            foreign,
+                            loading,
+                            large_file_mode,
+                        );
+                    }
+                    // NOTE: only disjoint-field access is permitted here — the
+                    // window (`z`) holds a `&mut self.maybe_window` borrow, so
+                    // no whole-`self` method may be called.
+                    if large_file_mode && self.doc_buffers.contains_key(active) {
+                        // Rebuild the viewport window from the canonical
+                        // PieceTable (owner-correct source), inline.
+                        let lines: Vec<String> = if let Some(db) = self.doc_buffers.get(active) {
+                            let end = 200usize.min(db.total_lines());
+                            db.lines_in_range(0, end.saturating_sub(1))
+                                .into_iter()
+                                .map(|(_, s)| s)
+                                .collect()
                         } else {
-                            // Normal file: blank now (never present foreign
-                            // content) and defer one bounded re-open to the top
-                            // of the next redraw (outside this window borrow).
+                            Vec::new()
+                        };
+                        if lines.is_empty() {
                             self.editor_buffer.replace_content("");
                             self.active_rope_owner_path = None;
-                            if self.owner_reload_attempted_for.as_deref() != Some(active) {
-                                self.owner_reload_attempted_for = Some(active.to_string());
-                                self.pending_owner_rehydrate = true;
-                            }
+                        } else {
+                            self.editor_buffer.populate_from_lines(&lines, 0, 0);
+                            self.active_rope_owner_path = Some(active.to_string());
+                        }
+                    } else if foreign {
+                        // FOREIGN normal content — blank immediately so file A
+                        // can NEVER be painted under file B, regardless of the
+                        // loading flag. Defer the bounded re-open only when no
+                        // load is already in flight (else the in-flight commit
+                        // hydrates the correct file).
+                        self.editor_buffer.replace_content("");
+                        self.active_rope_owner_path = None;
+                        if !loading && self.owner_reload_attempted_for.as_deref() != Some(active) {
+                            self.owner_reload_attempted_for = Some(active.to_string());
+                            self.pending_owner_rehydrate = true;
+                        }
+                    } else if !loading {
+                        // EMPTY rope, not loading: bounded re-open from the
+                        // canonical source.
+                        self.editor_buffer.replace_content("");
+                        self.active_rope_owner_path = None;
+                        if self.owner_reload_attempted_for.as_deref() != Some(active) {
+                            self.owner_reload_attempted_for = Some(active.to_string());
+                            self.pending_owner_rehydrate = true;
                         }
                     }
+                    // else: EMPTY + loading → genuine load in progress; a blank
+                    // placeholder is shown, never another file's content.
                 }
             }
 
@@ -1173,6 +1196,11 @@ impl GuiApp {
                 } else {
                     None
                 },
+                // Canonical content owner + true-owner-switch epoch: fold into
+                // the cache key so a payload from another file (or a prior
+                // owner of the same path) can never be reused.
+                active_path_str.as_deref(),
+                self.content_generation,
             );
             // Estimate retained editor bytes for memory trace.
             self.editor_retained_bytes = self

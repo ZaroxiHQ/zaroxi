@@ -351,6 +351,27 @@ impl GuiApp {
         let new_doc_key: Option<String> =
             wc.active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
         let active_file_changed = prev_active_file.as_deref() != wc.active_file.as_deref();
+        // A TRUE content-owner switch: the canonical active path actually
+        // changed (not a same-path preview→pin, not a status refresh). Bump
+        // the content-generation epoch so every editor render artifact keyed
+        // by it is invalidated — geometry/hash matches can never resurrect the
+        // previous owner's payload. Same-path transitions leave it untouched
+        // so scroll/view state is preserved.
+        let canon = |s: Option<&str>| s.map(|v| v.strip_prefix("buf:").unwrap_or(v).to_string());
+        let true_owner_switch = canon(prev_active_file.as_deref())
+            != canon(wc.active_file.as_deref())
+            && wc.active_file.is_some();
+        if true_owner_switch {
+            self.content_generation = self.content_generation.wrapping_add(1);
+            if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_TABS: editor_owner_switch old={} new={} reason=commit_open gen={}",
+                    prev_active_file.as_deref().unwrap_or("<none>"),
+                    wc.active_file.as_deref().unwrap_or("<none>"),
+                    self.content_generation,
+                );
+            }
+        }
         let mut restored_from_store = false;
         // ── Check IN: save outgoing document ──
         // If handle_actions already saved the outgoing view state (early
@@ -1501,6 +1522,12 @@ impl GuiApp {
             let tok = outcome.token();
             if tok != self.read_token {
                 // Stale: a newer file was clicked. Drop without painting/activating.
+                if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1") {
+                    eprintln!(
+                        "ZAROXI_TABS: stale_async_dropped source=background_read owner=token:{tok} current=token:{}",
+                        self.read_token,
+                    );
+                }
                 if file_open_trace_enabled() {
                     let is_full = matches!(outcome, background_read::ReadOutcome::Full { .. });
                     let (cancelled, read_ms) = match &outcome {
