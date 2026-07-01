@@ -298,11 +298,11 @@ impl SemanticColors {
             selected_editor_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
 
             // Status colors — refined (calm, not neon).
-            success: Color::from_hex("#8FBE8A"), // status.success — calm green
-            warning: Color::from_hex("#E6B86A"), // status.warning — soft amber
+            success: Color::from_hex("#7FBF7F"), // status.success — calm green
+            warning: Color::from_hex("#E0B35A"), // status.warning — soft amber
             error: Color::from_hex("#F0718C"),   // status.error — refined rose
-            info: Color::from_hex("#6FB9FF"),    // status.info — soft blue
-            diff_added: Color::from_hex("#8FBE8A"), // status.success — git added
+            info: Color::from_hex("#66AEEA"),    // status.info — soft blue
+            diff_added: Color::from_hex("#7FBF7F"), // status.success — git added
             diff_removed: Color::from_hex("#F0718C"), // status.error — git removed
 
             // Focus — restrained purple ring only.
@@ -313,39 +313,39 @@ impl SemanticColors {
             editor_line_highlight: Color::from_rgba(1.0, 1.0, 1.0, 0.035), // active line — subtle, no loud stripe
             editor_cursor: Color::from_hex("#7C5CFF"),                     // accent.primary
             editor_selection: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
-            editor_find_highlight: Color::from_rgba(0.902, 0.7216, 0.4157, 0.28), // status.warning — reduced surface
+            editor_find_highlight: Color::from_rgba(0.8784, 0.702, 0.3529, 0.28), // status.warning — reduced surface
 
-            // Syntax — neutral ramp for most-read code; each hue family has one job.
-            syntax_keyword: Color::from_hex("#A88CFF"), // keyword.color — structural purple
-            syntax_function: Color::from_hex("#7FA8F0"), // function.color — callables
-            syntax_method: Color::from_hex("#7FA8F0"),  // function.color
-            syntax_string: Color::from_hex("#8FBE8A"),  // string.color — calm sage, not toy-green
-            syntax_comment: Color::from_hex("#6B7394"), // text.muted — subdued but legible
-            syntax_type: Color::from_hex("#D8B36A"),    // type.color — refined gold
-            syntax_variable: Color::from_hex("#E6E9F2"), // text.primary — neutral (most-read)
-            syntax_constant: Color::from_hex("#41BFD8"), // constant.color — literal/boolean cyan
-            syntax_number: Color::from_hex("#CFA06A"),  // number.color — quiet warm sand
-            syntax_operator: Color::from_hex("#A9B1D6"), // text.secondary — quieter than keywords/callables
-            syntax_punctuation: Color::from_hex("#6B7394"), // text.muted — recedes
-            syntax_attribute: Color::from_hex("#00C2E8"), // accent.secondary — decorator/annotation
-            syntax_tag: Color::from_hex("#A88CFF"),      // keyword.color — markup structure
-            syntax_namespace: Color::from_hex("#A9B1D6"), // text.secondary
-            syntax_macro: Color::from_hex("#7FA8F0"),    // function.color — callable family
-            syntax_property: Color::from_hex("#A9B1D6"), // text.secondary
-            syntax_parameter: Color::from_hex("#E6E9F2"), // text.primary
-            syntax_builtin: Color::from_hex("#7FA8F0"),  // function.color — builtin callable
-            syntax_escape: Color::from_hex("#E6B86A"),   // status.warning
-            syntax_embedded: Color::from_hex("#E6E9F2"), // text.primary
-            syntax_regex: Color::from_hex("#E6B86A"),    // status.warning (regexp)
-            syntax_markup_heading: Color::from_hex("#A88CFF"), // keyword.color
-            syntax_markup_list: Color::from_hex("#A9B1D6"), // text.secondary
-            syntax_markup_quote: Color::from_hex("#6B7394"), // text.muted
-            syntax_markup_link: Color::from_hex("#00C2E8"), // accent.secondary — URL/link
-            syntax_markup_code: Color::from_hex("#8FBE8A"), // string.color — inline code
-            syntax_markup_bold: Color::from_hex("#E6E9F2"), // text.primary — strong
-            syntax_markup_italic: Color::from_hex("#A9B1D6"), // text.secondary — emphasis
-            syntax_markup_strikethrough: Color::from_hex("#6B7394"), // text.muted
-            syntax_lifetime: Color::from_hex("#525A78"), // text.faint — quiet special marker
+            // Syntax — distance-readable: fewer, clearer semantic groups on a neutral ramp.
+            syntax_keyword: Color::from_hex("#B8A1FF"), // syntax.keyword — calm structural purple
+            syntax_function: Color::from_hex("#7FB7FF"), // syntax.callable — distinct blue
+            syntax_method: Color::from_hex("#7FB7FF"),  // syntax.callable
+            syntax_string: Color::from_hex("#98C379"),  // syntax.string — softened green
+            syntax_comment: Color::from_hex("#7581A1"), // syntax.comment — clearly secondary, still legible
+            syntax_type: Color::from_hex("#F0C674"),    // syntax.type — warm gold
+            syntax_variable: Color::from_hex("#E6E9F2"), // syntax.identifier — neutral (most-read)
+            syntax_constant: Color::from_hex("#56C7D9"), // syntax.constant — cyan-teal literal
+            syntax_number: Color::from_hex("#E5A96B"),  // syntax.number — warm orange-sand
+            syntax_operator: Color::from_hex("#B2BCDA"), // syntax.secondary — quieter than keywords/callables
+            syntax_punctuation: Color::from_hex("#5D6787"), // syntax.punctuation — pushed back strongly
+            syntax_attribute: Color::from_hex("#56C7D9"),   // syntax.constant — attribute name
+            syntax_tag: Color::from_hex("#B8A1FF"),         // syntax.keyword — markup structure
+            syntax_namespace: Color::from_hex("#B2BCDA"),   // syntax.secondary
+            syntax_macro: Color::from_hex("#7FB7FF"),       // syntax.callable
+            syntax_property: Color::from_hex("#B2BCDA"),    // syntax.secondary
+            syntax_parameter: Color::from_hex("#E6E9F2"),   // syntax.identifier
+            syntax_builtin: Color::from_hex("#7FB7FF"),     // syntax.callable — builtin function
+            syntax_escape: Color::from_hex("#E0B35A"),      // status.warning
+            syntax_embedded: Color::from_hex("#E6E9F2"),    // syntax.identifier
+            syntax_regex: Color::from_hex("#E0B35A"),       // status.warning (regexp)
+            syntax_markup_heading: Color::from_hex("#B8A1FF"), // syntax.keyword
+            syntax_markup_list: Color::from_hex("#B2BCDA"), // syntax.secondary
+            syntax_markup_quote: Color::from_hex("#7581A1"), // syntax.comment
+            syntax_markup_link: Color::from_hex("#56C7D9"), // syntax.constant — URL/link
+            syntax_markup_code: Color::from_hex("#98C379"), // syntax.string — inline code
+            syntax_markup_bold: Color::from_hex("#E6E9F2"), // syntax.identifier — strong
+            syntax_markup_italic: Color::from_hex("#B2BCDA"), // syntax.secondary — emphasis
+            syntax_markup_strikethrough: Color::from_hex("#7581A1"), // syntax.comment
+            syntax_lifetime: Color::from_hex("#5D6787"), // syntax.punctuation — quiet special marker
         }
     }
 
@@ -451,37 +451,37 @@ impl SemanticColors {
             editor_selection: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16),        // glow.primary
             editor_find_highlight: Color::from_rgba(0.7176, 0.4745, 0.1216, 0.24), // status.warning — reduced surface
 
-            // Syntax — neutral ramp for most-read code; darkened hue families so nothing washes out.
-            syntax_keyword: Color::from_hex("#7A3FD9"), // keyword.color — structural purple (deep for white)
-            syntax_function: Color::from_hex("#3E73D1"), // function.color — callables
-            syntax_method: Color::from_hex("#3E73D1"),  // function.color
-            syntax_string: Color::from_hex("#4C8F5B"),  // string.color — readable green
-            syntax_comment: Color::from_hex("#7B85A3"), // text.muted — subdued but legible
-            syntax_type: Color::from_hex("#9A6B12"), // type.color — deep gold (readable on white)
-            syntax_variable: Color::from_hex("#1A2138"), // text.primary — neutral (most-read)
-            syntax_constant: Color::from_hex("#0E93B0"), // constant.color — teal literal
-            syntax_number: Color::from_hex("#B06A2C"), // number.color — quiet warm brown
-            syntax_operator: Color::from_hex("#4A5578"), // text.secondary — quieter than keywords/callables
-            syntax_punctuation: Color::from_hex("#7B85A3"), // text.muted — recedes
-            syntax_attribute: Color::from_hex("#0E93B0"), // accent.secondary — decorator/annotation
-            syntax_tag: Color::from_hex("#7A3FD9"),      // keyword.color — markup structure
-            syntax_namespace: Color::from_hex("#4A5578"), // text.secondary
-            syntax_macro: Color::from_hex("#3E73D1"),    // function.color — callable family
-            syntax_property: Color::from_hex("#4A5578"), // text.secondary
-            syntax_parameter: Color::from_hex("#1A2138"), // text.primary
-            syntax_builtin: Color::from_hex("#3E73D1"),  // function.color — builtin callable
-            syntax_escape: Color::from_hex("#B7791F"),   // status.warning
-            syntax_embedded: Color::from_hex("#1A2138"), // text.primary
-            syntax_regex: Color::from_hex("#B7791F"),    // status.warning (regexp)
-            syntax_markup_heading: Color::from_hex("#7A3FD9"), // keyword.color
-            syntax_markup_list: Color::from_hex("#4A5578"), // text.secondary
-            syntax_markup_quote: Color::from_hex("#7B85A3"), // text.muted
-            syntax_markup_link: Color::from_hex("#0E93B0"), // accent.secondary — URL/link
-            syntax_markup_code: Color::from_hex("#4C8F5B"), // string.color — inline code
-            syntax_markup_bold: Color::from_hex("#1A2138"), // text.primary — strong
-            syntax_markup_italic: Color::from_hex("#4A5578"), // text.secondary — emphasis
-            syntax_markup_strikethrough: Color::from_hex("#7B85A3"), // text.muted
-            syntax_lifetime: Color::from_hex("#96A0BB"), // text.faint — quiet special marker
+            // Syntax — distance-readable: fewer, clearer semantic groups; darkened so nothing washes out.
+            syntax_keyword: Color::from_hex("#6F42D6"), // syntax.keyword — structural purple (deep for white)
+            syntax_function: Color::from_hex("#2F6FD6"), // syntax.callable — distinct blue
+            syntax_method: Color::from_hex("#2F6FD6"),  // syntax.callable
+            syntax_string: Color::from_hex("#3E8A50"),  // syntax.string — readable green
+            syntax_comment: Color::from_hex("#6E7896"), // syntax.comment — clearly secondary, still legible
+            syntax_type: Color::from_hex("#9A6A12"), // syntax.type — warm gold (readable on white)
+            syntax_variable: Color::from_hex("#1A2138"), // syntax.identifier — neutral (most-read)
+            syntax_constant: Color::from_hex("#0D8DAA"), // syntax.constant — teal literal
+            syntax_number: Color::from_hex("#B86A22"), // syntax.number — warm orange-sand
+            syntax_operator: Color::from_hex("#4A5578"), // syntax.secondary — quieter than keywords/callables
+            syntax_punctuation: Color::from_hex("#8A93AE"), // syntax.punctuation — pushed back strongly
+            syntax_attribute: Color::from_hex("#0D8DAA"),   // syntax.constant — attribute name
+            syntax_tag: Color::from_hex("#6F42D6"),         // syntax.keyword — markup structure
+            syntax_namespace: Color::from_hex("#4A5578"),   // syntax.secondary
+            syntax_macro: Color::from_hex("#2F6FD6"),       // syntax.callable
+            syntax_property: Color::from_hex("#4A5578"),    // syntax.secondary
+            syntax_parameter: Color::from_hex("#1A2138"),   // syntax.identifier
+            syntax_builtin: Color::from_hex("#2F6FD6"),     // syntax.callable — builtin function
+            syntax_escape: Color::from_hex("#B7791F"),      // status.warning
+            syntax_embedded: Color::from_hex("#1A2138"),    // syntax.identifier
+            syntax_regex: Color::from_hex("#B7791F"),       // status.warning (regexp)
+            syntax_markup_heading: Color::from_hex("#6F42D6"), // syntax.keyword
+            syntax_markup_list: Color::from_hex("#4A5578"), // syntax.secondary
+            syntax_markup_quote: Color::from_hex("#6E7896"), // syntax.comment
+            syntax_markup_link: Color::from_hex("#0D8DAA"), // syntax.constant — URL/link
+            syntax_markup_code: Color::from_hex("#3E8A50"), // syntax.string — inline code
+            syntax_markup_bold: Color::from_hex("#1A2138"), // syntax.identifier — strong
+            syntax_markup_italic: Color::from_hex("#4A5578"), // syntax.secondary — emphasis
+            syntax_markup_strikethrough: Color::from_hex("#6E7896"), // syntax.comment
+            syntax_lifetime: Color::from_hex("#8A93AE"), // syntax.punctuation — quiet special marker
         }
     }
 
