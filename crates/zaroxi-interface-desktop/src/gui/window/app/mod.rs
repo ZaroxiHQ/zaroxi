@@ -40,6 +40,7 @@ pub(crate) mod background_open;
 pub(crate) mod background_parse;
 pub(crate) mod background_read;
 pub(crate) mod debug;
+pub mod editor_group;
 mod editor_interaction;
 mod input;
 mod lifecycle;
@@ -301,12 +302,16 @@ pub struct GuiApp {
     /// Buffer version the `latest_spans` correspond to.  Used to detect when a
     /// fresh parse result has arrived and to avoid re-applying the same result.
     pub latest_spans_version: u64,
-    /// Explicit open intent from the most recent `request_open`.
+    /// Explicit open intent from the most recent activation (explorer
+    /// click / tab activation).  Consumed by `commit_open`.  Remains as a
+    /// transient wire — editor membership is owned by `editor_group`.
     pub open_intent: Option<open_pipeline::OpenIntent>,
-    /// The single shared preview tab state.  When set, the preview tab
-    /// occupies the first slot in the tab strip.  Replaced when a different
-    /// file is previewed; promoted to a pinned tab on edit or double-click.
-    pub preview_tab: Option<open_pipeline::PreviewTabState>,
+    /// The single authoritative editor-group model.  Owns pinned editors,
+    /// the (optional) shared preview editor, and the active editor
+    /// identity.  The visible tab strip MUST be derived exclusively from
+    /// [`editor_group::EditorGroup::visible_tabs`] — no other structure
+    /// may act as an alternative tab authority.
+    pub editor_group: editor_group::EditorGroup,
     /// Last explorer click: `(timestamp, explorer_index, open_token)` for
     /// double-click detection.
     pub last_explorer_click: Option<(std::time::Instant, usize, u64)>,

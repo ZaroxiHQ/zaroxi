@@ -90,11 +90,21 @@ pub struct TextCommand {
     /// positioned buffer per colored segment. This keeps syntax colors while
     /// preserving normal continuous editor-text layout.
     pub color_runs: Option<Vec<(String, [f32; 4])>>,
+    /// Render this text with italic style (used for preview-tab labels).
+    pub italic: bool,
     /// UI-element class this command belongs to (see [`element`]). Drives the
     /// per-element retained draw-payload cache in the text renderer so that
     /// unchanged elements are not re-shaped/re-emitted every frame. Defaults to
     /// [`element::OTHER`] for commands built without an explicit tag.
     pub element: u32,
+}
+
+impl TextCommand {
+    /// Set italic style (builder pattern).
+    pub fn with_italic(mut self, italic: bool) -> Self {
+        self.italic = italic;
+        self
+    }
 }
 
 impl TextCommand {
@@ -127,6 +137,7 @@ impl TextCommand {
             clip_w,
             clip_h,
             is_title,
+            italic: false,
             color_runs: None,
             element: element::OTHER,
         }
@@ -186,6 +197,7 @@ impl TextCommand {
             clip_w,
             clip_h,
             is_title: false,
+            italic: false,
             color_runs: Some(runs),
             element: element::OTHER,
         }

@@ -148,7 +148,7 @@ pub fn run_shell_window(
         latest_spans: None,
         latest_spans_version: 0,
         open_intent: None,
-        preview_tab: None,
+        editor_group: crate::gui::window::EditorGroup::default(),
         last_explorer_click: None,
         cockpit_minimap_symbols: Vec::new(),
         cockpit_symbols_version: 0,

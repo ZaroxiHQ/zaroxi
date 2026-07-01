@@ -914,11 +914,11 @@ fn sync_editor_to_service(app: &mut GuiApp) {
             }
         }
 
-        // Auto-promote preview tab to pinned on first edit.
-        if app.preview_tab.is_some() {
+        // Auto-promote preview editor to pinned on first edit.
+        if app.editor_group.preview_path().is_some() {
             let path_edited =
                 app.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"));
-            let preview_path = app.preview_tab.as_ref().map(|p| p.file_path.as_str());
+            let preview_path = app.editor_group.preview_path();
             if path_edited == preview_path {
                 if super::debug::doc_lifecycle_trace_enabled() {
                     eprintln!(
@@ -926,7 +926,37 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                         path_edited.unwrap_or("?"),
                     );
                 }
-                app.preview_tab = None;
+                // For large files that were preview-only (not in opened_buffers),
+                // register now so the pinned tab survives.
+                if let Some(ref key) = path_edited.map(|s| s.to_string()) {
+                    if app.doc_buffers.contains_key(key.as_str()) {
+                        let in_opened = app
+                            .composition
+                            .as_ref()
+                            .and_then(|c| c.metadata.as_ref())
+                            .map(|m| {
+                                m.opened_buffers.iter().any(|b| {
+                                    b.buffer_id.to_string().strip_prefix("buf:").unwrap_or("")
+                                        == key
+                                })
+                            })
+                            .unwrap_or(false);
+                        if !in_opened {
+                            if let Some(ref mut comp) = app.composition {
+                                let display = key.rsplit('/').next().map(|s| s.to_string());
+                                let bid = crate::ports::BufferId(format!("buf:{}", key));
+                                comp.add_opened_buffer_direct(bid, display);
+                                if super::debug::doc_lifecycle_trace_enabled() {
+                                    eprintln!(
+                                        "ZAROXI_DOC_LIFECYCLE: preview_autopromote_register path={}",
+                                        key,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                let _ = app.editor_group.promote_preview_to_pinned();
             }
         }
     }

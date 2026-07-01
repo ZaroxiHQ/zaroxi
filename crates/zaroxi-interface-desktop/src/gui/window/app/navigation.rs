@@ -239,17 +239,12 @@ impl GuiApp {
                     self.rail_selected_index = 0;
                     self.cockpit_status_fingerprint = 0;
                     self.needs_render = true;
-                    if let Some(ref comp) = self.composition {
-                        let summary = comp.latest_opened_buffers_summary();
-                        let active_bi = summary
-                            .active
-                            .as_ref()
-                            .and_then(|ab| summary.items.iter().position(|it| &it.buffer_id == ab))
-                            .unwrap_or(0);
-                        self.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(
-                            zaroxi_core_engine_style::WidgetId::Tab { index: active_bi },
-                        )]);
-                    }
+                    // Editor click: dispatch Tab activation for the active editor.
+                    let tabs = self.editor_group.visible_tabs();
+                    let active_idx = tabs.iter().position(|t| t.is_active).unwrap_or(0);
+                    self.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(
+                        zaroxi_core_engine_style::WidgetId::Tab { index: active_idx },
+                    )]);
                 } else if id.is_file_buffer() {
                     debug::zft(
                         "click_branch_file_body",
@@ -263,42 +258,29 @@ impl GuiApp {
                                 .and_then(|m| m.active_buffer.as_ref().map(|b| b.to_string()))),
                         ),
                     );
-                    debug::zft(
-                        "focus_click",
-                        format_args!(
-                            "clicked={:?}  tab_active_before={:?}",
-                            id,
-                            self.tab_state.active(),
-                        ),
-                    );
                     self.tab_state.focus_tab(&super::super::destination::WorkbenchTabId::Editor);
                     self.rail_selected_index = 0;
                     self.cockpit_status_fingerprint = 0;
                     self.needs_render = true;
-                    if let Some(ref comp) = self.composition {
-                        let summary = comp.latest_opened_buffers_summary();
-                        let bid_str = match &id {
-                            super::super::destination::WorkbenchTabId::FileBuffer(s) => s.as_str(),
-                            _ => "",
-                        };
-                        if let Some(idx) =
-                            summary.items.iter().position(|it| it.buffer_id.to_string() == bid_str)
-                        {
-                            debug::zft(
-                                "focus_dispatch",
-                                format_args!(
-                                    "bid={bid_str}  item_idx={idx}  items_count={}",
-                                    summary.items.len(),
-                                ),
-                            );
-                            self.handle_actions(vec![
-                                zaroxi_core_engine_ui::WidgetAction::Activated(
-                                    zaroxi_core_engine_style::WidgetId::Tab { index: idx },
-                                ),
-                            ]);
-                        } else {
-                            debug::zft("focus_nomatch", format_args!("bid={bid_str}"));
-                        }
+                    let bid_str = match &id {
+                        super::super::destination::WorkbenchTabId::FileBuffer(s) => s,
+                        _ => "",
+                    };
+                    // Resolve index from EditorGroup (sole tab authority).
+                    let tabs = self.editor_group.visible_tabs();
+                    if let Some(idx) = tabs.iter().position(|t| t.buffer_id == bid_str) {
+                        debug::zft(
+                            "focus_dispatch",
+                            format_args!(
+                                "bid={bid_str}  item_idx={idx}  tabs_count={}",
+                                tabs.len(),
+                            ),
+                        );
+                        self.handle_actions(vec![zaroxi_core_engine_ui::WidgetAction::Activated(
+                            zaroxi_core_engine_style::WidgetId::Tab { index: idx },
+                        )]);
+                    } else {
+                        debug::zft("focus_nomatch", format_args!("bid={bid_str}"));
                     }
                 } else {
                     debug::zft(

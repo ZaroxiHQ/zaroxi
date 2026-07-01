@@ -1671,29 +1671,58 @@ impl GuiApp {
                             self.cockpit_text_active && fp == self.cockpit_status_fingerprint;
                         self.cockpit_status_fingerprint = fp;
                         if !skip {
-                            let file_tabs: Vec<(String, String, bool)> = self
-                                .composition
-                                .as_ref()
-                                .map(|c| {
-                                    c.latest_opened_buffers_summary()
-                                        .items
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, it)| {
-                                            (
-                                                it.display
-                                                    .clone()
-                                                    .unwrap_or_else(|| format!("Buffer {}", i + 1)),
-                                                it.buffer_id.to_string(),
-                                                it.active,
-                                            )
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            self.tab_state.sync_file_tabs(&file_tabs);
+                            // File tabs come exclusively from EditorGroup.
+                            self.editor_group.check_invariants();
+                            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                                let ob_tabs: Vec<String> = self
+                                    .composition
+                                    .as_ref()
+                                    .and_then(|c| c.metadata.as_ref())
+                                    .map(|m| {
+                                        m.opened_buffers
+                                            .iter()
+                                            .map(|b| {
+                                                b.buffer_id
+                                                    .to_string()
+                                                    .strip_prefix("buf:")
+                                                    .unwrap_or(&b.buffer_id.to_string())
+                                                    .to_string()
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                eprintln!(
+                                    "ZAROXI_VISIBLE_TAB_MODEL: frame {} opened_buffers={:?} large_file_mode={}",
+                                    self.editor_group.diagnostic_line(),
+                                    ob_tabs,
+                                    self.large_file_mode,
+                                );
+                                // Check: preview path must not be in opened_buffers unless also pinned.
+                                if let Some(pp) = self.editor_group.preview_path() {
+                                    let in_ob = ob_tabs.iter().any(|b| b == pp);
+                                    let is_pinned = self.editor_group.is_pinned(pp);
+                                    if in_ob && !is_pinned {
+                                        eprintln!(
+                                            "ZAROXI_VISIBLE_TAB_MODEL: invariant_violation preview_path_in_opened_buffers path={} is_pinned={}",
+                                            pp, is_pinned,
+                                        );
+                                    }
+                                }
+                                // Check: active_doc matches editor_group.active.
+                                let eg_active = self.editor_group.active_path();
+                                let doc_active = self
+                                    .committed_active_file
+                                    .as_deref()
+                                    .and_then(|s| s.strip_prefix("buf:"));
+                                if eg_active != doc_active {
+                                    eprintln!(
+                                        "ZAROXI_VISIBLE_TAB_MODEL: invariant_violation active_mismatch editor_group={:?} committed_active_file={:?}",
+                                        eg_active, doc_active,
+                                    );
+                                }
+                            }
                             let workbench_tabs = super::annotate_tabs_dirty(
-                                self.tab_state.projected_tabs(),
+                                self.tab_state.projected_tabs(&self.editor_group),
                                 &dirty_doc_paths,
                             );
                             let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
@@ -1704,7 +1733,7 @@ impl GuiApp {
                                         active: t.active,
                                         closable: t.closable,
                                         kind: t.kind,
-                                        is_preview: false,
+                                        is_preview: t.is_preview,
                                     })
                                     .collect();
                             let (dp_settings, dp_extensions, dp_placeholder) =
@@ -1838,20 +1867,21 @@ impl GuiApp {
                         // ── Tab hit rects (recomputed every frame so resize
                         // always produces correct hit geometry) ─────
                         self.tab_hit_rects = {
-                            let wb = super::annotate_tabs_dirty(
-                                self.tab_state.projected_tabs(),
+                            let workbench_tabs = super::annotate_tabs_dirty(
+                                self.tab_state.projected_tabs(&self.editor_group),
                                 &dirty_doc_paths,
                             );
-                            let layout_tabs: Vec<zaroxi_interface_widgets::CockpitTab> = wb
-                                .iter()
-                                .map(|t| zaroxi_interface_widgets::CockpitTab {
-                                    title: t.title.clone(),
-                                    active: t.active,
-                                    closable: t.closable,
-                                    kind: t.kind,
-                                    is_preview: false,
-                                })
-                                .collect();
+                            let layout_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
+                                workbench_tabs
+                                    .iter()
+                                    .map(|t| zaroxi_interface_widgets::CockpitTab {
+                                        title: t.title.clone(),
+                                        active: t.active,
+                                        closable: t.closable,
+                                        kind: t.kind,
+                                        is_preview: t.is_preview,
+                                    })
+                                    .collect();
                             self.tab_state.ensure_active_visible(
                                 cockpit_tab_strip_rect.2,
                                 zaroxi_interface_widgets::FILE_TAB_W,
@@ -1863,7 +1893,8 @@ impl GuiApp {
                             );
                             self.tab_arrow_left_rect = layout_res.arrow_left;
                             self.tab_arrow_right_rect = layout_res.arrow_right;
-                            wb.iter()
+                            workbench_tabs
+                                .iter()
                                 .zip(layout_res.geometries)
                                 .map(|(t, (rect, close))| {
                                     super::super::destination::WorkbenchTabHit {
@@ -2236,29 +2267,8 @@ impl GuiApp {
                                         + 1024;
                                 self.cockpit_retained_bytes = cockpit_bytes_est;
                             } else {
-                                let file_tabs: Vec<(String, String, bool)> = self
-                                    .composition
-                                    .as_ref()
-                                    .map(|c| {
-                                        c.latest_opened_buffers_summary()
-                                            .items
-                                            .iter()
-                                            .enumerate()
-                                            .map(|(i, it)| {
-                                                (
-                                                    it.display.clone().unwrap_or_else(|| {
-                                                        format!("Buffer {}", i + 1)
-                                                    }),
-                                                    it.buffer_id.to_string(),
-                                                    it.active,
-                                                )
-                                            })
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-                                self.tab_state.sync_file_tabs(&file_tabs);
                                 let workbench_tabs = super::annotate_tabs_dirty(
-                                    self.tab_state.projected_tabs(),
+                                    self.tab_state.projected_tabs(&self.editor_group),
                                     &dirty_doc_paths,
                                 );
                                 let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
@@ -2269,7 +2279,7 @@ impl GuiApp {
                                             active: t.active,
                                             closable: t.closable,
                                             kind: t.kind,
-                                            is_preview: false,
+                                            is_preview: t.is_preview,
                                         })
                                         .collect();
                                 let (dp_settings, dp_extensions, dp_placeholder) =

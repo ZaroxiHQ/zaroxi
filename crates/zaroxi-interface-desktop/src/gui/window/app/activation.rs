@@ -93,71 +93,43 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             if super::first_open_trace_enabled() {
                 eprintln!("ZAROXI_DEBUG_FIRST_OPEN: activation=tab tab_index={}", *index);
             }
-            if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
-                eprintln!(
-                    "ZAROXI_DEBUG_TAB_CLICK: tab_index={} items_len={}",
-                    *index,
-                    comp.latest_opened_buffers_summary().items.len(),
-                );
-            }
-            let items = comp.latest_opened_buffers_summary().items;
-            if *index < items.len() {
-                let entry = items.get(*index)?;
-                let buffer_id = entry.buffer_id.clone();
+            // Resolve tab index from EditorGroup (sole authority for file tabs).
+            let file_tabs = app.editor_group.visible_tabs();
+            if *index < file_tabs.len() {
+                let vt = &file_tabs[*index];
+                let buffer_id = vt.buffer_id.clone();
                 if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
-                    let is_direct = comp.direct_buffer_ids.iter().any(|b| *b == buffer_id);
-                    let disp = entry.display.as_deref().unwrap_or("<none>");
                     eprintln!(
-                        "ZAROXI_DEBUG_TAB_CLICK: buffer_id={} display={} is_direct={} items={}",
-                        buffer_id,
-                        disp,
-                        is_direct,
-                        items.len(),
+                        "ZAROXI_DEBUG_TAB_CLICK: tab_index={} buffer_id={} display={} editor_group path={}",
+                        *index, buffer_id, vt.display, vt.path,
                     );
                 }
-                // Large-file (direct) buffers are not known to the workspace
-                // service.  Activate them locally through the composition.
-                if comp.direct_buffer_ids.iter().any(|b| *b == buffer_id) {
-                    app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
-                    if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
-                        eprintln!(
-                            "ZAROXI_DEBUG_TAB_CLICK: direct_buffer activation for={}",
-                            buffer_id,
-                        );
-                    }
-                    comp.set_direct_buffer_active(buffer_id.clone());
-                    app.tab_state
-                        .focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
-                    app.rail_selected_index = 0;
-                    app.cockpit_status_fingerprint = 0;
-                    return Some(comp.build_work_content());
+                app.editor_group.activate_by_path(&vt.path);
+                // Large-file (direct/PieceTable) buffers: activate locally.
+                let bid = crate::ports::BufferId(buffer_id.clone());
+                if comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                    comp.set_direct_buffer_active(bid.clone());
+                } else {
+                    comp.clear_direct_active();
+                    let _ = pollster::block_on(
+                        crate::actions::set_active_buffer_and_get_shell_context(
+                            comp,
+                            service.clone(),
+                            view.clone(),
+                            session,
+                            app.workspace_id,
+                            bid,
+                        ),
+                    );
                 }
-                // Service-backed buffer: clear any previously-active direct
-                // buffer so the service-reported active wins in the refresh
-                // cycle.  Then set the active buffer in the service and
-                // refresh the shell context synchronously.
-                comp.clear_direct_active();
                 app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
-                let result =
-                    pollster::block_on(crate::actions::set_active_buffer_and_get_shell_context(
-                        comp,
-                        service.clone(),
-                        view.clone(),
-                        session,
-                        app.workspace_id,
-                        buffer_id.clone(),
-                    ));
-                if std::env::var("ZAROXI_DEBUG_TAB_CLICK").as_deref() == Ok("1") {
-                    eprintln!(
-                        "ZAROXI_DEBUG_TAB_CLICK: service_activation result={:?} buffer_id={}",
-                        result.as_ref().map(|_| "ok").unwrap_or("err"),
-                        buffer_id,
-                    );
-                }
-                return result.ok().map(|_| comp.build_work_content());
+                app.tab_state.focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
+                app.rail_selected_index = 0;
+                app.cockpit_status_fingerprint = 0;
+                return Some(comp.build_work_content());
             }
             // Non-file tab — switch rail destination.
-            let non_file_idx = *index - items.len();
+            let non_file_idx = *index - file_tabs.len();
             if let Some(wc) = &app.work_content {
                 if let Some(nf_tabs) = &wc.editor_non_file_tabs {
                     if let Some((_, kind)) = nf_tabs.get(non_file_idx) {
@@ -207,69 +179,93 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 let is_double = app.last_explorer_click.map_or(false, |(t, idx, _)| {
                     now.duration_since(t).as_millis() < 400 && idx == click_idx
                 });
-                // Determine intent: single-click = Preview, double-click = Pinned.
-                // If the file is already in a pinned tab, override to ActivateExisting.
-                let raw_intent = if is_double {
-                    open_pipeline::OpenIntent::Pinned
-                } else {
-                    open_pipeline::OpenIntent::Preview
-                };
                 app.last_explorer_click = Some((now, click_idx, app.open_token));
                 let service = app.workspace_service.clone()?;
                 let session = app.session_id.clone()?;
                 let item_id = comp.get_explorer_item_id_at(resolved)?;
                 let path = comp.maybe_explorer.as_ref()?.get_entry_path(&item_id)?;
-                // Dedup check: if this file is already open, override intent.
-                {
-                    let summary = comp.latest_opened_buffers_summary();
-                    let path_str = path.to_string_lossy();
-                    if let Some(existing) =
-                        summary.items.iter().find(|it| it.display.as_deref() == Some(&*path_str))
-                    {
-                        let active = summary.active.as_ref();
-                        if active != Some(&existing.buffer_id) {
-                            let buffer_id = existing.buffer_id.clone();
-                            if super::doc_lifecycle_trace_enabled() {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent=ActivateExisting reason=already_pinned buffer={}",
-                                    click_idx, buffer_id,
-                                );
-                            }
-                            let view = app.workspace_view.clone()?;
-                            let workspace_id = app.workspace_id;
-                            let _ = pollster::block_on(
-                                crate::actions::set_active_buffer_and_get_shell_context(
-                                    comp,
-                                    service.clone(),
-                                    view,
-                                    session.clone(),
-                                    workspace_id,
-                                    buffer_id,
-                                ),
-                            );
-                            let wc = comp.build_work_content();
-                            app.tab_state.focus_tab(
-                                &crate::gui::window::destination::WorkbenchTabId::Editor,
-                            );
-                            app.rail_selected_index = 0;
-                            app.cockpit_status_fingerprint = 0;
-                            app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
-                            app.request_open(wc);
-                            app.needs_render = true;
-                            return None;
-                        } else {
-                            app.open_intent = None;
-                            return None;
-                        }
+                let path_str = path.to_string_lossy().to_string();
+
+                // ── Membership check: EditorGroup is the sole authority ──
+                let already_pinned = app.editor_group.is_pinned(&path_str);
+                let already_preview = app.editor_group.is_preview(&path_str);
+
+                if already_pinned {
+                    // File is already pinned in EditorGroup. Activate it directly.
+                    let bid = crate::ports::BufferId(format!("buf:{}", path_str));
+                    if comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                        comp.set_direct_buffer_active(bid.clone());
+                        app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
                     } else {
-                        app.open_intent = Some(raw_intent);
+                        let view = app.workspace_view.clone()?;
+                        let workspace_id = app.workspace_id;
+                        let _ = pollster::block_on(
+                            crate::actions::set_active_buffer_and_get_shell_context(
+                                comp,
+                                service.clone(),
+                                view,
+                                session.clone(),
+                                workspace_id,
+                                bid,
+                            ),
+                        );
+                        app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
+                    }
+                    app.tab_state
+                        .focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
+                    app.rail_selected_index = 0;
+                    app.cockpit_status_fingerprint = 0;
+                    let wc = comp.build_work_content();
+                    app.request_open(wc);
+                    app.needs_render = true;
+                    if super::doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent=ActivateExisting reason=editor_group_pinned path={}",
+                            click_idx, path_str,
+                        );
+                    }
+                    return None;
+                }
+
+                let raw_intent = if is_double {
+                    if already_preview {
+                        // Double-click on previewed file: promote.
                         if super::doc_lifecycle_trace_enabled() {
                             eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent={:?} is_double={} reason=new_file",
-                                click_idx, raw_intent, is_double,
+                                "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent=Pinned reason=double_click_preview path={}",
+                                click_idx, path_str,
                             );
                         }
+                        // Promote immediately — no background read needed.
+                        let _ = app.editor_group.promote_preview_to_pinned();
+                        let bid = crate::ports::BufferId(format!("buf:{}", path_str));
+                        if !comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                            comp.add_opened_buffer_direct(
+                                bid.clone(),
+                                path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()),
+                            );
+                        }
+                        app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
+                        app.tab_state
+                            .focus_tab(&crate::gui::window::destination::WorkbenchTabId::Editor);
+                        app.rail_selected_index = 0;
+                        app.cockpit_status_fingerprint = 0;
+                        let wc = comp.build_work_content();
+                        app.request_open(wc);
+                        app.needs_render = true;
+                        return None;
                     }
+                    open_pipeline::OpenIntent::Pinned
+                } else {
+                    open_pipeline::OpenIntent::Preview
+                };
+
+                app.open_intent = Some(raw_intent);
+                if super::doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: explorer_click idx={} intent={:?} is_double={} reason=new_file path={}",
+                        click_idx, raw_intent, is_double, path_str,
+                    );
                 }
                 // Instead of `block_on`'ing the disk read on the UI thread (~1 s
                 // for huge files) before `request_open`, resolve the path

@@ -1140,11 +1140,8 @@ impl TextRenderer for CosmicTextRenderer {
             // Pin the bundled editor font on every run so the whole line shapes
             // with one monospace font (no default/per-run font matching).
             let family = Family::Name(&self.font_family);
-            let attrs = Attrs::new().family(family);
+            let style = if cmd.italic { Some(cosmic_text::Style::Italic) } else { None };
             if let Some(ref runs) = cmd.color_runs {
-                // Shape the whole logical line as ONE buffer with per-run color
-                // attributes: continuous advances/baseline, syntax colors via
-                // each glyph's `color_opt`.
                 let spans: Vec<(&str, Attrs)> = runs
                     .iter()
                     .filter(|(t, _)| !t.is_empty())
@@ -1155,11 +1152,27 @@ impl TextRenderer for CosmicTextRenderer {
                             (c[2] * 255.0).round() as u8,
                             (c[3] * 255.0).round() as u8,
                         );
-                        (t.as_str(), Attrs::new().family(family).color(col))
+                        let mut ra = if let Some(s) = style {
+                            Attrs::new().family(family).style(s)
+                        } else {
+                            Attrs::new().family(family)
+                        };
+                        ra = ra.color(col);
+                        (t.as_str(), ra)
                     })
                     .collect();
-                buf.set_rich_text(spans, &attrs, Shaping::Advanced, None);
+                let base_attrs = if let Some(s) = style {
+                    Attrs::new().family(family).style(s)
+                } else {
+                    Attrs::new().family(family)
+                };
+                buf.set_rich_text(spans, &base_attrs, Shaping::Advanced, None);
             } else {
+                let attrs = if let Some(s) = style {
+                    Attrs::new().family(family).style(s)
+                } else {
+                    Attrs::new().family(family)
+                };
                 buf.set_text(&cmd.text, &attrs, Shaping::Advanced, None);
             }
 

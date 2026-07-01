@@ -1921,6 +1921,8 @@ pub struct CockpitText {
     /// produced this text. Glyphs outside this region are culled by the cosmic
     /// text layer.
     pub clip_rect: Option<(f32, f32, f32, f32)>,
+    /// Render with italic style (preview tabs).
+    pub italic: bool,
 }
 
 /// Per-frame render-side timing + counters, gated behind `ZAROXI_PERF_TRACE=1`.
@@ -2532,9 +2534,12 @@ fn render_frame_inner(
             for ct in cockpit_text {
                 let (clip_x, clip_y, clip_w, clip_h) =
                     ct.clip_rect.unwrap_or((0.0, 0.0, config.width as f32, config.height as f32));
-                text_renderer.queue_text(crate::renderer::text::TextCommand::new_body(
-                    &ct.text, ct.x, ct.y, ct.color, ct.size_px, clip_x, clip_y, clip_w, clip_h,
-                ));
+                text_renderer.queue_text(
+                    crate::renderer::text::TextCommand::new_body(
+                        &ct.text, ct.x, ct.y, ct.color, ct.size_px, clip_x, clip_y, clip_w, clip_h,
+                    )
+                    .with_italic(ct.italic),
+                );
             }
             let mut text_cmd_count: usize = 0;
             let mut prepare_wall_ms: f32 = 0.0;

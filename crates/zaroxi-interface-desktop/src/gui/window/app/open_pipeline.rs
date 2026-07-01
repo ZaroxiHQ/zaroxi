@@ -18,17 +18,6 @@ pub enum OpenIntent {
     ActivateExisting,
 }
 
-/// Tracks the one shared preview tab in the editor strip.
-#[derive(Debug, Clone)]
-pub struct PreviewTabState {
-    /// Canonical file path (no `buf:` prefix).
-    pub file_path: String,
-    /// Workspace buffer id string (e.g. `buf:/path/to/file`).
-    pub buffer_id: String,
-    /// Display label shown in the tab.
-    pub display: String,
-}
-
 /// Phase 11 — atomic first-paint open presentation.
 ///
 /// Tracks one open's path from the explorer click to the single, coherent first
@@ -83,6 +72,34 @@ impl OpenPresentation {
 }
 
 impl GuiApp {
+    /// Reconcile `committed_active_file` from [`EditorGroup::active`].
+    ///
+    /// Call after any EditorGroup mutation (open_preview, open_pinned,
+    /// promote, close, activate).  Ensures the render source key and
+    /// status/tab-strip always reflect the editor-group's active
+    /// editor identity.  Never sets a file path without also updating
+    /// EditorGroup first — this function IS the reconciliation, not a
+    /// competing authority.
+    pub(crate) fn reconcile_active_file_from_editor_group(&mut self) {
+        let eg_active = self.editor_group.active_path().map(|s| s.to_string());
+        if eg_active.is_none() {
+            // No file editor active; leave committed_active_file as-is
+            // (it may be None for welcome / non-file states).
+            return;
+        }
+        let desired = format!("buf:{}", eg_active.as_ref().unwrap());
+        if self.committed_active_file.as_deref() != Some(&desired) {
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_VISIBLE_TAB_MODEL: reconcile active_file {} -> {}",
+                    self.committed_active_file.as_deref().unwrap_or("<none>"),
+                    desired,
+                );
+            }
+            self.committed_active_file = Some(desired);
+        }
+    }
+
     pub(crate) fn request_open(&mut self, wc: ShellWorkContent) {
         self.open_token += 1;
         let token = self.open_token;
@@ -102,6 +119,18 @@ impl GuiApp {
             eprintln!(
                 "ZAROXI_DOC_LIFECYCLE: request_open seq={} active_file={:?} prev_active_file={:?}",
                 seq, wc.active_file, self.committed_active_file,
+            );
+        }
+        if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+            let path =
+                wc.active_file.as_deref().and_then(|s| s.strip_prefix("buf:")).unwrap_or("<none>");
+            eprintln!(
+                "ZAROXI_VISIBLE_TAB_MODEL: request_open token={} path={} is_loading_chrome={} open_intent={:?} {}",
+                token,
+                path,
+                wc.editor_body.is_none(),
+                self.open_intent,
+                self.editor_group.diagnostic_line(),
             );
         }
         // Loading state only when the active file actually changes (not for a
@@ -323,7 +352,7 @@ impl GuiApp {
                 self.document_view_states.insert(prev_key.clone(), vs);
             }
         }
-        // ── Preview-tab handling ─────────────────────────────────────
+        // ── Editor-group membership handling ─────────────────────────
         // Only consume the open intent when this commit carries actual
         // editor content (not the loading-chrome placeholder that is
         // immediately superseded by the background-read result).
@@ -331,83 +360,211 @@ impl GuiApp {
         let intent = if is_loading_chrome { None } else { self.open_intent.take() };
         let incoming_path = new_doc_key.clone();
         if let Some(ref act_path) = incoming_path {
+            let backend_kind = if self.large_file_mode {
+                editor_group::BackendKind::PieceTable
+            } else {
+                editor_group::BackendKind::Rope
+            };
+            let buffer_id = wc.active_file.clone().unwrap_or_default();
+            // Tab title: always use the file basename.  Never show
+            // "untitled" or workspace-service display text for a real
+            // file path.  The basename is derived from the act_path
+            // (canonical, guaranteed to be a real file path).
+            let display = act_path.rsplit('/').next().unwrap_or(act_path).to_string();
+            let backend_ready = !is_loading_chrome;
+
             if doc_lifecycle_trace_enabled() {
                 eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: commit_open_intent path={} intent={:?} preview_tab={:?}",
+                    "ZAROXI_DOC_LIFECYCLE: commit_open_intent path={} intent={:?} editor_group={} is_loading_chrome={}",
                     act_path,
                     intent,
-                    self.preview_tab.as_ref().map(|p| &p.file_path),
+                    self.editor_group.diagnostic_line(),
+                    is_loading_chrome,
                 );
             }
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                let ob_tabs: Vec<String> = self
+                    .composition
+                    .as_ref()
+                    .and_then(|c| c.metadata.as_ref())
+                    .map(|m| {
+                        m.opened_buffers
+                            .iter()
+                            .map(|b| {
+                                b.buffer_id
+                                    .to_string()
+                                    .strip_prefix("buf:")
+                                    .unwrap_or(&b.buffer_id.to_string())
+                                    .to_string()
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                eprintln!(
+                    "ZAROXI_VISIBLE_TAB_MODEL: commit_open_intent path={} intent={:?} {} opened_buffers={:?} is_loading_chrome={} backend_kind={:?}",
+                    act_path,
+                    intent,
+                    self.editor_group.diagnostic_line(),
+                    ob_tabs,
+                    is_loading_chrome,
+                    backend_kind,
+                );
+            }
+
+            // ── Loading-chrome instant EditorGroup update ─────────────
+            // When a file is opened and the first commit carries only the
+            // loading placeholder (editor_body=None), update EditorGroup
+            // IMMEDIATELY so the tab strip reflects the new file even
+            // while the background read is in flight.  The intent is NOT
+            // consumed here — it remains for the real-content commit
+            // which will set backend_ready=true on the same editor entry.
+            if is_loading_chrome {
+                if let Some(peek_intent) = self.open_intent {
+                    match peek_intent {
+                        OpenIntent::Preview => {
+                            let old_preview: Option<String> =
+                                self.editor_group.preview_path().map(|s| s.to_string());
+                            if let Some(ref prev_path) = old_preview {
+                                if *prev_path != *act_path {
+                                    let saved_scroll = self
+                                        .composition
+                                        .as_ref()
+                                        .and_then(|c| c.metadata.as_ref())
+                                        .map(|m| m.editor_scroll_top_line)
+                                        .unwrap_or(0);
+                                    editor_group::EditorGroup::save_view_state_for(
+                                        &mut self.document_view_states,
+                                        &prev_path,
+                                        saved_scroll,
+                                        &self.editor_buffer,
+                                    );
+                                }
+                            }
+                            let _ = self.editor_group.open_preview(
+                                act_path.clone(),
+                                buffer_id.clone(),
+                                display.clone(),
+                                backend_kind,
+                                false, // loading=true → backend_ready=false
+                            );
+                            if doc_lifecycle_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: loading_preview_set path={} display={} backend_kind={:?}",
+                                    act_path, display, backend_kind,
+                                );
+                            }
+                        }
+                        OpenIntent::Pinned => {
+                            let _ = self.editor_group.open_or_activate_pinned(
+                                act_path.clone(),
+                                buffer_id.clone(),
+                                display.clone(),
+                                backend_kind,
+                                false,
+                            );
+                        }
+                        OpenIntent::ActivateExisting => {
+                            self.editor_group.activate_by_path(act_path);
+                        }
+                    }
+                }
+                // Fall through: intent NOT consumed, real-content commit
+                // below will set backend_ready=true.
+            }
+
             match intent {
                 Some(OpenIntent::Preview) => {
-                    // If the file is already pinned, switch to ActivateExisting.
-                    if self.is_path_in_opened_buffers(act_path) {
-                        // Don't open a duplicate preview — just activate the pinned tab.
-                    } else {
-                        // Save existing preview tab's view state before replacing.
-                        if let Some(ref prev) = self.preview_tab {
-                            if prev.file_path != *act_path {
-                                let saved_scroll = self
-                                    .composition
-                                    .as_ref()
-                                    .and_then(|c| c.metadata.as_ref())
-                                    .map(|m| m.editor_scroll_top_line)
-                                    .unwrap_or(0);
-                                let vs = DocumentViewState::from_editor_and_scroll(
-                                    &self.editor_buffer,
-                                    saved_scroll,
+                    // Save outgoing preview state before replacing.
+                    let old_preview: Option<String> =
+                        self.editor_group.preview_path().map(|s| s.to_string());
+                    if let Some(ref prev_path) = old_preview {
+                        if *prev_path != *act_path {
+                            let saved_scroll = self
+                                .composition
+                                .as_ref()
+                                .and_then(|c| c.metadata.as_ref())
+                                .map(|m| m.editor_scroll_top_line)
+                                .unwrap_or(0);
+                            editor_group::EditorGroup::save_view_state_for(
+                                &mut self.document_view_states,
+                                &prev_path,
+                                saved_scroll,
+                                &self.editor_buffer,
+                            );
+                            if doc_lifecycle_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: preview_save old={} scroll={}",
+                                    prev_path, saved_scroll,
                                 );
-                                self.document_view_states.insert(prev.file_path.clone(), vs);
+                            }
+                        }
+                    }
+                    // Replace the loading entry (or create fresh) with
+                    // backend_ready=true.
+                    let result = self.editor_group.replace_preview(
+                        act_path.clone(),
+                        buffer_id,
+                        display.clone(),
+                        backend_kind,
+                        backend_ready,
+                    );
+                    if result.is_some() {
+                        if doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: preview_set path={} display={} backend_kind={:?}",
+                                act_path, display, backend_kind,
+                            );
+                        }
+                    } else if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: preview_skipped path={} reason=already_pinned",
+                            act_path,
+                        );
+                    }
+                }
+                Some(OpenIntent::Pinned) => {
+                    let was_preview = self.editor_group.is_preview(act_path);
+                    let id = self.editor_group.open_or_activate_pinned(
+                        act_path.clone(),
+                        buffer_id,
+                        display.clone(),
+                        backend_kind,
+                        backend_ready,
+                    );
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: pinned_open path={} id={} was_preview={} backend_kind={:?}",
+                            act_path, id, was_preview, backend_kind,
+                        );
+                    }
+                    // For large files that were preview-only (not yet in
+                    // opened_buffers), register now so the pinned tab
+                    // survives tab switches.
+                    {
+                        let in_opened = self.is_path_in_opened_buffers(act_path);
+                        if !in_opened {
+                            if let Some(ref mut comp) = self.composition {
+                                let disp = act_path.rsplit('/').next().map(|s| s.to_string());
+                                let bid = crate::ports::BufferId(format!("buf:{}", act_path));
+                                comp.add_opened_buffer_direct(bid.clone(), disp);
                                 if doc_lifecycle_trace_enabled() {
                                     eprintln!(
-                                        "ZAROXI_DOC_LIFECYCLE: preview_save old={} scroll={}",
-                                        prev.file_path, saved_scroll,
+                                        "ZAROXI_DOC_LIFECYCLE: pinned_register path={} was_preview={}",
+                                        act_path, was_preview,
                                     );
                                 }
                             }
                         }
-                        // Set new preview tab.
-                        let display =
-                            wc.editor_body.as_ref().map(|b| b.title.clone()).unwrap_or_else(|| {
-                                act_path.rsplit('/').next().unwrap_or(act_path).to_string()
-                            });
-                        self.preview_tab = Some(PreviewTabState {
-                            file_path: act_path.clone(),
-                            buffer_id: wc.active_file.clone().unwrap_or_default(),
-                            display,
-                        });
-                        if doc_lifecycle_trace_enabled() {
-                            eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: preview_set path={} display={}",
-                                act_path,
-                                self.preview_tab
-                                    .as_ref()
-                                    .map(|p| &p.display)
-                                    .unwrap_or(&String::new()),
-                            );
-                        }
-                    }
-                }
-                Some(OpenIntent::Pinned) => {
-                    // Double-click: promote current preview or open as pinned.
-                    if let Some(ref prev) = self.preview_tab {
-                        if prev.file_path == *act_path {
-                            // Promote the preview to a pinned tab.
-                            if doc_lifecycle_trace_enabled() {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: preview_promote path={}",
-                                    act_path
-                                );
-                            }
-                            self.preview_tab = None;
-                        }
                     }
                 }
                 Some(OpenIntent::ActivateExisting) | None => {
-                    // Normal activation or tab click — just restore view state.
+                    // Normal activation or tab click — just activate via
+                    // editor_group.
+                    self.editor_group.activate_by_path(act_path);
                 }
             }
+            // Ensure committed_active_file follows EditorGroup.active.
+            self.reconcile_active_file_from_editor_group();
         }
 
         // ── Check OUT: restore incoming document ──
@@ -741,6 +898,18 @@ impl GuiApp {
         // file's text under the new file's tab label. A restored document is
         // never cleared — its edited content is the source of truth.
         if buffer_changed && wc.editor_body.is_none() && !restored_from_store {
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                let path = wc
+                    .active_file
+                    .as_deref()
+                    .and_then(|s| s.strip_prefix("buf:"))
+                    .unwrap_or("<none>");
+                eprintln!(
+                    "ZAROXI_VISIBLE_TAB_MODEL: loading_commit path={} intent_consumed=false {}",
+                    path,
+                    self.editor_group.diagnostic_line(),
+                );
+            }
             // Clear the rope to a single empty line so the renderer
             // shows a clean empty editor instead of old file content.
             self.editor_buffer.replace_content("");
@@ -1284,17 +1453,33 @@ impl GuiApp {
                             tok, total, byte_len, index_ms,
                         );
                     }
+                    if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_VISIBLE_TAB_MODEL: resolved_commit path={} intent={:?} is_preview={} backend_kind=piece_table backend_registered=1",
+                            path_str,
+                            self.open_intent,
+                            self.open_intent == Some(OpenIntent::Preview),
+                        );
+                    }
                     // Store in per-path map; the render pipeline looks up
                     // the active tab's buffer by path.
                     self.doc_buffers.insert(path_str.clone(), doc);
-                    // Register as an opened buffer for the tab bar.
+                    // Register as an opened buffer for the tab bar ONLY
+                    // for pinned opens.  Preview opens keep the file out
+                    // of the persistent tab list — the single shared
+                    // editor_group.preview is the sole tab-strip source for preview.
+                    let is_preview = self.open_intent == Some(OpenIntent::Preview);
+                    if !is_preview {
+                        if let Some(ref mut comp) = self.composition {
+                            let display = doc_path
+                                .as_ref()
+                                .and_then(|p| p.file_name())
+                                .and_then(|n| n.to_str())
+                                .map(|s| s.to_string());
+                            comp.add_opened_buffer_direct(bid.clone(), display);
+                        }
+                    }
                     if let Some(ref mut comp) = self.composition {
-                        let display = doc_path
-                            .as_ref()
-                            .and_then(|p| p.file_name())
-                            .and_then(|n| n.to_str())
-                            .map(|s| s.to_string());
-                        comp.add_opened_buffer_direct(bid.clone(), display);
                         if let Some(ref mut meta) = comp.metadata {
                             meta.active_buffer_details =
                                 Some(crate::desktop::ActiveBufferDetails {
@@ -1328,6 +1513,16 @@ impl GuiApp {
                             continue;
                         }
                     };
+                    if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_VISIBLE_TAB_MODEL: resolved_commit path={} intent={:?} backend_kind=rope backend_registered=1",
+                            buffer_id
+                                .to_string()
+                                .strip_prefix("buf:")
+                                .unwrap_or(&buffer_id.to_string()),
+                            self.open_intent,
+                        );
+                    }
                     // Finalize on the UI thread: activate the (already-read)
                     // buffer and build the real work content (cheap session
                     // lookups, no disk read).

@@ -2322,7 +2322,8 @@ impl ZaroxiWidget for WorkbenchTabStrip {
             if tx_text < clip_right - TAB_MIN_VISIBLE {
                 runs.push(
                     WidgetText::new(label, tx_text, ty_text, font_size, color)
-                        .with_clip(strip_clip),
+                        .with_clip(strip_clip)
+                        .with_italic(t.is_preview),
                 );
             }
             if let Some((cx, cy, _cw, _ch)) = close

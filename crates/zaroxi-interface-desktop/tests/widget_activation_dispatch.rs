@@ -151,7 +151,7 @@ mod tests {
             activation_seq: 0,
             last_committed_activation_seq: 0,
             open_intent: None,
-            preview_tab: None,
+            editor_group: zaroxi_interface_desktop::gui::window::EditorGroup::default(),
             last_explorer_click: None,
         }
     }
