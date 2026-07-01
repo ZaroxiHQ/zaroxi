@@ -370,6 +370,19 @@ pub async fn refresh_with_service(
             } else {
                 comp.presenter.latest().map(|w| w.total_lines).unwrap_or(0usize)
             };
+            // For large files the presenter does not own the full document; its
+            // total_lines may report 0.  Preserve the previous active_buffer_details
+            // line_count when the new value is 0 but the old one was meaningful,
+            // otherwise wheel scrolling breaks because max_scroll = 0 - visible < 0.
+            let line_count = if line_count == 0 {
+                comp.metadata
+                    .as_ref()
+                    .and_then(|m| m.active_buffer_details.as_ref())
+                    .map(|d| d.line_count)
+                    .unwrap_or(0)
+            } else {
+                line_count
+            };
 
             Some(super::ActiveBufferDetails {
                 buffer_id: bid.clone(),
@@ -750,7 +763,16 @@ pub async fn request_ai_edit_active(
                                                     diagnostics_snapshot: None,
                                                     visible_window: None,
                                                     last_command_line: None,
-                                                    editor_viewport_line_count: None,
+                                                    // Preserve renderer-set viewport line count across refreshes.
+                                                    // The workspace service does not own editor geometry — this field
+                                                    // is set synchronously by the renderer (set_editor_viewport_lines)
+                                                    // and must survive async refresh cycles, otherwise
+                                                    // apply_pending_scrolls clamps to a stale default (10) and
+                                                    // wheel scrolling silently breaks.
+                                                    editor_viewport_line_count: comp
+                                                        .metadata
+                                                        .as_ref()
+                                                        .and_then(|m| m.editor_viewport_line_count),
                                                     editor_scroll_top_line: 0,
                                                     editor_scroll_px: 0.0,
                                                     last_synced_window_height: None,

@@ -568,10 +568,15 @@ impl GuiApp {
         }
 
         // ── Check OUT: restore incoming document ──
-        // Unified view-state restoration: apply to BOTH backends.
+        // Only run when the active file actually changed.  Same-file
+        // transitions (preview→pinned promotion, refresh reactivation,
+        // tab clicks on already-active tabs) must NOT trigger a checkout
+        // and must preserve the live scroll/caret/rope state.
         let mut vs_from_store: Option<DocumentViewState> = None;
-        if let Some(key) = new_doc_key.as_deref() {
-            vs_from_store = self.document_view_states.remove(key);
+        if active_file_changed {
+            if let Some(key) = new_doc_key.as_deref() {
+                vs_from_store = self.document_view_states.remove(key);
+            }
         }
         if let Some(ref vs) = vs_from_store {
             if doc_lifecycle_trace_enabled() {
@@ -585,84 +590,76 @@ impl GuiApp {
             }
         }
 
-        // Backend-specific content restoration.
-        //
-        // PieceTable (large-file) path: ALWAYS rebuild rope from
-        // doc_buffers[path], regardless of whether a cached view state
-        // exists.  The PieceTable is the sole authority for large-file
-        // content.  Cached view state only determines the scroll/caret
-        // origin; the content always comes from the live PieceTable.
-        //
-        // Rope (normal-file) path: restore from open_documents[path]
-        // which holds the full EditorBufferState clone with edits +
-        // undo/redo history.
-        if self.large_file_mode {
-            // Large file: always rebuild rope from the canonical PieceTable.
-            let caret_line = vs_from_store.as_ref().map_or(0, |v| v.caret_line);
-            let caret_col = vs_from_store.as_ref().map_or(0, |v| v.caret_col);
-            let scroll_top = vs_from_store.as_ref().map_or(0, |v| v.scroll_top);
-            let found = if let Some(key) = new_doc_key.as_deref()
-                && let Some(db) = self.doc_buffers.get(key)
-            {
-                let total = db.total_lines();
-                let end_needed = scroll_top.saturating_add(200).min(total).max(1);
-                let vp = db.lines_in_range(0, end_needed.saturating_sub(1));
-                let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
-                if !lines.is_empty() {
-                    self.editor_buffer.populate_from_lines(&lines, caret_line, caret_col);
+        // Backend-specific content restoration (only on actual file switch).
+        if active_file_changed {
+            if self.large_file_mode {
+                // Large file: always rebuild rope from the canonical PieceTable.
+                let caret_line = vs_from_store.as_ref().map_or(0, |v| v.caret_line);
+                let caret_col = vs_from_store.as_ref().map_or(0, |v| v.caret_col);
+                let scroll_top = vs_from_store.as_ref().map_or(0, |v| v.scroll_top);
+                let found = if let Some(key) = new_doc_key.as_deref()
+                    && let Some(db) = self.doc_buffers.get(key)
+                {
+                    let total = db.total_lines();
+                    let end_needed = scroll_top.saturating_add(200).min(total).max(1);
+                    let vp = db.lines_in_range(0, end_needed.saturating_sub(1));
+                    let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
+                    if !lines.is_empty() {
+                        self.editor_buffer.populate_from_lines(&lines, caret_line, caret_col);
+                    }
+                    if doc_lifecycle_trace_enabled() {
+                        let rope_after = self.editor_buffer.line_count();
+                        let ws = self.editor_buffer.window_start_line;
+                        let is_full_window = lines.len() >= total.min(200);
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=piece_table_full total_lines={} loaded_lines={} rope_after={} window_start={} rope_full_window={} caret={} scroll={} cached_view={} viewport_slice_used={}",
+                            key,
+                            total,
+                            lines.len(),
+                            rope_after,
+                            ws,
+                            is_full_window,
+                            caret_line,
+                            scroll_top,
+                            vs_from_store.is_some(),
+                            !is_full_window,
+                        );
+                    }
+                    true
+                } else {
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: checkout_miss path={} reason=doc_buffers_missing backend=piece_table",
+                            new_doc_key.as_deref().unwrap_or("?"),
+                        );
+                    }
+                    false
+                };
+                if found {
+                    restored_from_store = vs_from_store.is_some();
                 }
-                if doc_lifecycle_trace_enabled() {
-                    let rope_after = self.editor_buffer.line_count();
-                    let ws = self.editor_buffer.window_start_line;
-                    let is_full_window = lines.len() >= total.min(200);
-                    eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=piece_table_full total_lines={} loaded_lines={} rope_after={} window_start={} rope_full_window={} caret={} scroll={} cached_view={} viewport_slice_used={}",
-                        key,
-                        total,
-                        lines.len(),
-                        rope_after,
-                        ws,
-                        is_full_window,
-                        caret_line,
-                        scroll_top,
-                        vs_from_store.is_some(),
-                        !is_full_window,
-                    );
-                }
-                true
             } else {
-                if doc_lifecycle_trace_enabled() {
+                // Normal file: FULL editor-buffer restore from open_documents.
+                // HARD GATE: never attempt open_documents lookup for large files.
+                if let Some(key) = new_doc_key.as_deref()
+                    && let Some(stored) = self.open_documents.remove(key)
+                {
+                    if doc_lifecycle_trace_enabled() {
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=open_documents dirty={} version={}",
+                            key,
+                            stored.is_dirty(),
+                            stored.buffer_version,
+                        );
+                    }
+                    self.editor_buffer = stored;
+                    restored_from_store = true;
+                } else if doc_lifecycle_trace_enabled() && new_doc_key.is_some() {
                     eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkout_miss path={} reason=doc_buffers_missing backend=piece_table",
+                        "ZAROXI_DOC_LIFECYCLE: checkout_fresh path={} authority=none will_rebuild_from_disk",
                         new_doc_key.as_deref().unwrap_or("?"),
                     );
                 }
-                false
-            };
-            if found {
-                restored_from_store = vs_from_store.is_some();
-            }
-        } else {
-            // Normal file: FULL editor-buffer restore from open_documents.
-            // HARD GATE: never attempt open_documents lookup for large files.
-            if let Some(key) = new_doc_key.as_deref()
-                && let Some(stored) = self.open_documents.remove(key)
-            {
-                if doc_lifecycle_trace_enabled() {
-                    eprintln!(
-                        "ZAROXI_DOC_LIFECYCLE: checkout_authority path={} source=open_documents dirty={} version={}",
-                        key,
-                        stored.is_dirty(),
-                        stored.buffer_version,
-                    );
-                }
-                self.editor_buffer = stored;
-                restored_from_store = true;
-            } else if doc_lifecycle_trace_enabled() && new_doc_key.is_some() {
-                eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout_fresh path={} authority=none will_rebuild_from_disk",
-                    new_doc_key.as_deref().unwrap_or("?"),
-                );
             }
         }
 
@@ -1009,25 +1006,16 @@ impl GuiApp {
             );
         }
         self.committed_active_file = wc.active_file.clone();
-        // ── Null-active guard ─────────────────────────────────────
-        // If the incoming WC has no active_file but EditorGroup has an
-        // active file editor, reconcile — never clear committed_active_file
-        // while a file tab is actively selected.  This protects against
-        // null-active WCs produced by build_work_content() when the
-        // workspace service metadata lacks the active buffer (common for
-        // large-file preview opens and UI-button refresh cycles).
-        if self.committed_active_file.is_none() {
-            if let Some(eg_path) = self.editor_group.active_path() {
-                let buf_path = format!("buf:{}", eg_path);
-                if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
-                    eprintln!(
-                        "ZAROXI_VISIBLE_TAB_MODEL: null_active_blocked reason=editor_group_active_exists path={}",
-                        eg_path,
-                    );
-                }
-                self.committed_active_file = Some(buf_path);
-            }
-        }
+        // ── Active-ownership enforcement ───────────────────────────
+        // EditorGroup is the sole authority for the active file editor.
+        // After ALL mutations above (intent processing, checkout,
+        // hydration, view-model), reconcile committed_active_file to
+        // match EditorGroup.active.  This runs unconditionally — even
+        // for same-file transitions where content restore was skipped.
+        // Without this, wc.active_file (from build_work_content, which
+        // reads potentially-stale workspace-service metadata) can
+        // overwrite the correct EditorGroup-driven value.
+        self.reconcile_active_file_from_editor_group();
         self.last_committed_activation_seq = self.activation_seq;
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit

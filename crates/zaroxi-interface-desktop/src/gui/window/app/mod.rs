@@ -846,6 +846,13 @@ impl GuiApp {
             let cur_top = meta.editor_scroll_top_line;
             // Caret's CURRENT on-screen visual row (negative = above the window).
             let on_screen = caret_idx as isize - wrap_offset as isize;
+            // Relax bottom guard when the caret is near EOF so the last
+            // document line is always reachable.  Without this, the fixed
+            // EDITOR_BOTTOM_GUARD creates an unreachable dead zone of
+            // `bg` rows at the viewport bottom.
+            let lines_below = total_lines.saturating_sub(caret_line + 1);
+            let eff_bottom_guard = EDITOR_BOTTOM_GUARD.min(lines_below);
+
             // Visual-row guard-band follow when soft-wrap is active (always in the
             // GUI); logical-line band as a fallback for the no-wrap/test path.
             let new_top = if cp > 0 && !map.is_empty() {
@@ -855,7 +862,7 @@ impl GuiApp {
                     map,
                     visible,
                     EDITOR_TOP_GUARD,
-                    EDITOR_BOTTOM_GUARD,
+                    eff_bottom_guard,
                 )
             } else {
                 scroll_top_to_keep_caret_visible(
@@ -864,7 +871,7 @@ impl GuiApp {
                     visible,
                     total_lines,
                     EDITOR_TOP_GUARD,
-                    EDITOR_BOTTOM_GUARD,
+                    eff_bottom_guard,
                 )
             };
             changed = new_top != cur_top;

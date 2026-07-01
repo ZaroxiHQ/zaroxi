@@ -364,10 +364,11 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                     // reopen reads fresh from disk (closing is an explicit discard,
                     // not a tab switch). Clearing the active rope also prevents the
                     // commit_open check-in from re-parking the closed document.
-                    if let Some(p) = closed_path {
-                        app.open_documents.remove(&p);
+                    if let Some(ref closed) = closed_path {
+                        app.open_documents.remove(closed.as_str());
+                        app.editor_group.close(closed);
                         if super::debug::doc_lifecycle_trace_enabled() {
-                            eprintln!("ZAROXI_DOC_LIFECYCLE: close evicted path={}", p);
+                            eprintln!("ZAROXI_DOC_LIFECYCLE: close evicted path={}", closed);
                         }
                     }
                     app.editor_buffer.replace_content("");

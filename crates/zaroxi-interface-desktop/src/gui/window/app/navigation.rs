@@ -115,6 +115,8 @@ impl GuiApp {
         }
         self.tab_state
             .close_tab(&super::super::destination::WorkbenchTabId::FileBuffer(bid_str.to_string()));
+        // Keep EditorGroup in sync: remove the closed editor.
+        self.editor_group.close(&bid_str.to_string());
         if let Some(ref mut comp) = self.composition {
             let wc = comp.build_work_content();
             self.request_open(wc);
