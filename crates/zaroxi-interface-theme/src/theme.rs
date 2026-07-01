@@ -191,6 +191,17 @@ pub struct SemanticColors {
     // their own editor-chrome cue rather than colliding with `syntax_property`.
     pub diff_added: Color,
     pub diff_removed: Color,
+    /// Modified-line cue (amber) — reserved for git-modified gutter/badges.
+    pub diff_modified: Color,
+    /// Staged cue (indigo) — staged = intentional, uses the Zaroxi signature.
+    pub git_staged: Color,
+
+    // AI signal — teal, reserved EXCLUSIVELY for AI features (session pulse,
+    // AI cards). Never reused for generic UI so a teal cue always means "AI".
+    pub ai_active: Color,
+    pub ai_idle: Color,
+    pub ai_surface: Color,
+    pub ai_border: Color,
 
     // Focus
     pub focus_ring: Color,
@@ -248,104 +259,112 @@ impl SemanticColors {
     /// warm sand = numbers, cyan = literals/links — each hue with one clear job.
     pub fn dark() -> Self {
         Self {
-            // Background surfaces — deep navy planes (root → panels → editor hero → deep recess).
-            app_background: Color::from_hex("#0B0F1A"), // bg.root — app frame
-            shell_background: Color::from_hex("#10172A"), // bg.panel — panel shells
-            panel_background: Color::from_hex("#10172A"), // bg.panel
-            elevated_panel_background: Color::from_hex("#121A30"), // surface.overlay — popovers/dialogs
-            editor_background: Color::from_hex("#0E1322"),         // bg.editor — the hero canvas
-            input_background: Color::from_hex("#121A30"), // surface.default — search/form fields
-            status_bar_background: Color::from_hex("#0A0D18"), // bg.deep — status bar
-            title_bar_background: Color::from_hex("#10172A"), // bg.panel — title bar
-            activity_rail_background: Color::from_hex("#10172A"), // bg.panel
-            sidebar_background: Color::from_hex("#10172A"), // bg.panel — file explorer shell
-            tab_background: Color::from_hex("#121A30"),   // surface.default — inactive tab
-            tab_active_background: Color::from_hex("#1A2545"), // surface.active — active tab
-            assistant_panel_background: Color::from_hex("#10172A"), // bg.panel — AI shell
-            bottom_panel_background: Color::from_hex("#0A0D18"), // bg.deep — terminal/problems
-            bottom_panel_header_background: Color::from_hex("#10172A"), // bg.panel — bottom tab strip
-            assistant_panel_header_background: Color::from_hex("#10172A"), // bg.panel — AI header
+            // Surface layers — near-black indigo-tinted planes (chrome → panels → editor → float → overlay).
+            app_background: Color::from_hex("#07070B"), // bg_root — window chrome (near-black, not #000)
+            shell_background: Color::from_hex("#0A0A0F"), // bg_panel — sidebar/tab bar/panels
+            panel_background: Color::from_hex("#0A0A0F"), // bg_panel
+            elevated_panel_background: Color::from_hex("#1A1A26"), // bg_overlay — tooltip/popover/palette
+            editor_background: Color::from_hex("#0D0D13"),         // bg_editor — main editor area
+            input_background: Color::from_hex("#13131B"), // bg_float — inputs/cards/float surfaces
+            status_bar_background: Color::from_hex("#07070B"), // bg_root — status bar fill
+            title_bar_background: Color::from_hex("#0A0A0F"), // bg_panel — title bar
+            activity_rail_background: Color::from_hex("#0A0A0F"), // bg_panel
+            sidebar_background: Color::from_hex("#0A0A0F"), // bg_panel — file explorer shell
+            tab_background: Color::from_hex("#0A0A0F"),   // bg_panel — inactive tab strip
+            tab_active_background: Color::from_hex("#0D0D13"), // bg_editor — active tab connects to editor
+            assistant_panel_background: Color::from_hex("#0A0A0F"), // bg_panel — AI shell
+            bottom_panel_background: Color::from_hex("#0A0A0F"), // bg_panel — terminal/problems
+            bottom_panel_header_background: Color::from_hex("#0A0A0F"), // bg_panel — bottom tab strip
+            assistant_panel_header_background: Color::from_hex("#0A0A0F"), // bg_panel — AI header
 
-            // Text colors — soft off-white ramp (no pure white → no halation).
-            text_primary: Color::from_hex("#E6E9F2"), // text.primary — body code
-            text_secondary: Color::from_hex("#A9B1D6"), // text.secondary — labels, operators
-            text_muted: Color::from_hex("#6B7394"),   // text.muted — comments, line numbers
-            text_faint: Color::from_hex("#525A78"),   // text.faint — invisibles, hints
-            text_on_accent: Color::from_hex("#0B0F1A"), // text.inverse — on purple accent
-            text_on_surface: Color::from_hex("#E6E9F2"), // text.primary
-            text_disabled: Color::from_hex("#474E68"), // text.disabled
-            text_link: Color::from_hex("#00C2E8"), // accent.secondary — interactive/computational
+            // Text hierarchy — warm off-white (no pure #FFF → avoids halation at hour 4+).
+            text_primary: Color::from_hex("#E8E6F0"), // text_primary — active file/tab text
+            text_secondary: Color::from_hex("#B8B6C8"), // text_secondary — body, labels
+            text_muted: Color::from_hex("#6B6980"),   // text_muted — line numbers, section headers
+            text_faint: Color::from_hex("#45435A"),   // text_disabled — placeholder, invisibles
+            text_on_accent: Color::from_hex("#FFFFFF"), // text_on_accent — on filled indigo
+            text_on_surface: Color::from_hex("#E8E6F0"), // text_primary
+            text_disabled: Color::from_hex("#45435A"), // text_disabled
+            text_link: Color::from_hex("#9D7BF0"), // accent — interactive links carry the signature
 
-            // UI elements — quiet architectural separators, purple brand accent.
-            border: Color::from_hex("#223055"), // border.default
-            border_subtle: Color::from_hex("#1C2746"), // border.subtle
-            divider: Color::from_hex("#1C2746"), // border.subtle — major dividers
-            divider_subtle: Color::from_hex("#1C2746"), // border.subtle
-            panel_header_background: Color::from_hex("#10172A"), // bg.panel
-            nested_surface_background: Color::from_hex("#121A30"), // surface.default
-            app_chrome_background: Color::from_hex("#0B0F1A"), // bg.root — frame
-            tab_strip_background: Color::from_hex("#10172A"), // bg.panel — tab strip
-            accent: Color::from_hex("#7C5CFF"), // accent.primary — brand
-            accent_hover: Color::from_hex("#9B7CFF"), // accent.primaryHover
-            accent_soft: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
-            accent_soft_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.12), // glow.primary (soft)
+            // Borders — hairline dividers, brighter hover/active edge.
+            border: Color::from_hex("#2E2E3C"), // border_hover — default component border
+            border_subtle: Color::from_hex("#1C1C24"), // border — hairline dividers
+            divider: Color::from_hex("#1C1C24"), // border — major dividers
+            divider_subtle: Color::from_hex("#1C1C24"), // border
+            panel_header_background: Color::from_hex("#0A0A0F"), // bg_panel
+            nested_surface_background: Color::from_hex("#13131B"), // bg_float
+            app_chrome_background: Color::from_hex("#07070B"), // bg_root — frame
+            tab_strip_background: Color::from_hex("#0A0A0F"), // bg_panel — tab strip
+            accent: Color::from_hex("#9D7BF0"), // accent — Electric Indigo, the Zaroxi signature
+            accent_hover: Color::from_hex("#B89CF7"), // accent_bright — hover on accent element
+            accent_soft: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.08), // accent_surface — active item tint
+            accent_soft_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.06), // accent_line — active line tint
 
-            // States — flat surface tokens for hover/active/selected; selection uses glow.primary.
-            hover_background: Color::from_hex("#16203A"), // surface.hover
-            active_background: Color::from_hex("#1A2545"), // surface.active
-            selected_background: Color::from_hex("#1A2545"), // surface.active — selected rows
-            selected_text_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
-            selected_editor_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
+            // States — indigo tints for hover/active/selected (the signature is everywhere active).
+            hover_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.08), // accent_surface
+            active_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            selected_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            selected_text_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            selected_editor_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
 
-            // Status colors — refined (calm, not neon).
-            success: Color::from_hex("#7FBF7F"), // status.success — calm green
-            warning: Color::from_hex("#E0B35A"), // status.warning — soft amber
-            error: Color::from_hex("#F0718C"),   // status.error — refined rose
-            info: Color::from_hex("#66AEEA"),    // status.info — soft blue
-            diff_added: Color::from_hex("#7FBF7F"), // status.success — git added
-            diff_removed: Color::from_hex("#F0718C"), // status.error — git removed
+            // Status / semantic — functional colors, used nowhere decorative.
+            success: Color::from_hex("#3FB950"), // saved/ok/passing
+            warning: Color::from_hex("#D29922"), // lint warning
+            error: Color::from_hex("#F85149"),   // compile/LSP error
+            info: Color::from_hex("#9ECBFF"),    // info/hint
+            diff_added: Color::from_hex("#3FB950"), // git added — green
+            diff_removed: Color::from_hex("#F85149"), // git deleted — red
+            diff_modified: Color::from_hex("#D29922"), // git modified — amber
+            git_staged: Color::from_hex("#9D7BF0"), // staged — indigo (intentional)
 
-            // Focus — restrained purple ring only.
-            focus_ring: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
+            // AI signal — teal, AI-only.
+            ai_active: Color::from_hex("#3DDBD9"), // live session pulse
+            ai_idle: Color::from_hex("#2A9E9C"),   // session idle
+            ai_surface: Color::from_rgba(0.2392, 0.8588, 0.851, 0.08), // AI card bg
+            ai_border: Color::from_rgba(0.2392, 0.8588, 0.851, 0.25), // AI card border
+
+            // Focus — indigo keyboard-focus ring.
+            focus_ring: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.40), // accent_ring
 
             // Editor specific.
-            editor_gutter_background: Color::from_hex("#0E1322"), // bg.editor — gutter matches canvas
-            editor_line_highlight: Color::from_rgba(1.0, 1.0, 1.0, 0.035), // active line — subtle, no loud stripe
-            editor_cursor: Color::from_hex("#7C5CFF"),                     // accent.primary
-            editor_selection: Color::from_rgba(0.4863, 0.3608, 1.0, 0.22), // glow.primary
-            editor_find_highlight: Color::from_rgba(0.8784, 0.702, 0.3529, 0.28), // status.warning — reduced surface
+            editor_gutter_background: Color::from_hex("#0A0A0F"), // bg_panel — gutter
+            editor_line_highlight: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.06), // accent_line — 6% tracks position without noise
+            editor_cursor: Color::from_hex("#9D7BF0"), // accent — indigo cursor
+            editor_selection: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            editor_find_highlight: Color::from_rgba(0.8235, 0.6, 0.1333, 0.22), // git_modified_surface — search match
 
-            // Syntax — distance-readable: fewer, clearer semantic groups on a neutral ramp.
-            syntax_keyword: Color::from_hex("#B8A1FF"), // syntax.keyword — calm structural purple
-            syntax_function: Color::from_hex("#7FB7FF"), // syntax.callable — distinct blue
-            syntax_method: Color::from_hex("#7FB7FF"),  // syntax.callable
-            syntax_string: Color::from_hex("#98C379"),  // syntax.string — softened green
-            syntax_comment: Color::from_hex("#7581A1"), // syntax.comment — clearly secondary, still legible
-            syntax_type: Color::from_hex("#F0C674"),    // syntax.type — warm gold
-            syntax_variable: Color::from_hex("#E6E9F2"), // syntax.identifier — neutral (most-read)
-            syntax_constant: Color::from_hex("#56C7D9"), // syntax.constant — cyan-teal literal
-            syntax_number: Color::from_hex("#E5A96B"),  // syntax.number — warm orange-sand
-            syntax_operator: Color::from_hex("#B2BCDA"), // syntax.secondary — quieter than keywords/callables
-            syntax_punctuation: Color::from_hex("#5D6787"), // syntax.punctuation — pushed back strongly
-            syntax_attribute: Color::from_hex("#56C7D9"),   // syntax.constant — attribute name
-            syntax_tag: Color::from_hex("#B8A1FF"),         // syntax.keyword — markup structure
-            syntax_namespace: Color::from_hex("#B2BCDA"),   // syntax.secondary
-            syntax_macro: Color::from_hex("#7FB7FF"),       // syntax.callable
-            syntax_property: Color::from_hex("#B2BCDA"),    // syntax.secondary
-            syntax_parameter: Color::from_hex("#E6E9F2"),   // syntax.identifier
-            syntax_builtin: Color::from_hex("#7FB7FF"),     // syntax.callable — builtin function
-            syntax_escape: Color::from_hex("#E0B35A"),      // status.warning
-            syntax_embedded: Color::from_hex("#E6E9F2"),    // syntax.identifier
-            syntax_regex: Color::from_hex("#E0B35A"),       // status.warning (regexp)
-            syntax_markup_heading: Color::from_hex("#B8A1FF"), // syntax.keyword
-            syntax_markup_list: Color::from_hex("#B2BCDA"), // syntax.secondary
-            syntax_markup_quote: Color::from_hex("#7581A1"), // syntax.comment
-            syntax_markup_link: Color::from_hex("#56C7D9"), // syntax.constant — URL/link
-            syntax_markup_code: Color::from_hex("#98C379"), // syntax.string — inline code
-            syntax_markup_bold: Color::from_hex("#E6E9F2"), // syntax.identifier — strong
-            syntax_markup_italic: Color::from_hex("#B2BCDA"), // syntax.secondary — emphasis
-            syntax_markup_strikethrough: Color::from_hex("#7581A1"), // syntax.comment
-            syntax_lifetime: Color::from_hex("#5D6787"), // syntax.punctuation — quiet special marker
+            // Syntax — teal keywords = Zaroxi signature; high contrast on key tokens, receding punctuation.
+            syntax_keyword: Color::from_hex("#3DDBD9"), // syn_keyword — TEAL signature (no other IDE does this)
+            syntax_function: Color::from_hex("#9ECBFF"), // syn_function — soft sky blue
+            syntax_method: Color::from_hex("#9ECBFF"),  // syn_function
+            syntax_string: Color::from_hex("#F0A882"),  // syn_string — warm peach/coral
+            syntax_comment: Color::from_hex("#4E6A4E"), // syn_comment — low-contrast, recedes intentionally
+            syntax_type: Color::from_hex("#F0C674"),    // syn_type — warm gold
+            syntax_variable: Color::from_hex("#C8C6DA"), // syn_variable — warm light gray
+            syntax_constant: Color::from_hex("#D7BA7D"), // syn_constant — warm yellow
+            syntax_number: Color::from_hex("#B5CEA8"),  // syn_number — sage green
+            syntax_operator: Color::from_hex("#8B9EC9"), // syn_operator — muted periwinkle
+            syntax_punctuation: Color::from_hex("#5A586E"), // syn_punct — very dim, glyphs recede
+            syntax_attribute: Color::from_hex("#C586C0"), // syn_attribute — soft magenta
+            syntax_tag: Color::from_hex("#3DDBD9"),     // syn_keyword — markup structure teal
+            syntax_namespace: Color::from_hex("#A8A6C0"), // syn_module — near-neutral cool
+            syntax_macro: Color::from_hex("#C586C0"),   // syn_macro — soft magenta (special syntax)
+            syntax_property: Color::from_hex("#C8C6DA"), // syn_property — named slots, like variables
+            syntax_parameter: Color::from_hex("#C8C6DA"), // syn_parameter
+            syntax_builtin: Color::from_hex("#9ECBFF"),  // syn_function — builtin function
+            syntax_escape: Color::from_hex("#D7BA7D"), // syn_escape — special value, like constant
+            syntax_embedded: Color::from_hex("#3DDBD9"), // syn_interpolation — teal "active" slots
+            syntax_regex: Color::from_hex("#F0A882"),  // syn_regex — like string
+            syntax_markup_heading: Color::from_hex("#3DDBD9"), // syn_keyword — teal headings
+            syntax_markup_list: Color::from_hex("#8B9EC9"), // syn_operator — dim list markers
+            syntax_markup_quote: Color::from_hex("#4E6A4E"), // syn_comment — dim blockquote
+            syntax_markup_link: Color::from_hex("#9ECBFF"), // syn_function — blue links
+            syntax_markup_code: Color::from_hex("#F0A882"), // syn_string — peach inline code
+            syntax_markup_bold: Color::from_hex("#D7BA7D"), // syn_constant — warm emphasis
+            syntax_markup_italic: Color::from_hex("#C8C6DA"), // syn_variable — neutral italic
+            syntax_markup_strikethrough: Color::from_hex("#6B6980"), // text_muted
+            syntax_lifetime: Color::from_hex("#D4A0A0"), // syn_lifetime — dusty rose, spotable
         }
     }
 
@@ -384,104 +403,112 @@ impl SemanticColors {
     /// hierarchy with darkened hue families so nothing washes out on light surfaces.
     pub fn light() -> Self {
         Self {
-            // Background surfaces — soft cool-white planes (root → panels → editor hero → deep recess).
-            app_background: Color::from_hex("#F6F8FC"), // bg.root — app frame
-            shell_background: Color::from_hex("#F0F3FA"), // bg.panel — panel shells
-            panel_background: Color::from_hex("#F0F3FA"), // bg.panel
-            elevated_panel_background: Color::from_hex("#FFFFFF"), // surface.overlay — popovers/dialogs
-            editor_background: Color::from_hex("#FCFDFF"), // bg.editor — soft white, no glare
-            input_background: Color::from_hex("#FFFFFF"),  // surface.default — search/form fields
-            status_bar_background: Color::from_hex("#E8ECF7"), // bg.deep — status bar
-            title_bar_background: Color::from_hex("#F0F3FA"), // bg.panel — title bar
-            activity_rail_background: Color::from_hex("#F0F3FA"), // bg.panel
-            sidebar_background: Color::from_hex("#F0F3FA"), // bg.panel — file explorer shell
-            tab_background: Color::from_hex("#FFFFFF"),    // surface.default — inactive tab
-            tab_active_background: Color::from_hex("#E9EEFF"), // surface.active — active tab
-            assistant_panel_background: Color::from_hex("#F0F3FA"), // bg.panel — AI shell
-            bottom_panel_background: Color::from_hex("#E8ECF7"), // bg.deep — terminal/problems
-            bottom_panel_header_background: Color::from_hex("#F0F3FA"), // bg.panel — bottom tab strip
-            assistant_panel_header_background: Color::from_hex("#F0F3FA"), // bg.panel — AI header
+            // Surface layers — warm off-white (reduces blue-light fatigue), editor warmest for reading.
+            app_background: Color::from_hex("#F5F4F8"), // bg_root — window chrome
+            shell_background: Color::from_hex("#EEEDF3"), // bg_panel — sidebar/panels
+            panel_background: Color::from_hex("#EEEDF3"), // bg_panel
+            elevated_panel_background: Color::from_hex("#DDDBE8"), // bg_overlay — tooltip/popover
+            editor_background: Color::from_hex("#FAFAFA"), // bg_editor — warmest, easiest to read
+            input_background: Color::from_hex("#E8E6F0"), // bg_float — inputs/cards
+            status_bar_background: Color::from_hex("#F5F4F8"), // bg_root — status bar fill
+            title_bar_background: Color::from_hex("#EEEDF3"), // bg_panel — title bar
+            activity_rail_background: Color::from_hex("#EEEDF3"), // bg_panel
+            sidebar_background: Color::from_hex("#EEEDF3"), // bg_panel — file explorer shell
+            tab_background: Color::from_hex("#EEEDF3"), // bg_panel — inactive tab strip
+            tab_active_background: Color::from_hex("#FAFAFA"), // bg_editor — active tab connects to editor
+            assistant_panel_background: Color::from_hex("#EEEDF3"), // bg_panel — AI shell
+            bottom_panel_background: Color::from_hex("#EEEDF3"), // bg_panel — terminal/problems
+            bottom_panel_header_background: Color::from_hex("#EEEDF3"), // bg_panel — bottom tab strip
+            assistant_panel_header_background: Color::from_hex("#EEEDF3"), // bg_panel — AI header
 
-            // Text colors — near-ink ramp, high-contrast readable-first.
-            text_primary: Color::from_hex("#1A2138"), // text.primary — body code
-            text_secondary: Color::from_hex("#4A5578"), // text.secondary — labels, operators
-            text_muted: Color::from_hex("#7B85A3"),   // text.muted — comments, line numbers
-            text_faint: Color::from_hex("#96A0BB"),   // text.faint — invisibles, hints
-            text_on_accent: Color::from_hex("#FFFFFF"), // text.inverse — on purple accent
-            text_on_surface: Color::from_hex("#1A2138"), // text.primary
-            text_disabled: Color::from_hex("#A1A9C0"), // text.disabled
-            text_link: Color::from_hex("#0E93B0"), // accent.secondary — interactive/computational
+            // Text hierarchy — near-black with purple tint, high-contrast readable-first.
+            text_primary: Color::from_hex("#1A1830"), // text_primary — active file/tab text
+            text_secondary: Color::from_hex("#3D3A54"), // text_secondary — body, labels
+            text_muted: Color::from_hex("#6B6880"),   // text_muted — line numbers, section headers
+            text_faint: Color::from_hex("#A8A6BE"),   // text_disabled — placeholder, invisibles
+            text_on_accent: Color::from_hex("#FFFFFF"), // text_on_accent — on filled indigo
+            text_on_surface: Color::from_hex("#1A1830"), // text_primary
+            text_disabled: Color::from_hex("#A8A6BE"), // text_disabled
+            text_link: Color::from_hex("#6E40C9"), // accent — interactive links carry the signature
 
-            // UI elements — quiet architectural separators, purple brand accent.
-            border: Color::from_hex("#C8D2EA"), // border.default
-            border_subtle: Color::from_hex("#D6DDF0"), // border.subtle
-            divider: Color::from_hex("#D6DDF0"), // border.subtle — major dividers
-            divider_subtle: Color::from_hex("#D6DDF0"), // border.subtle
-            panel_header_background: Color::from_hex("#F0F3FA"), // bg.panel
-            nested_surface_background: Color::from_hex("#FFFFFF"), // surface.default
-            app_chrome_background: Color::from_hex("#F6F8FC"), // bg.root — frame
-            tab_strip_background: Color::from_hex("#F0F3FA"), // bg.panel — tab strip
-            accent: Color::from_hex("#7C5CFF"), // accent.primary — brand
-            accent_hover: Color::from_hex("#6A4DFF"), // accent.primaryHover
-            accent_soft: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16), // glow.primary
-            accent_soft_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.08), // glow.primary (soft)
+            // Borders — hairline dividers, stronger hover/active edge.
+            border: Color::from_hex("#B8B5CC"), // border_hover — default component border
+            border_subtle: Color::from_hex("#D8D6E3"), // border — hairline dividers
+            divider: Color::from_hex("#D8D6E3"), // border — major dividers
+            divider_subtle: Color::from_hex("#D8D6E3"), // border
+            panel_header_background: Color::from_hex("#EEEDF3"), // bg_panel
+            nested_surface_background: Color::from_hex("#E8E6F0"), // bg_float
+            app_chrome_background: Color::from_hex("#F5F4F8"), // bg_root — frame
+            tab_strip_background: Color::from_hex("#EEEDF3"), // bg_panel — tab strip
+            accent: Color::from_hex("#6E40C9"), // accent — deeper Electric Indigo for light-bg contrast
+            accent_hover: Color::from_hex("#9D7BF0"), // accent_bright — hover
+            accent_soft: Color::from_rgba(0.4314, 0.251, 0.7882, 0.08), // accent_surface
+            accent_soft_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.05), // accent_line
 
-            // States — flat surface tokens for hover/active/selected; selection uses glow.primary.
-            hover_background: Color::from_hex("#F4F7FF"), // surface.hover
-            active_background: Color::from_hex("#E9EEFF"), // surface.active
-            selected_background: Color::from_hex("#E9EEFF"), // surface.active — selected rows
-            selected_text_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16), // glow.primary
-            selected_editor_background: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16), // glow.primary
+            // States — indigo tints for hover/active/selected.
+            hover_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.08), // accent_surface
+            active_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            selected_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            selected_text_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            selected_editor_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
 
-            // Status colors — refined (readable on white, not washed out).
-            success: Color::from_hex("#3F8C56"), // status.success
-            warning: Color::from_hex("#B7791F"), // status.warning
-            error: Color::from_hex("#D85B72"),   // status.error
-            info: Color::from_hex("#2F73D9"),    // status.info
-            diff_added: Color::from_hex("#3F8C56"), // status.success — git added
-            diff_removed: Color::from_hex("#D85B72"), // status.error — git removed
+            // Status / semantic — deeper for readability on light.
+            success: Color::from_hex("#1A7F37"), // saved/ok/passing
+            warning: Color::from_hex("#9A6700"), // lint warning
+            error: Color::from_hex("#CF222E"),   // compile/LSP error
+            info: Color::from_hex("#0550AE"),    // info/hint
+            diff_added: Color::from_hex("#1A7F37"), // git added — green
+            diff_removed: Color::from_hex("#CF222E"), // git deleted — red
+            diff_modified: Color::from_hex("#9A6700"), // git modified — amber
+            git_staged: Color::from_hex("#6E40C9"), // staged — indigo (intentional)
 
-            // Focus — restrained purple ring only.
-            focus_ring: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16), // glow.primary
+            // AI signal — teal, AI-only.
+            ai_active: Color::from_hex("#0E8B89"), // live session pulse
+            ai_idle: Color::from_hex("#1A6B69"),   // session idle
+            ai_surface: Color::from_rgba(0.0549, 0.5451, 0.5373, 0.08), // AI card bg
+            ai_border: Color::from_rgba(0.0549, 0.5451, 0.5373, 0.25), // AI card border
+
+            // Focus — indigo keyboard-focus ring.
+            focus_ring: Color::from_rgba(0.4314, 0.251, 0.7882, 0.35), // accent_ring
 
             // Editor specific.
-            editor_gutter_background: Color::from_hex("#FCFDFF"), // bg.editor — gutter matches canvas
-            editor_line_highlight: Color::from_rgba(0.102, 0.129, 0.2196, 0.045), // active line — subtle
-            editor_cursor: Color::from_hex("#7C5CFF"),                            // accent.primary
-            editor_selection: Color::from_rgba(0.4863, 0.3608, 1.0, 0.16),        // glow.primary
-            editor_find_highlight: Color::from_rgba(0.7176, 0.4745, 0.1216, 0.24), // status.warning — reduced surface
+            editor_gutter_background: Color::from_hex("#EEEDF3"), // bg_panel — gutter
+            editor_line_highlight: Color::from_rgba(0.4314, 0.251, 0.7882, 0.05), // accent_line
+            editor_cursor: Color::from_hex("#6E40C9"),            // accent — indigo cursor
+            editor_selection: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            editor_find_highlight: Color::from_rgba(0.6039, 0.4039, 0.0, 0.22), // git_modified_surface — search match
 
-            // Syntax — distance-readable: fewer, clearer semantic groups; darkened so nothing washes out.
-            syntax_keyword: Color::from_hex("#6F42D6"), // syntax.keyword — structural purple (deep for white)
-            syntax_function: Color::from_hex("#2F6FD6"), // syntax.callable — distinct blue
-            syntax_method: Color::from_hex("#2F6FD6"),  // syntax.callable
-            syntax_string: Color::from_hex("#3E8A50"),  // syntax.string — readable green
-            syntax_comment: Color::from_hex("#6E7896"), // syntax.comment — clearly secondary, still legible
-            syntax_type: Color::from_hex("#9A6A12"), // syntax.type — warm gold (readable on white)
-            syntax_variable: Color::from_hex("#1A2138"), // syntax.identifier — neutral (most-read)
-            syntax_constant: Color::from_hex("#0D8DAA"), // syntax.constant — teal literal
-            syntax_number: Color::from_hex("#B86A22"), // syntax.number — warm orange-sand
-            syntax_operator: Color::from_hex("#4A5578"), // syntax.secondary — quieter than keywords/callables
-            syntax_punctuation: Color::from_hex("#8A93AE"), // syntax.punctuation — pushed back strongly
-            syntax_attribute: Color::from_hex("#0D8DAA"),   // syntax.constant — attribute name
-            syntax_tag: Color::from_hex("#6F42D6"),         // syntax.keyword — markup structure
-            syntax_namespace: Color::from_hex("#4A5578"),   // syntax.secondary
-            syntax_macro: Color::from_hex("#2F6FD6"),       // syntax.callable
-            syntax_property: Color::from_hex("#4A5578"),    // syntax.secondary
-            syntax_parameter: Color::from_hex("#1A2138"),   // syntax.identifier
-            syntax_builtin: Color::from_hex("#2F6FD6"),     // syntax.callable — builtin function
-            syntax_escape: Color::from_hex("#B7791F"),      // status.warning
-            syntax_embedded: Color::from_hex("#1A2138"),    // syntax.identifier
-            syntax_regex: Color::from_hex("#B7791F"),       // status.warning (regexp)
-            syntax_markup_heading: Color::from_hex("#6F42D6"), // syntax.keyword
-            syntax_markup_list: Color::from_hex("#4A5578"), // syntax.secondary
-            syntax_markup_quote: Color::from_hex("#6E7896"), // syntax.comment
-            syntax_markup_link: Color::from_hex("#0D8DAA"), // syntax.constant — URL/link
-            syntax_markup_code: Color::from_hex("#3E8A50"), // syntax.string — inline code
-            syntax_markup_bold: Color::from_hex("#1A2138"), // syntax.identifier — strong
-            syntax_markup_italic: Color::from_hex("#4A5578"), // syntax.secondary — emphasis
-            syntax_markup_strikethrough: Color::from_hex("#6E7896"), // syntax.comment
-            syntax_lifetime: Color::from_hex("#8A93AE"), // syntax.punctuation — quiet special marker
+            // Syntax — deeper teal keywords keep the Zaroxi signature; darkened so nothing washes out.
+            syntax_keyword: Color::from_hex("#0E8B89"), // syn_keyword — deep teal signature
+            syntax_function: Color::from_hex("#0550AE"), // syn_function — deep blue
+            syntax_method: Color::from_hex("#0550AE"),  // syn_function
+            syntax_string: Color::from_hex("#953800"),  // syn_string — terracotta/coral
+            syntax_comment: Color::from_hex("#8B9EB0"), // syn_comment — blue-gray, recedes
+            syntax_type: Color::from_hex("#8B5000"),    // syn_type — deep amber/brown
+            syntax_variable: Color::from_hex("#1A1830"), // syn_variable — near-ink
+            syntax_constant: Color::from_hex("#8B5000"), // syn_constant — deep amber
+            syntax_number: Color::from_hex("#116329"),  // syn_number — deep green
+            syntax_operator: Color::from_hex("#4A4580"), // syn_operator — muted indigo-gray
+            syntax_punctuation: Color::from_hex("#8B88A8"), // syn_punct — dim, recedes
+            syntax_attribute: Color::from_hex("#8250DF"), // syn_attribute — purple metadata
+            syntax_tag: Color::from_hex("#0E8B89"),     // syn_keyword — markup structure teal
+            syntax_namespace: Color::from_hex("#3D3A54"), // syn_module — near-neutral
+            syntax_macro: Color::from_hex("#8250DF"),   // syn_macro — purple (special syntax)
+            syntax_property: Color::from_hex("#1A1830"), // syn_property — like variable
+            syntax_parameter: Color::from_hex("#1A1830"), // syn_parameter
+            syntax_builtin: Color::from_hex("#0550AE"), // syn_function — builtin function
+            syntax_escape: Color::from_hex("#8B5000"),  // syn_escape — special value, like constant
+            syntax_embedded: Color::from_hex("#0E8B89"), // syn_interpolation — teal "active" slots
+            syntax_regex: Color::from_hex("#953800"),   // syn_regex — like string
+            syntax_markup_heading: Color::from_hex("#0E8B89"), // syn_keyword — teal headings
+            syntax_markup_list: Color::from_hex("#4A4580"), // syn_operator — dim list markers
+            syntax_markup_quote: Color::from_hex("#8B9EB0"), // syn_comment — dim blockquote
+            syntax_markup_link: Color::from_hex("#0550AE"), // syn_function — blue links
+            syntax_markup_code: Color::from_hex("#953800"), // syn_string — inline code
+            syntax_markup_bold: Color::from_hex("#8B5000"), // syn_constant — warm emphasis
+            syntax_markup_italic: Color::from_hex("#1A1830"), // syn_variable — neutral italic
+            syntax_markup_strikethrough: Color::from_hex("#6B6880"), // text_muted
+            syntax_lifetime: Color::from_hex("#953800"), // syn_lifetime — terracotta, spotable
         }
     }
 
@@ -648,6 +675,24 @@ impl SemanticColors {
         m.insert("--color-warning".to_string(), Value::String(self.warning.to_css_rgba()));
         m.insert("--color-error".to_string(), Value::String(self.error.to_css_rgba()));
         m.insert("--color-info".to_string(), Value::String(self.info.to_css_rgba()));
+
+        // Git / diff cues
+        m.insert("--color-diff-added".to_string(), Value::String(self.diff_added.to_css_rgba()));
+        m.insert(
+            "--color-diff-removed".to_string(),
+            Value::String(self.diff_removed.to_css_rgba()),
+        );
+        m.insert(
+            "--color-diff-modified".to_string(),
+            Value::String(self.diff_modified.to_css_rgba()),
+        );
+        m.insert("--color-git-staged".to_string(), Value::String(self.git_staged.to_css_rgba()));
+
+        // AI signal (teal — AI features only)
+        m.insert("--color-ai-active".to_string(), Value::String(self.ai_active.to_css_rgba()));
+        m.insert("--color-ai-idle".to_string(), Value::String(self.ai_idle.to_css_rgba()));
+        m.insert("--color-ai-surface".to_string(), Value::String(self.ai_surface.to_css_rgba()));
+        m.insert("--color-ai-border".to_string(), Value::String(self.ai_border.to_css_rgba()));
 
         // Focus
         m.insert("--color-focus-ring".to_string(), Value::String(self.focus_ring.to_css_rgba()));
