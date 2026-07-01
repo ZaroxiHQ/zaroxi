@@ -18,7 +18,8 @@ pub mod work_content;
 pub use state::{
     AiKind, AiProjection, AiProjectionSummary, AiState, Command, CommandBarState,
     DesktopComposition, DesktopMetadata, DesktopStatus, DesktopSummary, OpenedBufferItem,
-    ShellSnapshot, StatusBarLine,
+    ShellSnapshot, StatusBarLine, canonical_buffer_path, dedupe_opened_buffers,
+    same_opened_document,
 };
 
 // Re-export workspace-view DTOs through composition so downstream crate::desktop::*

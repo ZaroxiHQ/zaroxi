@@ -187,6 +187,24 @@ pub struct GuiApp {
     /// cross-file cache pollution is impossible — the cache is invalidated
     /// when the active document identity changes.
     pub cached_editor_active_file: Option<String>,
+    /// Canonical path (no `buf:` prefix) of the document whose content the
+    /// live `editor_buffer` (rope) currently holds.  This is the render
+    /// source's owner: the renderer may present rope content ONLY when this
+    /// equals the active canonical path.  `None` means the rope holds no
+    /// document (blanked for a pending load).  Set at every rope-mutation
+    /// site (materialize / checkout / large-file hydrate) and checked in the
+    /// render path so foreign content can never be shown under a file's tab.
+    pub active_rope_owner_path: Option<String>,
+    /// Canonical path for which the render-time owner-mismatch guard last
+    /// issued a corrective re-open.  Bounds the safety-net reload to a single
+    /// attempt per mismatch episode so a genuinely unhydratable document can
+    /// never wedge the redraw loop in a reopen storm.  Cleared once the rope
+    /// owner matches the active document again.
+    pub owner_reload_attempted_for: Option<String>,
+    /// Set by the render-time owner-mismatch guard when a normal (rope-backed)
+    /// document needs re-hydration.  Consumed at the top of the next redraw
+    /// (outside the window borrow) to issue exactly one corrective re-open.
+    pub pending_owner_rehydrate: bool,
     pub layout_controller: ShellLayoutController,
     pub editor_viewport: Option<EditorViewport>,
     /// Visual-to-logical line mapping from the most recent editor content
@@ -772,6 +790,8 @@ impl GuiApp {
         let saved_pre_edit = self.editor_buffer.pre_edit_line_count;
         self.editor_buffer.populate_from_lines(&new_lines, caret_line, caret_col);
         self.editor_buffer.pre_edit_line_count = saved_pre_edit;
+        // The rope now holds this large file's (extended) viewport window.
+        self.active_rope_owner_path = Some(path.clone());
         if doc_lifecycle_trace_enabled() {
             let rope_after = self.editor_buffer.line_count();
             let ws = self.editor_buffer.window_start_line;
@@ -786,6 +806,69 @@ impl GuiApp {
                 rope_after >= total.min(200),
                 caret_line,
             );
+        }
+    }
+
+    /// The authoritative total line count of the ACTIVE document, taken from
+    /// its owner-correct backend: the PieceTable total for large files, the
+    /// live rope line count for normal files (only when the rope actually owns
+    /// the active document).  This is the single source of truth for the
+    /// scroll `max_scroll` math.  Deriving it from the backend — rather than
+    /// from a metadata projection that a refresh or a tab transition can zero
+    /// — makes scrolling invariant across preview→pin of the SAME document.
+    /// Returns `None` when there is no active document or its content is not
+    /// yet resident (loading), in which case the caller must not clobber the
+    /// existing scroll inputs.
+    pub(crate) fn authoritative_active_line_count(&self) -> Option<usize> {
+        let active =
+            self.committed_active_file.as_deref().map(|s| s.strip_prefix("buf:").unwrap_or(s))?;
+        if self.large_file_mode {
+            self.doc_buffers.get(active).map(|db| db.total_lines())
+        } else if self.active_rope_owner_path.as_deref() == Some(active) {
+            Some(self.editor_buffer.line_count())
+        } else {
+            None
+        }
+    }
+
+    /// Refresh `active_buffer_details.line_count` from the owner-correct
+    /// backend just before scroll deltas are applied, so the scroll clamp can
+    /// never be starved by a stale/zeroed projection.  Enforces the hard rule
+    /// that a same-path preview→pin must not alter scroll math inputs.
+    pub(crate) fn sync_authoritative_scroll_line_count(&mut self) {
+        let Some(total) = self.authoritative_active_line_count() else { return };
+        if total == 0 {
+            return;
+        }
+        let active_bid = self
+            .committed_active_file
+            .as_deref()
+            .map(|s| crate::ports::BufferId(editor_group::buffer_key_from_path(s)));
+        let scroll_trace = std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1");
+        if let Some(comp) = self.composition.as_mut()
+            && let Some(meta) = comp.metadata.as_mut()
+        {
+            match meta.active_buffer_details.as_mut() {
+                Some(abd) if abd.line_count != total => {
+                    if scroll_trace {
+                        eprintln!(
+                            "ZAROXI_SCROLL: scroll_line_count_synced {} -> {}",
+                            abd.line_count, total,
+                        );
+                    }
+                    abd.line_count = total;
+                }
+                Some(_) => {}
+                None => {
+                    if let Some(bid) = active_bid {
+                        meta.active_buffer_details = Some(crate::desktop::ActiveBufferDetails {
+                            buffer_id: bid,
+                            display: None,
+                            line_count: total,
+                        });
+                    }
+                }
+            }
         }
     }
 

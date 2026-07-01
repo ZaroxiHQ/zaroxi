@@ -414,6 +414,29 @@ impl GuiApp {
             self.repopulate_large_file_rope(scroll_end);
         }
 
+        // Deferred owner-mismatch re-hydration for normal files: the render
+        // guard (below, inside the window borrow) can only blank the rope and
+        // flag; the corrective re-open runs here where `&mut self` is free.
+        // Bounded to one attempt per mismatch episode via
+        // `owner_reload_attempted_for`, so it can never storm.
+        if self.pending_owner_rehydrate {
+            self.pending_owner_rehydrate = false;
+            let loading =
+                self.visible_loading_state || self.background_open_pending || self.read_pending;
+            if !loading && let Some(comp) = self.composition.as_mut() {
+                let wc = comp.build_work_content();
+                self.request_open(wc);
+            }
+        }
+
+        // Owner-correct scroll input: refresh the active document's total line
+        // count from its backend before the window borrow (and thus before
+        // apply_pending_scrolls), so a preview→pin (or any same-path)
+        // transition can never starve the scroll clamp with a stale/zeroed
+        // projection. Runs here (outside the window borrow) because it takes
+        // `&mut self`.
+        self.sync_authoritative_scroll_line_count();
+
         if let Some(z) = self.maybe_window.as_mut() {
             let (sw, sh) = z.size();
             if sw == 0 || sh == 0 {
@@ -900,6 +923,76 @@ impl GuiApp {
                 .committed_active_file
                 .as_deref()
                 .map(|s| s.strip_prefix("buf:").unwrap_or(s).to_string());
+
+            // ── Content-ownership enforcement (render source authority) ──
+            // The rope is the visible render source. It may be presented ONLY
+            // when it owns the active document. If the rope's owner path does
+            // not equal the active canonical path — and we are NOT in a
+            // legitimate loading state — the rope holds foreign or stale
+            // content. Never show it: rebuild large-file viewports from the
+            // canonical PieceTable, and re-hydrate normal files via a single
+            // bounded re-open. This makes wrong-file content impossible.
+            if let Some(active) = active_path_str.as_deref() {
+                let owner_ok = self.active_rope_owner_path.as_deref() == Some(active);
+                if owner_ok {
+                    // Owner agrees again: clear any spent reload marker.
+                    if self.owner_reload_attempted_for.as_deref() == Some(active) {
+                        self.owner_reload_attempted_for = None;
+                    }
+                } else {
+                    let loading = self.visible_loading_state
+                        || self.background_open_pending
+                        || self.read_pending;
+                    if !loading {
+                        if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+                            || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+                        {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: content_owner_mismatch active={} rope_owner={} large_file_mode={}",
+                                active,
+                                self.active_rope_owner_path.as_deref().unwrap_or("<none>"),
+                                large_file_mode,
+                            );
+                        }
+                        // NOTE: only disjoint-field access is permitted here —
+                        // the window (`z`) holds a `&mut self.maybe_window`
+                        // borrow, so no whole-`self` method may be called.
+                        if large_file_mode && self.doc_buffers.contains_key(active) {
+                            // Rebuild the viewport window from the canonical
+                            // PieceTable (owner-correct source), inline so we
+                            // touch only disjoint fields.
+                            let lines: Vec<String> = if let Some(db) = self.doc_buffers.get(active)
+                            {
+                                let end = 200usize.min(db.total_lines());
+                                db.lines_in_range(0, end.saturating_sub(1))
+                                    .into_iter()
+                                    .map(|(_, s)| s)
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            if lines.is_empty() {
+                                self.editor_buffer.replace_content("");
+                                self.active_rope_owner_path = None;
+                            } else {
+                                self.editor_buffer.populate_from_lines(&lines, 0, 0);
+                                self.active_rope_owner_path = Some(active.to_string());
+                            }
+                        } else {
+                            // Normal file: blank now (never present foreign
+                            // content) and defer one bounded re-open to the top
+                            // of the next redraw (outside this window borrow).
+                            self.editor_buffer.replace_content("");
+                            self.active_rope_owner_path = None;
+                            if self.owner_reload_attempted_for.as_deref() != Some(active) {
+                                self.owner_reload_attempted_for = Some(active.to_string());
+                                self.pending_owner_rehydrate = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
                 let keys: Vec<&String> = self.doc_buffers.keys().collect();
                 eprintln!(
@@ -914,6 +1007,23 @@ impl GuiApp {
             }
             let doc_buf_keys: Vec<String> = self.doc_buffers.keys().cloned().collect();
             let doc_buf = active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                // Content-ownership binding: the render source is keyed
+                // EXCLUSIVELY by the active canonical path, so it is
+                // structurally impossible to bind another file's content.
+                let source = if doc_buf.is_some() {
+                    "doc_buffers"
+                } else if large_file_mode {
+                    "large_file_viewport"
+                } else {
+                    "rope"
+                };
+                eprintln!(
+                    "ZAROXI_VISIBLE_TAB_MODEL: render_binding path={} source={}",
+                    active_path_str.as_deref().unwrap_or("<none>"),
+                    source,
+                );
+            }
             if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1")
                 || std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
             {

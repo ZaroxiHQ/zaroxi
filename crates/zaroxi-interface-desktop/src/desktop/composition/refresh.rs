@@ -318,8 +318,14 @@ pub async fn refresh_with_service(
         .and_then(|m| m.active_buffer.clone())
         .filter(|b| comp.direct_buffer_ids.contains(b));
     for direct_bid in &comp.direct_buffer_ids {
-        let key = direct_bid.to_string();
-        if !opened_list.iter().any(|it| it.buffer_id.to_string() == key) {
+        // Membership must be tested by CANONICAL path, not raw string
+        // equality: a path opened via the workspace service and later
+        // registered as a direct buffer can carry two `buf:`/plain id
+        // forms for the same file.  Comparing raw strings let the second
+        // form slip past this guard and produced a duplicate tab.
+        let already =
+            opened_list.iter().any(|it| super::same_opened_document(&it.buffer_id, direct_bid));
+        if !already {
             let display = direct_bid.path().map(|p| p.to_string_lossy().to_string());
             let is_active = direct_active.as_ref().map(|a| a == direct_bid).unwrap_or(false);
             opened_list.push(super::OpenedBufferItem {
@@ -329,6 +335,12 @@ pub async fn refresh_with_service(
             });
         }
     }
+
+    // Hard invariant: one canonical path == one opened_buffers entry.
+    // Run the canonical dedupe AFTER every source (service list, direct
+    // buffers, fallback) has contributed, so a duplicate introduced by the
+    // direct-buffer merge above cannot survive into the projection.
+    super::dedupe_opened_buffers(&mut opened_list);
 
     let opened_count = opened_list.len();
 

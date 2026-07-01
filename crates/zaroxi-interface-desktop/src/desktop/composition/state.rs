@@ -38,6 +38,52 @@ pub struct OpenedBufferItem {
     pub active: bool,
 }
 
+/// Canonical filesystem path for an opened-buffer identity — the `buf:`
+/// transport prefix stripped.  Single source of truth for comparing two
+/// opened-buffer entries so the `buf:path` and plain `path` forms can
+/// never be treated as different documents.
+pub fn canonical_buffer_path(bid: &crate::ports::BufferId) -> String {
+    let s = bid.to_string();
+    s.strip_prefix("buf:").unwrap_or(&s).to_string()
+}
+
+/// Whether two buffer ids refer to the same document (canonical-path equal).
+pub fn same_opened_document(a: &crate::ports::BufferId, b: &crate::ports::BufferId) -> bool {
+    canonical_buffer_path(a) == canonical_buffer_path(b)
+}
+
+/// Enforce the hard invariant `one canonical path == one opened_buffers
+/// entry`.  The first entry for a path wins; later duplicates are dropped
+/// but their `active` flag is preserved onto the surviving entry so the
+/// active tab is never lost by dedupe.  Emits a structured diagnostic for
+/// every duplicate collapsed (gated behind `ZAROXI_DEBUG_VISIBLE_TABS`).
+pub fn dedupe_opened_buffers(list: &mut Vec<OpenedBufferItem>) {
+    let before = list.len();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut i = 0;
+    while i < list.len() {
+        let key = canonical_buffer_path(&list[i].buffer_id);
+        if let Some(&keep) = seen.get(&key) {
+            if list[i].active {
+                list[keep].active = true;
+            }
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+                eprintln!("ZAROXI_VISIBLE_TAB_MODEL: duplicate_open_detected path={key}");
+            }
+            list.remove(i);
+        } else {
+            seen.insert(key, i);
+            i += 1;
+        }
+    }
+    if before != list.len() && std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+        eprintln!(
+            "ZAROXI_VISIBLE_TAB_MODEL: opened_buffers_normalized before={before} after={}",
+            list.len(),
+        );
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AiProjection {
     pub kind: Option<String>,
@@ -300,6 +346,27 @@ impl DesktopComposition {
         let total = meta.active_buffer_details.as_ref().map(|d| d.line_count).unwrap_or(0);
         let max_scroll = total.saturating_sub(visible);
 
+        let scroll_trace = std::env::var("ZAROXI_DEBUG_SCROLL").as_deref() == Ok("1");
+        let wants_scroll = vscroll_px.abs() > 0.01 || vscroll != 0;
+        if scroll_trace && wants_scroll {
+            let path = meta
+                .active_buffer_details
+                .as_ref()
+                .map(|d| d.buffer_id.to_string())
+                .unwrap_or_else(|| "<none>".to_string());
+            eprintln!(
+                "ZAROXI_SCROLL: scroll_target path={} line_count={} viewport_lines={} top={}",
+                path.strip_prefix("buf:").unwrap_or(&path),
+                total,
+                visible,
+                meta.editor_scroll_top_line,
+            );
+            if max_scroll == 0 {
+                let reason = if total == 0 { "zero_line_count" } else { "clamped_zero" };
+                eprintln!("ZAROXI_SCROLL: scroll_blocked reason={reason}");
+            }
+        }
+
         if vscroll_px.abs() > 0.01 {
             let line_delta = (-vscroll_px / 16.0).round() as isize;
             let current = meta.editor_scroll_top_line as isize;
@@ -556,7 +623,9 @@ impl DesktopComposition {
     ) {
         // Track this buffer as directly-added so the refresh cycle
         // merges it back into opened_buffers after service rebuilds.
-        if !self.direct_buffer_ids.iter().any(|b| b == &buffer_id) {
+        // Compare by CANONICAL path, not raw id, so two `buf:`/plain
+        // forms of the same file never both get tracked.
+        if !self.direct_buffer_ids.iter().any(|b| super::same_opened_document(b, &buffer_id)) {
             self.direct_buffer_ids.push(buffer_id.clone());
         }
         let md = self.metadata.get_or_insert_with(|| DesktopMetadata {
@@ -581,15 +650,45 @@ impl DesktopComposition {
         for it in &mut md.opened_buffers {
             it.active = false;
         }
-        md.opened_buffers.push(super::OpenedBufferItem {
-            buffer_id: buffer_id.clone(),
-            display,
-            active: true,
-        });
+        // Hard invariant: opening an already-open file must ACTIVATE/REUSE
+        // the existing entry, never append a duplicate.  A preview→pinned
+        // promotion (or re-open of an open file) is a state transition on
+        // the existing entry, not a second logical open.
+        if let Some(existing) = md
+            .opened_buffers
+            .iter_mut()
+            .find(|it| super::same_opened_document(&it.buffer_id, &buffer_id))
+        {
+            existing.active = true;
+            if existing.display.is_none() {
+                existing.display = display;
+            }
+        } else {
+            md.opened_buffers.push(super::OpenedBufferItem {
+                buffer_id: buffer_id.clone(),
+                display,
+                active: true,
+            });
+        }
         md.opened_buffer_count = md.opened_buffers.len();
         md.active_buffer = Some(buffer_id.clone());
-        md.active_buffer_details =
-            Some(ActiveBufferDetails { buffer_id, line_count: 0, display: None });
+        // Preserve the existing line_count when this is the SAME document that
+        // is already active (e.g. preview→pin promotion or re-registration).
+        // Resetting it to 0 would zero the scroll `max_scroll` input and kill
+        // wheel scrolling after pinning — a same-document transition must
+        // never weaken the scroll math. A genuinely new document has no prior
+        // details and correctly starts at 0 until its backend reports the total.
+        let preserved_line_count = md
+            .active_buffer_details
+            .as_ref()
+            .filter(|d| super::same_opened_document(&d.buffer_id, &buffer_id))
+            .map(|d| d.line_count)
+            .unwrap_or(0);
+        md.active_buffer_details = Some(ActiveBufferDetails {
+            buffer_id,
+            line_count: preserved_line_count,
+            display: None,
+        });
     }
 
     /// Activate an already-registered direct buffer (e.g. large-file tab
@@ -973,5 +1072,91 @@ impl RefreshContext for DesktopComposition {
         service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(self.refresh_with_service(view, session_id, workspace_id, service))
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use crate::ports::BufferId;
+
+    fn item(id: &str, display: &str, active: bool) -> OpenedBufferItem {
+        OpenedBufferItem {
+            buffer_id: BufferId(id.to_string()),
+            display: Some(display.to_string()),
+            active,
+        }
+    }
+
+    #[test]
+    fn canonical_path_strips_transport_prefix() {
+        assert_eq!(canonical_buffer_path(&BufferId("buf:/x/y.rs".into())), "/x/y.rs");
+        assert_eq!(canonical_buffer_path(&BufferId("/x/y.rs".into())), "/x/y.rs");
+    }
+
+    #[test]
+    fn same_document_ignores_prefix_form() {
+        let a = BufferId("buf:/x/y.rs".into());
+        let b = BufferId("/x/y.rs".into());
+        let c = BufferId("buf:/x/z.rs".into());
+        assert!(same_opened_document(&a, &b));
+        assert!(!same_opened_document(&a, &c));
+    }
+
+    #[test]
+    fn dedupe_collapses_same_path_across_id_forms_and_keeps_active() {
+        // Same file, two id forms (service `buf:` + direct plain) — the
+        // exact bug that produced a duplicate tab.  After dedupe only one
+        // entry survives, and the active flag is preserved.
+        let mut list = vec![
+            item("buf:/x/y.rs", "y.rs", false),
+            item("/x/y.rs", "y.rs", true),
+            item("buf:/x/z.rs", "z.rs", false),
+        ];
+        dedupe_opened_buffers(&mut list);
+        assert_eq!(list.len(), 2, "one canonical path == one entry");
+        let y = list.iter().find(|i| canonical_buffer_path(&i.buffer_id) == "/x/y.rs").unwrap();
+        assert!(y.active, "active flag must survive dedupe");
+    }
+
+    #[test]
+    fn dedupe_noop_when_unique() {
+        let mut list = vec![item("buf:/a.rs", "a.rs", true), item("buf:/b.rs", "b.rs", false)];
+        dedupe_opened_buffers(&mut list);
+        assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn add_direct_preserves_line_count_for_same_document() {
+        // Regression: preview→pin of the SAME document must not zero the
+        // scroll `line_count`. Re-registering an already-active direct buffer
+        // preserves the previously reported total (else wheel scroll dies).
+        let mut comp = DesktopComposition::new();
+        let bid = BufferId("buf:/big.log".into());
+        comp.add_opened_buffer_direct(bid.clone(), Some("big.log".into()));
+        // Simulate the backend reporting the real total after mapping.
+        comp.metadata.as_mut().unwrap().active_buffer_details.as_mut().unwrap().line_count = 5000;
+        // Re-register the SAME document (promotion path).
+        comp.add_opened_buffer_direct(bid.clone(), Some("big.log".into()));
+        assert_eq!(
+            comp.metadata.as_ref().unwrap().active_buffer_details.as_ref().unwrap().line_count,
+            5000,
+            "same-document re-registration must preserve line_count",
+        );
+        // No duplicate opened_buffers entry was created.
+        assert_eq!(comp.metadata.as_ref().unwrap().opened_buffers.len(), 1);
+    }
+
+    #[test]
+    fn add_direct_new_document_starts_zero() {
+        let mut comp = DesktopComposition::new();
+        comp.add_opened_buffer_direct(BufferId("buf:/a.rs".into()), Some("a.rs".into()));
+        comp.metadata.as_mut().unwrap().active_buffer_details.as_mut().unwrap().line_count = 10;
+        // A genuinely different document has no prior details → starts at 0.
+        comp.add_opened_buffer_direct(BufferId("buf:/b.rs".into()), Some("b.rs".into()));
+        assert_eq!(
+            comp.metadata.as_ref().unwrap().active_buffer_details.as_ref().unwrap().line_count,
+            0,
+        );
     }
 }

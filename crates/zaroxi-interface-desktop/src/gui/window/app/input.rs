@@ -344,35 +344,14 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 Vec::new()
             }
             Key::Character(c) if c == "w" || c == "W" => {
-                let closed_path = active_document_path(app);
-                let wc = if let Some(comp) = app.composition.as_mut() {
-                    let buf_id = comp.latest_metadata().and_then(|m| m.active_buffer.clone());
-                    if let Some(ref id) = buf_id {
-                        if comp.close_opened_buffer(id) {
-                            Some(comp.build_work_content())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+                // Ctrl/Cmd+W: close the active editor via the SAME
+                // transactional close path used by the mouse close button,
+                // so every editor-state structure is reconciled identically.
+                if let Some(closed) = active_document_path(app) {
+                    if super::debug::doc_lifecycle_trace_enabled() {
+                        eprintln!("ZAROXI_DOC_LIFECYCLE: close evicted path={}", closed);
                     }
-                } else {
-                    None
-                };
-                if let Some(wc) = wc {
-                    // Drop the closed document's parked in-memory state so a later
-                    // reopen reads fresh from disk (closing is an explicit discard,
-                    // not a tab switch). Clearing the active rope also prevents the
-                    // commit_open check-in from re-parking the closed document.
-                    if let Some(ref closed) = closed_path {
-                        app.open_documents.remove(closed.as_str());
-                        app.editor_group.close(closed);
-                        if super::debug::doc_lifecycle_trace_enabled() {
-                            eprintln!("ZAROXI_DOC_LIFECYCLE: close evicted path={}", closed);
-                        }
-                    }
-                    app.editor_buffer.replace_content("");
-                    app.request_open(wc);
+                    app.close_editor_transactional(&closed);
                     app.invalidate(super::InvalidationFlags::content());
                 }
                 Vec::new()

@@ -20,6 +20,37 @@ use std::collections::HashMap;
 /// path (no `buf:` prefix), which is 1:1 with buffer identity.
 pub type EditorId = String;
 
+// ── Canonical identity conversion (single source of truth) ──────────
+//
+// File identity in the workbench has exactly one primary form: the
+// canonical filesystem path (no `buf:` prefix).  The `buf:<path>` form
+// is *only* a transport/lookup wrapper used by the workspace-service
+// `BufferId` and the tab-strip `WorkbenchTabId::FileBuffer`.  Every list,
+// map, and comparison MUST route identity through these helpers so the
+// two forms can never drift.  No ad-hoc `strip_prefix("buf:")` should be
+// added at new call sites — call [`canonical_path_from_editor_id`].
+
+/// Reduce any editor id / buffer id / tab id string to the canonical
+/// filesystem path (the `buf:` transport prefix stripped).  Idempotent:
+/// canonical paths pass through unchanged.
+pub fn canonical_path_from_editor_id(id: &str) -> &str {
+    id.strip_prefix("buf:").unwrap_or(id)
+}
+
+/// Build the `buf:<path>` transport/lookup key for a canonical path.
+/// Accepts either form as input and always returns a single normalized
+/// `buf:<canonical_path>` string, so repeated wrapping cannot double the
+/// prefix.
+pub fn buffer_key_from_path(path: &str) -> String {
+    format!("buf:{}", canonical_path_from_editor_id(path))
+}
+
+/// Whether two identity strings refer to the same document, regardless of
+/// whether either carries the `buf:` transport prefix.
+pub fn same_document(a: &str, b: &str) -> bool {
+    canonical_path_from_editor_id(a) == canonical_path_from_editor_id(b)
+}
+
 /// Backend kind for the file content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
@@ -360,8 +391,11 @@ impl EditorGroup {
     /// next available editor (preview first, then last pinned, then none).
     /// Returns `true` if something changed.
     pub fn close(&mut self, id: &EditorId) -> bool {
-        let was_preview = self.preview.as_ref().map_or(false, |pv| &pv.id == id);
-        let was_pinned_pos = self.pinned.iter().position(|e| &e.id == id);
+        // Normalize to canonical identity so callers may pass either the
+        // canonical path OR the `buf:<path>` transport/tab id form.
+        let canon = canonical_path_from_editor_id(id);
+        let was_preview = self.preview.as_ref().map_or(false, |pv| same_document(&pv.id, canon));
+        let was_pinned_pos = self.pinned.iter().position(|e| same_document(&e.id, canon));
 
         if was_preview {
             self.preview = None;
@@ -371,7 +405,7 @@ impl EditorGroup {
             return false;
         }
 
-        let was_active = self.active.as_deref() == Some(id.as_str());
+        let was_active = self.active.as_deref().is_some_and(|a| same_document(a, canon));
         if was_active {
             let next = self
                 .preview
@@ -559,6 +593,32 @@ mod tests {
         assert!(tabs[0].is_preview);
         assert!(!tabs[1].is_preview);
         assert!(tabs[1].is_pinned);
+    }
+
+    #[test]
+    fn canonical_identity_helpers_roundtrip() {
+        assert_eq!(canonical_path_from_editor_id("buf:/a/b.rs"), "/a/b.rs");
+        assert_eq!(canonical_path_from_editor_id("/a/b.rs"), "/a/b.rs");
+        // buffer_key normalizes either form to a single `buf:` prefix.
+        assert_eq!(buffer_key_from_path("/a/b.rs"), "buf:/a/b.rs");
+        assert_eq!(buffer_key_from_path("buf:/a/b.rs"), "buf:/a/b.rs");
+        assert!(same_document("buf:/a/b.rs", "/a/b.rs"));
+        assert!(same_document("/a/b.rs", "/a/b.rs"));
+        assert!(!same_document("buf:/a/b.rs", "buf:/a/c.rs"));
+    }
+
+    #[test]
+    fn close_accepts_transport_prefixed_id() {
+        // The mouse close button passes the `buf:<path>` tab id, while the
+        // EditorGroup entry id is the canonical path.  close() must resolve
+        // both to the same document and actually remove the entry.
+        let mut g = EditorGroup::default();
+        let (p, bid, d, bk) = entry("/a.rs");
+        g.open_or_activate_pinned(p, bid, d, bk, true);
+        assert_eq!(g.pinned.len(), 1);
+        assert!(g.close(&"buf:/a.rs".to_string()));
+        assert!(g.pinned.is_empty());
+        assert!(g.active.is_none());
     }
 
     #[test]

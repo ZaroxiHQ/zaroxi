@@ -449,22 +449,42 @@ impl WorkbenchTabState {
             .collect();
 
         if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
-            eprintln!(
-                "ZAROXI_VISIBLE_TAB_MODEL: file_tab_projection source=editor_group tabs=[{}]",
-                tabs.iter()
-                    .map(|t| {
-                        let path = match &t.id {
-                            WorkbenchTabId::FileBuffer(b) => b.strip_prefix("buf:").unwrap_or(b),
-                            _ => "?",
-                        };
-                        format!(
-                            "{{path={} title={} is_preview={} is_active={}}}",
-                            path, t.title, t.is_preview, t.active,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
+            let rendered = tabs
+                .iter()
+                .map(|t| {
+                    let path = match &t.id {
+                        WorkbenchTabId::FileBuffer(b) => b.strip_prefix("buf:").unwrap_or(b),
+                        _ => "?",
+                    };
+                    format!(
+                        "{{path={} title={} is_preview={} is_active={}}}",
+                        path, t.title, t.is_preview, t.active,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            // Change-detection gate: this projection is rebuilt every frame,
+            // so emit only when the rendered set actually changes.  Prevents
+            // per-frame `file_tab_projection` log spam for an unchanged strip.
+            thread_local! {
+                static LAST_PROJECTION: std::cell::RefCell<Option<String>> =
+                    const { std::cell::RefCell::new(None) };
+            }
+            let changed = LAST_PROJECTION.with(|last| {
+                let mut last = last.borrow_mut();
+                if last.as_deref() == Some(rendered.as_str()) {
+                    false
+                } else {
+                    *last = Some(rendered.clone());
+                    true
+                }
+            });
+            if changed {
+                eprintln!(
+                    "ZAROXI_VISIBLE_TAB_MODEL: projection_emitted changed=true file_tab_projection source=editor_group tabs=[{}]",
+                    rendered,
+                );
+            }
         }
 
         tabs

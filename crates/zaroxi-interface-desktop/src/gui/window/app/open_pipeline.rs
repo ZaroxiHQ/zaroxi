@@ -100,6 +100,85 @@ impl GuiApp {
         }
     }
 
+    /// Post-commit invariant: the visible active tab, `EditorGroup.active`,
+    /// `committed_active_file`, and `metadata.active_buffer` must all resolve
+    /// to the SAME canonical document.  `EditorGroup.active` is the sole
+    /// authority; any disagreement is a structured invariant violation and
+    /// is self-healed by reconciling every other surface to EditorGroup.
+    ///
+    /// Returns `true` when everything already agreed (no heal needed).
+    pub(crate) fn assert_active_consistency(&mut self) -> bool {
+        use super::editor_group::{
+            buffer_key_from_path, canonical_path_from_editor_id, same_document,
+        };
+
+        let eg_active: Option<String> = self.editor_group.active_path().map(|p| p.to_string());
+        let visible_active: Option<String> = self
+            .editor_group
+            .visible_tabs()
+            .into_iter()
+            .find(|t| t.is_active)
+            .map(|t| canonical_path_from_editor_id(&t.path).to_string());
+        let committed: Option<String> = self
+            .committed_active_file
+            .as_deref()
+            .map(|s| canonical_path_from_editor_id(s).to_string());
+        let active_buffer: Option<String> = self
+            .composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .and_then(|m| m.active_buffer.as_ref())
+            .map(|b| canonical_path_from_editor_id(&b.to_string()).to_string());
+
+        let agree = |a: &Option<String>, b: &Option<String>| match (a, b) {
+            (Some(x), Some(y)) => same_document(x, y),
+            (None, None) => true,
+            _ => false,
+        };
+
+        // EditorGroup is authority. Everything is measured against it.
+        let consistent = agree(&eg_active, &visible_active)
+            && agree(&eg_active, &committed)
+            && agree(&eg_active, &active_buffer);
+
+        let debug_tabs = std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1");
+        if debug_tabs {
+            eprintln!(
+                "ZAROXI_VISIBLE_TAB_MODEL: active_consistency visible={} committed={} active_buffer={} editor_group={} consistent={}",
+                visible_active.as_deref().unwrap_or("<none>"),
+                committed.as_deref().unwrap_or("<none>"),
+                active_buffer.as_deref().unwrap_or("<none>"),
+                eg_active.as_deref().unwrap_or("<none>"),
+                consistent,
+            );
+        }
+
+        if consistent {
+            return true;
+        }
+
+        // ── Self-heal: reconcile every surface to EditorGroup.active ──
+        if let Some(ref canon) = eg_active {
+            let desired_committed = buffer_key_from_path(canon);
+            if self.committed_active_file.as_deref() != Some(&desired_committed) {
+                self.committed_active_file = Some(desired_committed.clone());
+            }
+            let desired_bid = crate::ports::BufferId(buffer_key_from_path(canon));
+            if let Some(ref mut comp) = self.composition {
+                if let Some(ref mut meta) = comp.metadata {
+                    for it in meta.opened_buffers.iter_mut() {
+                        it.active = same_document(&it.buffer_id.to_string(), canon);
+                    }
+                    meta.active_buffer = Some(desired_bid);
+                }
+            }
+            if debug_tabs {
+                eprintln!("ZAROXI_VISIBLE_TAB_MODEL: active_consistency_healed -> {canon}");
+            }
+        }
+        false
+    }
+
     pub(crate) fn request_open(&mut self, wc: ShellWorkContent) {
         self.open_token += 1;
         let token = self.open_token;
@@ -365,7 +444,12 @@ impl GuiApp {
             } else {
                 editor_group::BackendKind::Rope
             };
-            let buffer_id = wc.active_file.clone().unwrap_or_default();
+            // Canonical transport/lookup key: always `buf:<canonical_path>`,
+            // never the raw `wc.active_file` (which may or may not carry the
+            // prefix).  This guarantees EditorEntry.buffer_id is 1:1 with the
+            // opened_buffers projection and the close/tab id, so identity can
+            // never drift between the `buf:path` and plain `path` forms.
+            let buffer_id = editor_group::buffer_key_from_path(act_path);
             // Tab title: always use the file basename.  Never show
             // "untitled" or workspace-service display text for a real
             // file path.  The basename is derived from the act_path
@@ -606,6 +690,8 @@ impl GuiApp {
                     let lines: Vec<String> = vp.into_iter().map(|(_, s)| s).collect();
                     if !lines.is_empty() {
                         self.editor_buffer.populate_from_lines(&lines, caret_line, caret_col);
+                        // Rope now holds this large file's viewport window.
+                        self.active_rope_owner_path = Some(key.to_string());
                     }
                     if doc_lifecycle_trace_enabled() {
                         let rope_after = self.editor_buffer.line_count();
@@ -633,6 +719,14 @@ impl GuiApp {
                             new_doc_key.as_deref().unwrap_or("?"),
                         );
                     }
+                    // Content-ownership guard: the incoming large file has no
+                    // backing content and the rope still holds the OUTGOING
+                    // file's text.  Never present another file's content under
+                    // this file's identity — clear the rope so the viewport is
+                    // empty until the correct PieceTable hydrates.
+                    self.editor_buffer.replace_content("");
+                    // Rope holds no valid document until hydration lands.
+                    self.active_rope_owner_path = None;
                     false
                 };
                 if found {
@@ -654,6 +748,8 @@ impl GuiApp {
                     }
                     self.editor_buffer = stored;
                     restored_from_store = true;
+                    // Rope now holds this normal document's full content.
+                    self.active_rope_owner_path = Some(key.to_string());
                 } else if doc_lifecycle_trace_enabled() && new_doc_key.is_some() {
                     eprintln!(
                         "ZAROXI_DOC_LIFECYCLE: checkout_fresh path={} authority=none will_rebuild_from_disk",
@@ -839,6 +935,8 @@ impl GuiApp {
                     body.cursor_line,
                     body.cursor_col,
                 );
+                // Rope now holds this normal document's freshly materialized text.
+                self.active_rope_owner_path = new_doc_key.clone();
                 let open_buffer_ms = open_t.elapsed().as_secs_f32() * 1000.0;
                 // Materializing real content is always a content change for the
                 // editor (even on the loading→ready transition where
@@ -910,6 +1008,8 @@ impl GuiApp {
             // Clear the rope to a single empty line so the renderer
             // shows a clean empty editor instead of old file content.
             self.editor_buffer.replace_content("");
+            // Rope holds no document during the loading placeholder.
+            self.active_rope_owner_path = None;
             self.visible_loading_state = true;
         }
         // ── Unconditional large-file materialization ──
@@ -944,6 +1044,8 @@ impl GuiApp {
                         body.cursor_line,
                         body.cursor_col,
                     );
+                    // Rope now holds this large file's initial viewport window.
+                    self.active_rope_owner_path = Some(path.to_string());
                 }
                 // Schedule initial syntax parse on the viewport slice.
                 self.finalize_buffer_commit(true);
@@ -1016,6 +1118,11 @@ impl GuiApp {
         // reads potentially-stale workspace-service metadata) can
         // overwrite the correct EditorGroup-driven value.
         self.reconcile_active_file_from_editor_group();
+        // Post-commit invariant: visible tab / EditorGroup.active /
+        // committed_active_file / active_buffer must all agree.  Self-heals
+        // to EditorGroup.active on any drift so no downstream consumer can
+        // read a stale cross-file identity.
+        self.assert_active_consistency();
         self.last_committed_activation_seq = self.activation_seq;
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit
@@ -1227,6 +1334,12 @@ impl GuiApp {
         // strict open shape budget.
         let commit_t = std::time::Instant::now();
         self.editor_buffer.install_rope(result.rope, result.cursor_line, result.cursor_col);
+        // Background rope for the winning token has landed: the rope now owns
+        // the active document's content.
+        self.active_rope_owner_path = self
+            .committed_active_file
+            .as_deref()
+            .map(|s| super::editor_group::canonical_path_from_editor_id(s).to_string());
         let install_rope_ms = commit_t.elapsed().as_secs_f32() * 1000.0;
         self.finalize_buffer_commit(true);
         let commit_ms = commit_t.elapsed().as_secs_f32() * 1000.0;

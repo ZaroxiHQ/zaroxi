@@ -237,12 +237,43 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                             );
                         }
                         // Promote immediately — no background read needed.
+                        // Same-document preview→pin is a pure tab-membership
+                        // transition: mutate ONLY EditorGroup here. Do NOT
+                        // touch document/render/scroll state.
                         let _ = app.editor_group.promote_preview_to_pinned();
                         let bid = crate::ports::BufferId(format!("buf:{}", path_str));
-                        if !comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                        // Only large/direct (PieceTable-backed) files need a
+                        // direct opened-buffer registration to keep their tab.
+                        // Normal service-backed files are already in
+                        // opened_buffers via the service; registering them as
+                        // "direct" here would both pollute direct_buffer_ids and
+                        // (via add_opened_buffer_direct) reset the scroll
+                        // line_count — the exact preview→pin scroll break.
+                        let is_direct_doc = app.doc_buffers.contains_key(path_str.as_str());
+                        if is_direct_doc && !comp.direct_buffer_ids.contains(&bid) {
                             comp.add_opened_buffer_direct(
                                 bid.clone(),
                                 path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()),
+                            );
+                        }
+                        if super::doc_lifecycle_trace_enabled() {
+                            let kept_scroll = comp
+                                .metadata
+                                .as_ref()
+                                .map(|m| m.editor_scroll_top_line)
+                                .unwrap_or(0);
+                            let kept_line_count = comp
+                                .metadata
+                                .as_ref()
+                                .and_then(|m| m.active_buffer_details.as_ref())
+                                .map(|d| d.line_count)
+                                .unwrap_or(0);
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: promotion_preserve_same_doc path={} kept_scroll={} kept_source={} kept_line_count={}",
+                                path_str,
+                                kept_scroll,
+                                if is_direct_doc { "doc_buffers" } else { "rope" },
+                                kept_line_count,
                             );
                         }
                         app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);

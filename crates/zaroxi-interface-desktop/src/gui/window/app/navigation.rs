@@ -10,113 +10,184 @@ use super::*;
 use winit::event::ElementState;
 
 impl GuiApp {
-    /// Close a file tab by buffer-id string.  Removes the buffer from
-    /// composition metadata, releases it from the workspace service,
-    /// cleans up large-file direct-buffer tracking, and selects an
-    /// appropriate fallback active tab.  Used by both close-button
-    /// clicks (left mouse) and middle-click.
+    /// Close a file tab by tab / buffer-id string.  Thin wrapper that
+    /// normalizes the identity and delegates to the single transactional
+    /// close path.  Used by close-button clicks and middle-click.
     pub(crate) fn close_file_tab(&mut self, bid_str: &str) {
+        self.close_editor_transactional(bid_str);
+    }
+
+    /// The single transactional close flow, shared by mouse close and
+    /// `Ctrl+W`.  It resolves the exact canonical document to close and
+    /// then mutates EVERY editor-state structure that owns a piece of it,
+    /// keyed exclusively by canonical identity so nothing is left behind:
+    ///
+    /// 1. resolve the canonical active tab/file to close
+    /// 2. remove it from `EditorGroup` (sole tab authority)
+    /// 3. remove it from `opened_buffers` (+ service release, removal marker)
+    /// 4. update `active_buffer` to `EditorGroup.active`
+    /// 5. reconcile `committed_active_file` to `EditorGroup.active`
+    /// 6. release the closed document's content state (`doc_buffers`,
+    ///    `open_documents`, `document_view_states`)
+    /// 7. rebuild work content and reconcile / normalize
+    /// 8. assert (debug) that no closed path remains active / open / visible
+    ///
+    /// `target` may be either the canonical path or the `buf:<path>` form;
+    /// both resolve to the same document.
+    pub(crate) fn close_editor_transactional(&mut self, target: &str) {
+        use super::editor_group::{buffer_key_from_path, canonical_path_from_editor_id};
+        let canon = canonical_path_from_editor_id(target).to_string();
+        let buffer_key = buffer_key_from_path(&canon);
+
+        // (2) EditorGroup is the sole tab authority: remove the editor and
+        //     let it pick the next active editor (preview → last pinned →
+        //     none).  This drives everything downstream.
+        let closed_changed = self.editor_group.close(&canon);
+        let next_active_path: Option<String> =
+            self.editor_group.active_path().map(|p| p.to_string());
+
+        let mut opened_removed = false;
+        let mut service_unregistered = false;
         {
             let Some(ref mut comp) = self.composition else { return };
-            let Some(meta) = comp.metadata.as_mut() else { return };
-            let Some(pos) =
-                meta.opened_buffers.iter().position(|it| it.buffer_id.to_string() == bid_str)
-            else {
-                return;
-            };
-            let was_active =
-                meta.active_buffer.as_ref().map(|a| a.to_string() == bid_str).unwrap_or(false);
-            meta.opened_buffers.remove(pos);
-            meta.opened_buffer_count = meta.opened_buffers.len();
-            comp.pending_removed_buffer_ids.push(bid_str.to_string());
-            comp.direct_buffer_ids.retain(|b| b.to_string() != bid_str);
-            let bid: crate::ports::BufferId = crate::ports::BufferId(bid_str.to_string());
-            if let (Some(svc), Some(sid)) = (&self.workspace_service, &self.session_id) {
-                if let Ok(resp) =
+            let sd = self.session_id.clone();
+            if let Some(meta) = comp.metadata.as_mut() {
+                // (3) Remove from opened_buffers by canonical identity (not
+                //     raw string equality) so `buf:path`/`path` drift can
+                //     never leave a stale ghost tab behind.
+                let before = meta.opened_buffers.len();
+                meta.opened_buffers.retain(|it| {
+                    !super::editor_group::same_document(&it.buffer_id.to_string(), &canon)
+                });
+                opened_removed = meta.opened_buffers.len() != before;
+                meta.opened_buffer_count = meta.opened_buffers.len();
+
+                // (4/5) Active follows EditorGroup, the tab authority.
+                match next_active_path.as_deref() {
+                    None => {
+                        meta.active_buffer = None;
+                        meta.active_buffer_details = None;
+                        meta.visible_window = None;
+                    }
+                    Some(next) => {
+                        let next_key = buffer_key_from_path(next);
+                        let next_bid = crate::ports::BufferId(next_key.clone());
+                        for it in meta.opened_buffers.iter_mut() {
+                            it.active =
+                                super::editor_group::same_document(&it.buffer_id.to_string(), next);
+                        }
+                        let display = meta
+                            .opened_buffers
+                            .iter()
+                            .find(|it| {
+                                super::editor_group::same_document(&it.buffer_id.to_string(), next)
+                            })
+                            .and_then(|it| it.display.clone())
+                            .or_else(|| next.rsplit('/').next().map(|s| s.to_string()));
+                        meta.active_buffer = Some(next_bid.clone());
+                        meta.active_buffer_details = Some(crate::desktop::ActiveBufferDetails {
+                            buffer_id: next_bid,
+                            display,
+                            line_count: meta
+                                .active_buffer_details
+                                .as_ref()
+                                .map(|d| d.line_count)
+                                .unwrap_or(0),
+                        });
+                    }
+                }
+            }
+            comp.pending_removed_buffer_ids.push(buffer_key.clone());
+            comp.direct_buffer_ids
+                .retain(|b| !super::editor_group::same_document(&b.to_string(), &canon));
+
+            // Release the closed buffer from the workspace service.
+            let bid: crate::ports::BufferId = crate::ports::BufferId(buffer_key.clone());
+            if let (Some(svc), Some(sid)) = (&self.workspace_service, &sd)
+                && let Ok(resp) =
                     pollster::block_on(svc.close_buffer(crate::ports::CloseBufferRequest {
                         session_id: sid.clone(),
                         buffer_id: bid.clone(),
                     }))
-                {
-                    if resp.ok && std::env::var("ZAROXI_DEBUG_MEMORY").as_deref() == Ok("1") {
-                        eprintln!("ZAROXI_MEMORY: closed buffer {bid}");
-                    }
-                }
-            }
-            let sd = self.session_id.clone();
-            if was_active {
-                if meta.opened_buffers.is_empty() {
-                    meta.active_buffer = None;
-                    meta.active_buffer_details = None;
-                    meta.visible_window = None;
-                    self.tab_state
-                        .open_or_focus_non_file(super::super::destination::WorkbenchTabId::Welcome);
-                } else {
-                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                    let fallback = &meta.opened_buffers[new_idx];
-                    meta.active_buffer = Some(fallback.buffer_id.clone());
-                    meta.active_buffer_details = Some(crate::desktop::ActiveBufferDetails {
-                        buffer_id: fallback.buffer_id.clone(),
-                        display: fallback.display.clone(),
-                        line_count: 0,
-                    });
-                    meta.opened_buffers[new_idx].active = true;
-                }
-                if let Some(ref view) = self.workspace_view {
-                    if let Some(ref session) = sd {
-                        if let Some(ref bid_ref) = meta.active_buffer {
-                            let req = crate::ports::GetVisibleLinesRequest {
-                                session_id: session.clone(),
-                                buffer_id: bid_ref.clone(),
-                            };
-                            if let Ok(resp) = pollster::block_on(view.get_visible_lines(req)) {
-                                let lines_vec: Vec<String> =
-                                    resp.window.lines.iter().map(|vl| vl.text.clone()).collect();
-                                meta.visible_window =
-                                    Some(crate::desktop::projections::VisibleWindowBasic {
-                                        top_line: resp.window.top_line as usize,
-                                        total_lines: resp.window.total_lines as usize,
-                                        lines: lines_vec,
-                                        cursor_line: resp
-                                            .window
-                                            .lines
-                                            .iter()
-                                            .find(|vl| vl.is_cursor_line)
-                                            .map(|vl| vl.line_number as usize),
-                                        cursor_column: resp
-                                            .window
-                                            .lines
-                                            .iter()
-                                            .find(|vl| vl.is_cursor_line)
-                                            .and_then(|vl| vl.cursor_column.map(|c| c as usize)),
-                                        selection_present: resp
-                                            .window
-                                            .lines
-                                            .iter()
-                                            .any(|vl| vl.selection_intersects),
-                                    });
-                            }
-                        }
-                    }
+            {
+                service_unregistered = resp.ok;
+                if resp.ok && std::env::var("ZAROXI_DEBUG_MEMORY").as_deref() == Ok("1") {
+                    eprintln!("ZAROXI_MEMORY: closed buffer {bid}");
                 }
             }
         }
-        // Clean up per-path doc_buffers + document_view_states.
-        if self.doc_buffers.remove(bid_str).is_some()
-            && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
-        {
+
+        // (6) Release the closed document's content state.  ALL of these
+        //     maps are keyed by canonical path — the previous code removed
+        //     by the raw `buf:` tab id and silently leaked every entry,
+        //     which is what let closed files bleed content and grow RAM.
+        let doc_buffer_removed = self.doc_buffers.remove(&canon).is_some();
+        let open_doc_removed = self.open_documents.remove(&canon).is_some();
+        let view_state_removed = self.document_view_states.remove(&canon).is_some();
+        // If the live rope belonged to the closed file, drop that ownership so
+        // its content can never be re-presented under the next active tab.
+        if self.active_rope_owner_path.as_deref() == Some(canon.as_str()) {
+            self.active_rope_owner_path = None;
+        }
+        if self.owner_reload_attempted_for.as_deref() == Some(canon.as_str()) {
+            self.owner_reload_attempted_for = None;
+        }
+        if doc_buffer_removed && std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1") {
             eprintln!(
-                "ZAROXI_DOC_LIFECYCLE: unregister path={bid_str} backend=piece_table reason=tab_closed"
+                "ZAROXI_DOC_LIFECYCLE: unregister path={canon} backend=piece_table reason=tab_closed"
             );
         }
-        self.document_view_states.remove(bid_str);
         if self.doc_buffers.is_empty() {
             self.large_file_mode = false;
         }
+
+        // ── Close-release truth (memory/state, not just UI) ──
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+            || std::env::var("ZAROXI_DEBUG_MEMORY").as_deref() == Ok("1")
+        {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: close_release path={canon} editor_removed={closed_changed} opened_removed={opened_removed} doc_buffer_removed={doc_buffer_removed} open_doc_removed={open_doc_removed} view_state_removed={view_state_removed} service_unregistered={service_unregistered}",
+            );
+            // The only caches that intentionally survive a close are the
+            // per-ACTIVE-file syntax/render caches (line_syntax_cache,
+            // cached_editor_data, latest_spans). They are keyed to the active
+            // document and are fully reset by commit_open on the next file
+            // switch (buffer_changed branch), so they are bounded to a single
+            // document and never accumulate per closed file. Report if the
+            // closed path itself somehow still holds resident content.
+            if self.doc_buffers.contains_key(&canon) || self.open_documents.contains_key(&canon) {
+                eprintln!(
+                    "ZAROXI_DOC_LIFECYCLE: close_release_resident_cache path={canon} reason=unexpected_retained_content",
+                );
+            }
+        }
+
+        // Keep the workbench tab state in sync (non-authoritative mirror).
         self.tab_state
-            .close_tab(&super::super::destination::WorkbenchTabId::FileBuffer(bid_str.to_string()));
-        // Keep EditorGroup in sync: remove the closed editor.
-        self.editor_group.close(&bid_str.to_string());
+            .close_tab(&super::super::destination::WorkbenchTabId::FileBuffer(buffer_key.clone()));
+
+        if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+            eprintln!(
+                "ZAROXI_VISIBLE_TAB_MODEL: close_transaction closed={canon} next_active={} editor_removed={} {}",
+                next_active_path.as_deref().unwrap_or("<none>"),
+                closed_changed,
+                self.editor_group.diagnostic_line(),
+            );
+        }
+
+        // (7) Reconcile committed_active_file to EditorGroup.active and
+        //     rebuild the work content for the fallback document.
+        match next_active_path.as_deref() {
+            None => {
+                self.committed_active_file = None;
+                self.editor_buffer.replace_content("");
+                self.tab_state
+                    .open_or_focus_non_file(super::super::destination::WorkbenchTabId::Welcome);
+            }
+            Some(next) => {
+                self.committed_active_file = Some(buffer_key_from_path(next));
+            }
+        }
         if let Some(ref mut comp) = self.composition {
             let wc = comp.build_work_content();
             self.request_open(wc);
@@ -126,6 +197,23 @@ impl GuiApp {
         self.rail_selected_index = self.tab_state.active().destination().rail_index();
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
+
+        // (8) Debug assertion: the closed path must not survive anywhere.
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(
+                !self
+                    .editor_group
+                    .all_ids()
+                    .iter()
+                    .any(|id| super::editor_group::same_document(id, &canon)),
+                "close_transaction: {canon} still present in EditorGroup",
+            );
+            debug_assert!(
+                !self.doc_buffers.contains_key(&canon),
+                "close_transaction: {canon} still present in doc_buffers",
+            );
+        }
     }
 
     /// Route a left mouse press/release to rail / sidebar / settings / tab
