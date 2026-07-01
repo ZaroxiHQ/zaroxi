@@ -437,6 +437,12 @@ impl GuiApp {
         // `&mut self`.
         self.sync_authoritative_scroll_line_count();
 
+        // Rail highlight is a DERIVED reflection of the canonical active tab,
+        // never an independent authority. Re-derive it every frame from
+        // WorkbenchTabState so the activity-rail selection can never desync
+        // from the active destination / rendered content.
+        self.sync_rail_reflection();
+
         if let Some(z) = self.maybe_window.as_mut() {
             let (sw, sh) = z.size();
             if sw == 0 || sh == 0 {
@@ -932,7 +938,13 @@ impl GuiApp {
             // content. Never show it: rebuild large-file viewports from the
             // canonical PieceTable, and re-hydrate normal files via a single
             // bounded re-open. This makes wrong-file content impossible.
-            if let Some(active) = active_path_str.as_deref() {
+            //
+            // Only enforce while the EDITOR destination is active: when a
+            // non-file tab (Settings, etc.) is showing, the file editor is not
+            // projected, so the parked file rope must be left untouched.
+            if let Some(active) = active_path_str.as_deref()
+                && self.tab_state.is_editor_active()
+            {
                 let owner_ok = self.active_rope_owner_path.as_deref() == Some(active);
                 if owner_ok {
                     // Owner agrees again: clear any spent reload marker.
@@ -1007,7 +1019,9 @@ impl GuiApp {
             }
             let doc_buf_keys: Vec<String> = self.doc_buffers.keys().cloned().collect();
             let doc_buf = active_path_str.as_ref().and_then(|p| self.doc_buffers.get_mut(p));
-            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
+            if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+                || std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1")
+            {
                 // Content-ownership binding: the render source is keyed
                 // EXCLUSIVELY by the active canonical path, so it is
                 // structurally impossible to bind another file's content.
@@ -1022,6 +1036,18 @@ impl GuiApp {
                     "ZAROXI_VISIBLE_TAB_MODEL: render_binding path={} source={}",
                     active_path_str.as_deref().unwrap_or("<none>"),
                     source,
+                );
+                // Full content-ownership assertion: the active tab, the active
+                // file, the rope owner, and the render source must all agree.
+                let allowed = active_path_str.as_deref() == self.active_rope_owner_path.as_deref()
+                    || large_file_mode;
+                eprintln!(
+                    "ZAROXI_TABS: content_owner active_tab={:?} active_file={} rope_owner={} render_source={} allowed={}",
+                    self.tab_state.active(),
+                    active_path_str.as_deref().unwrap_or("<none>"),
+                    self.active_rope_owner_path.as_deref().unwrap_or("<none>"),
+                    source,
+                    allowed,
                 );
             }
             if std::env::var("ZAROXI_DEBUG_RENDER_SOURCE").as_deref() == Ok("1")
@@ -1279,6 +1305,15 @@ impl GuiApp {
 
             let block_t = std::time::Instant::now();
             let destination = self.tab_state.active().destination();
+            if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1")
+                && !destination.is_explorer()
+            {
+                eprintln!(
+                    "ZAROXI_TABS: nonfile_tab_render destination={:?} tabid={:?} visible=true",
+                    destination,
+                    self.tab_state.active(),
+                );
+            }
             let (ext_sel, set_sel) =
                 super::super::destination::sidebar_selection_for(self.tab_state.active());
             let sidebar_list =
@@ -1832,7 +1867,10 @@ impl GuiApp {
                                 }
                             }
                             let workbench_tabs = super::annotate_tabs_dirty(
-                                self.tab_state.projected_tabs(&self.editor_group),
+                                self.tab_state.projected_tabs(
+                                    &self.editor_group,
+                                    self.committed_active_file.as_deref(),
+                                ),
                                 &dirty_doc_paths,
                             );
                             let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
@@ -1978,7 +2016,10 @@ impl GuiApp {
                         // always produces correct hit geometry) ─────
                         self.tab_hit_rects = {
                             let workbench_tabs = super::annotate_tabs_dirty(
-                                self.tab_state.projected_tabs(&self.editor_group),
+                                self.tab_state.projected_tabs(
+                                    &self.editor_group,
+                                    self.committed_active_file.as_deref(),
+                                ),
                                 &dirty_doc_paths,
                             );
                             let layout_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =
@@ -2378,7 +2419,10 @@ impl GuiApp {
                                 self.cockpit_retained_bytes = cockpit_bytes_est;
                             } else {
                                 let workbench_tabs = super::annotate_tabs_dirty(
-                                    self.tab_state.projected_tabs(&self.editor_group),
+                                    self.tab_state.projected_tabs(
+                                        &self.editor_group,
+                                        self.committed_active_file.as_deref(),
+                                    ),
                                     &dirty_doc_paths,
                                 );
                                 let cockpit_tabs: Vec<zaroxi_interface_widgets::CockpitTab> =

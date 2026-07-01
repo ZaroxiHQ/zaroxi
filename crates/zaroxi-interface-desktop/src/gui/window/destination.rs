@@ -165,16 +165,6 @@ impl WorkbenchTabId {
     }
 }
 
-/// An open non-file workbench tab (file tabs are projected from the buffer
-/// summary each frame and never stored here).
-#[derive(Debug, Clone)]
-pub struct WorkbenchTab {
-    /// Stable identity (used for focus + dedup).
-    pub id: WorkbenchTabId,
-    /// Visible tab label, e.g. "Settings: General", "Zaroxi Formatter".
-    pub title: String,
-}
-
 /// A rendered tab's hit region, set each frame from the cockpit tab-strip
 /// layout so the host can route clicks (focus / close) without the widget tree.
 #[derive(Debug, Clone)]
@@ -425,28 +415,65 @@ impl WorkbenchTabState {
     }
 
     /// Project the canonical tab list into a `Vec<UnifiedTab>` for cockpit
-    /// consumption and hit-test layout.
+    /// consumption and hit-test layout.  This is the ONE unified tab model:
+    /// file tabs (from `editor_group`) and non-file workbench tabs (Settings,
+    /// Search, Source Control, Debug, Extensions, Account — owned by
+    /// [`WorkbenchTabState::entries`]) coexist in a single strip.
     ///
-    /// File tabs are derived EXCLUSIVELY from `editor_group.visible_tabs()`.
-    /// No file tab may be rendered from `opened_buffers`, `sync_file_tabs`,
-    /// or any other legacy source.  Non-file tabs (Settings, Extensions,
-    /// Welcome) remain owned by [`WorkbenchTabState::entries`].
-    pub fn projected_tabs(&self, editor_group: &super::EditorGroup) -> Vec<UnifiedTab> {
+    /// Active-tab binding (the fix for cross-file content bleed):
+    /// a file tab is marked active iff its canonical path equals
+    /// `committed_active_file` — the path whose content is ACTUALLY rendered
+    /// this frame — NOT `editor_group.active` (the pending open target which
+    /// updates a frame ahead of the committed content). This guarantees the
+    /// highlighted tab always matches the on-screen content: during the
+    /// async open/commit window the previously-committed tab stays lit until
+    /// its successor's content is live, so chrome and content never disagree.
+    ///
+    /// `committed_active_file` may carry the `buf:` prefix or be canonical.
+    pub fn projected_tabs(
+        &self,
+        editor_group: &super::EditorGroup,
+        committed_active_file: Option<&str>,
+    ) -> Vec<UnifiedTab> {
         let editor_active = self.active.is_editor();
+        let committed_canon = committed_active_file.map(|s| s.strip_prefix("buf:").unwrap_or(s));
 
-        // File tabs — single source of truth: EditorGroup.
-        let tabs: Vec<UnifiedTab> = editor_group
+        // File tabs — membership from EditorGroup, active flag from the
+        // committed (rendered) file so the strip can never show tab B lit
+        // while the editor still paints file A.
+        let mut tabs: Vec<UnifiedTab> = editor_group
             .visible_tabs()
             .into_iter()
-            .map(|vt| UnifiedTab {
-                title: vt.display,
-                active: vt.is_active && editor_active,
-                closable: true,
-                id: WorkbenchTabId::FileBuffer(vt.buffer_id),
-                kind: zaroxi_interface_widgets::TabKind::File,
-                is_preview: vt.is_preview,
+            .map(|vt| {
+                let is_active = editor_active && committed_canon == Some(vt.path.as_str());
+                UnifiedTab {
+                    title: vt.display,
+                    active: is_active,
+                    closable: true,
+                    id: WorkbenchTabId::FileBuffer(vt.buffer_id),
+                    kind: zaroxi_interface_widgets::TabKind::File,
+                    is_preview: vt.is_preview,
+                }
             })
             .collect();
+
+        // Non-file workbench tabs — first-class members of the same strip.
+        // Welcome is the empty-editor state, never a strip tab.
+        for entry in &self.entries {
+            if let WorkbenchTabEntry::NonFile { id, title } = entry {
+                if matches!(id, WorkbenchTabId::Welcome) {
+                    continue;
+                }
+                tabs.push(UnifiedTab {
+                    title: title.clone(),
+                    active: self.active == *id,
+                    closable: true,
+                    id: id.clone(),
+                    kind: zaroxi_interface_widgets::TabKind::File,
+                    is_preview: false,
+                });
+            }
+        }
 
         if std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1") {
             let rendered = tabs
@@ -727,36 +754,6 @@ pub fn format_file_tab_label(path: &str, all_paths: &[&str]) -> String {
     if parent.is_empty() { format!("../{basename}") } else { format!("{parent}/{basename}") }
 }
 
-/// Project the primary editor tab strip — file tabs only.
-/// Non-file destinations (Settings, Extensions, AI Assistant) are accessed
-/// exclusively through the activity rail and do NOT appear in the tab strip.
-/// Welcome is rendered as an editor-surface empty state, not as a tab.
-///
-/// If `preview_path` is set and matches a file in `file_tabs`, that entry
-/// is marked `is_preview: true`.  If `preview_path` is set but the file is
-/// NOT already a pinned tab, a synthetic preview entry is injected at the
-/// front of the list.
-pub fn build_unified_tabs(
-    _file_tabs: &[(String, String, bool)],
-    active_tab: &WorkbenchTabId,
-    _non_file_tabs: &[WorkbenchTab],
-    editor_group: &super::EditorGroup,
-) -> Vec<UnifiedTab> {
-    let editor_active = active_tab.is_editor();
-    editor_group
-        .visible_tabs()
-        .into_iter()
-        .map(|vt| UnifiedTab {
-            title: vt.display,
-            active: vt.is_active && editor_active,
-            closable: true,
-            id: WorkbenchTabId::FileBuffer(vt.buffer_id),
-            kind: zaroxi_interface_widgets::TabKind::File,
-            is_preview: vt.is_preview,
-        })
-        .collect()
-}
-
 /// Resolve the cockpit destination pages for the active tab: returns
 /// `(settings_panel, extensions_panel, placeholder_panel)`. Exactly one (or
 /// none, for the editor) is `Some`.
@@ -848,49 +845,49 @@ mod tests {
     }
 
     #[test]
-    fn unified_tabs_only_file_tabs_and_flags_active() {
+    fn unified_tabs_file_and_nonfile_active_binds_to_committed() {
         // Build an EditorGroup with two pinned files.
         let mut eg = super::super::EditorGroup::default();
         eg.open_or_activate_pinned(
             "src/main.rs".into(),
-            "buf_1".into(),
+            "buf:src/main.rs".into(),
             "main.rs".into(),
             super::super::BackendKind::Rope,
             true,
         );
         eg.open_or_activate_pinned(
             "src/lib.rs".into(),
-            "buf_2".into(),
+            "buf:src/lib.rs".into(),
             "lib.rs".into(),
             super::super::BackendKind::Rope,
             true,
         );
-        // Activate the first.
-        eg.activate_by_path("src/main.rs");
+        // EditorGroup active is lib.rs, but the COMMITTED (rendered) file is
+        // still main.rs — the strip must highlight main.rs, proving the tab
+        // active flag follows committed content, not the pending target.
+        eg.activate_by_path("src/lib.rs");
 
-        let non_file = vec![
-            WorkbenchTab {
-                id: WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings),
-                title: "Settings".to_string(),
-            },
-            WorkbenchTab {
-                id: WorkbenchTabId::ExtensionDetail("zaroxi.git".to_string()),
-                title: "Git Integration".to_string(),
-            },
-        ];
+        let mut ts = WorkbenchTabState::new();
+        // Open Settings as a first-class non-file tab.
+        ts.open_or_focus_non_file(WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings));
+        // Editor mode active (file tab), committed = main.rs.
+        ts.focus_tab(&WorkbenchTabId::Editor);
 
-        let tabs = build_unified_tabs(&[], &WorkbenchTabId::Editor, &non_file, &eg);
-        assert_eq!(tabs.len(), 2);
-        assert_eq!(tabs[0].title, "main.rs");
-        assert!(tabs[0].active && tabs[0].closable);
-        assert!(!tabs[0].is_preview);
-        assert!(matches!(tabs[0].id, WorkbenchTabId::FileBuffer(_)));
-        assert!(!tabs[1].active);
+        let tabs = ts.projected_tabs(&eg, Some("buf:src/main.rs"));
+        // Two file tabs + one non-file (Settings). Welcome excluded.
+        assert_eq!(tabs.len(), 3);
+        let main_tab = tabs.iter().find(|t| t.title == "main.rs").unwrap();
+        let lib_tab = tabs.iter().find(|t| t.title == "lib.rs").unwrap();
+        assert!(main_tab.active, "committed file tab must be active");
+        assert!(!lib_tab.active, "pending editor_group target must NOT be active");
+        assert!(tabs.iter().any(|t| t.title == "Settings"));
 
-        let ext = WorkbenchTabId::ExtensionDetail("zaroxi.git".to_string());
-        let tabs = build_unified_tabs(&[], &ext, &non_file, &eg);
-        assert_eq!(tabs.len(), 2);
-        assert!(!tabs[0].active && !tabs[1].active);
+        // Focus the Settings non-file tab: no file tab is active.
+        ts.open_or_focus_non_file(WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings));
+        let tabs = ts.projected_tabs(&eg, Some("buf:src/main.rs"));
+        let settings = tabs.iter().find(|t| t.title == "Settings").unwrap();
+        assert!(settings.active, "Settings tab active when focused");
+        assert!(tabs.iter().filter(|t| t.title == "main.rs").all(|t| !t.active));
     }
 
     #[test]

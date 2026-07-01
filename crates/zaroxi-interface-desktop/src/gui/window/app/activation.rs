@@ -128,15 +128,30 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 app.cockpit_status_fingerprint = 0;
                 return Some(comp.build_work_content());
             }
-            // Non-file tab — switch rail destination.
+            // Tab index beyond the file tabs addresses a non-file workbench
+            // tab in the unified strip. Resolve it from the canonical tab
+            // state and focus it — never mutate the legacy rail index here
+            // (the rail is a derived reflection of `tab_state.active()`).
             let non_file_idx = *index - file_tabs.len();
-            if let Some(wc) = &app.work_content {
-                if let Some(nf_tabs) = &wc.editor_non_file_tabs {
-                    if let Some((_, kind)) = nf_tabs.get(non_file_idx) {
-                        app.rail_selected_index = *kind;
-                        return Some(comp.build_work_content());
+            let non_file_ids: Vec<crate::gui::window::destination::WorkbenchTabId> = app
+                .tab_state
+                .entries()
+                .iter()
+                .filter_map(|e| match e {
+                    crate::gui::window::destination::WorkbenchTabEntry::NonFile { id, .. }
+                        if !matches!(
+                            id,
+                            crate::gui::window::destination::WorkbenchTabId::Welcome
+                        ) =>
+                    {
+                        Some(id.clone())
                     }
-                }
+                    _ => None,
+                })
+                .collect();
+            if let Some(id) = non_file_ids.get(non_file_idx) {
+                app.tab_state.open_or_focus_non_file(id.clone());
+                return Some(comp.build_work_content());
             }
             None
         }
@@ -152,7 +167,13 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         }
         WidgetId::ListItem { index } => {
             if *index >= 100 {
-                app.rail_selected_index = 4;
+                // Canonical: open/focus the Extensions destination tab rather
+                // than poking the legacy rail index directly.
+                app.tab_state.open_or_focus_non_file(
+                    crate::gui::window::destination::WorkbenchTabId::DestinationRoot(
+                        crate::gui::window::destination::WorkbenchDestination::Extensions,
+                    ),
+                );
                 return Some(comp.build_work_content());
             }
             if *index >= 10 {

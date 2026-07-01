@@ -392,13 +392,10 @@ impl GuiApp {
         if let ElementState::Released = state
             && let Some(idx) = self.rail_hovered_index
         {
+            // Canonical rail activation: every destination opens/focuses its
+            // stable WorkbenchTabId through the one tab authority.
             let dest = super::super::destination::WorkbenchDestination::from_rail_index(idx);
-            let target = if dest.is_explorer() {
-                super::super::destination::WorkbenchTabId::Editor
-            } else {
-                super::super::destination::WorkbenchTabId::DestinationRoot(dest)
-            };
-            self.open_or_focus_tab(target);
+            self.activate_destination(dest);
             return;
         }
         // Destination sidebar row click (Extensions list / Settings
