@@ -370,7 +370,7 @@ pub fn compose_blocks(
             PanelRole::BottomDock => blocks.push(BottomDockPanel::build_block(r, tokens)),
             PanelRole::AuxiliaryPanelHeader => blocks.push(AiPanel::build_header_block(r, tokens)),
             PanelRole::AuxiliaryPanelContent => {
-                blocks.push(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
+                blocks.extend(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
             }
             PanelRole::StatusBar => {
                 // Ownership: the cockpit/widget status bar is the default owner.
