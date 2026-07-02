@@ -2,28 +2,26 @@
 # See: https://embark.dev/cargo-deny/ for details.
 #
 # This file enforces:
+# - Advisory checks (known vulnerabilities / unmaintained crates fail CI)
+# - License allowlist (only permissive licenses are permitted)
 # - Duplicate-version detection (deny)
-# - Advisory checks (deny)
-# - License allowlist/denylist
-# - Custom bans: a warning/ban when kernel crates are imported by a non-kernel non-core crate
 #
-# NOTE: If cargo-deny introduces new config formats, adapt this file accordingly.
+# NOTE: uses the cargo-deny v2 config schema (top-level `[advisories]`,
+# `[licenses]`, `[bans]` tables). If cargo-deny changes its config format,
+# adapt this file accordingly.
 
-[checks]
+# ── Security advisories ─────────────────────────────────────────────────────
+# With `version = 2`, vulnerabilities and unmaintained advisories fail by
+# default; add IDs to `ignore` only with a documented rationale.
+[advisories]
+version = 2
+ignore = []
 
-# Deny duplicate versions of the same crate when detected in the dependency graph.
-[checks.duplicates]
-deny = true
-
-# Treat advisories as deny so CI fails on known vulnerable crates.
-[checks.advisories]
-deny = true
-
-# License policy: allow only a strict list; deny known incompatible copyleft licenses.
-# Adjust the SPDX identifiers below if you need to widen or restrict the policy.
-[checks.licenses]
-deny = true
-# Allowed licenses (workspace policy)
+# ── License policy ──────────────────────────────────────────────────────────
+# Pure allowlist model: any crate whose license is not listed here fails the
+# check, so copyleft licenses (GPL/AGPL/…) are rejected implicitly.
+[licenses]
+version = 2
 allow = [
   "MIT",
   "Apache-2.0",
@@ -31,32 +29,25 @@ allow = [
   "BSD-3-Clause",
   "ISC",
   "Unicode-DFS-2016",
+  "Unicode-3.0", # modern successor used by unicode-ident (permissive)
 ]
-# Forbidden licenses (explicitly denied)
-deny_list = [
-  "GPL-2.0",
-  "GPL-3.0",
-  "AGPL-3.0",
-]
+confidence-threshold = 0.8
+exceptions = []
 
-# Bans section:
-# This workspace uses naming conventions to identify layers. The CI's custom dependency
-# checker enforces the strict layer rules. The bans below serve as an additional,
-# explicit flagging mechanism that cargo-deny will report on for quick detection.
+# ── Bans / duplicate detection ──────────────────────────────────────────────
+# Fail on duplicate versions of the same crate in the dependency graph.
 #
-# We add a ban that flags any use of `zaroxi-kernel-*` by crates that are not
-# in the kernel or core namespaces. This ban is intentionally conservative and
-# intended to be extended/relaxed via manual edits if an approved exception is required.
-#
-# To extend: add additional ban blocks that target a specific package or pattern.
+# Layer enforcement note: cargo-deny cannot express "crate X may only be
+# depended on by layer Y" via a package ban (wildcard crate names are not
+# supported in `deny` entries). The authoritative kernel/core layer-graph check
+# lives in .github/scripts/check_layer_deps.py.
+[bans]
+multiple-versions = "deny"
+wildcards = "allow"
+deny = []
 
-[[bans]]
-# Match kernel crates by name pattern
-package = { name = "zaroxi-kernel-*" }
-# This ban is informational for cargo-deny. The authoritative check lives in
-# .github/scripts/check_layer_deps.py which enforces the layer graph.
-reason = "Kernel crates are low-level and must only be depended on by kernel and core crates. If a non-kernel/core crate depends on a kernel crate, consider moving shared code into core or request an exception."
-# 'exempt' can be used to list specific packages that are permitted (none by default).
-exempt = []
-
-# End of deny.toml
+# ── Sources ─────────────────────────────────────────────────────────────────
+# Only crates.io and explicitly-allowed git sources are permitted.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
