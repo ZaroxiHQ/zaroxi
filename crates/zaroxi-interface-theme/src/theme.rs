@@ -160,10 +160,22 @@ pub struct SemanticColors {
     pub text_link: Color,
 
     // UI elements
+    //
+    // Border hierarchy (quietest → loudest):
+    //   `divider_subtle` = hairline (internal dividers, scrollbar tracks),
+    //   `divider`/`border_subtle` = subtle (major panel seams, tab separators),
+    //   `border` = default component outline (cards, inputs, popovers),
+    //   `border_strong` = emphasis seam (active divider, drag target, minimap
+    //   viewport, find container), `border_focus` = accent focus edge.
     pub border: Color,
     pub border_subtle: Color,
     pub divider: Color,
     pub divider_subtle: Color,
+    /// Emphasis seam — active dividers, selected panel edge, minimap viewport,
+    /// drag targets. Still elegant, never loud.
+    pub border_strong: Color,
+    /// Focus edge — focused inputs / active prompt container; accent-aligned.
+    pub border_focus: Color,
     pub panel_header_background: Color,
     pub nested_surface_background: Color,
     pub app_chrome_background: Color,
@@ -287,11 +299,13 @@ impl SemanticColors {
             text_disabled: Color::from_hex("#45435A"), // text_disabled
             text_link: Color::from_hex("#9D7BF0"), // accent — interactive links carry the signature
 
-            // Borders — hairline dividers, brighter hover/active edge.
-            border: Color::from_hex("#2E2E3C"), // border_hover — default component border
-            border_subtle: Color::from_hex("#1C1C24"), // border — hairline dividers
-            divider: Color::from_hex("#1C1C24"), // border — major dividers
-            divider_subtle: Color::from_hex("#1C1C24"), // border
+            // Borders — white-tinted transparency scale so panels separate cleanly on near-black.
+            border: Color::from_rgba(1.0, 1.0, 1.0, 0.11), // border.strong — editor↔AI / editor↔bottom seams, panel outlines
+            border_subtle: Color::from_rgba(1.0, 1.0, 1.0, 0.07), // border.subtle — tab separators, cards, inputs
+            divider: Color::from_rgba(1.0, 1.0, 1.0, 0.07), // border.subtle — explorer↔editor, status, region seams
+            divider_subtle: Color::from_rgba(1.0, 1.0, 1.0, 0.04), // border.hairline — soft inner dividers
+            border_strong: Color::from_rgba(1.0, 1.0, 1.0, 0.11),  // border.strong — emphasis seams
+            border_focus: Color::from_hex("#9D7BF0"), // accent — focus edge (Electric Indigo)
             panel_header_background: Color::from_hex("#0A0A0F"), // bg_panel
             nested_surface_background: Color::from_hex("#13131B"), // bg_float
             app_chrome_background: Color::from_hex("#07070B"), // bg_root — frame
@@ -301,12 +315,13 @@ impl SemanticColors {
             accent_soft: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.08), // accent_surface — active item tint
             accent_soft_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.06), // accent_line — active line tint
 
-            // States — indigo tints for hover/active/selected (the signature is everywhere active).
-            hover_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.08), // accent_surface
-            active_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
-            selected_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
-            selected_text_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
-            selected_editor_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            // States — accent is RARE: hover is a neutral lift; accent is reserved for
+            // selection/active/focus so it stays powerful. Strength climbs hover→select→text.
+            hover_background: Color::from_rgba(0.9098, 0.902, 0.9412, 0.04), // text_primary @4% — neutral lift
+            active_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.16), // accent — active/pressed
+            selected_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.16), // accent — selected row
+            selected_text_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.22), // accent — text selection (strongest)
+            selected_editor_background: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent — selected block
 
             // Status / semantic — functional colors, used nowhere decorative.
             success: Color::from_hex("#3FB950"), // saved/ok/passing
@@ -331,7 +346,7 @@ impl SemanticColors {
             editor_gutter_background: Color::from_hex("#0A0A0F"), // bg_panel — gutter
             editor_line_highlight: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.06), // accent_line — 6% tracks position without noise
             editor_cursor: Color::from_hex("#9D7BF0"), // accent — indigo cursor
-            editor_selection: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.18), // accent_select
+            editor_selection: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.22), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.8235, 0.6, 0.1333, 0.22), // git_modified_surface — search match
 
             // Syntax — teal keywords = Zaroxi signature; high contrast on key tokens, receding punctuation.
@@ -431,11 +446,13 @@ impl SemanticColors {
             text_disabled: Color::from_hex("#A8A6BE"), // text_disabled
             text_link: Color::from_hex("#6E40C9"), // accent — interactive links carry the signature
 
-            // Borders — hairline dividers, stronger hover/active edge.
-            border: Color::from_hex("#B8B5CC"), // border_hover — default component border
-            border_subtle: Color::from_hex("#D8D6E3"), // border — hairline dividers
-            divider: Color::from_hex("#D8D6E3"), // border — major dividers
-            divider_subtle: Color::from_hex("#D8D6E3"), // border
+            // Borders — ink-tinted transparency scale, soft and architectural on light surfaces.
+            border: Color::from_rgba(0.0667, 0.0941, 0.1529, 0.13), // border.strong — editor↔AI / editor↔bottom seams
+            border_subtle: Color::from_rgba(0.0667, 0.0941, 0.1529, 0.08), // border.subtle — tab separators, cards, inputs
+            divider: Color::from_rgba(0.0667, 0.0941, 0.1529, 0.08), // border.subtle — explorer↔editor, status, region seams
+            divider_subtle: Color::from_rgba(0.0667, 0.0941, 0.1529, 0.05), // border.hairline — soft inner dividers
+            border_strong: Color::from_rgba(0.0667, 0.0941, 0.1529, 0.13), // border.strong — emphasis seams
+            border_focus: Color::from_hex("#6E40C9"), // accent — focus edge (brand purple)
             panel_header_background: Color::from_hex("#EEEDF3"), // bg_panel
             nested_surface_background: Color::from_hex("#E8E6F0"), // bg_float
             app_chrome_background: Color::from_hex("#F5F4F8"), // bg_root — frame
@@ -445,12 +462,13 @@ impl SemanticColors {
             accent_soft: Color::from_rgba(0.4314, 0.251, 0.7882, 0.08), // accent_surface
             accent_soft_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.05), // accent_line
 
-            // States — indigo tints for hover/active/selected.
-            hover_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.08), // accent_surface
-            active_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
-            selected_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
-            selected_text_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
-            selected_editor_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            // States — accent is RARE: hover is a neutral lift; accent is reserved for
+            // selection/active/focus so it stays powerful. Strength climbs hover→select→text.
+            hover_background: Color::from_rgba(0.102, 0.0941, 0.1882, 0.05), // text_primary @5% — neutral lift
+            active_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.13), // accent — active/pressed
+            selected_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.13), // accent — selected row
+            selected_text_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.18), // accent — text selection (strongest)
+            selected_editor_background: Color::from_rgba(0.4314, 0.251, 0.7882, 0.16), // accent — selected block
 
             // Status / semantic — deeper for readability on light.
             success: Color::from_hex("#1A7F37"), // saved/ok/passing
@@ -475,7 +493,7 @@ impl SemanticColors {
             editor_gutter_background: Color::from_hex("#EEEDF3"), // bg_panel — gutter
             editor_line_highlight: Color::from_rgba(0.4314, 0.251, 0.7882, 0.05), // accent_line
             editor_cursor: Color::from_hex("#6E40C9"),            // accent — indigo cursor
-            editor_selection: Color::from_rgba(0.4314, 0.251, 0.7882, 0.15), // accent_select
+            editor_selection: Color::from_rgba(0.4314, 0.251, 0.7882, 0.18), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.6039, 0.4039, 0.0, 0.22), // git_modified_surface — search match
 
             // Syntax — deeper teal keywords keep the Zaroxi signature; darkened so nothing washes out.
@@ -620,6 +638,14 @@ impl SemanticColors {
         m.insert(
             "--color-divider-subtle".to_string(),
             Value::String(self.divider_subtle.to_css_rgba()),
+        );
+        m.insert(
+            "--color-border-strong".to_string(),
+            Value::String(self.border_strong.to_css_rgba()),
+        );
+        m.insert(
+            "--color-border-focus".to_string(),
+            Value::String(self.border_focus.to_css_rgba()),
         );
         m.insert(
             "--color-panel-header-background".to_string(),
